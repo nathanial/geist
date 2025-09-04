@@ -16,7 +16,7 @@ A minimal Rust project using the `raylib` crate to render a simple 3D scene (gri
 cargo run
 ```
 
-This opens a window that renders a simple voxel terrain with a fly camera.
+This opens a window that renders a simple voxel terrain with a fly camera, using per‑face textures for grass (top/side/bottom) like the old codebase.
 
 Controls
 
@@ -38,7 +38,7 @@ Controls
 
 - Place textures under `assets/` (already copied from the old C codebase).
 - The renderer will try these paths:
-  - Grass: `assets/grass.png` or `assets/blocks/grass_side.png` (fallback `grass_top.png`)
+  - Grass (per-face): `assets/blocks/grass_top.png` (top), `assets/blocks/grass_side.png` (sides), `assets/blocks/dirt.png` (bottom)
   - Dirt: `assets/dirt.png` or `assets/blocks/dirt.png`
   - Stone: `assets/stone.png` or `assets/blocks/stone.png`
 - If not found, it falls back to solid colors.
