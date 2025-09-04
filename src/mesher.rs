@@ -71,6 +71,19 @@ fn face_material_for(block: Block, face: usize) -> Option<FaceMaterial> {
     }
 }
 
+#[inline]
+fn world_in_bounds(world: &World, x: i32, y: i32, z: i32) -> bool {
+    world.in_bounds(x, y, z)
+}
+
+#[inline]
+fn is_occluder_for(world: &World, here: Block, nx: i32, ny: i32, nz: i32) -> bool {
+    if !here.is_solid() { return false; }
+    if !world_in_bounds(world, nx, ny, nz) { return false; }
+    let nb = world.get(nx as usize, ny as usize, nz as usize);
+    nb.is_solid()
+}
+
 pub struct ChunkRender {
     pub cx: usize,
     pub cz: usize,
@@ -102,7 +115,7 @@ pub fn build_chunk_greedy(
                 let gx = base_x + x; let gz = base_z + z;
                 let here = world.get(gx, y, gz);
                 if here.is_solid() {
-                    let neigh = if y + 1 < sy { world.get(gx, y + 1, gz).is_solid() } else { false };
+                    let neigh = is_occluder_for(world, here, gx as i32, (y as i32) + 1, gz as i32);
                     if !neigh { mask[z * sx + x] = face_material_for(here, 0); }
                 }
             }}
@@ -138,7 +151,7 @@ pub fn build_chunk_greedy(
                 let gx = base_x + x; let gz = base_z + z;
                 let here = world.get(gx, y, gz);
                 if here.is_solid() {
-                    let neigh = if y > 0 { world.get(gx, y - 1, gz).is_solid() } else { false };
+                    let neigh = is_occluder_for(world, here, gx as i32, (y as i32) - 1, gz as i32);
                     if !neigh { mask[z * sx + x] = face_material_for(here, 1); }
                 }
             }}
@@ -176,7 +189,11 @@ pub fn build_chunk_greedy(
                 let gx = base_x + x; let gz = base_z + z; let gy = y;
                 let here = world.get(gx, gy, gz);
                 if here.is_solid() {
-                    let neigh = if pos { world.get(gx + 1, gy, gz).is_solid() } else { gx > 0 && world.get(gx - 1, gy, gz).is_solid() };
+                    let neigh = if pos {
+                        is_occluder_for(world, here, (gx as i32) + 1, gy as i32, gz as i32)
+                    } else {
+                        is_occluder_for(world, here, (gx as i32) - 1, gy as i32, gz as i32)
+                    };
                     if !neigh { mask[y * sz + z] = face_material_for(here, if pos { 2 } else { 3 }); }
                 }
             }}
@@ -227,7 +244,11 @@ pub fn build_chunk_greedy(
                 let gx = base_x + x; let gz = base_z + z; let gy = y;
                 let here = world.get(gx, gy, gz);
                 if here.is_solid() {
-                    let neigh = if pos { world.get(gx, gy, gz + 1).is_solid() } else { gz > 0 && world.get(gx, gy, gz - 1).is_solid() };
+                    let neigh = if pos {
+                        is_occluder_for(world, here, gx as i32, gy as i32, (gz as i32) + 1)
+                    } else {
+                        is_occluder_for(world, here, gx as i32, gy as i32, (gz as i32) - 1)
+                    };
                     if !neigh { mask[y * sx + x] = face_material_for(here, if pos { 4 } else { 5 }); }
                 }
             }}
