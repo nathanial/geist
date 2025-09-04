@@ -1,7 +1,7 @@
 use raylib::prelude::*;
 
 pub struct LeavesShader {
-    pub shader: Shader,
+    pub shader: raylib::shaders::WeakShader,
     pub loc_fog_color: i32,
     pub loc_fog_start: i32,
     pub loc_fog_end: i32,
@@ -17,8 +17,9 @@ impl LeavesShader {
     pub fn load(rl: &mut RaylibHandle, thread: &RaylibThread) -> Option<Self> {
         let vs = "assets/shaders/voxel_fog_textured.vs";
         let fs = "assets/shaders/voxel_fog_leaves.fs";
-        let shader = rl.load_shader(thread, Some(vs), Some(fs));
-        // Query uniforms
+        let shader_strong = rl.load_shader(thread, Some(vs), Some(fs));
+        let shader = unsafe { shader_strong.make_weak() };
+        // Query uniforms (WeakShader implements RaylibShader)
         let loc_fog_color = shader.get_shader_location("fogColor");
         let loc_fog_start = shader.get_shader_location("fogStart");
         let loc_fog_end = shader.get_shader_location("fogEnd");
@@ -41,14 +42,12 @@ impl LeavesShader {
             loc_strength,
         };
         // Default palette from old code
-        s.set_autumn_palette(rl, thread, [0.905, 0.678, 0.161], [0.847, 0.451, 0.122], [0.710, 0.200, 0.153], [0.431, 0.231, 0.039], 1.0);
+        s.set_autumn_palette([0.905, 0.678, 0.161], [0.847, 0.451, 0.122], [0.710, 0.200, 0.153], [0.431, 0.231, 0.039], 1.0);
         Some(s)
     }
 
     pub fn set_autumn_palette(
         &mut self,
-        rl: &mut RaylibHandle,
-        thread: &RaylibThread,
         p0: [f32; 3],
         p1: [f32; 3],
         p2: [f32; 3],
@@ -62,15 +61,39 @@ impl LeavesShader {
         if self.loc_strength >= 0 { self.shader.set_shader_value(self.loc_strength, strength); }
     }
 
-    pub fn update_frame_uniforms(
-        &mut self,
-        rl: &mut RaylibHandle,
-        thread: &RaylibThread,
-        camera_pos: Vector3,
-        fog_color: [f32; 3],
-        fog_start: f32,
-        fog_end: f32,
-    ) {
+    pub fn update_frame_uniforms(&mut self, camera_pos: Vector3, fog_color: [f32; 3], fog_start: f32, fog_end: f32) {
+        if self.loc_fog_color >= 0 { self.shader.set_shader_value(self.loc_fog_color, fog_color); }
+        if self.loc_fog_start >= 0 { self.shader.set_shader_value(self.loc_fog_start, fog_start); }
+        if self.loc_fog_end >= 0 { self.shader.set_shader_value(self.loc_fog_end, fog_end); }
+        if self.loc_camera_pos >= 0 {
+            let cam = [camera_pos.x, camera_pos.y, camera_pos.z];
+            self.shader.set_shader_value(self.loc_camera_pos, cam);
+        }
+    }
+}
+
+pub struct FogShader {
+    pub shader: raylib::shaders::WeakShader,
+    pub loc_fog_color: i32,
+    pub loc_fog_start: i32,
+    pub loc_fog_end: i32,
+    pub loc_camera_pos: i32,
+}
+
+impl FogShader {
+    pub fn load(rl: &mut RaylibHandle, thread: &RaylibThread) -> Option<Self> {
+        let vs = "assets/shaders/voxel_fog_textured.vs";
+        let fs = "assets/shaders/voxel_fog_textured.fs";
+        let shader_strong = rl.load_shader(thread, Some(vs), Some(fs));
+        let shader = unsafe { shader_strong.make_weak() };
+        let loc_fog_color = shader.get_shader_location("fogColor");
+        let loc_fog_start = shader.get_shader_location("fogStart");
+        let loc_fog_end = shader.get_shader_location("fogEnd");
+        let loc_camera_pos = shader.get_shader_location("cameraPos");
+        Some(Self { shader, loc_fog_color, loc_fog_start, loc_fog_end, loc_camera_pos })
+    }
+
+    pub fn update_frame_uniforms(&mut self, camera_pos: Vector3, fog_color: [f32; 3], fog_start: f32, fog_end: f32) {
         if self.loc_fog_color >= 0 { self.shader.set_shader_value(self.loc_fog_color, fog_color); }
         if self.loc_fog_start >= 0 { self.shader.set_shader_value(self.loc_fog_start, fog_start); }
         if self.loc_fog_end >= 0 { self.shader.set_shader_value(self.loc_fog_end, fog_end); }

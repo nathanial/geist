@@ -50,8 +50,9 @@ fn main() {
     let view_radius_chunks: i32 = 3;
     let mut last_center_chunk: (i32, i32) = (i32::MIN, i32::MIN);
 
-    // Leaves shader (autumn palette)
+    // Fog shaders
     let mut leaves_shader = shaders::LeavesShader::load(&mut rl, &thread);
+    let mut fog_shader = shaders::FogShader::load(&mut rl, &thread);
 
     while !rl.window_should_close() {
         let dt = rl.get_frame_time();
@@ -88,7 +89,29 @@ fn main() {
                     if !loaded.contains_key(&key) {
                         let (cx, cz) = key;
                         if let Some(mut cr) = build_chunk_greedy(&world, cx, cz, &mut rl, &thread) {
-                            // No material shader assignment; we draw leaves under BeginShaderMode
+                            // Assign leaves shader to leaf materials so fog/color apply correctly
+                            for (fm, model, _tex) in &mut cr.parts {
+                                if let Some(mat) = model.materials_mut().get_mut(0) {
+                                    match fm {
+                                        FaceMaterial::Leaves(_sp) => {
+                                            if let Some(ref ls) = leaves_shader {
+                                                let dest = mat.shader_mut();
+                                                let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
+                                                let src_ptr: *const raylib::ffi::Shader = ls.shader.as_ref();
+                                                unsafe { std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1); }
+                                            }
+                                        }
+                                        _ => {
+                                            if let Some(ref fs) = fog_shader {
+                                                let dest = mat.shader_mut();
+                                                let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
+                                                let src_ptr: *const raylib::ffi::Shader = fs.shader.as_ref();
+                                                unsafe { std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1); }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                             loaded.insert(key, cr);
                         }
                     }
@@ -112,29 +135,20 @@ fn main() {
                 let fog_color = [210.0/255.0, 221.0/255.0, 235.0/255.0];
                 let fog_start = 64.0f32;
                 let fog_end = 180.0f32;
-                ls.update_frame_uniforms(&mut d3, &thread, cam.position, fog_color, fog_start, fog_end);
+                ls.update_frame_uniforms(cam.position, fog_color, fog_start, fog_end);
+            }
+            if let Some(ref mut fs) = fog_shader {
+                let fog_color = [210.0/255.0, 221.0/255.0, 235.0/255.0];
+                let fog_start = 64.0f32;
+                let fog_end = 180.0f32;
+                fs.update_frame_uniforms(cam.position, fog_color, fog_start, fog_end);
             }
 
             // Draw loaded chunks (no frustum culling)
             for (_key, cr) in &loaded {
-                for (fm, model, _tex) in &cr.parts {
-                    match fm {
-                        FaceMaterial::Leaves(_sp) => {
-                            if let Some(ref mut ls) = leaves_shader {
-                                // Draw with leaves shader mode
-                                let mut sm = d3.begin_shader_mode(&mut ls.shader);
-                                if wireframe { sm.draw_model_wires(model, Vector3::zero(), 1.0, Color::WHITE); }
-                                else { sm.draw_model(model, Vector3::zero(), 1.0, Color::WHITE); }
-                            } else {
-                                if wireframe { d3.draw_model_wires(model, Vector3::zero(), 1.0, Color::WHITE); }
-                                else { d3.draw_model(model, Vector3::zero(), 1.0, Color::WHITE); }
-                            }
-                        }
-                        _ => {
-                            if wireframe { d3.draw_model_wires(model, Vector3::zero(), 1.0, Color::WHITE); }
-                            else { d3.draw_model(model, Vector3::zero(), 1.0, Color::WHITE); }
-                        }
-                    }
+                for (_fm, model, _tex) in &cr.parts {
+                    if wireframe { d3.draw_model_wires(model, Vector3::zero(), 1.0, Color::WHITE); }
+                    else { d3.draw_model(model, Vector3::zero(), 1.0, Color::WHITE); }
                 }
             }
         }
