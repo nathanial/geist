@@ -16,11 +16,22 @@ A minimal Rust project using the `raylib` crate to render a simple 3D scene (gri
 cargo run
 ```
 
-This opens an 800x450 window, draws a simple 3D grid and a cube, and overlays FPS + text.
+This opens a window that renders a simple voxel terrain with a fly camera.
+
+Controls
+
+- `Tab`: Toggle mouse capture
+- `W/A/S/D`: Move
+- `Q/E`: Down/Up
+- `Shift`: Sprint
+- `F`: Toggle wireframe voxels
+- `G`: Toggle ground grid
 
 ## Project Layout
 
-- `src/main.rs`: Window setup and simple scene rendering.
+- `src/main.rs`: App loop and voxel renderer entry point.
+- `src/voxel.rs`: Minimal voxel chunk and heightmap generation.
+- `src/camera.rs`: Simple WASD/mouse fly camera.
 - `Cargo.toml`: Rust crate manifest with the `raylib` dependency.
 
 ## Notes
