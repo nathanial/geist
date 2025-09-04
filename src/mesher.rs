@@ -35,18 +35,31 @@ struct MeshBuild {
 impl MeshBuild {
     fn add_quad(&mut self, a: Vector3, b: Vector3, c: Vector3, d: Vector3, n: Vector3, u1: f32, v1: f32, flip_v: bool) {
         let base = self.pos.len() as u32 / 3;
-        let vs = [a, d, c, b];
-        // uvs: (0,0) (0,v1) (u1,v1) (u1,0)
+        // Start with the same order the old code used (a,d,c,b)
+        let mut vs = [a, d, c, b];
+        // UVs: (0,0) (0,v1) (u1,v1) (u1,0)
         let mut uvs = [(0.0, 0.0), (0.0, v1), (u1, v1), (u1, 0.0)];
+
+        // Ensure winding faces outward: ((vs1-vs0) x (vs2-vs0)) · n should be > 0 for CCW
+        let e1 = vs[1] - vs[0];
+        let e2 = vs[2] - vs[0];
+        let cross = e1.cross(e2);
+        if cross.dot(n) < 0.0 {
+            // Swap 1 <-> 3 to flip winding while keeping rectangle
+            vs.swap(1, 3);
+            uvs.swap(1, 3);
+        }
+
         if flip_v {
             for uv in &mut uvs { uv.1 = v1 - uv.1; }
         }
+
         for i in 0..4 {
             self.pos.extend_from_slice(&[vs[i].x, vs[i].y, vs[i].z]);
             self.norm.extend_from_slice(&[n.x, n.y, n.z]);
             self.uv.extend_from_slice(&[uvs[i].0, uvs[i].1]);
         }
-        // two triangles: (0,1,2) and (0,2,3) in our vs ordering
+        // Two triangles: (0,1,2) and (0,2,3)
         self.idx.extend_from_slice(&[
             (base + 0) as u16, (base + 1) as u16, (base + 2) as u16,
             (base + 0) as u16, (base + 2) as u16, (base + 3) as u16,
