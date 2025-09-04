@@ -322,7 +322,8 @@ impl World {
 
         // Helper: does a trunk start at (tx,tz)? If yes, return (surf_y, trunk_h, species)
         let trunk_at = |tx: i32, tz: i32| -> Option<(i32, i32, TreeSpecies)> {
-            let surf = height_for(tx, tz);
+            // surf = topmost solid Y index (height_for returns one above surface)
+            let surf = height_for(tx, tz) - 1;
             // approximate surface block classification
             let surf_block = if surf as f32 >= self.chunk_size_y as f32 * 0.62 { Block::Snow }
                              else if surf as f32 <= self.chunk_size_y as f32 * 0.2 { Block::Sand }
