@@ -34,6 +34,15 @@ Controls
 - `src/camera.rs`: Simple WASD/mouse fly camera.
 - `Cargo.toml`: Rust crate manifest with the `raylib` dependency.
 
+## Assets
+
+- Place textures under `assets/` (already copied from the old C codebase).
+- The renderer will try these paths:
+  - Grass: `assets/grass.png` or `assets/blocks/grass_side.png` (fallback `grass_top.png`)
+  - Dirt: `assets/dirt.png` or `assets/blocks/dirt.png`
+  - Stone: `assets/stone.png` or `assets/blocks/stone.png`
+- If not found, it falls back to solid colors.
+
 ## Notes
 
 - If you encounter build errors related to CMake or Clang/LLVM, install the prerequisites above and try again.
