@@ -1,4 +1,4 @@
-use crate::voxel::{Block, World};
+use crate::voxel::{Block, World, TreeSpecies};
 use raylib::prelude::*;
 use raylib::core::math::BoundingBox;
 
@@ -10,18 +10,46 @@ pub enum FaceMaterial {
     Stone,
     Sand,
     Snow,
+    WoodTop(TreeSpecies),
+    WoodSide(TreeSpecies),
+    Leaves(TreeSpecies),
 }
 
 impl FaceMaterial {
-    pub fn texture_candidates(&self) -> &'static [&'static str] {
+    pub fn texture_candidates(&self) -> Vec<&'static str> {
         match self {
-            FaceMaterial::GrassTop => &["assets/blocks/grass_top.png"],
-            FaceMaterial::GrassSide => &["assets/blocks/grass_side.png"],
-            FaceMaterial::Dirt => &["assets/blocks/dirt.png"],
-            FaceMaterial::Stone => &["assets/blocks/stone.png"],
-            FaceMaterial::Sand => &["assets/blocks/sand.png"],
-            FaceMaterial::Snow => &["assets/blocks/snow.png"],
-        }
+            FaceMaterial::GrassTop => vec!["assets/blocks/grass_top.png"],
+            FaceMaterial::GrassSide => vec!["assets/blocks/grass_side.png"],
+            FaceMaterial::Dirt => vec!["assets/blocks/dirt.png"],
+            FaceMaterial::Stone => vec!["assets/blocks/stone.png"],
+            FaceMaterial::Sand => vec!["assets/blocks/sand.png"],
+            FaceMaterial::Snow => vec!["assets/blocks/snow.png"],
+            FaceMaterial::WoodTop(sp) => match sp {
+                TreeSpecies::Oak => vec!["assets/blocks/log_oak_top.png", "assets/blocks/log_big_oak_top.png"],
+                TreeSpecies::DarkOak => vec!["assets/blocks/log_big_oak_top.png", "assets/blocks/log_oak_top.png"],
+                TreeSpecies::Birch => vec!["assets/blocks/log_birch_top.png"],
+                TreeSpecies::Spruce => vec!["assets/blocks/log_spruce_top.png"],
+                TreeSpecies::Jungle => vec!["assets/blocks/log_jungle_top.png"],
+                TreeSpecies::Acacia => vec!["assets/blocks/log_acacia_top.png"],
+            },
+            FaceMaterial::WoodSide(sp) => match sp {
+                TreeSpecies::Oak => vec!["assets/blocks/log_oak.png", "assets/blocks/log_big_oak.png"],
+                TreeSpecies::DarkOak => vec!["assets/blocks/log_big_oak.png", "assets/blocks/log_oak.png"],
+                TreeSpecies::Birch => vec!["assets/blocks/log_birch.png"],
+                TreeSpecies::Spruce => vec!["assets/blocks/log_spruce.png"],
+                TreeSpecies::Jungle => vec!["assets/blocks/log_jungle.png"],
+                TreeSpecies::Acacia => vec!["assets/blocks/log_acacia.png"],
+            },
+            FaceMaterial::Leaves(sp) => match sp {
+                // Prefer opaque variants first to avoid alpha
+                TreeSpecies::Oak => vec!["assets/blocks/leaves_oak_opaque.png", "assets/blocks/leaves_oak.png"],
+                TreeSpecies::DarkOak => vec!["assets/blocks/leaves_big_oak_opaque.png", "assets/blocks/leaves_big_oak.png"],
+                TreeSpecies::Birch => vec!["assets/blocks/leaves_birch_opaque.png", "assets/blocks/leaves_birch.png"],
+                TreeSpecies::Spruce => vec!["assets/blocks/leaves_spruce_opaque.png", "assets/blocks/leaves_spruce.png"],
+                TreeSpecies::Jungle => vec!["assets/blocks/leaves_jungle_opaque.png", "assets/blocks/leaves_jungle.png"],
+                TreeSpecies::Acacia => vec!["assets/blocks/leaves_acacia_opaque.png", "assets/blocks/leaves_acacia.png"],
+            },
+        }.to_vec()
     }
 }
 
@@ -82,6 +110,12 @@ fn face_material_for(block: Block, face: usize) -> Option<FaceMaterial> {
         Block::Stone => Some(FaceMaterial::Stone),
         Block::Sand => Some(FaceMaterial::Sand),
         Block::Snow => Some(FaceMaterial::Snow),
+        Block::Wood(sp) => match face {
+            0 | 1 => Some(FaceMaterial::WoodTop(sp)),
+            2 | 3 | 4 | 5 => Some(FaceMaterial::WoodSide(sp)),
+            _ => None,
+        },
+        Block::Leaves(sp) => Some(FaceMaterial::Leaves(sp)),
     }
 }
 
