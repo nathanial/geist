@@ -6,6 +6,8 @@ pub enum Block {
     Grass,
     Dirt,
     Stone,
+    Sand,
+    Snow,
 }
 
 impl Block {
@@ -102,7 +104,14 @@ pub fn generate_heightmap_chunk(size_x: usize, size_y: usize, size_z: usize, see
             let height = hh.clamp(1, size_y as i32 - 1) as usize;
             for y in 0..height {
                 let b = if y == height - 1 {
-                    Block::Grass
+                    // surface choice: snow at high alt, sand at low alt, else grass
+                    if height as f32 >= size_y as f32 * 0.62 {
+                        Block::Snow
+                    } else if height as f32 <= size_y as f32 * 0.2 {
+                        Block::Sand
+                    } else {
+                        Block::Grass
+                    }
                 } else if y + 3 >= height {
                     Block::Dirt
                 } else {

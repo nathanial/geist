@@ -39,14 +39,27 @@ fn main() {
     let mut model_grass = None;
     let mut model_dirt = None;
     let mut model_stone = None;
+    let mut model_sand = None;
+    let mut model_snow = None;
+    let mut model_logoak = None;
     // Hold textures to keep them alive for the lifetime of models
     let mut _tex_grass = None;
     let mut _tex_dirt = None;
     let mut _tex_stone = None;
+    let mut _tex_sand = None;
+    let mut _tex_snow = None;
+    let mut _tex_logoak = None;
 
     if has_assets {
         // Build grass with per-face mapping (top/side/bottom atlas)
-        if let Some((m, t)) = build_grass_model(&mut rl, &thread) {
+        if let Some((m, t)) = build_per_face_cube_model(
+            &mut rl,
+            &thread,
+            &["assets/blocks/grass_top.png"],
+            &["assets/blocks/grass_side.png"],
+            &["assets/blocks/dirt.png"],
+            true,
+        ) {
             model_grass = Some(m);
             _tex_grass = Some(t);
         }
@@ -61,6 +74,28 @@ fn main() {
         if let Some((m, t)) = build_uniform_cube_model(&mut rl, &thread, &["assets/stone.png", "assets/blocks/stone.png"]) {
             model_stone = Some(m);
             _tex_stone = Some(t);
+        }
+        // Sand (uniform)
+        if let Some((m, t)) = build_uniform_cube_model(&mut rl, &thread, &["assets/sand.png", "assets/blocks/sand.png"]) {
+            model_sand = Some(m);
+            _tex_sand = Some(t);
+        }
+        // Snow (uniform)
+        if let Some((m, t)) = build_uniform_cube_model(&mut rl, &thread, &["assets/snow.png", "assets/blocks/snow.png"]) {
+            model_snow = Some(m);
+            _tex_snow = Some(t);
+        }
+        // Log oak (per-face)
+        if let Some((m, t)) = build_per_face_cube_model(
+            &mut rl,
+            &thread,
+            &["assets/blocks/log_oak_top.png"],
+            &["assets/blocks/log_oak.png"],
+            &["assets/blocks/log_oak_top.png"],
+            false,
+        ) {
+            model_logoak = Some(m);
+            _tex_logoak = Some(t);
         }
     }
 
@@ -89,6 +124,8 @@ fn main() {
             let base_color = Color::new(116, 178, 102, 255); // grass-like
             let dirt_color = Color::new(143, 119, 84, 255);
             let rock_color = Color::new(130, 126, 132, 255);
+            let sand_color = Color::new(218, 210, 158, 255);
+            let snow_color = Color::new(240, 247, 255, 255);
             for y in 0..chunk.size_y {
                 for z in 0..chunk.size_z {
                     for x in 0..chunk.size_x {
@@ -123,6 +160,24 @@ fn main() {
                                         else { d3.draw_cube(pos, 1.0, 1.0, 1.0, rock_color); }
                                     }
                                 }
+                                Block::Sand => {
+                                    if let Some(m) = model_sand.as_ref() {
+                                        if wireframe { d3.draw_model_wires(m, pos, 1.0, Color::WHITE); }
+                                        else { d3.draw_model(m, pos, 1.0, Color::WHITE); }
+                                    } else {
+                                        if wireframe { d3.draw_cube_wires(pos, 1.0, 1.0, 1.0, sand_color); }
+                                        else { d3.draw_cube(pos, 1.0, 1.0, 1.0, sand_color); }
+                                    }
+                                }
+                                Block::Snow => {
+                                    if let Some(m) = model_snow.as_ref() {
+                                        if wireframe { d3.draw_model_wires(m, pos, 1.0, Color::WHITE); }
+                                        else { d3.draw_model(m, pos, 1.0, Color::WHITE); }
+                                    } else {
+                                        if wireframe { d3.draw_cube_wires(pos, 1.0, 1.0, 1.0, snow_color); }
+                                        else { d3.draw_cube(pos, 1.0, 1.0, 1.0, snow_color); }
+                                    }
+                                }
                                 Block::Air => { /* skip */ }
                             }
                         }
@@ -136,56 +191,57 @@ fn main() {
     }
 }
 
-// Try building a grass cube model with per-face mapping: top, sides, bottom
-fn build_grass_model(rl: &mut RaylibHandle, thread: &RaylibThread) -> Option<(raylib::core::models::Model, raylib::core::texture::Texture2D)> {
-    // Load three images
-    let top = Image::load_image("assets/blocks/grass_top.png").ok()?;
-    let side = Image::load_image("assets/blocks/grass_side.png").ok()?;
-    let bottom = Image::load_image("assets/blocks/dirt.png").ok()?;
+// Build a cube model with top/side/bottom textures; optional vertical flip for side faces
+fn build_per_face_cube_model(
+    rl: &mut RaylibHandle,
+    thread: &RaylibThread,
+    top_paths: &[&str],
+    side_paths: &[&str],
+    bottom_paths: &[&str],
+    flip_side_v: bool,
+) -> Option<(raylib::core::models::Model, raylib::core::texture::Texture2D)> {
+    let load_first = |cands: &[&str]| -> Option<Image> {
+        for p in cands { if let Ok(img) = Image::load_image(p) { return Some(img); } }
+        None
+    };
+    let top = load_first(top_paths)?;
+    let side = load_first(side_paths)?;
+    let bottom = load_first(bottom_paths)?;
 
-    // Ensure same size, use top as reference
     let (tw, th) = (top.width(), top.height());
     let mut atlas = Image::gen_image_color(tw * 3, th, Color::BLANK);
-    // Draw images horizontally: [top | side | bottom]
     atlas.draw(&top, Rectangle::new(0.0, 0.0, tw as f32, th as f32), Rectangle::new(0.0, 0.0, tw as f32, th as f32), Color::WHITE);
     atlas.draw(&side, Rectangle::new(0.0, 0.0, side.width() as f32, side.height() as f32), Rectangle::new(tw as f32, 0.0, tw as f32, th as f32), Color::WHITE);
     atlas.draw(&bottom, Rectangle::new(0.0, 0.0, bottom.width() as f32, bottom.height() as f32), Rectangle::new((tw * 2) as f32, 0.0, tw as f32, th as f32), Color::WHITE);
 
-    // Upload atlas as texture
     let tex = rl.load_texture_from_image(thread, &atlas).ok()?;
     tex.set_texture_filter(thread, raylib::consts::TextureFilter::TEXTURE_FILTER_POINT);
 
-    // Build cube mesh and remap its texcoords per-face to atlas
     let mut mesh = raylib::core::models::Mesh::gen_mesh_cube(thread, 1.0, 1.0, 1.0);
-
-    // Read current texcoords (24 vertices * 2)
     let vc = mesh.as_ref().vertexCount as usize;
-    let src_uvs: &[f32] = unsafe {
-        std::slice::from_raw_parts(mesh.as_ref().texcoords as *const f32, vc * 2)
-    };
+    let src_uvs: &[f32] = unsafe { std::slice::from_raw_parts(mesh.as_ref().texcoords as *const f32, vc * 2) };
     let mut uvs = src_uvs.to_vec();
 
-    // Face order: front, back, top, bottom, right, left (4 verts each -> 8 floats per face)
+    // Face order: 0=front,1=back,2=top,3=bottom,4=right,5=left
     let tiles = 3.0f32;
-    let tile_scale = 1.0 / tiles; // width per tile in atlas
-    let face_to_tile = [1.0, 1.0, 0.0, 2.0, 1.0, 1.0]; // grass: sides=1, top=0, bottom=2
+    let tile_scale = 1.0 / tiles;
+    let face_to_tile = [1.0, 1.0, 0.0, 2.0, 1.0, 1.0];
     for face in 0..6 {
         let u_off = face_to_tile[face] * tile_scale;
+        let is_side = face_to_tile[face] == 1.0;
         for i in 0..4 {
             let idx = face * 8 + i * 2;
             let u = uvs[idx];
-            // v = uvs[idx+1] (unchanged)
+            let mut v = uvs[idx + 1];
+            if is_side && flip_side_v { v = 1.0 - v; }
             uvs[idx] = u * tile_scale + u_off;
+            uvs[idx + 1] = v;
         }
     }
 
-    // Update GPU buffer for texcoords (attribute location 1)
-    let bytes: &[u8] = unsafe {
-        std::slice::from_raw_parts(uvs.as_ptr() as *const u8, uvs.len() * std::mem::size_of::<f32>())
-    };
+    let bytes: &[u8] = unsafe { std::slice::from_raw_parts(uvs.as_ptr() as *const u8, uvs.len() * std::mem::size_of::<f32>()) };
     unsafe { mesh.update_buffer::<f32>(1, bytes, 0) };
 
-    // Create model from mesh and set texture
     let model = rl.load_model_from_mesh(thread, unsafe { mesh.make_weak() }).ok()?;
     let mut model = model;
     if let Some(mat) = model.materials_mut().get_mut(0) {
