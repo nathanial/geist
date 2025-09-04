@@ -51,22 +51,41 @@ fn main() {
     // Streaming chunk state
     let mut loaded: HashMap<(i32,i32), mesher::ChunkRender> = HashMap::new();
     let mut pending: HashSet<(i32,i32)> = HashSet::new();
-    let view_radius_chunks: i32 = 3;
+    let view_radius_chunks: i32 = 6;
     let mut last_center_chunk: (i32, i32) = (i32::MIN, i32::MIN);
 
     // Mesh worker threads
     let (job_tx, job_rx) = mpsc::channel::<(i32,i32)>();
     let (res_tx, res_rx) = mpsc::channel::<ChunkMeshCPU>();
-    // Single worker consuming job_rx
-    let w2 = world.clone();
-    let tx2 = res_tx.clone();
-    thread::spawn(move || {
-        while let Ok((cx, cz)) = job_rx.recv() {
-            if let Some(cpu) = build_chunk_greedy_cpu(&w2, cx, cz) {
-                let _ = tx2.send(cpu);
+    let worker_count: usize = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8);
+    // Per‑worker channels
+    let mut worker_txs: Vec<mpsc::Sender<(i32,i32)>> = Vec::with_capacity(worker_count);
+    for _ in 0..worker_count {
+        let (wtx, wrx) = mpsc::channel::<(i32,i32)>();
+        worker_txs.push(wtx);
+        let tx = res_tx.clone();
+        let w = world.clone();
+        thread::spawn(move || {
+            while let Ok((cx, cz)) = wrx.recv() {
+                if let Some(cpu) = build_chunk_greedy_cpu(&w, cx, cz) {
+                    let _ = tx.send(cpu);
+                }
             }
-        }
-    });
+        });
+    }
+    // Dispatcher to round‑robin jobs across workers
+    {
+        let worker_txs = worker_txs.clone();
+        thread::spawn(move || {
+            let mut i = 0usize;
+            while let Ok(job) = job_rx.recv() {
+                if !worker_txs.is_empty() {
+                    let _ = worker_txs[i % worker_txs.len()].send(job);
+                    i = i.wrapping_add(1);
+                }
+            }
+        });
+    }
 
     // Fog shaders
     let mut leaves_shader = shaders::LeavesShader::load(&mut rl, &thread);
