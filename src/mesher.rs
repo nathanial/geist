@@ -53,8 +53,8 @@ impl FaceMaterial {
     }
 }
 
-#[derive(Default)]
-struct MeshBuild {
+#[derive(Default, Clone)]
+pub struct MeshBuild {
     pos: Vec<f32>,
     norm: Vec<f32>,
     uv: Vec<f32>,
@@ -134,13 +134,18 @@ pub struct ChunkRender {
     pub parts: Vec<(FaceMaterial, raylib::core::models::Model, raylib::core::texture::Texture2D)>,
 }
 
-pub fn build_chunk_greedy(
+pub struct ChunkMeshCPU {
+    pub cx: i32,
+    pub cz: i32,
+    pub bbox: BoundingBox,
+    pub parts: std::collections::HashMap<FaceMaterial, MeshBuild>,
+}
+
+pub fn build_chunk_greedy_cpu(
     world: &World,
     cx: i32,
     cz: i32,
-    rl: &mut RaylibHandle,
-    thread: &RaylibThread,
-) -> Option<ChunkRender> {
+) -> Option<ChunkMeshCPU> {
     let sx = world.chunk_size_x;
     let sy = world.chunk_size_y;
     let sz = world.chunk_size_z;
@@ -334,16 +339,26 @@ pub fn build_chunk_greedy(
         }
     }
 
-    // Convert MeshBuilds to Models
-    let mut parts = Vec::new();
-    for (fm, mb) in builds.into_iter() {
+    let bbox = BoundingBox::new(
+        Vector3::new(base_x as f32, 0.0, base_z as f32),
+        Vector3::new(base_x as f32 + sx as f32, sy as f32, base_z as f32 + sz as f32),
+    );
+    Some(ChunkMeshCPU { cx, cz, bbox, parts: builds })
+}
+
+pub fn upload_chunk_mesh(
+    rl: &mut RaylibHandle,
+    thread: &RaylibThread,
+    cpu: ChunkMeshCPU,
+) -> Option<ChunkRender> {
+    let mut parts_gpu = Vec::new();
+    for (fm, mb) in cpu.parts.into_iter() {
         if mb.idx.is_empty() { continue; }
         // allocate mesh
         let mut raw: raylib::ffi::Mesh = unsafe { std::mem::zeroed() };
         raw.vertexCount = (mb.pos.len() / 3) as i32;
         raw.triangleCount = (mb.idx.len() / 3) as i32;
         unsafe {
-            use std::ffi::c_void;
             let vbytes = (mb.pos.len() * std::mem::size_of::<f32>()) as u32;
             let nbytes = (mb.norm.len() * std::mem::size_of::<f32>()) as u32;
             let tbytes = (mb.uv.len() * std::mem::size_of::<f32>()) as u32;
@@ -357,10 +372,8 @@ pub fn build_chunk_greedy(
             std::ptr::copy_nonoverlapping(mb.uv.as_ptr(), raw.texcoords, mb.uv.len());
             std::ptr::copy_nonoverlapping(mb.idx.as_ptr(), raw.indices, mb.idx.len());
         }
-
         let mut mesh = unsafe { raylib::core::models::Mesh::from_raw(raw) };
-        unsafe { mesh.upload(false); } // static
-
+        unsafe { mesh.upload(false); }
         let model = rl.load_model_from_mesh(thread, unsafe { mesh.make_weak() }).ok()?;
         // Load texture
         let mut tex_opt = None;
@@ -370,17 +383,23 @@ pub fn build_chunk_greedy(
         let tex = tex_opt?;
         tex.set_texture_filter(thread, raylib::consts::TextureFilter::TEXTURE_FILTER_POINT);
         tex.set_texture_wrap(thread, raylib::consts::TextureWrap::TEXTURE_WRAP_REPEAT);
-
         let mut model = model;
         if let Some(mat) = model.materials_mut().get_mut(0) {
             mat.set_material_texture(raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO, &tex);
         }
-        parts.push((fm, model, tex));
+        parts_gpu.push((fm, model, tex));
     }
+    Some(ChunkRender { cx: cpu.cx, cz: cpu.cz, bbox: cpu.bbox, parts: parts_gpu })
+}
 
-    let bbox = BoundingBox::new(
-        Vector3::new(base_x as f32, 0.0, base_z as f32),
-        Vector3::new(base_x as f32 + sx as f32, sy as f32, base_z as f32 + sz as f32),
-    );
-    Some(ChunkRender { cx, cz, bbox, parts })
+// Back-compat synchronous path, in case existing code calls it
+pub fn build_chunk_greedy(
+    world: &World,
+    cx: i32,
+    cz: i32,
+    rl: &mut RaylibHandle,
+    thread: &RaylibThread,
+) -> Option<ChunkRender> {
+    let cpu = build_chunk_greedy_cpu(world, cx, cz)?;
+    upload_chunk_mesh(rl, thread, cpu)
 }

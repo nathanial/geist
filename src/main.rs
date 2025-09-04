@@ -6,8 +6,8 @@ mod shaders;
 use camera::FlyCamera;
 use raylib::prelude::*;
 use raylib::core::texture::Image;
-use voxel::{World, Block};
-use mesher::{build_chunk_greedy, FaceMaterial};
+use voxel::World;
+use mesher::{FaceMaterial, build_chunk_greedy_cpu, upload_chunk_mesh, ChunkMeshCPU};
 // Frustum culling removed for stability
 use std::path::Path;
 use std::collections::{HashMap, HashSet};
@@ -29,7 +29,9 @@ fn main() {
     let chunks_x = 4usize;
     let chunks_z = 4usize;
     let world_seed = 1337;
-    let world = World::new(chunks_x, chunks_z, chunk_size_x, chunk_size_y, chunk_size_z, world_seed);
+    use std::sync::{Arc, mpsc};
+    use std::thread;
+    let world = Arc::new(World::new(chunks_x, chunks_z, chunk_size_x, chunk_size_y, chunk_size_z, world_seed));
 
     // Place camera to see the scene
     let mut cam = FlyCamera::new(Vector3::new(
@@ -48,8 +50,23 @@ fn main() {
 
     // Streaming chunk state
     let mut loaded: HashMap<(i32,i32), mesher::ChunkRender> = HashMap::new();
+    let mut pending: HashSet<(i32,i32)> = HashSet::new();
     let view_radius_chunks: i32 = 3;
     let mut last_center_chunk: (i32, i32) = (i32::MIN, i32::MIN);
+
+    // Mesh worker threads
+    let (job_tx, job_rx) = mpsc::channel::<(i32,i32)>();
+    let (res_tx, res_rx) = mpsc::channel::<ChunkMeshCPU>();
+    // Single worker consuming job_rx
+    let w2 = world.clone();
+    let tx2 = res_tx.clone();
+    thread::spawn(move || {
+        while let Ok((cx, cz)) = job_rx.recv() {
+            if let Some(cpu) = build_chunk_greedy_cpu(&w2, cx, cz) {
+                let _ = tx2.send(cpu);
+            }
+        }
+    });
 
     // Fog shaders
     let mut leaves_shader = shaders::LeavesShader::load(&mut rl, &thread);
@@ -88,39 +105,48 @@ fn main() {
                         loaded.remove(&key);
                     }
                 }
+                // Cancel pending for far chunks
+                pending.retain(|k| desired.contains(k));
                 // Load new chunks
                 for key in desired {
-                    if !loaded.contains_key(&key) {
-                        let (cx, cz) = key;
-                        if let Some(mut cr) = build_chunk_greedy(&world, cx, cz, &mut rl, &thread) {
-                            // Assign leaves shader to leaf materials so fog/color apply correctly
-                            for (fm, model, _tex) in &mut cr.parts {
-                                if let Some(mat) = model.materials_mut().get_mut(0) {
-                                    match fm {
-                                        FaceMaterial::Leaves(_sp) => {
-                                            if let Some(ref ls) = leaves_shader {
-                                                let dest = mat.shader_mut();
-                                                let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
-                                                let src_ptr: *const raylib::ffi::Shader = ls.shader.as_ref();
-                                                unsafe { std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1); }
-                                            }
-                                        }
-                                        _ => {
-                                            if let Some(ref fs) = fog_shader {
-                                                let dest = mat.shader_mut();
-                                                let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
-                                                let src_ptr: *const raylib::ffi::Shader = fs.shader.as_ref();
-                                                unsafe { std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1); }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            loaded.insert(key, cr);
-                        }
+                    if !loaded.contains_key(&key) && !pending.contains(&key) {
+                        let _ = job_tx.send(key);
+                        pending.insert(key);
                     }
                 }
             }
+
+        // Drain completed meshes (upload to GPU) before drawing
+        for cpu in res_rx.try_iter() {
+            let key = (cpu.cx, cpu.cz);
+            if let Some(mut cr) = upload_chunk_mesh(&mut rl, &thread, cpu) {
+                // Assign shaders to materials (leaves vs fog)
+                for (fm, model, _tex) in &mut cr.parts {
+                    if let Some(mat) = model.materials_mut().get_mut(0) {
+                        match fm {
+                            FaceMaterial::Leaves(_) => {
+                                if let Some(ref ls) = leaves_shader {
+                                    let dest = mat.shader_mut();
+                                    let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
+                                    let src_ptr: *const raylib::ffi::Shader = ls.shader.as_ref();
+                                    unsafe { std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1); }
+                                }
+                            }
+                            _ => {
+                                if let Some(ref fs) = fog_shader {
+                                    let dest = mat.shader_mut();
+                                    let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
+                                    let src_ptr: *const raylib::ffi::Shader = fs.shader.as_ref();
+                                    unsafe { std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1); }
+                                }
+                            }
+                        }
+                    }
+                }
+                loaded.insert(key, cr);
+            }
+            pending.remove(&key);
+        }
 
         // Prepare camera for drawing
         let camera3d = cam.to_camera3d();
