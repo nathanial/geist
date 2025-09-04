@@ -4,7 +4,7 @@ mod voxel;
 use camera::FlyCamera;
 use raylib::prelude::*;
 use raylib::core::texture::Image;
-use voxel::{generate_heightmap_chunk, Block};
+use voxel::{World, Block};
 use std::path::Path;
 
 fn main() {
@@ -17,14 +17,21 @@ fn main() {
     rl.set_target_fps(60);
     rl.disable_cursor();
 
-    // Build a simple heightmap chunk
-    let size_x = 48usize;
-    let size_y = 48usize;
-    let size_z = 48usize;
-    let chunk = generate_heightmap_chunk(size_x, size_y, size_z, 1337);
+    // Build a multi-chunk world
+    let chunk_size_x = 32usize;
+    let chunk_size_y = 48usize;
+    let chunk_size_z = 32usize;
+    let chunks_x = 4usize;
+    let chunks_z = 4usize;
+    let world_seed = 1337;
+    let world = World::new(chunks_x, chunks_z, chunk_size_x, chunk_size_y, chunk_size_z, world_seed);
 
     // Place camera to see the scene
-    let mut cam = FlyCamera::new(Vector3::new(24.0, 24.0, 64.0));
+    let mut cam = FlyCamera::new(Vector3::new(
+        (world.world_size_x() as f32) * 0.5,
+        (chunk_size_y as f32) * 0.8,
+        (world.world_size_z() as f32) * 0.5 + 20.0,
+    ));
 
     // Rendering options
     let mut show_grid = true;
@@ -126,12 +133,18 @@ fn main() {
             let rock_color = Color::new(130, 126, 132, 255);
             let sand_color = Color::new(218, 210, 158, 255);
             let snow_color = Color::new(240, 247, 255, 255);
-            for y in 0..chunk.size_y {
-                for z in 0..chunk.size_z {
-                    for x in 0..chunk.size_x {
-                        let b = chunk.get(x, y, z);
-                        if b.is_solid() && chunk.is_exposed(x, y, z) {
-                            let pos = Vector3::new(x as f32 + 0.5, y as f32 + 0.5, z as f32 + 0.5);
+            for y in 0..world.world_size_y() {
+                for cz in 0..world.chunks_z {
+                    for cx in 0..world.chunks_x {
+                        let base_x = cx * chunk_size_x;
+                        let base_z = cz * chunk_size_z;
+                        for lz in 0..chunk_size_z {
+                            for lx in 0..chunk_size_x {
+                                let gx = base_x + lx;
+                                let gz = base_z + lz;
+                                let b = world.get(gx, y, gz);
+                                if b.is_solid() && world.is_exposed(gx, y, gz) {
+                                    let pos = Vector3::new(gx as f32 + 0.5, y as f32 + 0.5, gz as f32 + 0.5);
                             match b {
                                 Block::Grass => {
                                     if let Some(m) = model_grass.as_ref() {
@@ -179,6 +192,8 @@ fn main() {
                                     }
                                 }
                                 Block::Air => { /* skip */ }
+                            }
+                                }
                             }
                         }
                     }
