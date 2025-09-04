@@ -152,7 +152,7 @@ pub fn build_chunk_greedy(
                     Vector3::new(fx, fy, fz + v1),
                     Vector3::new(0.0, 1.0, 0.0),
                     u1, v1,
-                    matches!(codev, FaceMaterial::GrassSide),
+                    false,
                 );
                 for zz in 0..h { for xx in 0..w { used[(z + zz) * sx + (x + xx)] = true; } }
             }}
@@ -187,7 +187,7 @@ pub fn build_chunk_greedy(
                     Vector3::new(fx, fy, fz),
                     Vector3::new(0.0, -1.0, 0.0),
                     u1, v1,
-                    matches!(codev, FaceMaterial::GrassSide),
+                    false,
                 );
                 for zz in 0..h { for xx in 0..w { used[(z + zz) * sx + (x + xx)] = true; } }
             }}
@@ -231,7 +231,7 @@ pub fn build_chunk_greedy(
                         Vector3::new(fx, fy, fz),
                         Vector3::new(-1.0, 0.0, 0.0),
                         u1, v1,
-                        matches!(codev, FaceMaterial::GrassSide),
+                        false,
                     );
                 } else {
                     mb.add_quad(
@@ -241,7 +241,7 @@ pub fn build_chunk_greedy(
                         Vector3::new(fx, fy, fz + u1),
                         Vector3::new(1.0, 0.0, 0.0),
                         u1, v1,
-                        matches!(codev, FaceMaterial::GrassSide),
+                        false,
                     );
                 }
                 for yy in 0..v1 as usize { for zz in 0..u1 as usize { used[(y + yy) * sz + (z + zz)] = true; } }
@@ -285,7 +285,7 @@ pub fn build_chunk_greedy(
                         Vector3::new(fx, fy, fz),
                         Vector3::new(0.0, 0.0, -1.0),
                         u1, v1,
-                        matches!(codev, FaceMaterial::GrassSide),
+                        false,
                     );
                 } else {
                     mb.add_quad(
@@ -295,7 +295,7 @@ pub fn build_chunk_greedy(
                         Vector3::new(fx + u1, fy, fz),
                         Vector3::new(0.0, 0.0, 1.0),
                         u1, v1,
-                        matches!(codev, FaceMaterial::GrassSide),
+                        false,
                     );
                 }
                 for yy in 0..v1 as usize { for xx in 0..u1 as usize { used[(y + yy) * sx + (x + xx)] = true; } }
