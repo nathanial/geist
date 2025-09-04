@@ -1,5 +1,6 @@
 use crate::voxel::{Block, World};
 use raylib::prelude::*;
+use raylib::core::math::BoundingBox;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum FaceMaterial {
@@ -95,6 +96,7 @@ fn is_occluder_for(world: &World, here: Block, nx: i32, ny: i32, nz: i32) -> boo
 pub struct ChunkRender {
     pub cx: i32,
     pub cz: i32,
+    pub bbox: BoundingBox,
     pub parts: Vec<(FaceMaterial, raylib::core::models::Model, raylib::core::texture::Texture2D)>,
 }
 
@@ -342,5 +344,9 @@ pub fn build_chunk_greedy(
         parts.push((fm, model, tex));
     }
 
-    Some(ChunkRender { cx, cz, parts })
+    let bbox = BoundingBox::new(
+        Vector3::new(base_x as f32, 0.0, base_z as f32),
+        Vector3::new(base_x as f32 + sx as f32, sy as f32, base_z as f32 + sz as f32),
+    );
+    Some(ChunkRender { cx, cz, bbox, parts })
 }

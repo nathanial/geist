@@ -7,6 +7,7 @@ use raylib::prelude::*;
 use raylib::core::texture::Image;
 use voxel::{World, Block};
 use mesher::build_chunk_greedy;
+// Frustum culling removed for stability
 use std::path::Path;
 use std::collections::{HashMap, HashSet};
 
@@ -89,17 +90,19 @@ fn main() {
                 }
             }
 
+        // Prepare camera for drawing
+        let camera3d = cam.to_camera3d();
+
         let mut d = rl.begin_drawing(&thread);
         d.clear_background(Color::new(210, 221, 235, 255));
 
-        let camera3d = cam.to_camera3d();
         {
             let mut d3 = d.begin_mode3D(camera3d);
             if show_grid {
                 d3.draw_grid(64, 1.0);
             }
 
-            // Draw loaded chunks
+            // Draw loaded chunks (no frustum culling)
             for (_key, cr) in &loaded {
                 for (_fm, model, _tex) in &cr.parts {
                     if wireframe { d3.draw_model_wires(model, Vector3::zero(), 1.0, Color::WHITE); }
