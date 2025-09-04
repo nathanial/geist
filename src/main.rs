@@ -8,6 +8,7 @@ use raylib::core::texture::Image;
 use voxel::{World, Block};
 use mesher::build_chunk_greedy;
 use std::path::Path;
+use std::collections::{HashMap, HashSet};
 
 fn main() {
     let (mut rl, thread) = raylib::init()
@@ -42,15 +43,10 @@ fn main() {
     // Ensure assets dir exists (mesher will load textures directly)
     let _assets_dir = Path::new("assets");
 
-    // Build greedy meshes per chunk
-    let mut chunk_models: Vec<mesher::ChunkRender> = Vec::new();
-    for cz in 0..world.chunks_z {
-        for cx in 0..world.chunks_x {
-            if let Some(cr) = build_chunk_greedy(&world, cx, cz, &mut rl, &thread) {
-                chunk_models.push(cr);
-            }
-        }
-    }
+    // Streaming chunk state
+    let mut loaded: HashMap<(i32,i32), mesher::ChunkRender> = HashMap::new();
+    let view_radius_chunks: i32 = 3;
+    let mut last_center_chunk: (i32, i32) = (i32::MIN, i32::MIN);
 
     while !rl.window_should_close() {
         let dt = rl.get_frame_time();
@@ -63,6 +59,36 @@ fn main() {
             wireframe = !wireframe;
         }
 
+        // Update streaming set based on camera position
+        let cam_pos = cam.position;
+        let ccx = (cam_pos.x / chunk_size_x as f32).floor() as i32;
+        let ccz = (cam_pos.z / chunk_size_z as f32).floor() as i32;
+            if (ccx, ccz) != last_center_chunk {
+                last_center_chunk = (ccx, ccz);
+                let mut desired: HashSet<(i32,i32)> = HashSet::new();
+                for dz in -view_radius_chunks..=view_radius_chunks {
+                    for dx in -view_radius_chunks..=view_radius_chunks {
+                        desired.insert((ccx + dx, ccz + dz));
+                    }
+                }
+                // Unload far chunks
+                let current_keys: Vec<(i32,i32)> = loaded.keys().cloned().collect();
+                for key in current_keys {
+                    if !desired.contains(&key) {
+                        loaded.remove(&key);
+                    }
+                }
+                // Load new chunks
+                for key in desired {
+                    if !loaded.contains_key(&key) {
+                        let (cx, cz) = key;
+                        if let Some(cr) = build_chunk_greedy(&world, cx, cz, &mut rl, &thread) {
+                            loaded.insert(key, cr);
+                        }
+                    }
+                }
+            }
+
         let mut d = rl.begin_drawing(&thread);
         d.clear_background(Color::new(210, 221, 235, 255));
 
@@ -73,8 +99,8 @@ fn main() {
                 d3.draw_grid(64, 1.0);
             }
 
-            // Draw greedy meshed chunk parts
-            for cr in &chunk_models {
+            // Draw loaded chunks
+            for (_key, cr) in &loaded {
                 for (_fm, model, _tex) in &cr.parts {
                     if wireframe { d3.draw_model_wires(model, Vector3::zero(), 1.0, Color::WHITE); }
                     else { d3.draw_model(model, Vector3::zero(), 1.0, Color::WHITE); }

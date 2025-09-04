@@ -237,3 +237,26 @@ impl World {
         false
     }
 }
+
+impl World {
+    // Procedural block at arbitrary world coordinates (x,z in world units, y in [0,chunk_size_y))
+    pub fn block_at(&self, x: i32, y: i32, z: i32) -> Block {
+        if y < 0 || y >= self.chunk_size_y as i32 { return Block::Air; }
+        let mut noise = FastNoiseLite::with_seed(self.seed);
+        noise.set_noise_type(Some(NoiseType::OpenSimplex2));
+        noise.set_frequency(Some(0.02));
+        let nx = x as f32;
+        let nz = z as f32;
+        let h = noise.get_noise_2d(nx, nz);
+        let min_h = (self.chunk_size_y as f32 * 0.15) as i32;
+        let max_h = (self.chunk_size_y as f32 * 0.7) as i32;
+        let hh = ((h + 1.0) * 0.5 * (max_h - min_h) as f32) as i32 + min_h;
+        let height = hh.clamp(1, self.chunk_size_y as i32 - 1) as i32;
+        if y >= height { return Block::Air; }
+        if y == height - 1 {
+            if height as f32 >= self.chunk_size_y as f32 * 0.62 { Block::Snow }
+            else if height as f32 <= self.chunk_size_y as f32 * 0.2 { Block::Sand }
+            else { Block::Grass }
+        } else if y + 3 >= height { Block::Dirt } else { Block::Stone }
+    }
+}

@@ -85,36 +85,31 @@ fn face_material_for(block: Block, face: usize) -> Option<FaceMaterial> {
 }
 
 #[inline]
-fn world_in_bounds(world: &World, x: i32, y: i32, z: i32) -> bool {
-    world.in_bounds(x, y, z)
-}
-
 #[inline]
 fn is_occluder_for(world: &World, here: Block, nx: i32, ny: i32, nz: i32) -> bool {
     if !here.is_solid() { return false; }
-    if !world_in_bounds(world, nx, ny, nz) { return false; }
-    let nb = world.get(nx as usize, ny as usize, nz as usize);
+    let nb = world.block_at(nx, ny, nz);
     nb.is_solid()
 }
 
 pub struct ChunkRender {
-    pub cx: usize,
-    pub cz: usize,
+    pub cx: i32,
+    pub cz: i32,
     pub parts: Vec<(FaceMaterial, raylib::core::models::Model, raylib::core::texture::Texture2D)>,
 }
 
 pub fn build_chunk_greedy(
     world: &World,
-    cx: usize,
-    cz: usize,
+    cx: i32,
+    cz: i32,
     rl: &mut RaylibHandle,
     thread: &RaylibThread,
 ) -> Option<ChunkRender> {
     let sx = world.chunk_size_x;
     let sy = world.chunk_size_y;
     let sz = world.chunk_size_z;
-    let base_x = cx * sx;
-    let base_z = cz * sz;
+    let base_x = cx * sx as i32;
+    let base_z = cz * sz as i32;
 
     use std::collections::HashMap;
     let mut builds: HashMap<FaceMaterial, MeshBuild> = HashMap::new();
@@ -125,8 +120,8 @@ pub fn build_chunk_greedy(
         {
             let mut mask: Vec<Option<FaceMaterial>> = vec![None; sx * sz];
             for z in 0..sz { for x in 0..sx {
-                let gx = base_x + x; let gz = base_z + z;
-                let here = world.get(gx, y, gz);
+                let gx = base_x + x as i32; let gz = base_z + z as i32;
+                let here = world.block_at(gx, y as i32, gz);
                 if here.is_solid() {
                     let neigh = is_occluder_for(world, here, gx as i32, (y as i32) + 1, gz as i32);
                     if !neigh { mask[z * sx + x] = face_material_for(here, 0); }
@@ -142,7 +137,7 @@ pub fn build_chunk_greedy(
                     for i in 0..w { if mask[(z + h) * sx + (x + i)] != code || used[(z + h) * sx + (x + i)] { break 'expand; } }
                     h += 1;
                 }
-                let fx = (base_x + x) as f32; let fz = (base_z + z) as f32; let fy = (y as f32) + 1.0;
+                let fx = (base_x + x as i32) as f32; let fz = (base_z + z as i32) as f32; let fy = (y as f32) + 1.0;
                 let u1 = w as f32; let v1 = h as f32;
                 let mb = builds.entry(codev).or_default();
                 mb.add_quad(
@@ -161,8 +156,8 @@ pub fn build_chunk_greedy(
         {
             let mut mask: Vec<Option<FaceMaterial>> = vec![None; sx * sz];
             for z in 0..sz { for x in 0..sx {
-                let gx = base_x + x; let gz = base_z + z;
-                let here = world.get(gx, y, gz);
+                let gx = base_x + x as i32; let gz = base_z + z as i32;
+                let here = world.block_at(gx, y as i32, gz);
                 if here.is_solid() {
                     let neigh = is_occluder_for(world, here, gx as i32, (y as i32) - 1, gz as i32);
                     if !neigh { mask[z * sx + x] = face_material_for(here, 1); }
@@ -177,7 +172,7 @@ pub fn build_chunk_greedy(
                     for i in 0..w { if mask[(z + h) * sx + (x + i)] != code || used[(z + h) * sx + (x + i)] { break 'expand; } }
                     h += 1;
                 }
-                let fx = (base_x + x) as f32; let fz = (base_z + z) as f32; let fy = y as f32;
+                let fx = (base_x + x as i32) as f32; let fz = (base_z + z as i32) as f32; let fy = y as f32;
                 let u1 = w as f32; let v1 = h as f32;
                 let mb = builds.entry(codev).or_default();
                 mb.add_quad(
@@ -199,8 +194,8 @@ pub fn build_chunk_greedy(
         for &pos in &[false, true] {
             let mut mask: Vec<Option<FaceMaterial>> = vec![None; sz * sy];
             for z in 0..sz { for y in 0..sy {
-                let gx = base_x + x; let gz = base_z + z; let gy = y;
-                let here = world.get(gx, gy, gz);
+                let gx = base_x + x as i32; let gz = base_z + z as i32; let gy = y as i32;
+                let here = world.block_at(gx, gy, gz);
                 if here.is_solid() {
                     let neigh = if pos {
                         is_occluder_for(world, here, (gx as i32) + 1, gy as i32, gz as i32)
@@ -219,8 +214,8 @@ pub fn build_chunk_greedy(
                     for i in 0..h { if mask[(y + i) * sz + (z + w)] != code || used[(y + i) * sz + (z + w)] { break 'expand; } }
                     w += 1;
                 }
-                let fx = (base_x + x) as f32 + if pos { 1.0 } else { 0.0 };
-                let fy = y as f32; let fz = (base_z + z) as f32;
+                let fx = (base_x + x as i32) as f32 + if pos { 1.0 } else { 0.0 };
+                let fy = y as f32; let fz = (base_z + z as i32) as f32;
                 let u1 = w as f32; let v1 = h as f32;
                 let mb = builds.entry(codev).or_default();
                 if !pos {
@@ -254,8 +249,8 @@ pub fn build_chunk_greedy(
         for &pos in &[false, true] {
             let mut mask: Vec<Option<FaceMaterial>> = vec![None; sx * sy];
             for x in 0..sx { for y in 0..sy {
-                let gx = base_x + x; let gz = base_z + z; let gy = y;
-                let here = world.get(gx, gy, gz);
+                let gx = base_x + x as i32; let gz = base_z + z as i32; let gy = y as i32;
+                let here = world.block_at(gx, gy, gz);
                 if here.is_solid() {
                     let neigh = if pos {
                         is_occluder_for(world, here, gx as i32, gy as i32, (gz as i32) + 1)
@@ -274,7 +269,7 @@ pub fn build_chunk_greedy(
                     for i in 0..h { if mask[(y + i) * sx + (x + w)] != code || used[(y + i) * sx + (x + w)] { break 'expand; } }
                     w += 1;
                 }
-                let fx = (base_x + x) as f32; let fy = y as f32; let fz = (base_z + z) as f32 + if pos { 1.0 } else { 0.0 };
+                let fx = (base_x + x as i32) as f32; let fy = y as f32; let fz = (base_z + z as i32) as f32 + if pos { 1.0 } else { 0.0 };
                 let u1 = w as f32; let v1 = h as f32;
                 let mb = builds.entry(codev).or_default();
                 if !pos {
