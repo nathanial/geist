@@ -1,9 +1,18 @@
 use fastnoise_lite::{FastNoiseLite, NoiseType};
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Block {
     Air,
-    Solid,
+    Grass,
+    Dirt,
+    Stone,
+}
+
+impl Block {
+    #[inline]
+    pub fn is_solid(&self) -> bool {
+        !matches!(self, Block::Air)
+    }
 }
 
 pub struct Chunk {
@@ -65,7 +74,7 @@ impl Chunk {
                 return true;
             }
             let (nxu, nyu, nzu) = (nx as usize, ny as usize, nz as usize);
-            if self.get(nxu, nyu, nzu) == Block::Air {
+            if !self.get(nxu, nyu, nzu).is_solid() {
                 return true;
             }
         }
@@ -92,11 +101,17 @@ pub fn generate_heightmap_chunk(size_x: usize, size_y: usize, size_z: usize, see
             let hh = ((h + 1.0) * 0.5 * (max_h - min_h) as f32) as i32 + min_h;
             let height = hh.clamp(1, size_y as i32 - 1) as usize;
             for y in 0..height {
-                chunk.set(x, y, z, Block::Solid);
+                let b = if y == height - 1 {
+                    Block::Grass
+                } else if y + 3 >= height {
+                    Block::Dirt
+                } else {
+                    Block::Stone
+                };
+                chunk.set(x, y, z, b);
             }
         }
     }
 
     chunk
 }
-
