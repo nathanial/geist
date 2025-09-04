@@ -16,7 +16,13 @@ A minimal Rust project using the `raylib` crate to render a simple 3D scene (gri
 cargo run
 ```
 
-This opens a window that renders a simple voxel terrain with a fly camera, using per‑face textures for grass (top/side/bottom) like the old codebase.
+This opens a window that renders a simple voxel terrain with a fly camera.
+
+Highlights
+
+- Multi‑chunk world (grid) with seamless noise generation.
+- Greedy meshing per chunk (hybrid plane merging) to reduce triangles.
+- Per‑face textures for grass (top/side/bottom) with corrected side orientation.
 
 Controls
 
@@ -41,7 +47,7 @@ Controls
   - Grass (per-face): `assets/blocks/grass_top.png` (top), `assets/blocks/grass_side.png` (sides), `assets/blocks/dirt.png` (bottom)
   - Dirt: `assets/dirt.png` or `assets/blocks/dirt.png`
   - Stone: `assets/stone.png` or `assets/blocks/stone.png`
-- If not found, it falls back to solid colors.
+- Greedy mesher loads textures directly per material. If a texture is missing, the corresponding faces may render untextured.
 
 ## Notes
 
