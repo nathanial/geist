@@ -41,6 +41,7 @@ fn main() {
     // Rendering options
     let mut show_grid = true;
     let mut wireframe = false;
+    let mut show_chunk_bounds = false;
 
     // Ensure assets dir exists (mesher will load textures directly)
     let _assets_dir = Path::new("assets");
@@ -63,6 +64,9 @@ fn main() {
         }
         if rl.is_key_pressed(KeyboardKey::KEY_F) {
             wireframe = !wireframe;
+        }
+        if rl.is_key_pressed(KeyboardKey::KEY_B) {
+            show_chunk_bounds = !show_chunk_bounds;
         }
 
         // Update streaming set based on camera position
@@ -151,9 +155,29 @@ fn main() {
                     else { d3.draw_model(model, Vector3::zero(), 1.0, Color::WHITE); }
                 }
             }
+
+            // Optional: show chunk bounding boxes to debug seams
+            if show_chunk_bounds {
+                let col = Color::new(255, 64, 32, 200);
+                for (_key, cr) in &loaded {
+                    let min = cr.bbox.min;
+                    let max = cr.bbox.max;
+                    let center = Vector3::new(
+                        (min.x + max.x) * 0.5,
+                        (min.y + max.y) * 0.5,
+                        (min.z + max.z) * 0.5,
+                    );
+                    let size = Vector3::new(
+                        (max.x - min.x).abs(),
+                        (max.y - min.y).abs(),
+                        (max.z - min.z).abs(),
+                    );
+                    d3.draw_cube_wires(center, size.x, size.y, size.z, col);
+                }
+            }
         }
 
-        d.draw_text("Voxel view: Tab capture, WASD+QE fly, F wireframe, G grid", 12, 12, 18, Color::DARKGRAY);
+        d.draw_text("Voxel view: Tab capture, WASD+QE fly, F wireframe, G grid, B chunk bounds", 12, 12, 18, Color::DARKGRAY);
         d.draw_fps(12, 36);
     }
 }
