@@ -3,6 +3,7 @@ use std::collections::{BTreeMap, VecDeque};
 use crate::chunkbuf::ChunkBuf;
 use crate::lighting::LightBorders;
 use crate::mesher::{ChunkMeshCPU, NeighborsLoaded};
+use crate::structure::StructureId;
 use crate::voxel::Block;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -80,6 +81,30 @@ pub enum Event {
         buf: ChunkBuf,
         light_borders: Option<LightBorders>,
         job_id: u64,
+    },
+
+    // Structures
+    StructureBuildRequested {
+        id: StructureId,
+        rev: u64,
+    },
+    StructureBuildCompleted {
+        id: StructureId,
+        rev: u64,
+        cpu: ChunkMeshCPU,
+    },
+    StructureBlockPlaced {
+        id: StructureId,
+        lx: i32,
+        ly: i32,
+        lz: i32,
+        block: Block,
+    },
+    StructureBlockRemoved {
+        id: StructureId,
+        lx: i32,
+        ly: i32,
+        lz: i32,
     },
 
     // Lighting

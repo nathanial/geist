@@ -6,6 +6,7 @@ use crate::edit::EditStore;
 use crate::lighting::LightingStore;
 use crate::player::Walker;
 use crate::voxel::{Block, World};
+use crate::structure::{Structure, StructureId};
 
 pub struct ChunkEntry {
     pub buf: Option<ChunkBuf>,
@@ -36,6 +37,9 @@ pub struct GameState {
     pub show_grid: bool,
     pub wireframe: bool,
     pub show_chunk_bounds: bool,
+
+    // Dynamic voxel bodies (e.g., flying castle)
+    pub structures: HashMap<StructureId, Structure>,
 }
 
 impl GameState {
@@ -64,6 +68,7 @@ impl GameState {
             show_grid: true,
             wireframe: false,
             show_chunk_bounds: false,
+            structures: HashMap::new(),
         }
     }
 }

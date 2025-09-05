@@ -7,7 +7,8 @@ use crate::gamestate::{ChunkEntry, GameState};
 use crate::lighting::LightingStore;
 use crate::mesher::{NeighborsLoaded, upload_chunk_mesh};
 use crate::raycast;
-use crate::runtime::{BuildJob, JobOut, Runtime};
+use crate::runtime::{BuildJob, JobOut, Runtime, StructureBuildJob};
+use crate::structure::{Structure, Pose, StructureId, rotate_yaw, rotate_yaw_inv};
 use crate::voxel::{Block, World};
 
 pub struct App {
@@ -33,12 +34,23 @@ impl App {
         let cam = crate::camera::FlyCamera::new(spawn + Vector3::new(0.0, 5.0, 20.0));
 
         let runtime = Runtime::new(&mut rl, thread, world.clone(), lighting.clone());
-        let gs = GameState::new(world.clone(), edits, lighting.clone(), cam.position);
+        let mut gs = GameState::new(world.clone(), edits, lighting.clone(), cam.position);
         let mut queue = EventQueue::new();
         // Bootstrap initial streaming based on camera
         let ccx = (cam.position.x / world.chunk_size_x as f32).floor() as i32;
         let ccz = (cam.position.z / world.chunk_size_z as f32).floor() as i32;
         queue.emit_now(Event::ViewCenterChanged { ccx, ccz });
+        // Spawn a flying castle structure
+        let castle_id: StructureId = 1;
+        let world_center = Vector3::new(
+            (world.world_size_x() as f32) * 0.5,
+            (world.world_size_y() as f32) * 0.7,
+            (world.world_size_z() as f32) * 0.5,
+        );
+        let pose = Pose { pos: world_center + Vector3::new(0.0, 16.0, 40.0), yaw_deg: 0.0 };
+        let st = Structure::new(castle_id, 32, 24, 32, pose);
+        gs.structures.insert(castle_id, st);
+        queue.emit_now(Event::StructureBuildRequested { id: castle_id, rev: 1 });
         Self {
             gs,
             queue,
@@ -86,10 +98,28 @@ impl App {
             } => {
                 // update camera look first (yaw drives walker forward)
                 if self.gs.walk_mode {
-                    // Collision sampler: edits > buf > world
+                    // Collision sampler: structures > edits > buf > world
                     let sx = self.gs.world.chunk_size_x as i32;
                     let sz = self.gs.world.chunk_size_z as i32;
                     let sampler = |wx: i32, wy: i32, wz: i32| -> Block {
+                        // Check dynamic structures first
+                        for (_id, st) in &self.gs.structures {
+                            let local = rotate_yaw_inv(
+                                Vector3::new(wx as f32 + 0.5, wy as f32 + 0.5, wz as f32 + 0.5) - st.pose.pos,
+                                st.pose.yaw_deg,
+                            );
+                            let lx = local.x.floor() as i32;
+                            let ly = local.y.floor() as i32;
+                            let lz = local.z.floor() as i32;
+                            if lx >= 0 && ly >= 0 && lz >= 0
+                                && (lx as usize) < st.sx && (ly as usize) < st.sy && (lz as usize) < st.sz
+                            {
+                                if let Some(b) = st.edits.get(lx, ly, lz) { if b.is_solid() { return b; } }
+                                let idx = st.idx(lx as usize, ly as usize, lz as usize);
+                                let b = st.blocks[idx];
+                                if b.is_solid() { return b; }
+                            }
+                        }
                         if let Some(b) = self.gs.edits.get(wx, wy, wz) {
                             return b;
                         }
@@ -205,6 +235,36 @@ impl App {
                     region_edits,
                 });
             }
+            Event::StructureBuildRequested { id, rev } => {
+                if let Some(st) = self.gs.structures.get(&id) {
+                    let job = StructureBuildJob {
+                        id,
+                        rev,
+                        sx: st.sx,
+                        sy: st.sy,
+                        sz: st.sz,
+                        base_blocks: st.blocks.clone(),
+                        edits: st.edits.snapshot_all(),
+                    };
+                    self.runtime.submit_structure_build_job(job);
+                }
+            }
+            Event::StructureBuildCompleted { id, rev, cpu } => {
+                if let Some(mut cr) = upload_chunk_mesh(rl, thread, cpu, &mut self.runtime.tex_cache) {
+                    for (_fm, model) in &mut cr.parts {
+                        if let Some(mat) = model.materials_mut().get_mut(0) {
+                            if let Some(ref fs) = self.runtime.fog_shader {
+                                let dest = mat.shader_mut();
+                                let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
+                                let src_ptr: *const raylib::ffi::Shader = fs.shader.as_ref();
+                                unsafe { std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1); }
+                            }
+                        }
+                    }
+                    self.runtime.structure_renders.insert(id, cr);
+                }
+                if let Some(st) = self.gs.structures.get_mut(&id) { st.built_rev = rev; }
+            }
             Event::BuildChunkJobCompleted {
                 cx,
                 cz,
@@ -304,7 +364,7 @@ impl App {
                 self.gs.pending.insert((cx, cz));
             }
             Event::RaycastEditRequested { place, block } => {
-                // Perform raycast and emit edit events
+                // Perform world + structure raycast and emit edit events
                 let org = self.cam.position;
                 let dir = self.cam.forward();
                 let sx = self.gs.world.chunk_size_x as i32;
@@ -322,28 +382,76 @@ impl App {
                     }
                     self.gs.world.block_at(wx, wy, wz)
                 };
-                let is_solid =
-                    |wx: i32, wy: i32, wz: i32| -> bool { sampler(wx, wy, wz).is_solid() };
-                if let Some(hit) = raycast::raycast_first_hit_with_face(org, dir, 5.0, is_solid) {
+                let world_hit = raycast::raycast_first_hit_with_face(org, dir, 8.0 * 32.0, |x,y,z| sampler(x,y,z).is_solid());
+                let mut struct_hit: Option<(StructureId, raycast::RayHit, f32)> = None;
+                for (id, st) in &self.gs.structures {
+                    let local_org = rotate_yaw_inv(org - st.pose.pos, st.pose.yaw_deg);
+                    let local_dir = rotate_yaw_inv(dir, st.pose.yaw_deg);
+                    let is_solid_local = |lx: i32, ly: i32, lz: i32| -> bool {
+                        if lx < 0 || ly < 0 || lz < 0 { return false; }
+                        let (lxu, lyu, lzu) = (lx as usize, ly as usize, lz as usize);
+                        if lxu >= st.sx || lyu >= st.sy || lzu >= st.sz { return false; }
+                        if let Some(b) = st.edits.get(lx, ly, lz) { return b.is_solid(); }
+                        st.blocks[st.idx(lxu, lyu, lzu)].is_solid()
+                    };
+                    if let Some(hit) = raycast::raycast_first_hit_with_face(local_org, local_dir, 8.0 * 32.0, |x,y,z| is_solid_local(x,y,z)) {
+                        let cc_local = Vector3::new(hit.bx as f32 + 0.5, hit.by as f32 + 0.5, hit.bz as f32 + 0.5);
+                        let cc_world = rotate_yaw(cc_local, st.pose.yaw_deg) + st.pose.pos;
+                        let d = cc_world - org;
+                        let dist2 = d.x * d.x + d.y * d.y + d.z * d.z;
+                        struct_hit = Some((*id, hit, dist2));
+                        break;
+                    }
+                }
+                let choose_struct = match (world_hit.as_ref(), struct_hit.as_ref()) {
+                    (None, Some(_)) => true,
+                    (Some(_), None) => false,
+                    (Some(wh), Some((_id, _sh, sdist2))) => {
+                        let wc = Vector3::new(wh.bx as f32 + 0.5, wh.by as f32 + 0.5, wh.bz as f32 + 0.5);
+                        let dw = wc - org;
+                        let wdist2 = dw.x * dw.x + dw.y * dw.y + dw.z * dw.z;
+                        *sdist2 < wdist2
+                    }
+                    _ => false,
+                };
+                if choose_struct {
+                    if let Some((id, hit, _)) = struct_hit {
+                        if place {
+                            let (lx, ly, lz) = (hit.px + hit.nx, hit.py + hit.ny, hit.pz + hit.nz);
+                            self.queue.emit_now(Event::StructureBlockPlaced { id, lx, ly, lz, block });
+                        } else {
+                            self.queue.emit_now(Event::StructureBlockRemoved { id, lx: hit.bx, ly: hit.by, lz: hit.bz });
+                        }
+                    }
+                } else if let Some(hit) = world_hit {
                     if place {
                         let wx = hit.px;
                         let wy = hit.py;
                         let wz = hit.pz;
                         if wy >= 0 && wy < self.gs.world.chunk_size_y as i32 {
-                            // Emit place; lighting handled in BlockPlaced handler
-                            self.queue
-                                .emit_now(Event::BlockPlaced { wx, wy, wz, block });
+                            self.queue.emit_now(Event::BlockPlaced { wx, wy, wz, block });
                         }
                     } else {
-                        // remove at hit
                         let wx = hit.bx;
                         let wy = hit.by;
                         let wz = hit.bz;
                         let prev = sampler(wx, wy, wz);
-                        if prev.is_solid() {
-                            self.queue.emit_now(Event::BlockRemoved { wx, wy, wz });
-                        }
+                        if prev.is_solid() { self.queue.emit_now(Event::BlockRemoved { wx, wy, wz }); }
                     }
+                }
+            }
+            Event::StructureBlockPlaced { id, lx, ly, lz, block } => {
+                if let Some(st) = self.gs.structures.get_mut(&id) {
+                    st.set_local(lx, ly, lz, block);
+                    let rev = st.dirty_rev;
+                    self.queue.emit_now(Event::StructureBuildRequested { id, rev });
+                }
+            }
+            Event::StructureBlockRemoved { id, lx, ly, lz } => {
+                if let Some(st) = self.gs.structures.get_mut(&id) {
+                    st.remove_local(lx, ly, lz);
+                    let rev = st.dirty_rev;
+                    self.queue.emit_now(Event::StructureBuildRequested { id, rev });
                 }
             }
             Event::BlockPlaced { wx, wy, wz, block } => {
@@ -566,6 +674,20 @@ impl App {
                 .emit_now(Event::RaycastEditRequested { place, block });
         }
 
+        // Update structure poses (simple circular motion)
+        let world_center = Vector3::new(
+            (self.gs.world.world_size_x() as f32) * 0.5,
+            (self.gs.world.world_size_y() as f32) * 0.7,
+            (self.gs.world.world_size_z() as f32) * 0.5,
+        );
+        let radius = 40.0f32;
+        let ang = (self.gs.tick as f32) * 0.004;
+        for (_id, st) in self.gs.structures.iter_mut() {
+            st.pose.pos.x = world_center.x + radius * ang.cos();
+            st.pose.pos.z = world_center.z + radius * ang.sin();
+            st.pose.yaw_deg = (-ang).to_degrees();
+        }
+
         // Movement intent for this tick (dt→ms)
         let dt_ms = (dt.max(0.0) * 1000.0) as u32;
         self.queue.emit_now(Event::MovementRequested {
@@ -587,6 +709,11 @@ impl App {
                 light_borders: r.light_borders,
                 job_id: r.job_id,
             });
+        }
+
+        // Drain structure worker results
+        for r in self.runtime.drain_structure_results() {
+            self.queue.emit_now(Event::StructureBuildCompleted { id: r.id, rev: r.rev, cpu: r.cpu });
         }
 
         // Process events scheduled for this tick with a budget
@@ -641,7 +768,17 @@ impl App {
                 }
             }
 
-            // Raycast highlight: show where a placed block would go
+            // Draw structures with transform (translation + yaw)
+            for (id, cr) in &self.runtime.structure_renders {
+                if let Some(st) = self.gs.structures.get(id) {
+                    for (_fm, model) in &cr.parts {
+                        // Yaw is ignored here if draw_model_ex isn't available; translation still applies
+                        d3.draw_model(model, st.pose.pos, 1.0, Color::WHITE);
+                    }
+                }
+            }
+
+            // Raycast highlight: show where a placed block would go (world only for now)
             // Sample order: edits > loaded chunk buffers > world
             let org = self.cam.position;
             let dir = self.cam.forward();
@@ -726,7 +863,7 @@ impl App {
         // HUD
         let hud_mode = if self.gs.walk_mode { "Walk" } else { "Fly" };
         let hud = format!(
-            "{}: Tab capture, WASD{} move{}, V toggle mode, F wireframe, G grid, B bounds, L add light, K remove light | Place: {:?} (1-7)",
+            "{}: Tab capture, WASD{} move{}, V toggle mode, F wireframe, G grid, B bounds, L add light, K remove light | Place: {:?} (1-7) | Castle: moving",
             hud_mode,
             if self.gs.walk_mode { "" } else { "+QE" },
             if self.gs.walk_mode {
@@ -818,6 +955,18 @@ impl App {
             } => {
                 log::info!(target: "events", "[tick {}] BuildChunkJobCompleted ({}, {}) rev={} job_id={:#x}",
                     tick, cx, cz, rev, job_id);
+            }
+            E::StructureBuildRequested { id, rev } => {
+                log::info!(target: "events", "[tick {}] StructureBuildRequested id={} rev={}", tick, id, rev);
+            }
+            E::StructureBuildCompleted { id, rev, .. } => {
+                log::info!(target: "events", "[tick {}] StructureBuildCompleted id={} rev={}", tick, id, rev);
+            }
+            E::StructureBlockPlaced { id, lx, ly, lz, block } => {
+                log::info!(target: "events", "[tick {}] StructureBlockPlaced id={} ({},{},{}) block={:?}", tick, id, lx, ly, lz, block);
+            }
+            E::StructureBlockRemoved { id, lx, ly, lz } => {
+                log::info!(target: "events", "[tick {}] StructureBlockRemoved id={} ({},{},{})", tick, id, lx, ly, lz);
             }
             E::LightEmitterAdded {
                 wx,

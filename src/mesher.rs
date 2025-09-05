@@ -706,6 +706,451 @@ pub struct TextureCache {
     map: HashMap<&'static str, raylib::core::texture::Texture2D>,
 }
 
+// Local-body mesher: emits vertices in local-space [0..sx, 0..sz], no world/lighting deps.
+pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8) -> ChunkMeshCPU {
+    let sx = buf.sx;
+    let sy = buf.sy;
+    let sz = buf.sz;
+
+    use std::collections::HashMap;
+    let mut builds: HashMap<FaceMaterial, MeshBuild> = HashMap::new();
+
+    #[inline]
+    fn solid_local(buf: &ChunkBuf, x: i32, y: i32, z: i32) -> bool {
+        if x < 0 || y < 0 || z < 0 {
+            return false;
+        }
+        let (xu, yu, zu) = (x as usize, y as usize, z as usize);
+        if xu >= buf.sx || yu >= buf.sy || zu >= buf.sz {
+            return false;
+        }
+        buf.get_local(xu, yu, zu).is_solid()
+    }
+
+    #[inline]
+    fn face_light(face: usize, ambient: u8) -> u8 {
+        match face {
+            0 => ambient.saturating_add(40).min(255),
+            1 => ambient.saturating_sub(60),
+            _ => ambient,
+        }
+    }
+
+    for y in 0..sy {
+        // +Y faces
+        {
+            let mut mask: Vec<Option<(FaceMaterial, u8)>> = vec![None; sx * sz];
+            for z in 0..sz {
+                for x in 0..sx {
+                    let here = buf.get_local(x, y, z);
+                    if here.is_solid() {
+                        let neigh = solid_local(buf, x as i32, y as i32 + 1, z as i32);
+                        if !neigh {
+                            if let Some(fm) = face_material_for(here, 0) {
+                                let l = face_light(0, ambient);
+                                mask[z * sx + x] = Some((fm, l));
+                            }
+                        }
+                    }
+                }
+            }
+            let mut used = vec![false; sx * sz];
+            for z in 0..sz {
+                for x in 0..sx {
+                    let code = mask[z * sx + x];
+                    if code.is_none() || used[z * sx + x] {
+                        continue;
+                    }
+                    let codev = code.unwrap();
+                    let mut w = 1;
+                    while x + w < sx && mask[z * sx + x + w] == code && !used[z * sx + x + w] {
+                        w += 1;
+                    }
+                    let mut h = 1;
+                    'expand: while z + h < sz {
+                        for i in 0..w {
+                            if mask[(z + h) * sx + (x + i)] != code || used[(z + h) * sx + (x + i)]
+                            {
+                                break 'expand;
+                            }
+                        }
+                        h += 1;
+                    }
+                    let fx = x as f32;
+                    let fz = z as f32;
+                    let fy = (y as f32) + 1.0;
+                    let u1 = w as f32;
+                    let v1 = h as f32;
+                    let mb = builds.entry(codev.0).or_default();
+                    let lv = codev.1;
+                    let rgba = [lv, lv, lv, 255];
+                    mb.add_quad(
+                        Vector3::new(fx, fy, fz),
+                        Vector3::new(fx + u1, fy, fz),
+                        Vector3::new(fx + u1, fy, fz + v1),
+                        Vector3::new(fx, fy, fz + v1),
+                        Vector3::new(0.0, 1.0, 0.0),
+                        u1,
+                        v1,
+                        false,
+                        rgba,
+                    );
+                    for zz in 0..h {
+                        for xx in 0..w {
+                            used[(z + zz) * sx + (x + xx)] = true;
+                        }
+                    }
+                }
+            }
+        }
+        // -Y faces
+        {
+            let mut mask: Vec<Option<(FaceMaterial, u8)>> = vec![None; sx * sz];
+            for z in 0..sz {
+                for x in 0..sx {
+                    let here = buf.get_local(x, y, z);
+                    if here.is_solid() {
+                        let neigh = solid_local(buf, x as i32, y as i32 - 1, z as i32);
+                        if !neigh {
+                            if let Some(fm) = face_material_for(here, 1) {
+                                let l = face_light(1, ambient);
+                                mask[z * sx + x] = Some((fm, l));
+                            }
+                        }
+                    }
+                }
+            }
+            let mut used = vec![false; sx * sz];
+            for z in 0..sz {
+                for x in 0..sx {
+                    let code = mask[z * sx + x];
+                    if code.is_none() || used[z * sx + x] {
+                        continue;
+                    }
+                    let codev = code.unwrap();
+                    let mut w = 1;
+                    while x + w < sx && mask[z * sx + x + w] == code && !used[z * sx + x + w] {
+                        w += 1;
+                    }
+                    let mut h = 1;
+                    'expand: while z + h < sz {
+                        for i in 0..w {
+                            if mask[(z + h) * sx + (x + i)] != code || used[(z + h) * sx + (x + i)]
+                            {
+                                break 'expand;
+                            }
+                        }
+                        h += 1;
+                    }
+                    let fx = x as f32;
+                    let fz = z as f32;
+                    let fy = y as f32;
+                    let u1 = w as f32;
+                    let v1 = h as f32;
+                    let mb = builds.entry(codev.0).or_default();
+                    let lv = codev.1;
+                    let rgba = [lv, lv, lv, 255];
+                    mb.add_quad(
+                        Vector3::new(fx, fy, fz),
+                        Vector3::new(fx, fy, fz + v1),
+                        Vector3::new(fx + u1, fy, fz + v1),
+                        Vector3::new(fx + u1, fy, fz),
+                        Vector3::new(0.0, -1.0, 0.0),
+                        u1,
+                        v1,
+                        true,
+                        rgba,
+                    );
+                    for zz in 0..h {
+                        for xx in 0..w {
+                            used[(z + zz) * sx + (x + xx)] = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // +X faces
+    for x in 0..sx {
+        let mut mask: Vec<Option<(FaceMaterial, u8)>> = vec![None; sy * sz];
+        for z in 0..sz {
+            for y in 0..sy {
+                let here = buf.get_local(x, y, z);
+                if here.is_solid() {
+                    let neigh = solid_local(buf, x as i32 + 1, y as i32, z as i32);
+                    if !neigh {
+                        if let Some(fm) = face_material_for(here, 2) {
+                            let l = face_light(2, ambient);
+                            mask[y * sz + z] = Some((fm, l));
+                        }
+                    }
+                }
+            }
+        }
+        let mut used = vec![false; sy * sz];
+        for z in 0..sz {
+            for y in 0..sy {
+                let code = mask[y * sz + z];
+                if code.is_none() || used[y * sz + z] {
+                    continue;
+                }
+                let codev = code.unwrap();
+                let mut h = 1;
+                while y + h < sy && mask[(y + h) * sz + z] == code && !used[(y + h) * sz + z] {
+                    h += 1;
+                }
+                let mut w = 1;
+                'expand: while z + w < sz {
+                    for i in 0..h {
+                        if mask[(y + i) * sz + (z + w)] != code || used[(y + i) * sz + (z + w)]
+                        {
+                            break 'expand;
+                        }
+                    }
+                    w += 1;
+                }
+                let fx = (x as f32) + 1.0;
+                let fy = y as f32;
+                let fz = z as f32;
+                let u1 = w as f32;
+                let v1 = h as f32;
+                let mb = builds.entry(codev.0).or_default();
+                let lv = codev.1;
+                let rgba = [lv, lv, lv, 255];
+                mb.add_quad(
+                    Vector3::new(fx, fy, fz),
+                    Vector3::new(fx, fy + v1, fz),
+                    Vector3::new(fx, fy + v1, fz + u1),
+                    Vector3::new(fx, fy, fz + u1),
+                    Vector3::new(1.0, 0.0, 0.0),
+                    u1,
+                    v1,
+                    false,
+                    rgba,
+                );
+                for zz in 0..w {
+                    for yy in 0..h {
+                        used[(y + yy) * sz + (z + zz)] = true;
+                    }
+                }
+            }
+        }
+    }
+
+    // -X faces
+    for x in 0..sx {
+        let mut mask: Vec<Option<(FaceMaterial, u8)>> = vec![None; sy * sz];
+        for z in 0..sz {
+            for y in 0..sy {
+                let here = buf.get_local(x, y, z);
+                if here.is_solid() {
+                    let neigh = solid_local(buf, x as i32 - 1, y as i32, z as i32);
+                    if !neigh {
+                        if let Some(fm) = face_material_for(here, 3) {
+                            let l = face_light(3, ambient);
+                            mask[y * sz + z] = Some((fm, l));
+                        }
+                    }
+                }
+            }
+        }
+        let mut used = vec![false; sy * sz];
+        for z in 0..sz {
+            for y in 0..sy {
+                let code = mask[y * sz + z];
+                if code.is_none() || used[y * sz + z] {
+                    continue;
+                }
+                let codev = code.unwrap();
+                let mut h = 1;
+                while y + h < sy && mask[(y + h) * sz + z] == code && !used[(y + h) * sz + z] {
+                    h += 1;
+                }
+                let mut w = 1;
+                'expand: while z + w < sz {
+                    for i in 0..h {
+                        if mask[(y + i) * sz + (z + w)] != code || used[(y + i) * sz + (z + w)]
+                        {
+                            break 'expand;
+                        }
+                    }
+                    w += 1;
+                }
+                let fx = x as f32;
+                let fy = y as f32;
+                let fz = z as f32;
+                let u1 = w as f32;
+                let v1 = h as f32;
+                let mb = builds.entry(codev.0).or_default();
+                let lv = codev.1;
+                let rgba = [lv, lv, lv, 255];
+                mb.add_quad(
+                    Vector3::new(fx, fy, fz),
+                    Vector3::new(fx, fy, fz + u1),
+                    Vector3::new(fx, fy + v1, fz + u1),
+                    Vector3::new(fx, fy + v1, fz),
+                    Vector3::new(-1.0, 0.0, 0.0),
+                    u1,
+                    v1,
+                    true,
+                    rgba,
+                );
+                for zz in 0..w {
+                    for yy in 0..h {
+                        used[(y + yy) * sz + (z + zz)] = true;
+                    }
+                }
+            }
+        }
+    }
+
+    // +Z faces
+    for z in 0..sz {
+        let mut mask: Vec<Option<(FaceMaterial, u8)>> = vec![None; sy * sx];
+        for x in 0..sx {
+            for y in 0..sy {
+                let here = buf.get_local(x, y, z);
+                if here.is_solid() {
+                    let neigh = solid_local(buf, x as i32, y as i32, z as i32 + 1);
+                    if !neigh {
+                        if let Some(fm) = face_material_for(here, 4) {
+                            let l = face_light(4, ambient);
+                            mask[y * sx + x] = Some((fm, l));
+                        }
+                    }
+                }
+            }
+        }
+        let mut used = vec![false; sy * sx];
+        for x in 0..sx {
+            for y in 0..sy {
+                let code = mask[y * sx + x];
+                if code.is_none() || used[y * sx + x] {
+                    continue;
+                }
+                let codev = code.unwrap();
+                let mut h = 1;
+                while y + h < sy && mask[(y + h) * sx + x] == code && !used[(y + h) * sx + x] {
+                    h += 1;
+                }
+                let mut w = 1;
+                'expand: while x + w < sx {
+                    for i in 0..h {
+                        if mask[(y + i) * sx + (x + w)] != code || used[(y + i) * sx + (x + w)]
+                        {
+                            break 'expand;
+                        }
+                    }
+                    w += 1;
+                }
+                let fx = x as f32;
+                let fy = y as f32;
+                let fz = (z as f32) + 1.0;
+                let u1 = w as f32;
+                let v1 = h as f32;
+                let mb = builds.entry(codev.0).or_default();
+                let lv = codev.1;
+                let rgba = [lv, lv, lv, 255];
+                mb.add_quad(
+                    Vector3::new(fx, fy, fz),
+                    Vector3::new(fx + u1, fy, fz),
+                    Vector3::new(fx + u1, fy + v1, fz),
+                    Vector3::new(fx, fy + v1, fz),
+                    Vector3::new(0.0, 0.0, 1.0),
+                    u1,
+                    v1,
+                    false,
+                    rgba,
+                );
+                for xx in 0..w {
+                    for yy in 0..h {
+                        used[(y + yy) * sx + (x + xx)] = true;
+                    }
+                }
+            }
+        }
+    }
+
+    // -Z faces
+    for z in 0..sz {
+        let mut mask: Vec<Option<(FaceMaterial, u8)>> = vec![None; sy * sx];
+        for x in 0..sx {
+            for y in 0..sy {
+                let here = buf.get_local(x, y, z);
+                if here.is_solid() {
+                    let neigh = solid_local(buf, x as i32, y as i32, z as i32 - 1);
+                    if !neigh {
+                        if let Some(fm) = face_material_for(here, 5) {
+                            let l = face_light(5, ambient);
+                            mask[y * sx + x] = Some((fm, l));
+                        }
+                    }
+                }
+            }
+        }
+        let mut used = vec![false; sy * sx];
+        for x in 0..sx {
+            for y in 0..sy {
+                let code = mask[y * sx + x];
+                if code.is_none() || used[y * sx + x] {
+                    continue;
+                }
+                let codev = code.unwrap();
+                let mut h = 1;
+                while y + h < sy && mask[(y + h) * sx + x] == code && !used[(y + h) * sx + x] {
+                    h += 1;
+                }
+                let mut w = 1;
+                'expand: while x + w < sx {
+                    for i in 0..h {
+                        if mask[(y + i) * sx + (x + w)] != code || used[(y + i) * sx + (x + w)]
+                        {
+                            break 'expand;
+                        }
+                    }
+                    w += 1;
+                }
+                let fx = x as f32;
+                let fy = y as f32;
+                let fz = z as f32;
+                let u1 = w as f32;
+                let v1 = h as f32;
+                let mb = builds.entry(codev.0).or_default();
+                let lv = codev.1;
+                let rgba = [lv, lv, lv, 255];
+                mb.add_quad(
+                    Vector3::new(fx, fy, fz),
+                    Vector3::new(fx, fy + v1, fz),
+                    Vector3::new(fx + u1, fy + v1, fz),
+                    Vector3::new(fx + u1, fy, fz),
+                    Vector3::new(0.0, 0.0, -1.0),
+                    u1,
+                    v1,
+                    true,
+                    rgba,
+                );
+                for xx in 0..w {
+                    for yy in 0..h {
+                        used[(y + yy) * sx + (x + xx)] = true;
+                    }
+                }
+            }
+        }
+    }
+
+    let bbox = BoundingBox::new(
+        Vector3::new(0.0, 0.0, 0.0),
+        Vector3::new(sx as f32, sy as f32, sz as f32),
+    );
+    ChunkMeshCPU {
+        cx: 0,
+        cz: 0,
+        bbox,
+        parts: builds,
+    }
+}
+
 impl TextureCache {
     pub fn new() -> Self {
         Self {
