@@ -286,13 +286,17 @@ impl World {
         } else if y + 3 >= height { Block::Dirt } else { Block::Stone };
 
         // Simple static glowstone spawner (underground near air), low probability
+        // Avoid recursion: approximate "near air" using only the heightmap.
         if matches!(base_block, Block::Stone) && y > 3 && y < height - 2 {
-            // neighbor near air?
-            let mut near_air = false;
+            // A neighboring cell is air if its ny >= height_for(nx, nz)
             let dirs = [(1,0,0),(-1,0,0),(0,1,0),(0,-1,0),(0,0,1),(0,0,-1)];
-            for (dx,dy,dz) in dirs {
-                let nb = self.block_at(x+dx, y+dy, z+dz);
-                if matches!(nb, Block::Air) { near_air = true; break; }
+            let mut near_air = false;
+            for (dx, dy, dz) in dirs {
+                let nx = x + dx; let ny = y + dy; let nz = z + dz;
+                if ny >= self.chunk_size_y as i32 { near_air = true; break; }
+                if ny < 0 { continue; }
+                let nh = height_for(nx, nz);
+                if ny >= nh { near_air = true; break; }
             }
             if near_air {
                 let hash2 = |ix: i32, iz: i32, seed: u32| -> u32 {
