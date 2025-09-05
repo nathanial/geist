@@ -300,14 +300,19 @@ fn main() {
             }
 
             // Update leaves shader uniforms once per frame
+            // Depth-based fog color: white above ground, black underground
+            let surface_fog = [210.0/255.0, 221.0/255.0, 235.0/255.0];
+            let cave_fog = [0.0, 0.0, 0.0];
+            let world_h = world.world_size_y() as f32;
+            let underground_thr = 0.30_f32 * world_h; // simple depth cutoff
+            let underground = cam.position.y < underground_thr;
+            let fog_color = if underground { cave_fog } else { surface_fog };
             if let Some(ref mut ls) = leaves_shader {
-                let fog_color = [210.0/255.0, 221.0/255.0, 235.0/255.0];
                 let fog_start = 64.0f32;
                 let fog_end = 180.0f32;
                 ls.update_frame_uniforms(cam.position, fog_color, fog_start, fog_end);
             }
             if let Some(ref mut fs) = fog_shader {
-                let fog_color = [210.0/255.0, 221.0/255.0, 235.0/255.0];
                 let fog_start = 64.0f32;
                 let fog_end = 180.0f32;
                 fs.update_frame_uniforms(cam.position, fog_color, fog_start, fog_end);
