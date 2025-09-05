@@ -1,6 +1,6 @@
 use crate::voxel::{World, Block};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 pub struct LightGrid {
     sx: usize,
@@ -146,11 +146,12 @@ pub struct LightingStore {
     sy: usize,
     sz: usize,
     borders: Mutex<HashMap<(i32,i32), LightBorders>>, // keyed by (cx,cz)
+    emitters: Mutex<HashMap<(i32,i32), Vec<(usize,usize,usize,u8)>>>,
 }
 
 impl LightingStore {
     pub fn new(sx: usize, sy: usize, sz: usize) -> Self {
-        Self { sx, sy, sz, borders: Mutex::new(HashMap::new()) }
+        Self { sx, sy, sz, borders: Mutex::new(HashMap::new()), emitters: Mutex::new(HashMap::new()) }
     }
 
     pub fn get_neighbor_borders(&self, cx: i32, cz: i32) -> NeighborBorders {
@@ -174,6 +175,35 @@ impl LightingStore {
             }
             None => { map.insert((cx,cz), lb); true }
         }
+    }
+
+    pub fn add_emitter_world(&self, wx: i32, wy: i32, wz: i32, level: u8) {
+        if wy < 0 || wy >= self.sy as i32 { return; }
+        let sx = self.sx as i32; let sz = self.sz as i32;
+        let cx = wx.div_euclid(sx); let cz = wz.div_euclid(sz);
+        let lx = wx.rem_euclid(sx) as usize; let lz = wz.rem_euclid(sz) as usize; let ly = wy as usize;
+        let mut map = self.emitters.lock().unwrap();
+        let v = map.entry((cx,cz)).or_insert_with(Vec::new);
+        if !v.iter().any(|&(x,y,z,_): &(usize,usize,usize,u8)| x==lx && y==ly && z==lz) {
+            v.push((lx,ly,lz,level));
+        }
+    }
+
+    pub fn remove_emitter_world(&self, wx: i32, wy: i32, wz: i32) {
+        if wy < 0 || wy >= self.sy as i32 { return; }
+        let sx = self.sx as i32; let sz = self.sz as i32;
+        let cx = wx.div_euclid(sx); let cz = wz.div_euclid(sz);
+        let lx = wx.rem_euclid(sx) as usize; let lz = wz.rem_euclid(sz) as usize; let ly = wy as usize;
+        let mut map = self.emitters.lock().unwrap();
+        if let Some(v) = map.get_mut(&(cx,cz)) {
+            v.retain(|&(x,y,z,_): &(usize,usize,usize,u8)| !(x==lx && y==ly && z==lz));
+            if v.is_empty() { map.remove(&(cx,cz)); }
+        }
+    }
+
+    pub fn emitters_for_chunk(&self, cx: i32, cz: i32) -> Vec<(usize,usize,usize,u8)> {
+        let map = self.emitters.lock().unwrap();
+        map.get(&(cx,cz)).cloned().unwrap_or_default()
     }
 }
 
@@ -221,6 +251,11 @@ impl LightGrid {
             let em = b.emission();
             if em > 0 { let idx = lg.idx(x,y,z); lg.block_light[idx] = em; q.push_back((x,y,z,em)); }
         }}}
+        // Dynamic emitters from store
+        for (x,y,z,level) in store.emitters_for_chunk(cx, cz) {
+            let idx = lg.idx(x,y,z);
+            if lg.block_light[idx] < level { lg.block_light[idx] = level; q.push_back((x,y,z,level)); }
+        }
         // Seed from neighbor borders (attenuate by 32 across boundary)
         let nb = store.get_neighbor_borders(cx, cz);
         let atten: i32 = 32;

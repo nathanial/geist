@@ -108,6 +108,23 @@ fn main() {
         if rl.is_key_pressed(KeyboardKey::KEY_B) {
             show_chunk_bounds = !show_chunk_bounds;
         }
+        // Place/remove dynamic emitter at a point in front of the camera
+        if rl.is_key_pressed(KeyboardKey::KEY_L) {
+            let fwd = cam.forward();
+            let p = cam.position + fwd * 4.0;
+            let wx = p.x.floor() as i32; let wy = p.y.floor() as i32; let wz = p.z.floor() as i32;
+            lighting_store.add_emitter_world(wx, wy, wz, 255);
+            let cx = wx.div_euclid(chunk_size_x as i32); let cz = wz.div_euclid(chunk_size_z as i32);
+            if !pending.contains(&(cx,cz)) { let _ = job_tx.send((cx,cz)); pending.insert((cx,cz)); }
+        }
+        if rl.is_key_pressed(KeyboardKey::KEY_K) {
+            let fwd = cam.forward();
+            let p = cam.position + fwd * 4.0;
+            let wx = p.x.floor() as i32; let wy = p.y.floor() as i32; let wz = p.z.floor() as i32;
+            lighting_store.remove_emitter_world(wx, wy, wz);
+            let cx = wx.div_euclid(chunk_size_x as i32); let cz = wz.div_euclid(chunk_size_z as i32);
+            if !pending.contains(&(cx,cz)) { let _ = job_tx.send((cx,cz)); pending.insert((cx,cz)); }
+        }
 
         // Update streaming set based on camera position
         let cam_pos = cam.position;
@@ -244,7 +261,7 @@ fn main() {
             }
         }
 
-        d.draw_text("Voxel view: Tab capture, WASD+QE fly, F wireframe, G grid, B chunk bounds", 12, 12, 18, Color::DARKGRAY);
+        d.draw_text("Voxel view: Tab capture, WASD+QE fly, F wireframe, G grid, B chunk bounds, L add light, K remove light", 12, 12, 18, Color::DARKGRAY);
         d.draw_fps(12, 36);
     }
 }
