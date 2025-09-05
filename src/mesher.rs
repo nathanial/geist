@@ -1,4 +1,4 @@
-use crate::voxel::{Block, TreeSpecies};
+use crate::voxel::{Block, TreeSpecies, World};
 use crate::lighting::{LightGrid, LightingStore, LightBorders};
 use crate::chunkbuf::ChunkBuf;
 use raylib::prelude::*;
@@ -137,14 +137,38 @@ fn face_material_for(block: Block, face: usize) -> Option<FaceMaterial> {
 
 // world-based occluder test removed; occlusion uses only local chunk buffers.
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NeighborsLoaded {
+    pub neg_x: bool, // west  (cx-1, cz)
+    pub pos_x: bool, // east  (cx+1, cz)
+    pub neg_z: bool, // north (cx, cz-1)
+    pub pos_z: bool, // south (cx, cz+1)
+}
+
 #[inline]
-fn is_occluder_local(buf: &ChunkBuf, here: Block, nx: i32, ny: i32, nz: i32) -> bool {
+fn is_occluder(buf: &ChunkBuf, world: &World, nmask: NeighborsLoaded, here: Block, nx: i32, ny: i32, nz: i32) -> bool {
     if !here.is_solid() { return false; }
-    // Only consider occlusion inside this chunk; outside is treated as air (tight coupling)
-    if !buf.contains_world(nx, ny, nz) { return false; }
-    let x0 = buf.cx * buf.sx as i32; let z0 = buf.cz * buf.sz as i32;
-    let lx = (nx - x0) as usize; let ly = ny as usize; let lz = (nz - z0) as usize;
-    buf.get_local(lx, ly, lz).is_solid()
+    // Check inside this chunk first
+    if buf.contains_world(nx, ny, nz) {
+        let x0 = buf.cx * buf.sx as i32; let z0 = buf.cz * buf.sz as i32;
+        if ny < 0 || ny >= buf.sy as i32 { return false; }
+        let lx = (nx - x0) as usize; let ly = ny as usize; let lz = (nz - z0) as usize;
+        return buf.get_local(lx, ly, lz).is_solid();
+    }
+    // Outside current chunk: only occlude if the corresponding neighbor chunk is loaded; otherwise treat as air
+    let x0 = buf.cx * buf.sx as i32;
+    let z0 = buf.cz * buf.sz as i32;
+    let x1 = x0 + buf.sx as i32;
+    let z1 = z0 + buf.sz as i32;
+    let mut neighbor_loaded = false;
+    if nx < x0 { neighbor_loaded = nmask.neg_x; }
+    else if nx >= x1 { neighbor_loaded = nmask.pos_x; }
+    else if nz < z0 { neighbor_loaded = nmask.neg_z; }
+    else if nz >= z1 { neighbor_loaded = nmask.pos_z; }
+    // Y outside world or not strictly an adjacent chunk border: treat as air
+    if !neighbor_loaded { return false; }
+    // Query world deterministically for neighbor block
+    world.block_at(nx, ny, nz).is_solid()
 }
 
 pub struct ChunkRender {
@@ -166,6 +190,8 @@ pub struct ChunkMeshCPU {
 pub fn build_chunk_greedy_cpu_buf(
     buf: &ChunkBuf,
     lighting: Option<&LightingStore>,
+    world: &World,
+    neighbors: NeighborsLoaded,
     cx: i32,
     cz: i32,
 ) -> Option<ChunkMeshCPU> {
@@ -185,7 +211,7 @@ pub fn build_chunk_greedy_cpu_buf(
                 let here = buf.get_local(x,y,z);
                 if here.is_solid() {
                     let gx = base_x + x as i32; let gz = base_z + z as i32;
-                    let neigh = is_occluder_local(buf, here, gx, (y as i32) + 1, gz);
+                    let neigh = is_occluder(buf, world, neighbors, here, gx, (y as i32) + 1, gz);
                     if !neigh { if let Some(fm) = face_material_for(here, 0) { let l = light.sample_face_local(x, y, z, 0); mask[z * sx + x] = Some((fm, l)); } }
                 }
             }}
@@ -211,7 +237,7 @@ pub fn build_chunk_greedy_cpu_buf(
                 let here = buf.get_local(x,y,z);
                 if here.is_solid() {
                     let gx = base_x + x as i32; let gz = base_z + z as i32;
-                    let neigh = is_occluder_local(buf, here, gx, (y as i32) - 1, gz);
+                    let neigh = is_occluder(buf, world, neighbors, here, gx, (y as i32) - 1, gz);
                     if !neigh { if let Some(fm) = face_material_for(here, 1) { let l = light.sample_face_local(x, y, z, 1); mask[z * sx + x] = Some((fm, l)); } }
                 }
             }}
@@ -240,7 +266,7 @@ pub fn build_chunk_greedy_cpu_buf(
                 let here = buf.get_local(x,y,z);
                 if here.is_solid() {
                     let gx = base_x + x as i32; let gz = base_z + z as i32; let gy = y as i32;
-                    let neigh = if pos { is_occluder_local(buf, here, gx+1, gy, gz) } else { is_occluder_local(buf, here, gx-1, gy, gz) };
+                    let neigh = if pos { is_occluder(buf, world, neighbors, here, gx+1, gy, gz) } else { is_occluder(buf, world, neighbors, here, gx-1, gy, gz) };
                     if !neigh { if let Some(fm) = face_material_for(here, if pos { 2 } else { 3 }) { let l = light.sample_face_local(x, y, z, if pos { 2 } else { 3 }); mask[y * sz + z] = Some((fm, l)); } }
                 }
             }}
@@ -274,7 +300,7 @@ pub fn build_chunk_greedy_cpu_buf(
                 let here = buf.get_local(x,y,z);
                 if here.is_solid() {
                     let gx = base_x + x as i32; let gz = base_z + z as i32; let gy = y as i32;
-                    let neigh = if pos { is_occluder_local(buf, here, gx, gy, gz+1) } else { is_occluder_local(buf, here, gx, gy, gz-1) };
+                    let neigh = if pos { is_occluder(buf, world, neighbors, here, gx, gy, gz+1) } else { is_occluder(buf, world, neighbors, here, gx, gy, gz-1) };
                     if !neigh { if let Some(fm) = face_material_for(here, if pos { 4 } else { 5 }) { let l = light.sample_face_local(x, y, z, if pos { 4 } else { 5 }); mask[y * sx + x] = Some((fm, l)); } }
                 }
             }}

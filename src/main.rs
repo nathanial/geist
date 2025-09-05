@@ -10,7 +10,7 @@ use camera::FlyCamera;
 use raylib::prelude::*;
 use raylib::core::texture::Image;
 use voxel::World;
-use mesher::{FaceMaterial, build_chunk_greedy_cpu_buf, upload_chunk_mesh, ChunkMeshCPU, TextureCache};
+use mesher::{FaceMaterial, build_chunk_greedy_cpu_buf, upload_chunk_mesh, ChunkMeshCPU, TextureCache, NeighborsLoaded};
 use voxel::TreeSpecies;
 use lighting::LightingStore;
 // Frustum culling removed for stability
@@ -65,22 +65,24 @@ fn main() {
     let mut last_center_chunk: (i32, i32) = (i32::MIN, i32::MIN);
 
     // Mesh worker threads
-    let (job_tx, job_rx) = mpsc::channel::<(i32,i32)>();
+    #[derive(Clone, Copy, Debug)]
+    struct BuildJob { cx: i32, cz: i32, neighbors: NeighborsLoaded }
+    let (job_tx, job_rx) = mpsc::channel::<BuildJob>();
     struct JobOut { cpu: ChunkMeshCPU, buf: chunkbuf::ChunkBuf }
     let (res_tx, res_rx) = mpsc::channel::<JobOut>();
     let worker_count: usize = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8);
     // Per‑worker channels
-    let mut worker_txs: Vec<mpsc::Sender<(i32,i32)>> = Vec::with_capacity(worker_count);
+    let mut worker_txs: Vec<mpsc::Sender<BuildJob>> = Vec::with_capacity(worker_count);
     for _ in 0..worker_count {
-        let (wtx, wrx) = mpsc::channel::<(i32,i32)>();
+        let (wtx, wrx) = mpsc::channel::<BuildJob>();
         worker_txs.push(wtx);
         let tx = res_tx.clone();
         let w = world.clone();
         let ls = lighting_store.clone();
         thread::spawn(move || {
-            while let Ok((cx, cz)) = wrx.recv() {
-                let buf = chunkbuf::generate_chunk_buffer(&w, cx, cz);
-                if let Some(cpu) = build_chunk_greedy_cpu_buf(&buf, Some(&ls), cx, cz) {
+            while let Ok(job) = wrx.recv() {
+                let buf = chunkbuf::generate_chunk_buffer(&w, job.cx, job.cz);
+                if let Some(cpu) = build_chunk_greedy_cpu_buf(&buf, Some(&ls), &w, job.neighbors, job.cx, job.cz) {
                     let _ = tx.send(JobOut { cpu, buf });
                 }
             }
@@ -154,7 +156,16 @@ fn main() {
             let wx = p.x.floor() as i32; let wy = p.y.floor() as i32; let wz = p.z.floor() as i32;
             lighting_store.add_emitter_world(wx, wy, wz, 255);
             let cx = wx.div_euclid(chunk_size_x as i32); let cz = wz.div_euclid(chunk_size_z as i32);
-            if !pending.contains(&(cx,cz)) { let _ = job_tx.send((cx,cz)); pending.insert((cx,cz)); }
+            if !pending.contains(&(cx,cz)) {
+                let nmask = NeighborsLoaded {
+                    neg_x: loaded.contains_key(&(cx-1,cz)),
+                    pos_x: loaded.contains_key(&(cx+1,cz)),
+                    neg_z: loaded.contains_key(&(cx,cz-1)),
+                    pos_z: loaded.contains_key(&(cx,cz+1)),
+                };
+                let _ = job_tx.send(BuildJob { cx, cz, neighbors: nmask });
+                pending.insert((cx,cz));
+            }
         }
         if rl.is_key_pressed(KeyboardKey::KEY_K) {
             let fwd = cam.forward();
@@ -162,7 +173,16 @@ fn main() {
             let wx = p.x.floor() as i32; let wy = p.y.floor() as i32; let wz = p.z.floor() as i32;
             lighting_store.remove_emitter_world(wx, wy, wz);
             let cx = wx.div_euclid(chunk_size_x as i32); let cz = wz.div_euclid(chunk_size_z as i32);
-            if !pending.contains(&(cx,cz)) { let _ = job_tx.send((cx,cz)); pending.insert((cx,cz)); }
+            if !pending.contains(&(cx,cz)) {
+                let nmask = NeighborsLoaded {
+                    neg_x: loaded.contains_key(&(cx-1,cz)),
+                    pos_x: loaded.contains_key(&(cx+1,cz)),
+                    neg_z: loaded.contains_key(&(cx,cz-1)),
+                    pos_z: loaded.contains_key(&(cx,cz+1)),
+                };
+                let _ = job_tx.send(BuildJob { cx, cz, neighbors: nmask });
+                pending.insert((cx,cz));
+            }
         }
 
         // Update streaming set based on camera position
@@ -190,7 +210,14 @@ fn main() {
                 // Load new chunks
                 for key in desired {
                     if !loaded.contains_key(&key) && !pending.contains(&key) {
-                        let _ = job_tx.send(key);
+                        let (cx, cz) = key;
+                        let nmask = NeighborsLoaded {
+                            neg_x: loaded.contains_key(&(cx-1,cz)),
+                            pos_x: loaded.contains_key(&(cx+1,cz)),
+                            neg_z: loaded.contains_key(&(cx,cz-1)),
+                            pos_z: loaded.contains_key(&(cx,cz+1)),
+                        };
+                        let _ = job_tx.send(BuildJob { cx, cz, neighbors: nmask });
                         pending.insert(key);
                     }
                 }
@@ -297,7 +324,17 @@ fn main() {
             pending.remove(&key);
             for nk in neighbors.iter() {
                 if !loaded.contains_key(nk) && !pending.contains(nk) { continue; }
-                if !pending.contains(nk) { let _ = job_tx.send(*nk); pending.insert(*nk); }
+                if !pending.contains(nk) {
+                    let (cx, cz) = *nk;
+                    let nmask = NeighborsLoaded {
+                        neg_x: loaded.contains_key(&(cx-1,cz)),
+                        pos_x: loaded.contains_key(&(cx+1,cz)),
+                        neg_z: loaded.contains_key(&(cx,cz-1)),
+                        pos_z: loaded.contains_key(&(cx,cz+1)),
+                    };
+                    let _ = job_tx.send(BuildJob { cx, cz, neighbors: nmask });
+                    pending.insert(*nk);
+                }
             }
         }
 
