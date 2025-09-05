@@ -285,6 +285,120 @@ impl World {
             else { Block::Grass }
         } else if y + 3 >= height { Block::Dirt } else { Block::Stone };
 
+        // --- Cave carving (deterministic, noise-derived, no cross-chunk coordination) ---
+        // Ported from old rastergeist-c (wg_should_carve): tunnels from warped 3D noise;
+        // rooms from Worley F1. Carving only affects solid blocks sufficiently below surface.
+        if matches!(base_block, Block::Stone | Block::Dirt | Block::Sand | Block::Snow | Block::Glowstone) {
+            // Parameters mirrored from old codegen defaults
+            const Y_SCALE: f32 = 1.6;          // vertical scaling for tunnel field
+            const EPS_BASE: f32 = 0.04;        // base tunnel band half-width
+            const EPS_ADD: f32 = 0.08;         // additional width with depth
+            const WARP_XY: f32 = 5.0;          // warp strength in X/Z
+            const WARP_Y: f32 = 2.5;           // warp strength in Y
+            const ROOM_CELL: f32 = 120.0;      // worley cell size for rooms
+            const ROOM_THR_BASE: f32 = 0.12;   // base room threshold
+            const ROOM_THR_ADD: f32 = 0.12;    // additional with depth
+            const SOIL_MIN: f32 = 3.5;         // don't carve within ~3.5 blocks of surface
+            const MIN_Y: f32 = 2.0;            // avoid near bedrock
+
+            // Depth from surface (float)
+            let h = height as f32; // our height is already clamped to world ceiling
+            let wy = y as f32;
+            let soil = h - wy;
+
+            if soil > SOIL_MIN && wy > MIN_Y {
+                // Normalized depth factor in [0,1]
+                let mut depth_factor = soil / (self.chunk_size_y as f32);
+                if depth_factor < 0.0 { depth_factor = 0.0; }
+                if depth_factor > 1.0 { depth_factor = 1.0; }
+
+                // Local helpers (manual fBm normalized to [-1,1])
+                let fractal3 = |n: &FastNoiseLite, x: f32, y: f32, z: f32,
+                                 oct: i32, persistence: f32, lacunarity: f32, scale: f32| -> f32 {
+                    let mut amp = 1.0_f32;
+                    let mut freq = 1.0_f32 / scale.max(0.0001);
+                    let mut sum = 0.0_f32;
+                    let mut max_amp = 0.0_f32;
+                    for _ in 0..oct.max(1) {
+                        sum += n.get_noise_3d(x * freq, y * freq, z * freq) * amp;
+                        max_amp += amp;
+                        amp *= persistence;
+                        freq *= lacunarity;
+                    }
+                    if max_amp > 0.0 { sum / max_amp } else { sum }
+                };
+
+                // Hash utilities for Worley
+                let uhash32 = |mut a: u32| -> u32 { a ^= a >> 16; a = a.wrapping_mul(0x7feb_352d); a ^= a >> 15; a = a.wrapping_mul(0x846c_a68b); a ^= a >> 16; a };
+                let hash3 = |x: i32, y: i32, z: i32, seed: u32| -> u32 {
+                    let ux = x as u32; let uy = y as u32; let uz = z as u32;
+                    let mut h = seed ^ 0x9e37_79b9;
+                    h ^= uhash32(ux.wrapping_add(0x85eb_ca6b));
+                    h ^= uhash32(uy.wrapping_add(0xc2b2_ae35));
+                    h ^= uhash32(uz.wrapping_add(0x27d4_eb2f));
+                    uhash32(h)
+                };
+                let rand01_cell = |cx: i32, cy: i32, cz: i32, salt: u32| -> f32 {
+                    let h = hash3(cx, cy, cz, salt);
+                    (h & 0x00FF_FFFF) as f32 / 16_777_216.0
+                };
+                let worley3_f1_norm = |x: f32, y: f32, z: f32, cell: f32, seed: u32| -> f32 {
+                    let cell = if cell <= 0.0001 { 1.0 } else { cell };
+                    let px = x / cell; let py = y / cell; let pz = z / cell;
+                    let ix = px.floor() as i32; let iy = py.floor() as i32; let iz = pz.floor() as i32;
+                    let fx = px - ix as f32; let fy = py - iy as f32; let fz = pz - iz as f32;
+                    let mut min_d2 = f32::INFINITY;
+                    for dz in -1..=1 { for dy in -1..=1 { for dx in -1..=1 {
+                        let cx = ix + dx; let cy = iy + dy; let cz = iz + dz;
+                        let jx = rand01_cell(cx, cy, cz, seed ^ 0x068b_c021);
+                        let jy = rand01_cell(cx, cy, cz, seed ^ 0x02e1_b213);
+                        let jz = rand01_cell(cx, cy, cz, seed ^ 0x097c_29f7);
+                        let vx = dx as f32 + jx - fx;
+                        let vy = dy as f32 + jy - fy;
+                        let vz = dz as f32 + jz - fz;
+                        let d2 = vx * vx + vy * vy + vz * vz;
+                        if d2 < min_d2 { min_d2 = d2; }
+                    }}}
+                    let d = min_d2.sqrt();
+                    let half_diag = 0.866_025_4_f32; // sqrt(3)/2
+                    let mut norm = d / half_diag;
+                    if norm < 0.0 { norm = 0.0; }
+                    if norm > 1.0 { norm = 1.0; }
+                    norm
+                };
+
+                // Noise fields (seeded deterministically from world seed)
+                let mut n_warp = FastNoiseLite::with_seed(self.seed ^ 2100);
+                n_warp.set_noise_type(Some(NoiseType::OpenSimplex2));
+                let mut n_tun = FastNoiseLite::with_seed(self.seed ^ 2101);
+                n_tun.set_noise_type(Some(NoiseType::OpenSimplex2));
+
+                // Warped sample positions
+                let wx = x as f32; let wyf = wy; let wz = z as f32;
+                let wxw = fractal3(&n_warp, wx, wyf, wz, 3, 0.6, 2.0, 220.0);
+                let wyw = fractal3(&n_warp, wx + 133.7, wyf + 71.3, wz - 19.1, 3, 0.6, 2.0, 220.0);
+                let wzw = fractal3(&n_warp, wx - 54.2, wyf + 29.7, wz + 88.8, 3, 0.6, 2.0, 220.0);
+                let wxp = wx + wxw * WARP_XY;
+                let wyp = wyf + wyw * WARP_Y;
+                let wzp = wz + wzw * WARP_XY;
+
+                // Tunnels: |tn| < eps (eps increases with depth)
+                let tn = fractal3(&n_tun, wxp, (wyp) * Y_SCALE, wzp, 4, 0.55, 2.0, 140.0);
+                let eps = EPS_BASE + EPS_ADD * depth_factor;
+                let carve_tunnel = tn.abs() < eps;
+
+                // Rooms: Worley F1 below threshold that increases with depth
+                let worley_seed = ((self.seed as u32) ^ 2100u32).wrapping_add(1337);
+                let wn = worley3_f1_norm(wxp, wyp, wzp, ROOM_CELL, worley_seed);
+                let room_thr = ROOM_THR_BASE + ROOM_THR_ADD * depth_factor;
+                let carve_room = wn < room_thr;
+
+                if carve_tunnel || carve_room {
+                    base_block = Block::Air;
+                }
+            }
+        }
+
         // Simple static glowstone spawner (underground near air), low probability
         // Avoid recursion: approximate "near air" using only the heightmap.
         if matches!(base_block, Block::Stone) && y > 3 && y < height - 2 {
