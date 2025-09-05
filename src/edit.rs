@@ -1,17 +1,15 @@
 use crate::voxel::Block;
 use std::collections::HashMap;
-use std::sync::RwLock;
-use std::sync::atomic::{AtomicU64, Ordering};
 
 pub struct EditStore {
     sx: i32,
     sz: i32,
     // Map per-chunk: key=(cx,cz) -> map of world coords -> Block
-    inner: RwLock<HashMap<(i32, i32), HashMap<(i32, i32, i32), Block>>>,
+    inner: HashMap<(i32, i32), HashMap<(i32, i32, i32), Block>>,
     // Change-tracking
-    rev: RwLock<HashMap<(i32, i32), u64>>, // latest requested change affecting chunk
-    built: RwLock<HashMap<(i32, i32), u64>>, // last built rev for chunk
-    counter: AtomicU64,
+    rev: HashMap<(i32, i32), u64>, // latest requested change affecting chunk
+    built: HashMap<(i32, i32), u64>, // last built rev for chunk
+    counter: u64,
 }
 
 impl EditStore {
@@ -19,10 +17,10 @@ impl EditStore {
         Self {
             sx,
             sz,
-            inner: RwLock::new(HashMap::new()),
-            rev: RwLock::new(HashMap::new()),
-            built: RwLock::new(HashMap::new()),
-            counter: AtomicU64::new(0),
+            inner: HashMap::new(),
+            rev: HashMap::new(),
+            built: HashMap::new(),
+            counter: 0,
         }
     }
 
@@ -33,24 +31,21 @@ impl EditStore {
 
     pub fn get(&self, wx: i32, wy: i32, wz: i32) -> Option<Block> {
         let k = self.chunk_key(wx, wz);
-        let g = self.inner.read().ok()?;
-        g.get(&k).and_then(|m| m.get(&(wx, wy, wz)).copied())
+        self.inner
+            .get(&k)
+            .and_then(|m| m.get(&(wx, wy, wz)).copied())
     }
 
-    pub fn set(&self, wx: i32, wy: i32, wz: i32, b: Block) {
+    pub fn set(&mut self, wx: i32, wy: i32, wz: i32, b: Block) {
         let k = self.chunk_key(wx, wz);
-        if let Ok(mut g) = self.inner.write() {
-            let entry = g.entry(k).or_insert_with(HashMap::new);
-            entry.insert((wx, wy, wz), b);
-        }
+        let entry = self.inner.entry(k).or_insert_with(HashMap::new);
+        entry.insert((wx, wy, wz), b);
     }
 
     // Snapshot of all edits for a specific chunk
     pub fn snapshot_for_chunk(&self, cx: i32, cz: i32) -> Vec<((i32, i32, i32), Block)> {
-        if let Ok(g) = self.inner.read() {
-            if let Some(m) = g.get(&(cx, cz)) {
-                return m.iter().map(|(k, v)| (*k, *v)).collect();
-            }
+        if let Some(m) = self.inner.get(&(cx, cz)) {
+            return m.iter().map(|(k, v)| (*k, *v)).collect();
         }
         Vec::new()
     }
@@ -63,14 +58,12 @@ impl EditStore {
         radius: i32,
     ) -> Vec<((i32, i32, i32), Block)> {
         let mut out = Vec::new();
-        if let Ok(g) = self.inner.read() {
-            for dz in -radius..=radius {
-                for dx in -radius..=radius {
-                    let k = (cx + dx, cz + dz);
-                    if let Some(m) = g.get(&k) {
-                        for (k2, v) in m.iter() {
-                            out.push((*k2, *v));
-                        }
+        for dz in -radius..=radius {
+            for dx in -radius..=radius {
+                let k = (cx + dx, cz + dz);
+                if let Some(m) = self.inner.get(&k) {
+                    for (k2, v) in m.iter() {
+                        out.push((*k2, *v));
                     }
                 }
             }
@@ -79,48 +72,31 @@ impl EditStore {
     }
 
     // Change-tracking API
-    pub fn bump_region_around(&self, wx: i32, wz: i32) -> u64 {
-        let stamp = self.counter.fetch_add(1, Ordering::SeqCst) + 1;
+    pub fn bump_region_around(&mut self, wx: i32, wz: i32) -> u64 {
+        self.counter = self.counter.wrapping_add(1).max(1);
+        let stamp = self.counter;
         let (cx, cz) = self.chunk_key(wx, wz);
-        if let Ok(mut r) = self.rev.write() {
-            // Only bump the chunk that was directly edited and its immediate neighbors
-            // if the edit is near a chunk boundary (within 1 block of edge)
-            let x0 = cx * self.sx;
-            let z0 = cz * self.sz;
-            let lx = wx - x0;
-            let lz = wz - z0;
+        // Only bump the chunk that was directly edited and its immediate neighbors
+        // if the edit is near a chunk boundary (within 1 block of edge)
+        let x0 = cx * self.sx;
+        let z0 = cz * self.sz;
+        let lx = wx - x0;
+        let lz = wz - z0;
 
-            // Always bump the current chunk
-            r.insert((cx, cz), stamp);
+        // Always bump the current chunk
+        self.rev.insert((cx, cz), stamp);
 
-            // Check if near chunk boundaries and bump neighbors accordingly
-            if lx == 0 {
-                r.insert((cx - 1, cz), stamp);
-            }
-            if lx == self.sx - 1 {
-                r.insert((cx + 1, cz), stamp);
-            }
-            if lz == 0 {
-                r.insert((cx, cz - 1), stamp);
-            }
-            if lz == self.sz - 1 {
-                r.insert((cx, cz + 1), stamp);
-            }
+        // Check if near chunk boundaries and bump neighbors accordingly
+        if lx == 0 { self.rev.insert((cx - 1, cz), stamp); }
+        if lx == self.sx - 1 { self.rev.insert((cx + 1, cz), stamp); }
+        if lz == 0 { self.rev.insert((cx, cz - 1), stamp); }
+        if lz == self.sz - 1 { self.rev.insert((cx, cz + 1), stamp); }
 
-            // Check corners
-            if lx == 0 && lz == 0 {
-                r.insert((cx - 1, cz - 1), stamp);
-            }
-            if lx == 0 && lz == self.sz - 1 {
-                r.insert((cx - 1, cz + 1), stamp);
-            }
-            if lx == self.sx - 1 && lz == 0 {
-                r.insert((cx + 1, cz - 1), stamp);
-            }
-            if lx == self.sx - 1 && lz == self.sz - 1 {
-                r.insert((cx + 1, cz + 1), stamp);
-            }
-        }
+        // Check corners
+        if lx == 0 && lz == 0 { self.rev.insert((cx - 1, cz - 1), stamp); }
+        if lx == 0 && lz == self.sz - 1 { self.rev.insert((cx - 1, cz + 1), stamp); }
+        if lx == self.sx - 1 && lz == 0 { self.rev.insert((cx + 1, cz - 1), stamp); }
+        if lx == self.sx - 1 && lz == self.sz - 1 { self.rev.insert((cx + 1, cz + 1), stamp); }
         stamp
     }
 
@@ -168,21 +144,13 @@ impl EditStore {
     }
 
     pub fn get_rev(&self, cx: i32, cz: i32) -> u64 {
-        self.rev
-            .read()
-            .ok()
-            .and_then(|m| m.get(&(cx, cz)).copied())
-            .unwrap_or(0)
+        self.rev.get(&(cx, cz)).copied().unwrap_or(0)
     }
 
-    pub fn mark_built(&self, cx: i32, cz: i32, rev: u64) {
-        if let Ok(mut b) = self.built.write() {
-            // Only update if this is a newer revision
-            let e = b.entry((cx, cz)).or_insert(0);
-            if rev > *e {
-                *e = rev;
-            }
-        }
+    pub fn mark_built(&mut self, cx: i32, cz: i32, rev: u64) {
+        // Only update if this is a newer revision
+        let e = self.built.entry((cx, cz)).or_insert(0);
+        if rev > *e { *e = rev; }
     }
 
     // Check if a chunk needs rebuilding
@@ -193,10 +161,6 @@ impl EditStore {
     }
 
     pub fn get_built_rev(&self, cx: i32, cz: i32) -> u64 {
-        self.built
-            .read()
-            .ok()
-            .and_then(|m| m.get(&(cx, cz)).copied())
-            .unwrap_or(0)
+        self.built.get(&(cx, cz)).copied().unwrap_or(0)
     }
 }

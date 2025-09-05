@@ -23,7 +23,7 @@ impl App {
         thread: &RaylibThread,
         world: std::sync::Arc<World>,
         lighting: std::sync::Arc<LightingStore>,
-        edits: std::sync::Arc<crate::edit::EditStore>,
+        edits: crate::edit::EditStore,
     ) -> Self {
         let spawn = Vector3::new(
             (world.world_size_x() as f32) * 0.5,
@@ -32,8 +32,8 @@ impl App {
         );
         let cam = crate::camera::FlyCamera::new(spawn + Vector3::new(0.0, 5.0, 20.0));
 
-        let runtime = Runtime::new(&mut rl, thread, world.clone(), lighting.clone(), edits.clone());
-        let gs = GameState::new(world.clone(), edits.clone(), lighting.clone(), cam.position);
+        let runtime = Runtime::new(&mut rl, thread, world.clone(), lighting.clone());
+        let gs = GameState::new(world.clone(), edits, lighting.clone(), cam.position);
         let mut queue = EventQueue::new();
         // Bootstrap initial streaming based on camera
         let ccx = (cam.position.x / world.chunk_size_x as f32).floor() as i32;
@@ -160,7 +160,10 @@ impl App {
                 self.gs.pending.insert((cx, cz));
             }
             Event::BuildChunkJobRequested { cx, cz, neighbors, rev, job_id } => {
-                self.runtime.submit_build_job(BuildJob { cx, cz, neighbors, rev, job_id });
+                // Prepare edit snapshots for workers (pure)
+                let chunk_edits = self.gs.edits.snapshot_for_chunk(cx, cz);
+                let region_edits = self.gs.edits.snapshot_for_region(cx, cz, 1);
+                self.runtime.submit_build_job(BuildJob { cx, cz, neighbors, rev, job_id, chunk_edits, region_edits });
             }
             Event::BuildChunkJobCompleted { cx, cz, rev, cpu, buf, light_borders, job_id: _ } => {
                 // Drop if stale

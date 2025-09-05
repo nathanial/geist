@@ -8,13 +8,15 @@ use crate::mesher::{self, ChunkMeshCPU, NeighborsLoaded};
 use crate::shaders;
 use crate::voxel::World;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct BuildJob {
     pub cx: i32,
     pub cz: i32,
     pub neighbors: NeighborsLoaded,
     pub rev: u64,
     pub job_id: u64,
+    pub chunk_edits: Vec<((i32, i32, i32), crate::voxel::Block)>,
+    pub region_edits: Vec<((i32, i32, i32), crate::voxel::Block)>,
 }
 
 pub struct JobOut {
@@ -47,7 +49,6 @@ impl Runtime {
         thread: &raylib::prelude::RaylibThread,
         world: Arc<World>,
         lighting: Arc<crate::lighting::LightingStore>,
-        edits: Arc<crate::edit::EditStore>,
     ) -> Self {
         use std::sync::mpsc;
         let leaves_shader = shaders::LeavesShader::load(rl, thread);
@@ -96,19 +97,13 @@ impl Runtime {
             let tx = res_tx.clone();
             let w = world.clone();
             let ls = lighting.clone();
-            let edits = edits.clone();
             thread::spawn(move || {
                 while let Ok(job) = wrx.recv() {
-                    let current_rev = edits.get_rev(job.cx, job.cz);
-                    if job.rev > 0 && job.rev < current_rev {
-                        continue;
-                    }
                     let mut buf = chunkbuf::generate_chunk_buffer(&w, job.cx, job.cz);
                     // Apply persistent edits for this chunk before meshing
                     let base_x = job.cx * buf.sx as i32;
                     let base_z = job.cz * buf.sz as i32;
-                    let edits_chunk = edits.snapshot_for_chunk(job.cx, job.cz);
-                    for ((wx, wy, wz), b) in edits_chunk {
+                    for ((wx, wy, wz), b) in job.chunk_edits.iter().copied() {
                         if wy < 0 || wy >= buf.sy as i32 {
                             continue;
                         }
@@ -120,9 +115,8 @@ impl Runtime {
                             buf.blocks[idx] = b;
                         }
                     }
-                    let snap_vec = edits.snapshot_for_region(job.cx, job.cz, 1);
                     let snap_map: std::collections::HashMap<(i32, i32, i32), crate::voxel::Block> =
-                        snap_vec.into_iter().collect();
+                        job.region_edits.into_iter().collect();
                     if let Some((cpu, light_borders)) = mesher::build_chunk_greedy_cpu_buf(
                         &buf,
                         Some(&ls),
@@ -174,4 +168,3 @@ impl Runtime {
         out
     }
 }
-

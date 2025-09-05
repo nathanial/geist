@@ -53,13 +53,13 @@ fn main() {
         world_seed,
     ));
     let lighting_store = Arc::new(lighting::LightingStore::new(chunk_size_x, chunk_size_y, chunk_size_z));
-    let edit_store = Arc::new(edit::EditStore::new(
+    let edit_store = edit::EditStore::new(
         chunk_size_x as i32,
         chunk_size_y as i32,
         chunk_size_z as i32,
-    ));
+    );
 
-    let mut app = crate::app::App::new(&mut rl, &thread, world.clone(), lighting_store.clone(), edit_store.clone());
+    let mut app = crate::app::App::new(&mut rl, &thread, world.clone(), lighting_store.clone(), edit_store);
 
     while !rl.window_should_close() {
         let dt = rl.get_frame_time();

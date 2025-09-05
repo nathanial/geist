@@ -24,7 +24,7 @@ pub struct GameState {
     pub chunks: HashMap<(i32, i32), ChunkEntry>,
 
     // Edits + lighting (authoritative overlays)
-    pub edits: Arc<EditStore>,
+    pub edits: EditStore,
     pub lighting: Arc<LightingStore>,
 
     // Player
@@ -39,7 +39,7 @@ pub struct GameState {
 }
 
 impl GameState {
-    pub fn new(world: Arc<World>, edits: Arc<EditStore>, lighting: Arc<LightingStore>, spawn_eye: raylib::prelude::Vector3) -> Self {
+    pub fn new(world: Arc<World>, edits: EditStore, lighting: Arc<LightingStore>, spawn_eye: raylib::prelude::Vector3) -> Self {
         use raylib::prelude::*;
         let mut walker = Walker::new(Vector3::new(spawn_eye.x, spawn_eye.y - 1.60, spawn_eye.z));
         walker.yaw = -45.0;
@@ -62,4 +62,3 @@ impl GameState {
         }
     }
 }
-
