@@ -34,7 +34,7 @@ impl Block {
     pub fn emission(&self) -> u8 {
         match self {
             Block::Glowstone => 255,
-            Block::Beacon => 100,  // Beacon emits at level 100
+            Block::Beacon => 255,  // Beacon emits at level 255
             _ => 0,
         }
     }

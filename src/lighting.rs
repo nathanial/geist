@@ -75,7 +75,9 @@ impl LightGrid {
         }}
         // Emitters from blocks in this chunk - track beacon sources separately
         let mut q = VecDeque::new();
-        let mut q_beacon = VecDeque::new();
+        // Beacon queue now tracks: (x, y, z, level, direction)
+        // Direction: 0=source, 1=+X, 2=-X, 3=+Z, 4=-Z, 5=non-cardinal
+        let mut q_beacon: VecDeque<(usize, usize, usize, u8, u8)> = VecDeque::new();
         for z in 0..sz { for y in 0..sy { for x in 0..sx {
             let b = buf.get_local(x,y,z);
             let em = b.emission();
@@ -83,7 +85,8 @@ impl LightGrid {
                 let idx = lg.idx(x,y,z); 
                 if matches!(b, Block::Beacon) {
                     lg.beacon_light[idx] = em;
-                    q_beacon.push_back((x,y,z,em));
+                    // Initial beacon emission - direction 0 means it's the source
+                    q_beacon.push_back((x,y,z,em,0));
                 } else {
                     lg.block_light[idx] = em;
                     q.push_back((x,y,z,em));
@@ -97,7 +100,7 @@ impl LightGrid {
                 if is_beacon {
                     if lg.beacon_light[idx] < level {
                         lg.beacon_light[idx] = level;
-                        q_beacon.push_back((x,y,z,level));
+                        q_beacon.push_back((x,y,z,level,0)); // 0 = source
                     }
                 } else {
                     if lg.block_light[idx] < level { 
@@ -171,56 +174,75 @@ impl LightGrid {
             }} 
         }
         // Beacon light from neighbors
+        // For cross-chunk beacon light, we'll check if it's strong enough to be cardinal
+        // Light >= 200 likely came from cardinal propagation (255 - ~55 steps at 1/block)
+        const CARDINAL_THRESHOLD: u8 = 200;
         if let Some(ref plane) = nb.bcn_xn { 
             for z in 0..sz { for y in 0..sy { 
-                let v = plane[y*sz+z] as i32 - BEACON_ATTEN; 
+                let orig_v = plane[y*sz+z];
+                // Coming from -X face, if strong it was likely traveling +X (direction 1)
+                let dir = if orig_v >= CARDINAL_THRESHOLD { 1 } else { 5 };
+                let atten = if dir == 1 { 1 } else { 32 };
+                let v = orig_v as i32 - atten; 
                 if v > 0 { 
                     let v8=v as u8; 
                     let idx=lg.idx(0,y,z); 
                     if lg.beacon_light[idx] < v8 { 
                         lg.beacon_light[idx]=v8; 
-                        q_beacon.push_back((0,y,z,v8));
+                        q_beacon.push_back((0,y,z,v8,dir));
                     } 
                 } 
             }} 
         }
         if let Some(ref plane) = nb.bcn_xp { 
             for z in 0..sz { for y in 0..sy { 
-                let v = plane[y*sz+z] as i32 - BEACON_ATTEN; 
+                let orig_v = plane[y*sz+z];
+                // Coming from +X face, if strong it was likely traveling -X (direction 2)
+                let dir = if orig_v >= CARDINAL_THRESHOLD { 2 } else { 5 };
+                let atten = if dir == 2 { 1 } else { 32 };
+                let v = orig_v as i32 - atten; 
                 if v > 0 { 
                     let v8=v as u8; 
                     let xx=sx-1; 
                     let idx=lg.idx(xx,y,z); 
                     if lg.beacon_light[idx] < v8 { 
                         lg.beacon_light[idx]=v8; 
-                        q_beacon.push_back((xx,y,z,v8));
+                        q_beacon.push_back((xx,y,z,v8,dir));
                     } 
                 } 
             }} 
         }
         if let Some(ref plane) = nb.bcn_zn { 
             for x in 0..sx { for y in 0..sy { 
-                let v = plane[y*sx+x] as i32 - BEACON_ATTEN; 
+                let orig_v = plane[y*sx+x];
+                // Coming from -Z face, if strong it was likely traveling +Z (direction 3)
+                let dir = if orig_v >= CARDINAL_THRESHOLD { 3 } else { 5 };
+                let atten = if dir == 3 { 1 } else { 32 };
+                let v = orig_v as i32 - atten; 
                 if v > 0 { 
                     let v8=v as u8; 
                     let idx=lg.idx(x,y,0); 
                     if lg.beacon_light[idx] < v8 { 
                         lg.beacon_light[idx]=v8; 
-                        q_beacon.push_back((x,y,0,v8));
+                        q_beacon.push_back((x,y,0,v8,dir));
                     } 
                 } 
             }} 
         }
         if let Some(ref plane) = nb.bcn_zp { 
             for x in 0..sx { for y in 0..sy { 
-                let v = plane[y*sx+x] as i32 - BEACON_ATTEN; 
+                let orig_v = plane[y*sx+x];
+                // Coming from +Z face, if strong it was likely traveling -Z (direction 4)
+                let dir = if orig_v >= CARDINAL_THRESHOLD { 4 } else { 5 };
+                let atten = if dir == 4 { 1 } else { 32 };
+                let v = orig_v as i32 - atten; 
                 if v > 0 { 
                     let v8=v as u8; 
                     let zz=sz-1; 
                     let idx=lg.idx(x,y,zz); 
                     if lg.beacon_light[idx] < v8 { 
                         lg.beacon_light[idx]=v8; 
-                        q_beacon.push_back((x,y,zz,v8));
+                        q_beacon.push_back((x,y,zz,v8,dir));
                     } 
                 } 
             }} 
@@ -260,18 +282,52 @@ impl LightGrid {
                 }
             }
         }
-        // Beacon lights with minimal attenuation (1 per block)
-        while let Some((x,y,z,v)) = q_beacon.pop_front() {
-            let vcur = v as i32; if vcur <= BEACON_ATTEN { continue; }
-            let vnext = (vcur - BEACON_ATTEN) as u8;
+        // Beacon lights with directional attenuation
+        // Cardinal directions (N/S/E/W): attenuation of 1
+        // Diagonals and vertical: attenuation of 32
+        while let Some((x,y,z,v,dir)) = q_beacon.pop_front() {
             let neigh = [ (1,0,0),(-1,0,0),(0,1,0),(0,-1,0),(0,0,1),(0,0,-1) ];
-            for (dx,dy,dz) in neigh {
+            for (dx,dy,dz) in neigh.iter() {
                 let nx = x as isize + dx; let ny = y as isize + dy; let nz = z as isize + dz;
                 if nx < 0 || ny < 0 || nz < 0 || nx >= sx as isize || ny >= sy as isize || nz >= sz as isize { continue; }
+                
+                // Determine direction and attenuation
+                let (new_dir, atten) = match dir {
+                    0 => { // Source: can start cardinal in any horizontal direction
+                        match (dx, dy, dz) {
+                            (1, 0, 0) => (1, 1),   // Start +X cardinal
+                            (-1, 0, 0) => (2, 1),  // Start -X cardinal
+                            (0, 0, 1) => (3, 1),   // Start +Z cardinal
+                            (0, 0, -1) => (4, 1),  // Start -Z cardinal
+                            _ => (5, 32),          // Vertical is non-cardinal
+                        }
+                    },
+                    1 => { // Moving +X: can only continue +X for cardinal
+                        if *dx == 1 && *dy == 0 && *dz == 0 { (1, 1) } else { (5, 32) }
+                    },
+                    2 => { // Moving -X: can only continue -X for cardinal
+                        if *dx == -1 && *dy == 0 && *dz == 0 { (2, 1) } else { (5, 32) }
+                    },
+                    3 => { // Moving +Z: can only continue +Z for cardinal
+                        if *dx == 0 && *dy == 0 && *dz == 1 { (3, 1) } else { (5, 32) }
+                    },
+                    4 => { // Moving -Z: can only continue -Z for cardinal
+                        if *dx == 0 && *dy == 0 && *dz == -1 { (4, 1) } else { (5, 32) }
+                    },
+                    _ => (5, 32), // Non-cardinal always uses high attenuation
+                };
+                
+                let vcur = v as i32;
+                if vcur <= atten { continue; }
+                let vnext = (vcur - atten) as u8;
+                
                 let nxi = nx as usize; let nyi = ny as usize; let nzi = nz as usize;
                 if matches!(buf.get_local(nxi, nyi, nzi), Block::Air) {
                     let idn = lg.idx(nxi, nyi, nzi);
-                    if lg.beacon_light[idn] < vnext { lg.beacon_light[idn] = vnext; q_beacon.push_back((nxi, nyi, nzi, vnext)); }
+                    if lg.beacon_light[idn] < vnext { 
+                        lg.beacon_light[idn] = vnext; 
+                        q_beacon.push_back((nxi, nyi, nzi, vnext, new_dir)); 
+                    }
                 }
             }
         }
