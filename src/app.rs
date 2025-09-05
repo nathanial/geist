@@ -40,15 +40,18 @@ impl App {
         let ccx = (cam.position.x / world.chunk_size_x as f32).floor() as i32;
         let ccz = (cam.position.z / world.chunk_size_z as f32).floor() as i32;
         queue.emit_now(Event::ViewCenterChanged { ccx, ccz });
-        // Spawn a flying castle structure
+        // Spawn a flying castle structure at high altitude (original placement)
         let castle_id: StructureId = 1;
         let world_center = Vector3::new(
             (world.world_size_x() as f32) * 0.5,
             (world.world_size_y() as f32) * 0.7,
             (world.world_size_z() as f32) * 0.5,
         );
+        let st_sx = 32usize;
+        let st_sy = 24usize;
+        let st_sz = 32usize;
         let pose = Pose { pos: world_center + Vector3::new(0.0, 16.0, 40.0), yaw_deg: 0.0 };
-        let st = Structure::new(castle_id, 32, 24, 32, pose);
+        let st = Structure::new(castle_id, st_sx, st_sy, st_sz, pose);
         gs.structures.insert(castle_id, st);
         queue.emit_now(Event::StructureBuildRequested { id: castle_id, rev: 1 });
         Self {
@@ -569,10 +572,8 @@ impl App {
                     self.gs.walker.yaw = self.cam.yaw;
                     let mut p = self.cam.position;
                     p.y -= self.gs.walker.eye_height; // convert eye -> feet position
-                    // Clamp vertical within world bounds for stability
-                    let max_y =
-                        (self.gs.world.world_size_y() as f32) - self.gs.walker.height - 0.001;
-                    p.y = p.y.clamp(0.0, max_y.max(0.0));
+                    // Only clamp to ground (min Y); allow above-ceiling positions (e.g., flying structures)
+                    p.y = p.y.max(0.0);
                     self.gs.walker.pos = p;
                     self.gs.walker.vel = Vector3::zero();
                     self.gs.walker.on_ground = false;

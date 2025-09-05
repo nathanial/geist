@@ -189,9 +189,8 @@ impl Walker {
             self.vel.y = 0.0;
         }
 
-        // Clamp only vertically; horizontal bounds are unbounded to allow streaming into negative chunks
-        let max_y = (world.world_size_y() as f32) - self.height - 0.001;
-        self.pos.y = self.pos.y.clamp(0.0, max_y.max(0.0));
+        // Clamp only the minimum vertical; allow going above world ceiling (for flying structures)
+        self.pos.y = self.pos.y.max(0.0);
     }
 
     // No back-compat path: the walker updates only via an explicit sampler tied to loaded chunk buffers.
