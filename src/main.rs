@@ -85,9 +85,9 @@ fn main() {
         let edits = edit_store.clone();
         thread::spawn(move || {
             while let Ok(job) = wrx.recv() {
-                // Early-out if already built at or beyond this revision
+                // Early-out if already built at or beyond this revision (ignore rev==0 to allow initial builds)
                 let built_rev = edits.get_built_rev(job.cx, job.cz);
-                if built_rev >= job.rev { continue; }
+                if job.rev > 0 && built_rev >= job.rev { continue; }
                 let mut buf = chunkbuf::generate_chunk_buffer(&w, job.cx, job.cz);
                 // Apply persistent edits for this chunk before meshing
                 let base_x = job.cx * buf.sx as i32; let base_z = job.cz * buf.sz as i32;
@@ -258,12 +258,13 @@ fn main() {
 
         // Drain completed meshes (upload to GPU) before drawing
         for out in res_rx.try_iter() {
+            let borders_changed = out.cpu.borders_changed;
             let cpu = out.cpu;
             let key = (out.cx, out.cz);
-            // Drop stale results: if a newer rev is recorded, skip
+            // Drop stale results: if a newer rev is recorded, skip (accept rev==0 initial builds)
             let cur_rev = edit_store.get_rev(key.0, key.1);
             let built_rev = edit_store.get_built_rev(key.0, key.1);
-            if out.rev < cur_rev || out.rev <= built_rev {
+            if out.rev < cur_rev || (out.rev > 0 && out.rev <= built_rev) {
                 pending.remove(&key);
                 continue;
             }
@@ -297,22 +298,24 @@ fn main() {
             // Track buffer and mark built revision for this chunk
             loaded_bufs.insert(key, out.buf);
             edit_store.mark_built(key.0, key.1, out.rev);
-            // Requeue neighbors to converge lighting across borders
-            let neighbors = [(key.0-1,key.1),(key.0+1,key.1),(key.0,key.1-1),(key.0,key.1+1)];
+            // Requeue neighbors only when borders changed (lighting border delta)
             pending.remove(&key);
-            for nk in neighbors.iter() {
-                if !loaded.contains_key(nk) && !pending.contains(nk) { continue; }
-                if !pending.contains(nk) {
-                    let (cx, cz) = *nk;
-                    let nmask = NeighborsLoaded {
-                        neg_x: loaded.contains_key(&(cx-1,cz)),
-                        pos_x: loaded.contains_key(&(cx+1,cz)),
-                        neg_z: loaded.contains_key(&(cx,cz-1)),
-                        pos_z: loaded.contains_key(&(cx,cz+1)),
-                    };
-                    let rev = edit_store.get_rev(cx, cz);
-                    let _ = job_tx.send(BuildJob { cx, cz, neighbors: nmask, rev });
-                    pending.insert(*nk);
+            if borders_changed {
+                let neighbors = [(key.0-1,key.1),(key.0+1,key.1),(key.0,key.1-1),(key.0,key.1+1)];
+                for nk in neighbors.iter() {
+                    if !loaded.contains_key(nk) && !pending.contains(nk) { continue; }
+                    if !pending.contains(nk) {
+                        let (cx, cz) = *nk;
+                        let nmask = NeighborsLoaded {
+                            neg_x: loaded.contains_key(&(cx-1,cz)),
+                            pos_x: loaded.contains_key(&(cx+1,cz)),
+                            neg_z: loaded.contains_key(&(cx,cz-1)),
+                            pos_z: loaded.contains_key(&(cx,cz+1)),
+                        };
+                        let rev = edit_store.get_rev(cx, cz);
+                        let _ = job_tx.send(BuildJob { cx, cz, neighbors: nmask, rev });
+                        pending.insert(*nk);
+                    }
                 }
             }
         }
@@ -356,9 +359,8 @@ fn main() {
                             // Bump change revision for affected region
                             let _ = edit_store.bump_region_around(wx, wz);
                             let ccx = wx.div_euclid(sx); let ccz = wz.div_euclid(sz);
+                            // Only enqueue the edited chunk; neighbors will follow if borders changed
                             enqueue(ccx, ccz);
-                            // Neighbor chunks too (3x3 around edit, like old code)
-                            for dcz in -1..=1 { for dcx in -1..=1 { enqueue(ccx+dcx, ccz+dcz); } }
                         }
                     }
                     if rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_RIGHT) {
@@ -369,8 +371,8 @@ fn main() {
                             if place_type.emission() > 0 { lighting_store.add_emitter_world(wx, wy, wz, place_type.emission()); }
                             let _ = edit_store.bump_region_around(wx, wz);
                             let ccx = wx.div_euclid(sx); let ccz = wz.div_euclid(sz);
+                            // Only enqueue the edited chunk; neighbors will follow if borders changed
                             enqueue(ccx, ccz);
-                            for dcz in -1..=1 { for dcx in -1..=1 { enqueue(ccx+dcx, ccz+dcz); } }
                         }
                     }
                 }
