@@ -544,7 +544,8 @@ impl App {
                 if choose_struct {
                     if let Some((id, hit, _)) = struct_hit {
                         if place {
-                            let (lx, ly, lz) = (hit.px + hit.nx, hit.py + hit.ny, hit.pz + hit.nz);
+                            // Place on the adjacent empty cell directly (no extra normal offset)
+                            let (lx, ly, lz) = (hit.px, hit.py, hit.pz);
                             self.queue.emit_now(Event::StructureBlockPlaced { id, lx, ly, lz, block });
                         } else {
                             self.queue.emit_now(Event::StructureBlockRemoved { id, lx: hit.bx, ly: hit.by, lz: hit.bz });
