@@ -322,7 +322,8 @@ impl LightGrid {
         let sx = world.chunk_size_x; let sy = world.chunk_size_y; let sz = world.chunk_size_z;
         let base_x = cx * sx as i32; let base_z = cz * sz as i32;
         let mut lg = Self::new(sx, sy, sz);
-        // Skylight seeds: set top-of-column air to 255 and queue them for skylight BFS
+        // Skylight seeds: set top-of-column AIR to 255 and queue for skylight BFS.
+        // Leaves are treated as occluders for direct skylight to create shadows under canopies.
         use std::collections::VecDeque;
         let mut q_sky = VecDeque::new();
         for z in 0..sz { for x in 0..sx {
@@ -331,7 +332,7 @@ impl LightGrid {
                 let b = world.block_at(base_x + x as i32, y as i32, base_z + z as i32);
                 let idx = lg.idx(x,y,z);
                 if open_above {
-                    if matches!(b, Block::Air | Block::Leaves(_)) { lg.skylight[idx] = 255; q_sky.push_back((x,y,z,255u8)); }
+                    if matches!(b, Block::Air) { lg.skylight[idx] = 255; q_sky.push_back((x,y,z,255u8)); }
                     else { open_above = false; lg.skylight[idx] = 0; }
                 } else { lg.skylight[idx] = 0; }
             }
@@ -404,7 +405,7 @@ impl LightGrid {
             }}
         }
 
-        // Skylight BFS propagation (Air/Leaves only)
+        // Skylight BFS propagation (Air only; leaves block skylight)
         while let Some((x,y,z,v)) = q_sky.pop_front() {
             let vcur = v as i32; if vcur <= atten { continue; }
             let vnext = (vcur - atten) as u8;
@@ -414,7 +415,7 @@ impl LightGrid {
                 if nx < 0 || ny < 0 || nz < 0 || nx >= sx as isize || ny >= sy as isize || nz >= sz as isize { continue; }
                 let nxi = nx as usize; let nyi = ny as usize; let nzi = nz as usize;
                 let nbk = world.block_at(base_x + nxi as i32, nyi as i32, base_z + nzi as i32);
-                match nbk { Block::Air | Block::Leaves(_) => {
+                match nbk { Block::Air => {
                         let idn = lg.idx(nxi, nyi, nzi);
                         if lg.skylight[idn] < vnext { lg.skylight[idn] = vnext; q_sky.push_back((nxi, nyi, nzi, vnext)); }
                     }
