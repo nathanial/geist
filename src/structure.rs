@@ -19,6 +19,7 @@ pub struct Structure {
     pub blocks: Vec<Block>,
     pub edits: StructureEditStore,
     pub pose: Pose,
+    pub last_delta: Vector3,
     pub dirty_rev: u64,
     pub built_rev: u64,
 }
@@ -48,6 +49,7 @@ impl Structure {
             blocks,
             edits: StructureEditStore::new(),
             pose,
+            last_delta: Vector3::zero(),
             dirty_rev: 1,
             built_rev: 0,
         }
@@ -121,4 +123,3 @@ pub fn rotate_yaw(v: Vector3, yaw_deg: f32) -> Vector3 {
 pub fn rotate_yaw_inv(v: Vector3, yaw_deg: f32) -> Vector3 {
     rotate_yaw(v, -yaw_deg)
 }
-

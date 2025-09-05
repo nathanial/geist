@@ -19,6 +19,38 @@ pub struct App {
 }
 
 impl App {
+    #[inline]
+    fn structure_block_solid_at_local(st: &crate::structure::Structure, lx: i32, ly: i32, lz: i32) -> bool {
+        if lx < 0 || ly < 0 || lz < 0 { return false; }
+        let (lxu, lyu, lzu) = (lx as usize, ly as usize, lz as usize);
+        if lxu >= st.sx || lyu >= st.sy || lzu >= st.sz { return false; }
+        if let Some(b) = st.edits.get(lx, ly, lz) { return b.is_solid(); }
+        st.blocks[st.idx(lxu, lyu, lzu)].is_solid()
+    }
+
+    fn is_feet_on_structure(&self, st: &crate::structure::Structure, feet_world: Vector3) -> bool {
+        let rx = (self.gs.walker.radius * 0.85).max(0.05);
+        let offsets = [
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(rx, 0.0, 0.0),
+            Vector3::new(-rx, 0.0, 0.0),
+            Vector3::new(0.0, 0.0, rx),
+            Vector3::new(0.0, 0.0, -rx),
+            Vector3::new(rx, 0.0, rx),
+            Vector3::new(rx, 0.0, -rx),
+            Vector3::new(-rx, 0.0, rx),
+            Vector3::new(-rx, 0.0, -rx),
+        ];
+        for off in &offsets {
+            let p = feet_world + *off;
+            let local = crate::structure::rotate_yaw_inv(p - st.pose.pos, st.pose.yaw_deg);
+            let lx = local.x.floor() as i32;
+            let ly = (local.y - 0.08).floor() as i32;
+            let lz = local.z.floor() as i32;
+            if Self::structure_block_solid_at_local(st, lx, ly, lz) { return true; }
+        }
+        false
+    }
     pub fn new(
         mut rl: &mut RaylibHandle,
         thread: &RaylibThread,
@@ -104,6 +136,28 @@ impl App {
                     // Collision sampler: structures > edits > buf > world
                     let sx = self.gs.world.chunk_size_x as i32;
                     let sz = self.gs.world.chunk_size_z as i32;
+                    // Platform attachment: apply structure delta if attached; otherwise attach when detected
+                    let feet_world = self.gs.walker.pos;
+                    if let Some(att) = self.gs.ground_attach {
+                        if let Some(st) = self.gs.structures.get(&att.id) {
+                            // Re-anchor to exact local coordinate each tick (local frame lock)
+                            let world_from_local = rotate_yaw(att.local_offset, st.pose.yaw_deg) + st.pose.pos;
+                            self.gs.walker.pos = world_from_local;
+                        } else {
+                            self.gs.ground_attach = None;
+                        }
+                    } else {
+                        for (id, st) in &self.gs.structures {
+                            if self.is_feet_on_structure(st, feet_world) {
+                                // Capture local feet offset and attach
+                                let local = rotate_yaw_inv(self.gs.walker.pos - st.pose.pos, st.pose.yaw_deg);
+                                self.gs.ground_attach = Some(crate::gamestate::GroundAttach { id: *id, grace: 8, local_offset: local });
+                                // Snap to exact projection this tick
+                                self.gs.walker.pos = rotate_yaw(local, st.pose.yaw_deg) + st.pose.pos;
+                                break;
+                            }
+                        }
+                    }
                     let sampler = |wx: i32, wy: i32, wz: i32| -> Block {
                         // Check dynamic structures first
                         for (_id, st) in &self.gs.structures {
@@ -142,6 +196,23 @@ impl App {
                         (dt_ms as f32) / 1000.0,
                         yaw,
                     );
+                    // Refresh/detach attachment after movement
+                    if let Some(att) = self.gs.ground_attach {
+                        if let Some(st) = self.gs.structures.get(&att.id) {
+                            if self.is_feet_on_structure(st, self.gs.walker.pos) {
+                                // Update local offset and refresh grace
+                                let new_local = rotate_yaw_inv(self.gs.walker.pos - st.pose.pos, st.pose.yaw_deg);
+                                self.gs.ground_attach = Some(crate::gamestate::GroundAttach { id: att.id, grace: 8, local_offset: new_local });
+                            } else if att.grace > 0 {
+                                // Keep last local offset; decrease grace
+                                self.gs.ground_attach = Some(crate::gamestate::GroundAttach { id: att.id, grace: att.grace - 1, local_offset: att.local_offset });
+                            } else {
+                                self.gs.ground_attach = None;
+                            }
+                        } else {
+                            self.gs.ground_attach = None;
+                        }
+                    }
                     self.cam.position = self.gs.walker.eye_position();
                     // Emit ViewCenterChanged if center moved
                     let ccx =
@@ -684,9 +755,14 @@ impl App {
         let radius = 40.0f32;
         let ang = (self.gs.tick as f32) * 0.004;
         for (_id, st) in self.gs.structures.iter_mut() {
-            st.pose.pos.x = world_center.x + radius * ang.cos();
-            st.pose.pos.z = world_center.z + radius * ang.sin();
-            st.pose.yaw_deg = (-ang).to_degrees();
+            let new_x = world_center.x + radius * ang.cos();
+            let new_z = world_center.z + radius * ang.sin();
+            let prev = st.pose.pos;
+            let newp = Vector3::new(new_x, prev.y, new_z);
+            st.last_delta = newp - prev;
+            st.pose.pos = newp;
+            // Keep yaw fixed until render rotation is wired, so collisions match visuals
+            st.pose.yaw_deg = 0.0;
         }
 
         // Movement intent for this tick (dt→ms)

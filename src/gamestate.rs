@@ -40,6 +40,14 @@ pub struct GameState {
 
     // Dynamic voxel bodies (e.g., flying castle)
     pub structures: HashMap<StructureId, Structure>,
+    pub ground_attach: Option<GroundAttach>,
+}
+
+#[derive(Clone, Copy)]
+pub struct GroundAttach {
+    pub id: StructureId,
+    pub grace: u8,
+    pub local_offset: raylib::prelude::Vector3,
 }
 
 impl GameState {
@@ -69,6 +77,7 @@ impl GameState {
             wireframe: false,
             show_chunk_bounds: false,
             structures: HashMap::new(),
+            ground_attach: None,
         }
     }
 }
