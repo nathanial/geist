@@ -5,6 +5,8 @@ mod shaders;
 mod lighting;
 mod chunkbuf;
 mod player;
+mod raycast;
+mod edit;
 
 use camera::FlyCamera;
 use raylib::prelude::*;
@@ -38,6 +40,7 @@ fn main() {
     use std::thread;
     let world = Arc::new(World::new(chunks_x, chunks_z, chunk_size_x, chunk_size_y, chunk_size_z, world_seed));
     let lighting_store = Arc::new(LightingStore::new(chunk_size_x, chunk_size_y, chunk_size_z));
+    let edit_store = Arc::new(edit::EditStore::new(chunk_size_x as i32, chunk_size_y as i32, chunk_size_z as i32));
 
     // Place camera/player
     let spawn = Vector3::new(
@@ -79,9 +82,21 @@ fn main() {
         let tx = res_tx.clone();
         let w = world.clone();
         let ls = lighting_store.clone();
+        let edits = edit_store.clone();
         thread::spawn(move || {
             while let Ok(job) = wrx.recv() {
-                let buf = chunkbuf::generate_chunk_buffer(&w, job.cx, job.cz);
+                let mut buf = chunkbuf::generate_chunk_buffer(&w, job.cx, job.cz);
+                // Apply persistent edits for this chunk before meshing
+                let base_x = job.cx * buf.sx as i32; let base_z = job.cz * buf.sz as i32;
+                let edits_chunk = edits.snapshot_for_chunk(job.cx, job.cz);
+                for ((wx,wy,wz), b) in edits_chunk {
+                    if wy < 0 || wy >= buf.sy as i32 { continue; }
+                    let lx = (wx - base_x) as usize; let ly = wy as usize; let lz = (wz - base_z) as usize;
+                    if lx < buf.sx && lz < buf.sz {
+                        let idx = buf.idx(lx,ly,lz);
+                        buf.blocks[idx] = b;
+                    }
+                }
                 if let Some(cpu) = build_chunk_greedy_cpu_buf(&buf, Some(&ls), &w, job.neighbors, job.cx, job.cz) {
                     let _ = tx.send(JobOut { cpu, buf });
                 }
@@ -107,6 +122,8 @@ fn main() {
     let mut fog_shader = shaders::FogShader::load(&mut rl, &thread);
     // Texture cache
     let mut tex_cache = TextureCache::new();
+    // Current placement block type (number keys change this)
+    let mut place_type: voxel::Block = voxel::Block::Stone;
     // Preload all textures used by face materials to avoid first-use hitches
     let species = [
         TreeSpecies::Oak,
@@ -149,6 +166,13 @@ fn main() {
         if rl.is_key_pressed(KeyboardKey::KEY_B) {
             show_chunk_bounds = !show_chunk_bounds;
         }
+        // Placement block selection (number keys)
+        if rl.is_key_pressed(KeyboardKey::KEY_ONE) { place_type = voxel::Block::Dirt; }
+        if rl.is_key_pressed(KeyboardKey::KEY_TWO) { place_type = voxel::Block::Stone; }
+        if rl.is_key_pressed(KeyboardKey::KEY_THREE) { place_type = voxel::Block::Sand; }
+        if rl.is_key_pressed(KeyboardKey::KEY_FOUR) { place_type = voxel::Block::Grass; }
+        if rl.is_key_pressed(KeyboardKey::KEY_FIVE) { place_type = voxel::Block::Snow; }
+        if rl.is_key_pressed(KeyboardKey::KEY_SIX) { place_type = voxel::Block::Glowstone; }
         // Place/remove dynamic emitter at a point in front of the camera
         if rl.is_key_pressed(KeyboardKey::KEY_L) {
             let fwd = cam.forward();
@@ -338,6 +362,62 @@ fn main() {
             }
         }
 
+        // Handle block edits (remove/place) via mouse buttons
+        {
+            let org = cam.position;
+            let dir = cam.forward();
+            let sx = chunk_size_x as i32; let sz = chunk_size_z as i32;
+            let sampler = |wx: i32, wy: i32, wz: i32| -> voxel::Block {
+                if let Some(b) = edit_store.get(wx, wy, wz) { return b; }
+                let cx = wx.div_euclid(sx); let cz = wz.div_euclid(sz);
+                if let Some(buf) = loaded_bufs.get(&(cx,cz)) { buf.get_world(wx, wy, wz).unwrap_or(voxel::Block::Air) }
+                else { world.block_at(wx, wy, wz) }
+            };
+            let is_solid = |wx: i32, wy: i32, wz: i32| -> bool { sampler(wx,wy,wz).is_solid() };
+            let ray_hit = rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT) || rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_RIGHT);
+            if ray_hit {
+                if let Some(hit) = raycast::raycast_first_hit_with_face(org, dir, 5.0, is_solid) {
+                    // Helper to enqueue rebuild for a chunk
+                    let mut enqueue = |cx: i32, cz: i32| {
+                        if !pending.contains(&(cx,cz)) {
+                            let nmask = NeighborsLoaded {
+                                neg_x: loaded.contains_key(&(cx-1,cz)),
+                                pos_x: loaded.contains_key(&(cx+1,cz)),
+                                neg_z: loaded.contains_key(&(cx,cz-1)),
+                                pos_z: loaded.contains_key(&(cx,cz+1)),
+                            };
+                            let _ = job_tx.send(BuildJob { cx, cz, neighbors: nmask });
+                            pending.insert((cx,cz));
+                        }
+                    };
+                    if rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT) {
+                        // Remove at hit block
+                        let wx = hit.bx; let wy = hit.by; let wz = hit.bz;
+                        let prev = sampler(wx,wy,wz);
+                        if prev.is_solid() {
+                            edit_store.set(wx, wy, wz, voxel::Block::Air);
+                            if prev.emission() > 0 { lighting_store.remove_emitter_world(wx, wy, wz); }
+                            let ccx = wx.div_euclid(sx); let ccz = wz.div_euclid(sz);
+                            enqueue(ccx, ccz);
+                            // Neighbor chunks too
+                            for (dcx,dcz) in [(-1,0),(1,0),(0,-1),(0,1),(0,0)] { enqueue(ccx+dcx, ccz+dcz); }
+                        }
+                    }
+                    if rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_RIGHT) {
+                        // Place at previous air voxel
+                        let wx = hit.px; let wy = hit.py; let wz = hit.pz;
+                        if wy >= 0 && wy < chunk_size_y as i32 {
+                            edit_store.set(wx, wy, wz, place_type);
+                            if place_type.emission() > 0 { lighting_store.add_emitter_world(wx, wy, wz, place_type.emission()); }
+                            let ccx = wx.div_euclid(sx); let ccz = wz.div_euclid(sz);
+                            enqueue(ccx, ccz);
+                            for (dcx,dcz) in [(-1,0),(1,0),(0,-1),(0,1),(0,0)] { enqueue(ccx+dcx, ccz+dcz); }
+                        }
+                    }
+                }
+            }
+        }
+
         // Player/walker update and camera follow (tight coupling: collide only with loaded buffers)
         if walk_mode {
             let sx = chunk_size_x as i32; let sz = chunk_size_z as i32;
@@ -385,6 +465,51 @@ fn main() {
                 for (_fm, model) in &cr.parts {
                     if wireframe { d3.draw_model_wires(model, Vector3::zero(), 1.0, Color::WHITE); }
                     else { d3.draw_model(model, Vector3::zero(), 1.0, Color::WHITE); }
+                }
+            }
+
+            // Placement/removal preview: face outline on targeted voxel face
+            {
+                let org = cam.position;
+                let dir = cam.forward();
+                let max_dist = 5.0_f32;
+                // Sampler considers edits first, then loaded buffers, then generated world
+                let sx = chunk_size_x as i32; let sz = chunk_size_z as i32;
+                let sampler = |wx: i32, wy: i32, wz: i32| -> voxel::Block {
+                    if let Some(b) = edit_store.get(wx, wy, wz) { return b; }
+                    let cx = wx.div_euclid(sx); let cz = wz.div_euclid(sz);
+                    if let Some(buf) = loaded_bufs.get(&(cx,cz)) { buf.get_world(wx, wy, wz).unwrap_or(voxel::Block::Air) }
+                    else { world.block_at(wx, wy, wz) }
+                };
+                let is_solid = |wx: i32, wy: i32, wz: i32| -> bool { sampler(wx,wy,wz).is_solid() };
+                if let Some(hit) = raycast::raycast_first_hit_with_face(org, dir, max_dist, is_solid) {
+                    let eps = 0.01_f32;
+                    let c = Color::WHITE;
+                    if hit.nx != 0 {
+                        let xp = (hit.bx as f32) + if hit.nx > 0 { 1.0 + eps } else { -eps };
+                        let y0 = hit.by as f32; let y1 = y0 + 1.0;
+                        let z0 = hit.bz as f32; let z1 = z0 + 1.0;
+                        let p1 = Vector3::new(xp, y0, z0); let p2 = Vector3::new(xp, y1, z0);
+                        let p3 = Vector3::new(xp, y1, z1); let p4 = Vector3::new(xp, y0, z1);
+                        d3.draw_line_3D(p1, p2, c); d3.draw_line_3D(p2, p3, c);
+                        d3.draw_line_3D(p3, p4, c); d3.draw_line_3D(p4, p1, c);
+                    } else if hit.ny != 0 {
+                        let yp = (hit.by as f32) + if hit.ny > 0 { 1.0 + eps } else { -eps };
+                        let x0 = hit.bx as f32; let x1 = x0 + 1.0;
+                        let z0 = hit.bz as f32; let z1 = z0 + 1.0;
+                        let p1 = Vector3::new(x0, yp, z0); let p2 = Vector3::new(x1, yp, z0);
+                        let p3 = Vector3::new(x1, yp, z1); let p4 = Vector3::new(x0, yp, z1);
+                        d3.draw_line_3D(p1, p2, c); d3.draw_line_3D(p2, p3, c);
+                        d3.draw_line_3D(p3, p4, c); d3.draw_line_3D(p4, p1, c);
+                    } else if hit.nz != 0 {
+                        let zp = (hit.bz as f32) + if hit.nz > 0 { 1.0 + eps } else { -eps };
+                        let x0 = hit.bx as f32; let x1 = x0 + 1.0;
+                        let y0 = hit.by as f32; let y1 = y0 + 1.0;
+                        let p1 = Vector3::new(x0, y0, zp); let p2 = Vector3::new(x1, y0, zp);
+                        let p3 = Vector3::new(x1, y1, zp); let p4 = Vector3::new(x0, y1, zp);
+                        d3.draw_line_3D(p1, p2, c); d3.draw_line_3D(p2, p3, c);
+                        d3.draw_line_3D(p3, p4, c); d3.draw_line_3D(p4, p1, c);
+                    }
                 }
             }
 
@@ -481,12 +606,10 @@ fn main() {
             d.draw_text(&line4, 12, 120, 18, Color::DARKGREEN);
         }
 
-        let hud = if walk_mode {
-            "Walk: Tab capture, WASD move, Space jump, Shift run, V toggle fly, F wireframe, G grid, B chunk bounds, L add light, K remove light"
-        } else {
-            "Fly: Tab capture, WASD+QE move, V toggle walk, F wireframe, G grid, B chunk bounds, L add light, K remove light"
-        };
-        d.draw_text(hud, 12, 12, 18, Color::DARKGRAY);
+        let hud_mode = if walk_mode { "Walk" } else { "Fly" };
+        let hud = format!("{}: Tab capture, WASD{} move{}, V toggle mode, F wireframe, G grid, B bounds, L add light, K remove light | Place: {:?} | LMB remove, RMB place", 
+                          hud_mode, if walk_mode {""} else {"+QE"}, if walk_mode {", Space jump, Shift run"} else {""}, place_type);
+        d.draw_text(&hud, 12, 12, 18, Color::DARKGRAY);
         d.draw_fps(12, 36);
     }
 }
