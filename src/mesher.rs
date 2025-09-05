@@ -4,6 +4,10 @@ use raylib::prelude::*;
 use raylib::core::math::BoundingBox;
 use std::collections::HashMap;
 
+// Visual-only lighting floor to avoid pitch-black faces in darkness.
+// Does not affect logical light propagation.
+const VISUAL_LIGHT_MIN: u8 = 18; // ~7% brightness floor
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum FaceMaterial {
     GrassTop,
@@ -200,7 +204,8 @@ pub fn build_chunk_greedy_cpu(
                 let fx = (base_x + x as i32) as f32; let fz = (base_z + z as i32) as f32; let fy = (y as f32) + 1.0;
                 let u1 = w as f32; let v1 = h as f32;
                 let mb = builds.entry(codev.0).or_default();
-                let rgba = [codev.1, codev.1, codev.1, 255];
+                let lv = codev.1.max(VISUAL_LIGHT_MIN);
+                let rgba = [lv, lv, lv, 255];
                 mb.add_quad(
                     Vector3::new(fx, fy, fz),
                     Vector3::new(fx + u1, fy, fz),
@@ -242,7 +247,8 @@ pub fn build_chunk_greedy_cpu(
                 let fx = (base_x + x as i32) as f32; let fz = (base_z + z as i32) as f32; let fy = y as f32;
                 let u1 = w as f32; let v1 = h as f32;
                 let mb = builds.entry(codev.0).or_default();
-                let rgba = [codev.1, codev.1, codev.1, 255];
+                let lv = codev.1.max(VISUAL_LIGHT_MIN);
+                let rgba = [lv, lv, lv, 255];
                 mb.add_quad(
                     Vector3::new(fx, fy, fz + v1),
                     Vector3::new(fx + u1, fy, fz + v1),
@@ -293,7 +299,8 @@ pub fn build_chunk_greedy_cpu(
                 let u1 = w as f32; let v1 = h as f32;
                 let mb = builds.entry(codev.0).or_default();
                 if !pos {
-                    let rgba = [codev.1, codev.1, codev.1, 255];
+                    let lv = codev.1.max(VISUAL_LIGHT_MIN);
+                    let rgba = [lv, lv, lv, 255];
                     mb.add_quad(
                         Vector3::new(fx, fy + v1, fz),
                         Vector3::new(fx, fy + v1, fz + u1),
@@ -305,7 +312,8 @@ pub fn build_chunk_greedy_cpu(
                         rgba,
                     );
                 } else {
-                    let rgba = [codev.1, codev.1, codev.1, 255];
+                    let lv = codev.1.max(VISUAL_LIGHT_MIN);
+                    let rgba = [lv, lv, lv, 255];
                     mb.add_quad(
                         Vector3::new(fx, fy + v1, fz + u1),
                         Vector3::new(fx, fy + v1, fz),
@@ -356,7 +364,8 @@ pub fn build_chunk_greedy_cpu(
                 let u1 = w as f32; let v1 = h as f32;
                 let mb = builds.entry(codev.0).or_default();
                 if !pos {
-                    let rgba = [codev.1, codev.1, codev.1, 255];
+                    let lv = codev.1.max(VISUAL_LIGHT_MIN);
+                    let rgba = [lv, lv, lv, 255];
                     mb.add_quad(
                         Vector3::new(fx, fy + v1, fz),
                         Vector3::new(fx + u1, fy + v1, fz),
@@ -368,7 +377,8 @@ pub fn build_chunk_greedy_cpu(
                         rgba,
                     );
                 } else {
-                    let rgba = [codev.1, codev.1, codev.1, 255];
+                    let lv = codev.1.max(VISUAL_LIGHT_MIN);
+                    let rgba = [lv, lv, lv, 255];
                     mb.add_quad(
                         Vector3::new(fx + u1, fy + v1, fz),
                         Vector3::new(fx, fy + v1, fz),
