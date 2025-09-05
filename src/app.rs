@@ -150,17 +150,11 @@ impl App {
                     // Collision sampler: structures > edits > buf > world
                     let sx = self.gs.world.chunk_size_x as i32;
                     let sz = self.gs.world.chunk_size_z as i32;
-                    // Platform attachment: apply structure delta if attached; otherwise attach when detected
+                    // Platform attachment: handle attachment and movement
                     let feet_world = self.gs.walker.pos;
-                    if let Some(att) = self.gs.ground_attach {
-                        if let Some(st) = self.gs.structures.get(&att.id) {
-                            // Re-anchor to exact local coordinate each tick (local frame lock)
-                            let world_from_local = rotate_yaw(att.local_offset, st.pose.yaw_deg) + st.pose.pos;
-                            self.gs.walker.pos = world_from_local;
-                        } else {
-                            self.gs.ground_attach = None;
-                        }
-                    } else {
+                    
+                    // First, check for new attachment
+                    if self.gs.ground_attach.is_none() {
                         for (id, st) in &self.gs.structures {
                             if self.is_feet_on_structure(st, feet_world) {
                                 // Capture local feet offset and attach
@@ -168,10 +162,21 @@ impl App {
                                 self.gs.ground_attach = Some(crate::gamestate::GroundAttach { id: *id, grace: 8, local_offset: local });
                                 // Emit lifecycle event for observability
                                 self.queue.emit_now(Event::PlayerAttachedToStructure { id: *id, local_offset: local });
-                                // Snap to exact projection this tick
-                                self.gs.walker.pos = rotate_yaw(local, st.pose.yaw_deg) + st.pose.pos;
                                 break;
                             }
+                        }
+                    }
+                    
+                    // If attached, move with the platform BEFORE physics
+                    if let Some(att) = self.gs.ground_attach {
+                        if let Some(st) = self.gs.structures.get(&att.id) {
+                            // Calculate where we should be based on our local offset and the platform's current position
+                            let target_world_pos = rotate_yaw(att.local_offset, st.pose.yaw_deg) + st.pose.pos;
+                            
+                            // Move the player to maintain their position on the platform
+                            self.gs.walker.pos = target_world_pos;
+                        } else {
+                            self.gs.ground_attach = None;
                         }
                     }
                     let sampler = |wx: i32, wy: i32, wz: i32| -> Block {
@@ -211,20 +216,32 @@ impl App {
                         &self.gs.world,
                         (dt_ms as f32) / 1000.0,
                         yaw,
+                        None, // No platform velocity needed - we handle movement via teleportation
                     );
-                    // Refresh/detach attachment after movement
+                    // Update attachment after physics - critical for allowing movement on platform
                     if let Some(att) = self.gs.ground_attach {
                         if let Some(st) = self.gs.structures.get(&att.id) {
+                            // Calculate new local position after physics (player may have moved)
+                            let new_local = rotate_yaw_inv(self.gs.walker.pos - st.pose.pos, st.pose.yaw_deg);
+                            
+                            // Check if we're still on the structure after physics
                             if self.is_feet_on_structure(st, self.gs.walker.pos) {
-                                // Update local offset and refresh grace
-                                let new_local = rotate_yaw_inv(self.gs.walker.pos - st.pose.pos, st.pose.yaw_deg);
-                                self.gs.ground_attach = Some(crate::gamestate::GroundAttach { id: att.id, grace: 8, local_offset: new_local });
+                                // Update attachment with new local offset (this allows movement on the platform)
+                                self.gs.ground_attach = Some(crate::gamestate::GroundAttach { 
+                                    id: att.id, 
+                                    grace: 8, 
+                                    local_offset: new_local 
+                                });
                             } else if att.grace > 0 {
-                                // Keep last local offset; decrease grace
-                                self.gs.ground_attach = Some(crate::gamestate::GroundAttach { id: att.id, grace: att.grace - 1, local_offset: att.local_offset });
+                                // We've left the structure surface but have grace period (jumping/stepping off edge)
+                                self.gs.ground_attach = Some(crate::gamestate::GroundAttach { 
+                                    id: att.id, 
+                                    grace: att.grace - 1, 
+                                    local_offset: new_local 
+                                });
                             } else {
+                                // Grace period expired, detach
                                 self.gs.ground_attach = None;
-                                // Emit lifecycle event
                                 self.queue.emit_now(Event::PlayerDetachedFromStructure { id: att.id });
                             }
                         } else {
@@ -983,6 +1000,96 @@ impl App {
         );
         d.draw_text(&hud, 12, 12, 18, Color::DARKGRAY);
         d.draw_fps(12, 36);
+        
+        // Debug overlay for attachment status
+        let mut debug_y = 60;
+        d.draw_text("=== ATTACHMENT DEBUG ===", 12, debug_y, 16, Color::RED);
+        debug_y += 20;
+        
+        // Show attachment status
+        if let Some(att) = self.gs.ground_attach {
+            d.draw_text(&format!("ATTACHED to structure ID: {}", att.id), 12, debug_y, 16, Color::GREEN);
+            debug_y += 18;
+            d.draw_text(&format!("  Grace period: {}", att.grace), 12, debug_y, 16, Color::GREEN);
+            debug_y += 18;
+            d.draw_text(&format!("  Local offset: ({:.2}, {:.2}, {:.2})", 
+                att.local_offset.x, att.local_offset.y, att.local_offset.z), 12, debug_y, 16, Color::GREEN);
+            debug_y += 18;
+        } else {
+            d.draw_text("NOT ATTACHED", 12, debug_y, 16, Color::ORANGE);
+            debug_y += 18;
+        }
+        
+        // Show walker position
+        d.draw_text(&format!("Walker pos: ({:.2}, {:.2}, {:.2})", 
+            self.gs.walker.pos.x, self.gs.walker.pos.y, self.gs.walker.pos.z), 12, debug_y, 16, Color::DARKGRAY);
+        debug_y += 18;
+        
+        // Show on_ground status
+        d.draw_text(&format!("On ground: {}", self.gs.walker.on_ground), 12, debug_y, 16, Color::DARKGRAY);
+        debug_y += 18;
+        
+        // Check each structure and show detection status
+        for (id, st) in &self.gs.structures {
+            let on_structure = self.is_feet_on_structure(st, self.gs.walker.pos);
+            let color = if on_structure { Color::GREEN } else { Color::GRAY };
+            d.draw_text(&format!("Structure {}: on={} pos=({:.1},{:.1},{:.1}) delta=({:.3},{:.3},{:.3})", 
+                id, on_structure, st.pose.pos.x, st.pose.pos.y, st.pose.pos.z,
+                st.last_delta.x, st.last_delta.y, st.last_delta.z), 12, debug_y, 16, color);
+            debug_y += 18;
+            
+            // Show detailed detection info
+            let local = rotate_yaw_inv(self.gs.walker.pos - st.pose.pos, st.pose.yaw_deg);
+            let test_y = local.y - 0.08;
+            let lx = local.x.floor() as i32;
+            let ly = test_y.floor() as i32;
+            let lz = local.z.floor() as i32;
+            
+            d.draw_text(&format!("  Local: ({:.2}, {:.2}, {:.2}) Test Y: {:.2} -> Grid: ({}, {}, {})", 
+                local.x, local.y, local.z, test_y, lx, ly, lz), 12, debug_y, 14, color);
+            debug_y += 16;
+            
+            // Check if we're in bounds
+            let in_bounds = lx >= 0 && ly >= 0 && lz >= 0 
+                && (lx as usize) < st.sx && (ly as usize) < st.sy && (lz as usize) < st.sz;
+            
+            // Get the actual block at this position
+            let (block_at_pos, block_solid) = if in_bounds {
+                // Check edits first
+                if let Some(b) = st.edits.get(lx, ly, lz) {
+                    (format!("{:?} (edit)", b), b.is_solid())
+                } else {
+                    // Check base blocks
+                    let idx = st.idx(lx as usize, ly as usize, lz as usize);
+                    let b = st.blocks[idx];
+                    (format!("{:?}", b), b.is_solid())
+                }
+            } else {
+                ("out of bounds".to_string(), false)
+            };
+            
+            d.draw_text(&format!("  Bounds: 0..{} x 0..{} x 0..{} | In bounds: {}", 
+                st.sx, st.sy, st.sz, in_bounds), 12, debug_y, 14, color);
+            debug_y += 16;
+            
+            d.draw_text(&format!("  Block at ({},{},{}): {} | Solid: {}", 
+                lx, ly, lz, block_at_pos, block_solid), 12, debug_y, 14, color);
+            debug_y += 16;
+            
+            // Show deck info and check what's at deck level
+            let deck_y = (st.sy as f32 * 0.33) as i32;
+            d.draw_text(&format!("  Deck Y level: {} (expecting solid blocks here)", deck_y), 12, debug_y, 14, Color::BLUE);
+            debug_y += 16;
+            
+            // Debug: Check what's actually at the deck level at player's X,Z
+            if lx >= 0 && lz >= 0 && (lx as usize) < st.sx && (lz as usize) < st.sz {
+                let deck_idx = st.idx(lx as usize, deck_y as usize, lz as usize);
+                let deck_block = st.blocks[deck_idx];
+                d.draw_text(&format!("  Block at deck level ({},{},{}): {:?}", 
+                    lx, deck_y, lz, deck_block), 12, debug_y, 14, Color::MAGENTA);
+                debug_y += 16;
+            }
+        }
     }
 }
 

@@ -112,9 +112,10 @@ impl Walker {
         &mut self,
         rl: &mut raylib::RaylibHandle,
         sample: &F,
-        world: &World,
+        _world: &World,
         dt: f32,
         yaw: f32,
+        platform_velocity: Option<Vector3>,
     ) where
         F: Fn(i32, i32, i32) -> Block,
     {
@@ -149,6 +150,10 @@ impl Walker {
         let target_v = wish * self.speed * run;
         let horiz = Vector3::new(target_v.x, 0.0, target_v.z);
 
+        // Add platform velocity if provided (for moving structures)
+        let platform_vel = platform_velocity.unwrap_or(Vector3::zero());
+        let total_horiz = horiz + Vector3::new(platform_vel.x, 0.0, platform_vel.z);
+
         // Gravity and jumping
         // Ground check: test a slightly larger offset down for stability
         let mut below = self.pos;
@@ -168,9 +173,10 @@ impl Walker {
         }
 
         // Apply movement with collision; order depends on vertical motion
-        let dx = horiz.x * dt;
-        let dz = horiz.z * dt;
-        let dy = self.vel.y * dt;
+        // Include platform velocity in movement
+        let dx = total_horiz.x * dt;
+        let dz = total_horiz.z * dt;
+        let dy = (self.vel.y + platform_vel.y) * dt;
         let moved_y = if dy > 0.0 {
             // Ascending (jump/climb): move up first, then horizontal
             let my = self.move_axis(sample, 1, dy);

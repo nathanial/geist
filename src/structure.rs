@@ -31,6 +31,7 @@ impl Structure {
         let deck_y = (sy as f32 * 0.33) as usize;
         for z in 0..sz {
             for x in 0..sx {
+                // Use proper 3D indexing: (y * sz + z) * sx + x
                 let idx = (deck_y * sz + z) * sx + x;
                 blocks[idx] = Block::Stone;
             }
