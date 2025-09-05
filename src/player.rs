@@ -139,12 +139,8 @@ impl Walker {
         // Land
         if dy < 0.0 && moved_y.abs() < dy.abs() * 0.5 { self.on_ground = true; self.vel.y = 0.0; }
 
-        // Clamp within world bounds
-        let max_x = (world.world_size_x() as f32) - 0.001;
-        let max_z = (world.world_size_z() as f32) - 0.001;
+        // Clamp only vertically; horizontal bounds are unbounded to allow streaming into negative chunks
         let max_y = (world.world_size_y() as f32) - self.height - 0.001;
-        self.pos.x = self.pos.x.clamp(0.001, max_x);
-        self.pos.z = self.pos.z.clamp(0.001, max_z);
         self.pos.y = self.pos.y.clamp(0.0, max_y.max(0.0));
     }
 
