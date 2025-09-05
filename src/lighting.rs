@@ -112,28 +112,37 @@ impl LightGrid {
                 0 => return 255, // assume sky above
                 1 => return 0,   // assume dark below
                 2 => { // +X uses xp planes, index by (y,z) in dims sy*sz
-                    let idx = (y * self.sz + z) as usize;
-                    let sky = self.nb_xp_sky.as_ref().and_then(|p| p.get(idx).cloned()).unwrap_or(0);
-                    let blk = self.nb_xp_blk.as_ref().and_then(|p| p.get(idx).cloned()).unwrap_or(0);
-                    return sky.max(blk);
+                    let idxp = (y * self.sz + z) as usize;
+                    let sky = self.nb_xp_sky.as_ref().and_then(|p| p.get(idxp).cloned());
+                    let blk = self.nb_xp_blk.as_ref().and_then(|p| p.get(idxp).cloned());
+                    if let (Some(s), Some(b)) = (sky, blk) { return s.max(b); }
+                    // Fallback: sample our own border cell
+                    let i = self.idx(self.sx-1, y as usize, z as usize);
+                    return self.skylight[i].max(self.block_light[i]);
                 }
                 3 => { // -X uses xn planes
-                    let idx = (y * self.sz + z) as usize;
-                    let sky = self.nb_xn_sky.as_ref().and_then(|p| p.get(idx).cloned()).unwrap_or(0);
-                    let blk = self.nb_xn_blk.as_ref().and_then(|p| p.get(idx).cloned()).unwrap_or(0);
-                    return sky.max(blk);
+                    let idxp = (y * self.sz + z) as usize;
+                    let sky = self.nb_xn_sky.as_ref().and_then(|p| p.get(idxp).cloned());
+                    let blk = self.nb_xn_blk.as_ref().and_then(|p| p.get(idxp).cloned());
+                    if let (Some(s), Some(b)) = (sky, blk) { return s.max(b); }
+                    let i = self.idx(0, y as usize, z as usize);
+                    return self.skylight[i].max(self.block_light[i]);
                 }
                 4 => { // +Z uses zp planes, index by (y,x) in dims sy*sx
-                    let idx = (y * self.sx + x) as usize;
-                    let sky = self.nb_zp_sky.as_ref().and_then(|p| p.get(idx).cloned()).unwrap_or(0);
-                    let blk = self.nb_zp_blk.as_ref().and_then(|p| p.get(idx).cloned()).unwrap_or(0);
-                    return sky.max(blk);
+                    let idxp = (y * self.sx + x) as usize;
+                    let sky = self.nb_zp_sky.as_ref().and_then(|p| p.get(idxp).cloned());
+                    let blk = self.nb_zp_blk.as_ref().and_then(|p| p.get(idxp).cloned());
+                    if let (Some(s), Some(b)) = (sky, blk) { return s.max(b); }
+                    let i = self.idx(x as usize, y as usize, self.sz-1);
+                    return self.skylight[i].max(self.block_light[i]);
                 }
                 5 => { // -Z uses zn planes
-                    let idx = (y * self.sx + x) as usize;
-                    let sky = self.nb_zn_sky.as_ref().and_then(|p| p.get(idx).cloned()).unwrap_or(0);
-                    let blk = self.nb_zn_blk.as_ref().and_then(|p| p.get(idx).cloned()).unwrap_or(0);
-                    return sky.max(blk);
+                    let idxp = (y * self.sx + x) as usize;
+                    let sky = self.nb_zn_sky.as_ref().and_then(|p| p.get(idxp).cloned());
+                    let blk = self.nb_zn_blk.as_ref().and_then(|p| p.get(idxp).cloned());
+                    if let (Some(s), Some(b)) = (sky, blk) { return s.max(b); }
+                    let i = self.idx(x as usize, y as usize, 0);
+                    return self.skylight[i].max(self.block_light[i]);
                 }
                 _ => {}
             }
