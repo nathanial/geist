@@ -10,6 +10,16 @@ pub struct LightGrid {
     skylight: Vec<u8>,
     // Phase 2: in-chunk block light (0..255)
     block_light: Vec<u8>,
+    // Neighbor border planes (optional). Used to sample lighting across chunk seams.
+    // Only horizontal neighbors are populated (x-/x+/z-/z+). Dimensions noted per plane.
+    nb_xn_blk: Option<Vec<u8>>, // dims sy*sz
+    nb_xp_blk: Option<Vec<u8>>, // dims sy*sz
+    nb_zn_blk: Option<Vec<u8>>, // dims sy*sx
+    nb_zp_blk: Option<Vec<u8>>, // dims sy*sx
+    nb_xn_sky: Option<Vec<u8>>, // dims sy*sz
+    nb_xp_sky: Option<Vec<u8>>, // dims sy*sz
+    nb_zn_sky: Option<Vec<u8>>, // dims sy*sx
+    nb_zp_sky: Option<Vec<u8>>, // dims sy*sx
 }
 
 impl LightGrid {
@@ -17,7 +27,21 @@ impl LightGrid {
     fn idx(&self, x: usize, y: usize, z: usize) -> usize { (y * self.sz + z) * self.sx + x }
 
     pub fn new(sx: usize, sy: usize, sz: usize) -> Self {
-        Self { sx, sy, sz, skylight: vec![0; sx*sy*sz], block_light: vec![0; sx*sy*sz] }
+        Self {
+            sx,
+            sy,
+            sz,
+            skylight: vec![0; sx*sy*sz],
+            block_light: vec![0; sx*sy*sz],
+            nb_xn_blk: None,
+            nb_xp_blk: None,
+            nb_zn_blk: None,
+            nb_zp_blk: None,
+            nb_xn_sky: None,
+            nb_xp_sky: None,
+            nb_zn_sky: None,
+            nb_zp_sky: None,
+        }
     }
 
     pub fn compute_baseline(world: &World, cx: i32, cz: i32) -> Self {
@@ -82,10 +106,39 @@ impl LightGrid {
         let (dx,dy,dz) = match face { 0 => (0,1,0), 1 => (0isize,-1,0), 2 => (1,0,0), 3 => (-1,0,0), 4 => (0,0,1), 5 => (0,0,-1), _ => (0,0,0) };
         let nx = x as isize + dx; let ny = y as isize + dy; let nz = z as isize + dz;
         if nx < 0 || ny < 0 || nz < 0 || nx >= self.sx as isize || ny >= self.sy as isize || nz >= self.sz as isize {
-            // Outside this chunk: approximate. For top, assume sky; otherwise 0.
-            let sky = if face == 0 { 255 } else { 0 };
-            let blk = 0;
-            return sky.max(blk);
+            // Outside this chunk: try neighbor border planes if available.
+            // Top/bottom faces have no vertical neighbors yet -> keep simple fallbacks.
+            match face {
+                0 => return 255, // assume sky above
+                1 => return 0,   // assume dark below
+                2 => { // +X uses xp planes, index by (y,z) in dims sy*sz
+                    let idx = (y * self.sz + z) as usize;
+                    let sky = self.nb_xp_sky.as_ref().and_then(|p| p.get(idx).cloned()).unwrap_or(0);
+                    let blk = self.nb_xp_blk.as_ref().and_then(|p| p.get(idx).cloned()).unwrap_or(0);
+                    return sky.max(blk);
+                }
+                3 => { // -X uses xn planes
+                    let idx = (y * self.sz + z) as usize;
+                    let sky = self.nb_xn_sky.as_ref().and_then(|p| p.get(idx).cloned()).unwrap_or(0);
+                    let blk = self.nb_xn_blk.as_ref().and_then(|p| p.get(idx).cloned()).unwrap_or(0);
+                    return sky.max(blk);
+                }
+                4 => { // +Z uses zp planes, index by (y,x) in dims sy*sx
+                    let idx = (y * self.sx + x) as usize;
+                    let sky = self.nb_zp_sky.as_ref().and_then(|p| p.get(idx).cloned()).unwrap_or(0);
+                    let blk = self.nb_zp_blk.as_ref().and_then(|p| p.get(idx).cloned()).unwrap_or(0);
+                    return sky.max(blk);
+                }
+                5 => { // -Z uses zn planes
+                    let idx = (y * self.sx + x) as usize;
+                    let sky = self.nb_zn_sky.as_ref().and_then(|p| p.get(idx).cloned()).unwrap_or(0);
+                    let blk = self.nb_zn_blk.as_ref().and_then(|p| p.get(idx).cloned()).unwrap_or(0);
+                    return sky.max(blk);
+                }
+                _ => {}
+            }
+            // Fallback
+            return 0;
         }
         let i = self.idx(nx as usize, ny as usize, nz as usize);
         let sky = self.skylight[i];
@@ -100,14 +153,21 @@ pub struct LightBorders {
     pub sy: usize,
     pub sz: usize,
     // faces: xn (x-), xp (x+): dims sy*sz
-    pub xn: Vec<u8>,
-    pub xp: Vec<u8>,
+    pub xn: Vec<u8>, // block light
+    pub xp: Vec<u8>, // block light
     // zn, zp: dims sy*sx
-    pub zn: Vec<u8>,
-    pub zp: Vec<u8>,
+    pub zn: Vec<u8>, // block light
+    pub zp: Vec<u8>, // block light
     // yn, yp: dims sx*sz
-    pub yn: Vec<u8>,
-    pub yp: Vec<u8>,
+    pub yn: Vec<u8>, // block light
+    pub yp: Vec<u8>, // block light
+    // Skylight border planes, same dimensions as above
+    pub sk_xn: Vec<u8>,
+    pub sk_xp: Vec<u8>,
+    pub sk_zn: Vec<u8>,
+    pub sk_zp: Vec<u8>,
+    pub sk_yn: Vec<u8>,
+    pub sk_yp: Vec<u8>,
 }
 
 impl LightBorders {
@@ -117,6 +177,9 @@ impl LightBorders {
             xn: vec![0; sy*sz], xp: vec![0; sy*sz],
             zn: vec![0; sy*sx], zp: vec![0; sy*sx],
             yn: vec![0; sx*sz], yp: vec![0; sx*sz],
+            sk_xn: vec![0; sy*sz], sk_xp: vec![0; sy*sz],
+            sk_zn: vec![0; sy*sx], sk_zp: vec![0; sy*sx],
+            sk_yn: vec![0; sx*sz], sk_yp: vec![0; sx*sz],
         }
     }
 
@@ -126,17 +189,17 @@ impl LightBorders {
         // Block light border from grid.block_light
         let idx3 = |x: usize,y: usize,z: usize| -> usize { (y*sz + z)*sx + x };
         // X- face at x=0
-        for z in 0..sz { for y in 0..sy { b.xn[y*sz+z] = grid.block_light[idx3(0,y,z)]; }}
+        for z in 0..sz { for y in 0..sy { b.xn[y*sz+z] = grid.block_light[idx3(0,y,z)]; b.sk_xn[y*sz+z] = grid.skylight[idx3(0,y,z)]; }}
         // X+ face at x=sx-1
-        for z in 0..sz { for y in 0..sy { b.xp[y*sz+z] = grid.block_light[idx3(sx-1,y,z)]; }}
+        for z in 0..sz { for y in 0..sy { b.xp[y*sz+z] = grid.block_light[idx3(sx-1,y,z)]; b.sk_xp[y*sz+z] = grid.skylight[idx3(sx-1,y,z)]; }}
         // Z- face at z=0
-        for x in 0..sx { for y in 0..sy { b.zn[y*sx+x] = grid.block_light[idx3(x,y,0)]; }}
+        for x in 0..sx { for y in 0..sy { b.zn[y*sx+x] = grid.block_light[idx3(x,y,0)]; b.sk_zn[y*sx+x] = grid.skylight[idx3(x,y,0)]; }}
         // Z+ face at z=sz-1
-        for x in 0..sx { for y in 0..sy { b.zp[y*sx+x] = grid.block_light[idx3(x,y,sz-1)]; }}
+        for x in 0..sx { for y in 0..sy { b.zp[y*sx+x] = grid.block_light[idx3(x,y,sz-1)]; b.sk_zp[y*sx+x] = grid.skylight[idx3(x,y,sz-1)]; }}
         // Y- face at y=0
-        for z in 0..sz { for x in 0..sx { b.yn[z*sx+x] = grid.block_light[idx3(x,0,z)]; }}
+        for z in 0..sz { for x in 0..sx { b.yn[z*sx+x] = grid.block_light[idx3(x,0,z)]; b.sk_yn[z*sx+x] = grid.skylight[idx3(x,0,z)]; }}
         // Y+ face at y=sy-1
-        for z in 0..sz { for x in 0..sx { b.yp[z*sx+x] = grid.block_light[idx3(x,sy-1,z)]; }}
+        for z in 0..sz { for x in 0..sx { b.yp[z*sx+x] = grid.block_light[idx3(x,sy-1,z)]; b.sk_yp[z*sx+x] = grid.skylight[idx3(x,sy-1,z)]; }}
         b
     }
 }
@@ -157,10 +220,22 @@ impl LightingStore {
     pub fn get_neighbor_borders(&self, cx: i32, cz: i32) -> NeighborBorders {
         let map = self.borders.lock().unwrap();
         let mut nb = NeighborBorders::empty(self.sx, self.sy, self.sz);
-        if let Some(b) = map.get(&(cx-1, cz)) { nb.xn = Some(b.xp.clone()); }
-        if let Some(b) = map.get(&(cx+1, cz)) { nb.xp = Some(b.xn.clone()); }
-        if let Some(b) = map.get(&(cx, cz-1)) { nb.zn = Some(b.zp.clone()); }
-        if let Some(b) = map.get(&(cx, cz+1)) { nb.zp = Some(b.zn.clone()); }
+        if let Some(b) = map.get(&(cx-1, cz)) {
+            nb.xn = Some(b.xp.clone());
+            nb.sk_xn = Some(b.sk_xp.clone());
+        }
+        if let Some(b) = map.get(&(cx+1, cz)) {
+            nb.xp = Some(b.xn.clone());
+            nb.sk_xp = Some(b.sk_xn.clone());
+        }
+        if let Some(b) = map.get(&(cx, cz-1)) {
+            nb.zn = Some(b.zp.clone());
+            nb.sk_zn = Some(b.sk_zp.clone());
+        }
+        if let Some(b) = map.get(&(cx, cz+1)) {
+            nb.zp = Some(b.zn.clone());
+            nb.sk_zp = Some(b.sk_zn.clone());
+        }
         // Vertical neighbors (not chunked vertically yet), leave None
         nb
     }
@@ -208,7 +283,8 @@ impl LightingStore {
 }
 
 fn equal_planes(a: &LightBorders, b: &LightBorders) -> bool {
-    a.xn == b.xn && a.xp == b.xp && a.zn == b.zn && a.zp == b.zp && a.yn == b.yn && a.yp == b.yp
+    a.xn == b.xn && a.xp == b.xp && a.zn == b.zn && a.zp == b.zp && a.yn == b.yn && a.yp == b.yp &&
+    a.sk_xn == b.sk_xn && a.sk_xp == b.sk_xp && a.sk_zn == b.sk_zn && a.sk_zp == b.sk_zp && a.sk_yn == b.sk_yn && a.sk_yp == b.sk_yp
 }
 
 pub struct NeighborBorders {
@@ -219,11 +295,16 @@ pub struct NeighborBorders {
     pub xp: Option<Vec<u8>>, // neighbor's -X into our +X
     pub zn: Option<Vec<u8>>, // neighbor's +Z into our -Z
     pub zp: Option<Vec<u8>>, // neighbor's -Z into our +Z
+    // Skylight planes
+    pub sk_xn: Option<Vec<u8>>, // skylight for -X face
+    pub sk_xp: Option<Vec<u8>>, // skylight for +X face
+    pub sk_zn: Option<Vec<u8>>, // skylight for -Z face
+    pub sk_zp: Option<Vec<u8>>, // skylight for +Z face
 }
 
 impl NeighborBorders {
     pub fn empty(sx: usize, sy: usize, sz: usize) -> Self {
-        Self { sx, sy, sz, xn: None, xp: None, zn: None, zp: None }
+        Self { sx, sy, sz, xn: None, xp: None, zn: None, zp: None, sk_xn: None, sk_xp: None, sk_zn: None, sk_zp: None }
     }
 }
 
@@ -258,6 +339,15 @@ impl LightGrid {
         }
         // Seed from neighbor borders (attenuate by 32 across boundary)
         let nb = store.get_neighbor_borders(cx, cz);
+        // Stash neighbor planes for sampling across chunk seams
+        lg.nb_xn_blk = nb.xn.clone();
+        lg.nb_xp_blk = nb.xp.clone();
+        lg.nb_zn_blk = nb.zn.clone();
+        lg.nb_zp_blk = nb.zp.clone();
+        lg.nb_xn_sky = nb.sk_xn.clone();
+        lg.nb_xp_sky = nb.sk_xp.clone();
+        lg.nb_zn_sky = nb.sk_zn.clone();
+        lg.nb_zp_sky = nb.sk_zp.clone();
         let atten: i32 = 32;
         if let Some(ref plane) = nb.xn { // our x=0 face
             for z in 0..sz { for y in 0..sy {
