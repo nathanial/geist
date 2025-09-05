@@ -300,6 +300,7 @@ impl World {
             const ROOM_THR_ADD: f32 = 0.12;    // additional with depth
             const SOIL_MIN: f32 = 3.5;         // don't carve within ~3.5 blocks of surface
             const MIN_Y: f32 = 2.0;            // avoid near bedrock
+            const GLOW_PROB: f32 = 0.0009;     // low probability cave glowstones
 
             // Depth from surface (float)
             let h = height as f32; // our height is already clamped to world ceiling
@@ -394,37 +395,51 @@ impl World {
                 let carve_room = wn < room_thr;
 
                 if carve_tunnel || carve_room {
-                    base_block = Block::Air;
+                    // Decide attachment-based glowstone placement in carved air.
+                    // Check if any 6-neighbor remains solid after its own carve.
+                    let neigh = [ (1,0,0),(-1,0,0),(0,1,0),(0,-1,0),(0,0,1),(0,0,-1) ];
+                    let mut near_solid = false;
+                    for (dx,dy,dz) in neigh {
+                        let nx = x + dx; let ny = y + dy; let nz = z + dz;
+                        if ny < 0 || ny >= self.chunk_size_y as i32 { continue; }
+                        // Neighbor surface and base solidity
+                        let nh = height_for(nx, nz) as f32;
+                        if (ny as f32) >= nh { continue; } // neighbor is above its surface -> air
+                        // Apply same carve test to neighbor
+                        let nwy = ny as f32;
+                        let nsoil = nh - nwy;
+                        let mut n_depth = nsoil / (self.chunk_size_y as f32);
+                        if n_depth < 0.0 { n_depth = 0.0; }
+                        if n_depth > 1.0 { n_depth = 1.0; }
+                        let wxn = nx as f32; let wyn = nwy; let wzn = nz as f32;
+                        let wxw_n = fractal3(&n_warp, wxn, wyn, wzn, 3, 0.6, 2.0, 220.0);
+                        let wyw_n = fractal3(&n_warp, wxn + 133.7, wyn + 71.3, wzn - 19.1, 3, 0.6, 2.0, 220.0);
+                        let wzw_n = fractal3(&n_warp, wxn - 54.2, wyn + 29.7, wzn + 88.8, 3, 0.6, 2.0, 220.0);
+                        let nxp = wxn + wxw_n * WARP_XY;
+                        let nyp = wyn + wyw_n * WARP_Y;
+                        let nzp = wzn + wzw_n * WARP_XY;
+                        let tn_n = fractal3(&n_tun, nxp, nyp * Y_SCALE, nzp, 4, 0.55, 2.0, 140.0);
+                        let eps_n = EPS_BASE + EPS_ADD * n_depth;
+                        let carve_tn = tn_n.abs() < eps_n;
+                        let wn_n = worley3_f1_norm(nxp, nyp, nzp, ROOM_CELL, ((self.seed as u32) ^ 2100u32).wrapping_add(1337));
+                        let room_thr_n = ROOM_THR_BASE + ROOM_THR_ADD * n_depth;
+                        let carve_rm = wn_n < room_thr_n;
+                        let neighbor_carved_air = (nsoil > SOIL_MIN && nwy > MIN_Y) && (carve_tn || carve_rm);
+                        if !neighbor_carved_air { near_solid = true; break; }
+                    }
+                    // Random selection per voxel, seeded deterministically
+                    let h3 = hash3(x, y, z, (self.seed as u32) ^ 0xC0FF_EE15);
+                    let r = (h3 & 0x00FF_FFFF) as f32 / 16_777_216.0;
+                    if near_solid && y < height - 2 && r < GLOW_PROB {
+                        base_block = Block::Glowstone;
+                    } else {
+                        base_block = Block::Air;
+                    }
                 }
             }
         }
 
-        // Simple static glowstone spawner (underground near air), low probability
-        // Avoid recursion: approximate "near air" using only the heightmap.
-        if matches!(base_block, Block::Stone) && y > 3 && y < height - 2 {
-            // A neighboring cell is air if its ny >= height_for(nx, nz)
-            let dirs = [(1,0,0),(-1,0,0),(0,1,0),(0,-1,0),(0,0,1),(0,0,-1)];
-            let mut near_air = false;
-            for (dx, dy, dz) in dirs {
-                let nx = x + dx; let ny = y + dy; let nz = z + dz;
-                if ny >= self.chunk_size_y as i32 { near_air = true; break; }
-                if ny < 0 { continue; }
-                let nh = height_for(nx, nz);
-                if ny >= nh { near_air = true; break; }
-            }
-            if near_air {
-                let hash2 = |ix: i32, iz: i32, seed: u32| -> u32 {
-                    let mut h = (ix as u32).wrapping_mul(0x85eb_ca6b)
-                        ^ (iz as u32).wrapping_mul(0xc2b2_ae35)
-                        ^ seed.wrapping_mul(0x27d4_eb2d);
-                    h ^= h >> 16; h = h.wrapping_mul(0x7feb_352d); h ^= h >> 15; h = h.wrapping_mul(0x846c_a68b); h ^= h >> 16;
-                    h
-                };
-                let h = hash2(x, z, (self.seed as u32) ^ 0xC0FFEEu32 ^ (y as u32 * 2654435761));
-                let r = (h & 0x00ff_ffff) as f32 / 16_777_216.0;
-                if r < 0.0015 { base_block = Block::Glowstone; }
-            }
-        }
+        // Glowstone is now handled during carving above.
 
         // Deterministic per-column tree spawn (adapted from old code)
         // Multiple species via temperature/moisture fields
