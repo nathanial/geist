@@ -13,6 +13,8 @@ pub struct LightGrid {
     block_light: Vec<u8>,
     // Beacon light channel (0..255) - separate to maintain proper attenuation
     beacon_light: Vec<u8>,
+    // Direction of beacon propagation per voxel (0=source, 1=+X, 2=-X, 3=+Z, 4=-Z, 5=non-cardinal)
+    beacon_dir: Vec<u8>,
     // Neighbor border planes (optional). Used to sample lighting across chunk seams.
     // Only horizontal neighbors are populated (x-/x+/z-/z+). Dimensions noted per plane.
     nb_xn_blk: Option<Vec<u8>>, // dims sy*sz
@@ -27,6 +29,11 @@ pub struct LightGrid {
     nb_xp_bcn: Option<Vec<u8>>, // beacon light dims sy*sz
     nb_zn_bcn: Option<Vec<u8>>, // beacon light dims sy*sx
     nb_zp_bcn: Option<Vec<u8>>, // beacon light dims sy*sx
+    // Direction planes for beacon light across borders (same indexing as above)
+    nb_xn_bcn_dir: Option<Vec<u8>>, // expected direction entering from -X face (codes above)
+    nb_xp_bcn_dir: Option<Vec<u8>>, // entering from +X face
+    nb_zn_bcn_dir: Option<Vec<u8>>, // entering from -Z face
+    nb_zp_bcn_dir: Option<Vec<u8>>, // entering from +Z face
 }
 
 impl LightGrid {
@@ -43,6 +50,7 @@ impl LightGrid {
             skylight: vec![0; sx * sy * sz],
             block_light: vec![0; sx * sy * sz],
             beacon_light: vec![0; sx * sy * sz],
+            beacon_dir: vec![0; sx * sy * sz],
             nb_xn_blk: None,
             nb_xp_blk: None,
             nb_zn_blk: None,
@@ -55,6 +63,10 @@ impl LightGrid {
             nb_xp_bcn: None,
             nb_zn_bcn: None,
             nb_zp_bcn: None,
+            nb_xn_bcn_dir: None,
+            nb_xp_bcn_dir: None,
+            nb_zn_bcn_dir: None,
+            nb_zp_bcn_dir: None,
         }
     }
 
@@ -88,7 +100,7 @@ impl LightGrid {
         }
         // Emitters from blocks in this chunk - track beacon sources separately
         let mut q = VecDeque::new();
-        // Beacon queue now tracks: (x, y, z, level, direction)
+        // Beacon queue tracks: (x, y, z, level, direction)
         // Direction: 0=source, 1=+X, 2=-X, 3=+Z, 4=-Z, 5=non-cardinal
         let mut q_beacon: VecDeque<(usize, usize, usize, u8, u8)> = VecDeque::new();
         for z in 0..sz {
@@ -100,6 +112,7 @@ impl LightGrid {
                         let idx = lg.idx(x, y, z);
                         if matches!(b, Block::Beacon) {
                             lg.beacon_light[idx] = em;
+                            lg.beacon_dir[idx] = 0; // source
                             // Initial beacon emission - direction 0 means it's the source
                             q_beacon.push_back((x, y, z, em, 0));
                         } else {
@@ -117,6 +130,7 @@ impl LightGrid {
                 if is_beacon {
                     if lg.beacon_light[idx] < level {
                         lg.beacon_light[idx] = level;
+                        lg.beacon_dir[idx] = 0; // source
                         q_beacon.push_back((x, y, z, level, 0)); // 0 = source
                     }
                 } else {
@@ -141,6 +155,10 @@ impl LightGrid {
         lg.nb_xp_bcn = nb.bcn_xp.clone();
         lg.nb_zn_bcn = nb.bcn_zn.clone();
         lg.nb_zp_bcn = nb.bcn_zp.clone();
+        lg.nb_xn_bcn_dir = nb.bcn_dir_xn.clone();
+        lg.nb_xp_bcn_dir = nb.bcn_dir_xp.clone();
+        lg.nb_zn_bcn_dir = nb.bcn_dir_zn.clone();
+        lg.nb_zp_bcn_dir = nb.bcn_dir_zp.clone();
         // Process neighbor light with appropriate attenuation
         let atten: i32 = 32;
         // Regular block light from neighbors
@@ -206,23 +224,24 @@ impl LightGrid {
                 }
             }
         }
-        // Beacon light from neighbors
-        // For cross-chunk beacon light, we'll check if it's strong enough to be cardinal
-        // Light >= 200 likely came from cardinal propagation (255 - ~55 steps at 1/block)
-        const CARDINAL_THRESHOLD: u8 = 200;
+        // Beacon light from neighbors: Use explicit direction planes (no threshold heuristic)
         if let Some(ref plane) = nb.bcn_xn {
             for z in 0..sz {
                 for y in 0..sy {
                     let orig_v = plane[y * sz + z];
-                    // Coming from -X face, if strong it was likely traveling +X (direction 1)
-                    let dir = if orig_v >= CARDINAL_THRESHOLD { 1 } else { 5 };
-                    let atten = if dir == 1 { 1 } else { 32 };
+                    let dir = lg
+                        .nb_xn_bcn_dir
+                        .as_ref()
+                        .and_then(|p| p.get(y * sz + z).cloned())
+                        .unwrap_or(5);
+                    let atten = match dir { 1 | 2 | 3 | 4 => 1, _ => 32 };
                     let v = orig_v as i32 - atten;
                     if v > 0 {
                         let v8 = v as u8;
                         let idx = lg.idx(0, y, z);
                         if lg.beacon_light[idx] < v8 {
                             lg.beacon_light[idx] = v8;
+                            lg.beacon_dir[idx] = dir;
                             q_beacon.push_back((0, y, z, v8, dir));
                         }
                     }
@@ -233,9 +252,12 @@ impl LightGrid {
             for z in 0..sz {
                 for y in 0..sy {
                     let orig_v = plane[y * sz + z];
-                    // Coming from +X face, if strong it was likely traveling -X (direction 2)
-                    let dir = if orig_v >= CARDINAL_THRESHOLD { 2 } else { 5 };
-                    let atten = if dir == 2 { 1 } else { 32 };
+                    let dir = lg
+                        .nb_xp_bcn_dir
+                        .as_ref()
+                        .and_then(|p| p.get(y * sz + z).cloned())
+                        .unwrap_or(5);
+                    let atten = match dir { 1 | 2 | 3 | 4 => 1, _ => 32 };
                     let v = orig_v as i32 - atten;
                     if v > 0 {
                         let v8 = v as u8;
@@ -243,6 +265,7 @@ impl LightGrid {
                         let idx = lg.idx(xx, y, z);
                         if lg.beacon_light[idx] < v8 {
                             lg.beacon_light[idx] = v8;
+                            lg.beacon_dir[idx] = dir;
                             q_beacon.push_back((xx, y, z, v8, dir));
                         }
                     }
@@ -253,15 +276,19 @@ impl LightGrid {
             for x in 0..sx {
                 for y in 0..sy {
                     let orig_v = plane[y * sx + x];
-                    // Coming from -Z face, if strong it was likely traveling +Z (direction 3)
-                    let dir = if orig_v >= CARDINAL_THRESHOLD { 3 } else { 5 };
-                    let atten = if dir == 3 { 1 } else { 32 };
+                    let dir = lg
+                        .nb_zn_bcn_dir
+                        .as_ref()
+                        .and_then(|p| p.get(y * sx + x).cloned())
+                        .unwrap_or(5);
+                    let atten = match dir { 1 | 2 | 3 | 4 => 1, _ => 32 };
                     let v = orig_v as i32 - atten;
                     if v > 0 {
                         let v8 = v as u8;
                         let idx = lg.idx(x, y, 0);
                         if lg.beacon_light[idx] < v8 {
                             lg.beacon_light[idx] = v8;
+                            lg.beacon_dir[idx] = dir;
                             q_beacon.push_back((x, y, 0, v8, dir));
                         }
                     }
@@ -272,9 +299,12 @@ impl LightGrid {
             for x in 0..sx {
                 for y in 0..sy {
                     let orig_v = plane[y * sx + x];
-                    // Coming from +Z face, if strong it was likely traveling -Z (direction 4)
-                    let dir = if orig_v >= CARDINAL_THRESHOLD { 4 } else { 5 };
-                    let atten = if dir == 4 { 1 } else { 32 };
+                    let dir = lg
+                        .nb_zp_bcn_dir
+                        .as_ref()
+                        .and_then(|p| p.get(y * sx + x).cloned())
+                        .unwrap_or(5);
+                    let atten = match dir { 1 | 2 | 3 | 4 => 1, _ => 32 };
                     let v = orig_v as i32 - atten;
                     if v > 0 {
                         let v8 = v as u8;
@@ -282,6 +312,7 @@ impl LightGrid {
                         let idx = lg.idx(x, y, zz);
                         if lg.beacon_light[idx] < v8 {
                             lg.beacon_light[idx] = v8;
+                            lg.beacon_dir[idx] = dir;
                             q_beacon.push_back((x, y, zz, v8, dir));
                         }
                     }
@@ -517,6 +548,7 @@ impl LightGrid {
                     let idn = lg.idx(nxi, nyi, nzi);
                     if lg.beacon_light[idn] < vnext {
                         lg.beacon_light[idn] = vnext;
+                        lg.beacon_dir[idn] = new_dir;
                         q_beacon.push_back((nxi, nyi, nzi, vnext, new_dir));
                     }
                 }
@@ -699,6 +731,11 @@ pub struct LightBorders {
     pub bcn_zp: Vec<u8>,
     pub bcn_yn: Vec<u8>,
     pub bcn_yp: Vec<u8>,
+    // Beacon direction planes (codes: 1/2/3/4=cardinal along face normal; 5=non-cardinal)
+    pub bcn_dir_xn: Vec<u8>,
+    pub bcn_dir_xp: Vec<u8>,
+    pub bcn_dir_zn: Vec<u8>,
+    pub bcn_dir_zp: Vec<u8>,
 }
 
 impl LightBorders {
@@ -722,6 +759,10 @@ impl LightBorders {
             bcn_zp: vec![0; sy * sx],
             bcn_yn: vec![0; sx * sz],
             bcn_yp: vec![0; sx * sz],
+            bcn_dir_xn: vec![5; sy * sz],
+            bcn_dir_xp: vec![5; sy * sz],
+            bcn_dir_zn: vec![5; sy * sx],
+            bcn_dir_zp: vec![5; sy * sx],
         }
     }
 
@@ -736,6 +777,9 @@ impl LightBorders {
                 b.xn[y * sz + z] = grid.block_light[idx3(0, y, z)];
                 b.sk_xn[y * sz + z] = grid.skylight[idx3(0, y, z)];
                 b.bcn_xn[y * sz + z] = grid.beacon_light[idx3(0, y, z)];
+                let d = grid.beacon_dir[idx3(0, y, z)];
+                // For -X face, treat source(0) or -X(2) as cardinal across -X; else non-cardinal
+                b.bcn_dir_xn[y * sz + z] = if d == 2 || d == 0 { 2 } else { 5 };
             }
         }
         // X+ face at x=sx-1
@@ -744,6 +788,9 @@ impl LightBorders {
                 b.xp[y * sz + z] = grid.block_light[idx3(sx - 1, y, z)];
                 b.sk_xp[y * sz + z] = grid.skylight[idx3(sx - 1, y, z)];
                 b.bcn_xp[y * sz + z] = grid.beacon_light[idx3(sx - 1, y, z)];
+                let d = grid.beacon_dir[idx3(sx - 1, y, z)];
+                // For +X face, treat source(0) or +X(1) as cardinal across +X
+                b.bcn_dir_xp[y * sz + z] = if d == 1 || d == 0 { 1 } else { 5 };
             }
         }
         // Z- face at z=0
@@ -752,6 +799,9 @@ impl LightBorders {
                 b.zn[y * sx + x] = grid.block_light[idx3(x, y, 0)];
                 b.sk_zn[y * sx + x] = grid.skylight[idx3(x, y, 0)];
                 b.bcn_zn[y * sx + x] = grid.beacon_light[idx3(x, y, 0)];
+                let d = grid.beacon_dir[idx3(x, y, 0)];
+                // For -Z face, treat source(0) or -Z(4) as cardinal across -Z
+                b.bcn_dir_zn[y * sx + x] = if d == 4 || d == 0 { 4 } else { 5 };
             }
         }
         // Z+ face at z=sz-1
@@ -760,6 +810,9 @@ impl LightBorders {
                 b.zp[y * sx + x] = grid.block_light[idx3(x, y, sz - 1)];
                 b.sk_zp[y * sx + x] = grid.skylight[idx3(x, y, sz - 1)];
                 b.bcn_zp[y * sx + x] = grid.beacon_light[idx3(x, y, sz - 1)];
+                let d = grid.beacon_dir[idx3(x, y, sz - 1)];
+                // For +Z face, treat source(0) or +Z(3) as cardinal across +Z
+                b.bcn_dir_zp[y * sx + x] = if d == 3 || d == 0 { 3 } else { 5 };
             }
         }
         // Y- face at y=0
@@ -808,21 +861,25 @@ impl LightingStore {
             nb.xn = Some(b.xp.clone());
             nb.sk_xn = Some(b.sk_xp.clone());
             nb.bcn_xn = Some(b.bcn_xp.clone());
+            nb.bcn_dir_xn = Some(b.bcn_dir_xp.clone());
         }
         if let Some(b) = map.get(&(cx + 1, cz)) {
             nb.xp = Some(b.xn.clone());
             nb.sk_xp = Some(b.sk_xn.clone());
             nb.bcn_xp = Some(b.bcn_xn.clone());
+            nb.bcn_dir_xp = Some(b.bcn_dir_xn.clone());
         }
         if let Some(b) = map.get(&(cx, cz - 1)) {
             nb.zn = Some(b.zp.clone());
             nb.sk_zn = Some(b.sk_zp.clone());
             nb.bcn_zn = Some(b.bcn_zp.clone());
+            nb.bcn_dir_zn = Some(b.bcn_dir_zp.clone());
         }
         if let Some(b) = map.get(&(cx, cz + 1)) {
             nb.zp = Some(b.zn.clone());
             nb.sk_zp = Some(b.sk_zn.clone());
             nb.bcn_zp = Some(b.bcn_zn.clone());
+            nb.bcn_dir_zp = Some(b.bcn_dir_zn.clone());
         }
         // Vertical neighbors (not chunked vertically yet), leave None
         nb
@@ -921,6 +978,10 @@ fn equal_planes(a: &LightBorders, b: &LightBorders) -> bool {
         && a.bcn_zp == b.bcn_zp
         && a.bcn_yn == b.bcn_yn
         && a.bcn_yp == b.bcn_yp
+        && a.bcn_dir_xn == b.bcn_dir_xn
+        && a.bcn_dir_xp == b.bcn_dir_xp
+        && a.bcn_dir_zn == b.bcn_dir_zn
+        && a.bcn_dir_zp == b.bcn_dir_zp
 }
 
 pub struct NeighborBorders {
@@ -938,6 +999,11 @@ pub struct NeighborBorders {
     pub bcn_xp: Option<Vec<u8>>, // beacon light for +X face
     pub bcn_zn: Option<Vec<u8>>, // beacon light for -Z face
     pub bcn_zp: Option<Vec<u8>>, // beacon light for +Z face
+    // Beacon direction planes
+    pub bcn_dir_xn: Option<Vec<u8>>, // direction for -X face entries
+    pub bcn_dir_xp: Option<Vec<u8>>, // direction for +X face entries
+    pub bcn_dir_zn: Option<Vec<u8>>, // direction for -Z face entries
+    pub bcn_dir_zp: Option<Vec<u8>>, // direction for +Z face entries
 }
 
 impl NeighborBorders {
@@ -955,6 +1021,10 @@ impl NeighborBorders {
             bcn_xp: None,
             bcn_zn: None,
             bcn_zp: None,
+            bcn_dir_xn: None,
+            bcn_dir_xp: None,
+            bcn_dir_zn: None,
+            bcn_dir_zp: None,
         }
     }
 }
