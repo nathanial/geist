@@ -40,7 +40,8 @@ impl Walker {
     fn is_solid_for_collision(b: Block) -> bool {
         match b {
             Block::Air => false,
-            Block::Leaves(_) => false, // allow walking through foliage
+            // Treat leaves as solid for walking/collisions
+            Block::Leaves(_) => true,
             _ => true,
         }
     }
@@ -139,4 +140,3 @@ impl Walker {
         self.pos.y = self.pos.y.clamp(0.0, max_y.max(0.0));
     }
 }
-
