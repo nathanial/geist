@@ -20,11 +20,20 @@ fn main() {
     // Initialize logging (RUST_LOG=info by default; override with env)
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
+    // Silence raylib's internal logging unless debugging raylib itself
+    unsafe {
+        // 7 == LOG_NONE in raylib (0 was LOG_ALL and was too chatty)
+        raylib::ffi::SetTraceLogLevel(7);
+    }
+
     let (mut rl, thread) = raylib::init()
         .size(1280, 720)
         .title("Geist Voxel View (Rust)")
         .msaa_4x()
         .build();
+
+    // Some raylib builds reset the trace level during init; set it again after init
+    unsafe { raylib::ffi::SetTraceLogLevel(7); }
 
     rl.set_target_fps(60);
     rl.disable_cursor();
