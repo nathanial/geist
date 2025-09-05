@@ -86,10 +86,10 @@ impl LightGrid {
                 let nx = x as isize + dx; let ny = y as isize + dy; let nz = z as isize + dz;
                 if nx < 0 || ny < 0 || nz < 0 || nx >= sx as isize || ny >= sy as isize || nz >= sz as isize { continue; }
                 let nxi = nx as usize; let nyi = ny as usize; let nzi = nz as usize;
-                // Only propagate into non-solid (air/leaves)
+                // Only propagate into non-solid air (leaves block light)
                 let nb = world.block_at(base_x + nxi as i32, nyi as i32, base_z + nzi as i32);
                 match nb {
-                    Block::Air | Block::Leaves(_) => {
+                    Block::Air => {
                         let idn = lg.idx(nxi, nyi, nzi);
                         if lg.block_light[idn] < vnext { lg.block_light[idn] = vnext; q.push_back((nxi, nyi, nzi, vnext)); }
                     }
@@ -433,7 +433,7 @@ impl LightGrid {
                 if nx < 0 || ny < 0 || nz < 0 || nx >= sx as isize || ny >= sy as isize || nz >= sz as isize { continue; }
                 let nxi = nx as usize; let nyi = ny as usize; let nzi = nz as usize;
                 let nbk = world.block_at(base_x + nxi as i32, nyi as i32, base_z + nzi as i32);
-                match nbk { Block::Air | Block::Leaves(_) => {
+                match nbk { Block::Air => {
                         let idn = lg.idx(nxi, nyi, nzi);
                         if lg.block_light[idn] < vnext { lg.block_light[idn] = vnext; q.push_back((nxi, nyi, nzi, vnext)); }
                     }

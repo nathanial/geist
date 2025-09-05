@@ -67,22 +67,15 @@ impl Walker {
 
     fn move_axis(&mut self, world: &World, axis: usize, amt: f32) -> f32 {
         if amt == 0.0 { return 0.0; }
+        const STEP_RES: f32 = 0.05;
         let mut moved = 0.0_f32;
-        let step = 0.05_f32 * amt.signum();
+        let step = STEP_RES * amt.signum();
         let mut remaining = amt;
         while remaining.abs() > 0.0001 {
             let s = if remaining.abs() < step.abs() { remaining } else { step };
             let mut p = self.pos;
             match axis { 0 => p.x += s, 1 => p.y += s, _ => p.z += s };
             if self.aabb_collides(world, p) {
-                // Step-up heuristic for horizontal axes
-                if axis != 1 && self.on_ground {
-                    let mut up = self.pos; up.y += 0.6; // try stepping up a half-block
-                    let mut p2 = up; match axis { 0 => p2.x += s, _ => p2.z += s };
-                    if !self.aabb_collides(world, up) && !self.aabb_collides(world, p2) {
-                        self.pos = p2; moved += s; remaining -= s; continue;
-                    }
-                }
                 break; // collision
             } else {
                 self.pos = p; moved += s; remaining -= s;
@@ -110,8 +103,8 @@ impl Walker {
         let mut horiz = Vector3::new(target_v.x, 0.0, target_v.z);
 
         // Gravity and jumping
-        // Ground check: test a small offset down
-        let mut below = self.pos; below.y -= 0.05;
+        // Ground check: test a slightly larger offset down for stability
+        let mut below = self.pos; below.y -= 0.10;
         self.on_ground = self.aabb_collides(world, below);
         if self.on_ground {
             // Reset vertical velocity and allow jump
@@ -123,11 +116,20 @@ impl Walker {
             self.vel.y += self.gravity * dt;
         }
 
-        // Apply movement with collision (X, Z, then Y)
+        // Apply movement with collision; order depends on vertical motion
         let dx = horiz.x * dt; let dz = horiz.z * dt; let dy = self.vel.y * dt;
-        self.move_axis(world, 0, dx);
-        self.move_axis(world, 2, dz);
-        let moved_y = self.move_axis(world, 1, dy);
+        let moved_y = if dy > 0.0 {
+            // Ascending (jump/climb): move up first, then horizontal
+            let my = self.move_axis(world, 1, dy);
+            self.move_axis(world, 0, dx);
+            self.move_axis(world, 2, dz);
+            my
+        } else {
+            // Descending / grounded: hug terrain by doing horizontal first
+            self.move_axis(world, 0, dx);
+            self.move_axis(world, 2, dz);
+            self.move_axis(world, 1, dy)
+        };
         // Land
         if dy < 0.0 && moved_y.abs() < dy.abs() * 0.5 { self.on_ground = true; self.vel.y = 0.0; }
 
