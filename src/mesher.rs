@@ -14,6 +14,7 @@ pub enum FaceMaterial {
     WoodTop(TreeSpecies),
     WoodSide(TreeSpecies),
     Leaves(TreeSpecies),
+    Glowstone,
 }
 
 impl FaceMaterial {
@@ -25,6 +26,7 @@ impl FaceMaterial {
             FaceMaterial::Stone => vec!["assets/blocks/stone.png"],
             FaceMaterial::Sand => vec!["assets/blocks/sand.png"],
             FaceMaterial::Snow => vec!["assets/blocks/snow.png"],
+            FaceMaterial::Glowstone => vec!["assets/blocks/glowstone.png", "assets/blocks/sea_lantern.png"],
             FaceMaterial::WoodTop(sp) => match sp {
                 TreeSpecies::Oak => vec!["assets/blocks/log_oak_top.png", "assets/blocks/log_big_oak_top.png"],
                 TreeSpecies::DarkOak => vec!["assets/blocks/log_big_oak_top.png", "assets/blocks/log_oak_top.png"],
@@ -119,6 +121,7 @@ fn face_material_for(block: Block, face: usize) -> Option<FaceMaterial> {
             _ => None,
         },
         Block::Leaves(sp) => Some(FaceMaterial::Leaves(sp)),
+        Block::Glowstone => Some(FaceMaterial::Glowstone),
     }
 }
 

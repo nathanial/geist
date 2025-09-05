@@ -20,12 +20,21 @@ pub enum Block {
     Snow,
     Wood(TreeSpecies),
     Leaves(TreeSpecies),
+    Glowstone,
 }
 
 impl Block {
     #[inline]
     pub fn is_solid(&self) -> bool {
         !matches!(self, Block::Air)
+    }
+
+    #[inline]
+    pub fn emission(&self) -> u8 {
+        match self {
+            Block::Glowstone => 255,
+            _ => 0,
+        }
     }
 }
 
@@ -268,13 +277,36 @@ impl World {
         let height = height_for(x, z);
 
         // Base terrain block
-        let base_block = if y >= height {
+        let mut base_block = if y >= height {
             Block::Air
         } else if y == height - 1 {
             if height as f32 >= self.chunk_size_y as f32 * 0.62 { Block::Snow }
             else if height as f32 <= self.chunk_size_y as f32 * 0.2 { Block::Sand }
             else { Block::Grass }
         } else if y + 3 >= height { Block::Dirt } else { Block::Stone };
+
+        // Simple static glowstone spawner (underground near air), low probability
+        if matches!(base_block, Block::Stone) && y > 3 && y < height - 2 {
+            // neighbor near air?
+            let mut near_air = false;
+            let dirs = [(1,0,0),(-1,0,0),(0,1,0),(0,-1,0),(0,0,1),(0,0,-1)];
+            for (dx,dy,dz) in dirs {
+                let nb = self.block_at(x+dx, y+dy, z+dz);
+                if matches!(nb, Block::Air) { near_air = true; break; }
+            }
+            if near_air {
+                let hash2 = |ix: i32, iz: i32, seed: u32| -> u32 {
+                    let mut h = (ix as u32).wrapping_mul(0x85eb_ca6b)
+                        ^ (iz as u32).wrapping_mul(0xc2b2_ae35)
+                        ^ seed.wrapping_mul(0x27d4_eb2d);
+                    h ^= h >> 16; h = h.wrapping_mul(0x7feb_352d); h ^= h >> 15; h = h.wrapping_mul(0x846c_a68b); h ^= h >> 16;
+                    h
+                };
+                let h = hash2(x, z, (self.seed as u32) ^ 0xC0FFEEu32 ^ (y as u32 * 2654435761));
+                let r = (h & 0x00ff_ffff) as f32 / 16_777_216.0;
+                if r < 0.0015 { base_block = Block::Glowstone; }
+            }
+        }
 
         // Deterministic per-column tree spawn (adapted from old code)
         // Multiple species via temperature/moisture fields
