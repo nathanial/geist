@@ -46,10 +46,6 @@ impl FlyCamera {
         self.forward().cross(Vector3::up()).normalized()
     }
 
-    pub fn up(&self) -> Vector3 {
-        self.right().cross(self.forward()).normalized()
-    }
-
     pub fn update(&mut self, rl: &mut RaylibHandle, dt: f32) {
         // Toggle mouse capture with Tab
         if rl.is_key_pressed(KeyboardKey::KEY_TAB) {
@@ -103,7 +99,7 @@ impl FlyCamera {
     }
 
     // Update only mouse-look/capture; leave translation to an external controller (e.g., Walker)
-    pub fn update_look_only(&mut self, rl: &mut RaylibHandle, dt: f32) {
+    pub fn update_look_only(&mut self, rl: &mut RaylibHandle, _dt: f32) {
         // Toggle mouse capture with Tab
         if rl.is_key_pressed(KeyboardKey::KEY_TAB) {
             self.captured = !self.captured;

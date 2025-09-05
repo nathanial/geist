@@ -10,7 +10,6 @@ mod edit;
 
 use camera::FlyCamera;
 use raylib::prelude::*;
-use raylib::core::texture::Image;
 use voxel::World;
 use mesher::{FaceMaterial, build_chunk_greedy_cpu_buf, upload_chunk_mesh, ChunkMeshCPU, TextureCache, NeighborsLoaded};
 use voxel::TreeSpecies;
@@ -613,84 +612,4 @@ fn main() {
         d.draw_text(&hud, 12, 12, 18, Color::DARKGRAY);
         d.draw_fps(12, 36);
     }
-}
-
-// Build a cube model with top/side/bottom textures; optional vertical flip for side faces
-fn build_per_face_cube_model(
-    rl: &mut RaylibHandle,
-    thread: &RaylibThread,
-    top_paths: &[&str],
-    side_paths: &[&str],
-    bottom_paths: &[&str],
-    flip_side_v: bool,
-) -> Option<(raylib::core::models::Model, raylib::core::texture::Texture2D)> {
-    let load_first = |cands: &[&str]| -> Option<Image> {
-        for p in cands { if let Ok(img) = Image::load_image(p) { return Some(img); } }
-        None
-    };
-    let top = load_first(top_paths)?;
-    let side = load_first(side_paths)?;
-    let bottom = load_first(bottom_paths)?;
-
-    let (tw, th) = (top.width(), top.height());
-    let mut atlas = Image::gen_image_color(tw * 3, th, Color::BLANK);
-    atlas.draw(&top, Rectangle::new(0.0, 0.0, tw as f32, th as f32), Rectangle::new(0.0, 0.0, tw as f32, th as f32), Color::WHITE);
-    atlas.draw(&side, Rectangle::new(0.0, 0.0, side.width() as f32, side.height() as f32), Rectangle::new(tw as f32, 0.0, tw as f32, th as f32), Color::WHITE);
-    atlas.draw(&bottom, Rectangle::new(0.0, 0.0, bottom.width() as f32, bottom.height() as f32), Rectangle::new((tw * 2) as f32, 0.0, tw as f32, th as f32), Color::WHITE);
-
-    let tex = rl.load_texture_from_image(thread, &atlas).ok()?;
-    tex.set_texture_filter(thread, raylib::consts::TextureFilter::TEXTURE_FILTER_POINT);
-
-    let mut mesh = raylib::core::models::Mesh::gen_mesh_cube(thread, 1.0, 1.0, 1.0);
-    let vc = mesh.as_ref().vertexCount as usize;
-    let src_uvs: &[f32] = unsafe { std::slice::from_raw_parts(mesh.as_ref().texcoords as *const f32, vc * 2) };
-    let mut uvs = src_uvs.to_vec();
-
-    // Face order: 0=front,1=back,2=top,3=bottom,4=right,5=left
-    let tiles = 3.0f32;
-    let tile_scale = 1.0 / tiles;
-    let face_to_tile = [1.0, 1.0, 0.0, 2.0, 1.0, 1.0];
-    for face in 0..6 {
-        let u_off = face_to_tile[face] * tile_scale;
-        let is_side = face_to_tile[face] == 1.0;
-        for i in 0..4 {
-            let idx = face * 8 + i * 2;
-            let u = uvs[idx];
-            let mut v = uvs[idx + 1];
-            if is_side && flip_side_v { v = 1.0 - v; }
-            uvs[idx] = u * tile_scale + u_off;
-            uvs[idx + 1] = v;
-        }
-    }
-
-    let bytes: &[u8] = unsafe { std::slice::from_raw_parts(uvs.as_ptr() as *const u8, uvs.len() * std::mem::size_of::<f32>()) };
-    unsafe { mesh.update_buffer::<f32>(1, bytes, 0) };
-
-    let model = rl.load_model_from_mesh(thread, unsafe { mesh.make_weak() }).ok()?;
-    let mut model = model;
-    if let Some(mat) = model.materials_mut().get_mut(0) {
-        mat.set_material_texture(raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO, &tex);
-    }
-    Some((model, tex))
-}
-
-// Helper to build a simple cube model with a uniform texture on all faces
-fn build_uniform_cube_model(
-    rl: &mut RaylibHandle,
-    thread: &RaylibThread,
-    tex_candidates: &[&str],
-) -> Option<(raylib::core::models::Model, raylib::core::texture::Texture2D)> {
-    let mut tex_opt = None;
-    for p in tex_candidates {
-        if let Ok(t) = rl.load_texture(thread, p) { tex_opt = Some(t); break; }
-    }
-    let tex = tex_opt?;
-    tex.set_texture_filter(thread, raylib::consts::TextureFilter::TEXTURE_FILTER_POINT);
-    let cube_mesh = raylib::core::models::Mesh::gen_mesh_cube(thread, 1.0, 1.0, 1.0);
-    let model = rl.load_model_from_mesh(thread, unsafe { cube_mesh.make_weak() }).ok()?;
-    let mut model = model; // mutable to set material
-    if let Some(mat) = model.materials_mut().get_mut(0) {
-        mat.set_material_texture(raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO, &tex);
-    }
-    Some((model, tex))
 }

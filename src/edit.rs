@@ -5,7 +5,6 @@ use crate::voxel::Block;
 
 pub struct EditStore {
     sx: i32,
-    sy: i32,
     sz: i32,
     // Map per-chunk: key=(cx,cz) -> map of world coords -> Block
     inner: RwLock<HashMap<(i32,i32), HashMap<(i32,i32,i32), Block>>>,
@@ -16,8 +15,8 @@ pub struct EditStore {
 }
 
 impl EditStore {
-    pub fn new(sx: i32, sy: i32, sz: i32) -> Self {
-        Self { sx, sy, sz, inner: RwLock::new(HashMap::new()), rev: RwLock::new(HashMap::new()), built: RwLock::new(HashMap::new()), counter: AtomicU64::new(0) }
+    pub fn new(sx: i32, _sy: i32, sz: i32) -> Self {
+        Self { sx, sz, inner: RwLock::new(HashMap::new()), rev: RwLock::new(HashMap::new()), built: RwLock::new(HashMap::new()), counter: AtomicU64::new(0) }
     }
 
     #[inline]
@@ -39,15 +38,6 @@ impl EditStore {
         }
     }
 
-    pub fn remove(&self, wx: i32, wy: i32, wz: i32) {
-        let k = self.chunk_key(wx, wz);
-        if let Ok(mut g) = self.inner.write() {
-            if let Some(map) = g.get_mut(&k) {
-                map.remove(&(wx,wy,wz));
-                if map.is_empty() { g.remove(&k); }
-            }
-        }
-    }
 
     // Snapshot of all edits for a specific chunk
     pub fn snapshot_for_chunk(&self, cx: i32, cz: i32) -> Vec<((i32,i32,i32), Block)> {

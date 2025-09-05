@@ -106,7 +106,7 @@ impl Walker {
 
         // Horizontal motion is kinematic toward wishdir (simple, responsive)
         let target_v = wish * self.speed * run;
-        let mut horiz = Vector3::new(target_v.x, 0.0, target_v.z);
+        let horiz = Vector3::new(target_v.x, 0.0, target_v.z);
 
         // Gravity and jumping
         // Ground check: test a slightly larger offset down for stability

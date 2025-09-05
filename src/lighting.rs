@@ -116,7 +116,6 @@ impl LightGrid {
         lg.nb_xn_sky = nb.sk_xn.clone(); lg.nb_xp_sky = nb.sk_xp.clone(); lg.nb_zn_sky = nb.sk_zn.clone(); lg.nb_zp_sky = nb.sk_zp.clone();
         lg.nb_xn_bcn = nb.bcn_xn.clone(); lg.nb_xp_bcn = nb.bcn_xp.clone(); lg.nb_zn_bcn = nb.bcn_zn.clone(); lg.nb_zp_bcn = nb.bcn_zp.clone();
         // Process neighbor light with appropriate attenuation
-        const BEACON_ATTEN: i32 = 1;
         let atten: i32 = 32;
         // Regular block light from neighbors
         if let Some(ref plane) = nb.xn { 
@@ -401,9 +400,6 @@ impl LightGrid {
 
 #[derive(Clone)]
 pub struct LightBorders {
-    pub sx: usize,
-    pub sy: usize,
-    pub sz: usize,
     // faces: xn (x-), xp (x+): dims sy*sz
     pub xn: Vec<u8>, // block light
     pub xp: Vec<u8>, // block light
@@ -432,7 +428,6 @@ pub struct LightBorders {
 impl LightBorders {
     pub fn new(sx: usize, sy: usize, sz: usize) -> Self {
         Self {
-            sx, sy, sz,
             xn: vec![0; sy*sz], xp: vec![0; sy*sz],
             zn: vec![0; sy*sx], zp: vec![0; sy*sx],
             yn: vec![0; sx*sz], yp: vec![0; sx*sz],
@@ -587,9 +582,6 @@ fn equal_planes(a: &LightBorders, b: &LightBorders) -> bool {
 }
 
 pub struct NeighborBorders {
-    pub sx: usize,
-    pub sy: usize,
-    pub sz: usize,
     pub xn: Option<Vec<u8>>, // neighbor's +X into our -X
     pub xp: Option<Vec<u8>>, // neighbor's -X into our +X
     pub zn: Option<Vec<u8>>, // neighbor's +Z into our -Z
@@ -607,8 +599,8 @@ pub struct NeighborBorders {
 }
 
 impl NeighborBorders {
-    pub fn empty(sx: usize, sy: usize, sz: usize) -> Self {
-        Self { sx, sy, sz, xn: None, xp: None, zn: None, zp: None, sk_xn: None, sk_xp: None, sk_zn: None, sk_zp: None,
+    pub fn empty(_sx: usize, _sy: usize, _sz: usize) -> Self {
+        Self { xn: None, xp: None, zn: None, zp: None, sk_xn: None, sk_xp: None, sk_zn: None, sk_zp: None,
                bcn_xn: None, bcn_xp: None, bcn_zn: None, bcn_zp: None }
     }
 }
