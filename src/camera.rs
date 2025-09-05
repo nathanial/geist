@@ -103,7 +103,11 @@ impl FlyCamera {
         // Toggle mouse capture with Tab
         if rl.is_key_pressed(KeyboardKey::KEY_TAB) {
             self.captured = !self.captured;
-            if self.captured { rl.disable_cursor(); } else { rl.enable_cursor(); }
+            if self.captured {
+                rl.disable_cursor();
+            } else {
+                rl.enable_cursor();
+            }
         }
         if self.captured {
             let md = rl.get_mouse_delta();

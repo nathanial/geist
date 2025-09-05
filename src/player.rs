@@ -1,20 +1,20 @@
 use raylib::prelude::*;
 
-use crate::voxel::{World, Block};
+use crate::voxel::{Block, World};
 
 #[derive(Debug)]
 pub struct Walker {
-    pub pos: Vector3,     // feet position (x,z at center, y at feet)
+    pub pos: Vector3, // feet position (x,z at center, y at feet)
     pub vel: Vector3,
     pub on_ground: bool,
-    pub yaw: f32,         // degrees (use camera yaw)
-    pub height: f32,      // standing height (eye at pos.y + eye_height)
+    pub yaw: f32,    // degrees (use camera yaw)
+    pub height: f32, // standing height (eye at pos.y + eye_height)
     pub eye_height: f32,
-    pub radius: f32,      // horizontal radius
-    pub speed: f32,       // walk speed (units/s)
-    pub run_mult: f32,    // when LeftShift held
-    pub jump_speed: f32,  // initial jump velocity
-    pub gravity: f32,     // negative
+    pub radius: f32,     // horizontal radius
+    pub speed: f32,      // walk speed (units/s)
+    pub run_mult: f32,   // when LeftShift held
+    pub jump_speed: f32, // initial jump velocity
+    pub gravity: f32,    // negative
 }
 
 impl Walker {
@@ -34,7 +34,9 @@ impl Walker {
         }
     }
 
-    pub fn eye_position(&self) -> Vector3 { Vector3::new(self.pos.x, self.pos.y + self.eye_height, self.pos.z) }
+    pub fn eye_position(&self) -> Vector3 {
+        Vector3::new(self.pos.x, self.pos.y + self.eye_height, self.pos.z)
+    }
 
     #[inline]
     fn is_solid_for_collision(b: Block) -> bool {
@@ -47,9 +49,12 @@ impl Walker {
     }
 
     fn aabb_collides_with<F>(&self, sample: &F, pos: Vector3) -> bool
-    where F: Fn(i32,i32,i32) -> Block
+    where
+        F: Fn(i32, i32, i32) -> Block,
     {
-        let rx = self.radius; let rz = self.radius; let h = self.height;
+        let rx = self.radius;
+        let rz = self.radius;
+        let h = self.height;
         let min_x = (pos.x - rx).floor() as i32;
         let max_x = (pos.x + rx).floor() as i32;
         let min_y = (pos.y).floor() as i32;
@@ -60,7 +65,9 @@ impl Walker {
             for z in min_z..=max_z {
                 for x in min_x..=max_x {
                     let b = sample(x, y, z);
-                    if Self::is_solid_for_collision(b) { return true; }
+                    if Self::is_solid_for_collision(b) {
+                        return true;
+                    }
                 }
             }
         }
@@ -68,28 +75,48 @@ impl Walker {
     }
 
     fn move_axis<F>(&mut self, sample: &F, axis: usize, amt: f32) -> f32
-    where F: Fn(i32,i32,i32) -> Block
+    where
+        F: Fn(i32, i32, i32) -> Block,
     {
-        if amt == 0.0 { return 0.0; }
+        if amt == 0.0 {
+            return 0.0;
+        }
         const STEP_RES: f32 = 0.05;
         let mut moved = 0.0_f32;
         let step = STEP_RES * amt.signum();
         let mut remaining = amt;
         while remaining.abs() > 0.0001 {
-            let s = if remaining.abs() < step.abs() { remaining } else { step };
+            let s = if remaining.abs() < step.abs() {
+                remaining
+            } else {
+                step
+            };
             let mut p = self.pos;
-            match axis { 0 => p.x += s, 1 => p.y += s, _ => p.z += s };
+            match axis {
+                0 => p.x += s,
+                1 => p.y += s,
+                _ => p.z += s,
+            };
             if self.aabb_collides_with(sample, p) {
                 break; // collision
             } else {
-                self.pos = p; moved += s; remaining -= s;
+                self.pos = p;
+                moved += s;
+                remaining -= s;
             }
         }
         moved
     }
 
-    pub fn update_with_sampler<F>(&mut self, rl: &mut raylib::RaylibHandle, sample: &F, world: &World, dt: f32, yaw: f32)
-    where F: Fn(i32,i32,i32) -> Block
+    pub fn update_with_sampler<F>(
+        &mut self,
+        rl: &mut raylib::RaylibHandle,
+        sample: &F,
+        world: &World,
+        dt: f32,
+        yaw: f32,
+    ) where
+        F: Fn(i32, i32, i32) -> Block,
     {
         self.yaw = yaw;
         // Input wishdir (XZ plane) based on yaw
@@ -97,12 +124,26 @@ impl Walker {
         let fwd = Vector3::new(yaw_rad.cos(), 0.0, yaw_rad.sin()).normalized();
         let right = fwd.cross(Vector3::up());
         let mut wish = Vector3::zero();
-        if rl.is_key_down(KeyboardKey::KEY_W) { wish += fwd; }
-        if rl.is_key_down(KeyboardKey::KEY_S) { wish -= fwd; }
-        if rl.is_key_down(KeyboardKey::KEY_A) { wish -= right; }
-        if rl.is_key_down(KeyboardKey::KEY_D) { wish += right; }
-        if wish.length() > 0.0 { wish = wish.normalized(); }
-        let run = if rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) { self.run_mult } else { 1.0 };
+        if rl.is_key_down(KeyboardKey::KEY_W) {
+            wish += fwd;
+        }
+        if rl.is_key_down(KeyboardKey::KEY_S) {
+            wish -= fwd;
+        }
+        if rl.is_key_down(KeyboardKey::KEY_A) {
+            wish -= right;
+        }
+        if rl.is_key_down(KeyboardKey::KEY_D) {
+            wish += right;
+        }
+        if wish.length() > 0.0 {
+            wish = wish.normalized();
+        }
+        let run = if rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) {
+            self.run_mult
+        } else {
+            1.0
+        };
 
         // Horizontal motion is kinematic toward wishdir (simple, responsive)
         let target_v = wish * self.speed * run;
@@ -110,20 +151,26 @@ impl Walker {
 
         // Gravity and jumping
         // Ground check: test a slightly larger offset down for stability
-        let mut below = self.pos; below.y -= 0.10;
+        let mut below = self.pos;
+        below.y -= 0.10;
         self.on_ground = self.aabb_collides_with(sample, below);
         if self.on_ground {
             // Reset vertical velocity and allow jump
-            if self.vel.y < 0.0 { self.vel.y = 0.0; }
+            if self.vel.y < 0.0 {
+                self.vel.y = 0.0;
+            }
             if rl.is_key_pressed(KeyboardKey::KEY_SPACE) {
-                self.vel.y = self.jump_speed; self.on_ground = false;
+                self.vel.y = self.jump_speed;
+                self.on_ground = false;
             }
         } else {
             self.vel.y += self.gravity * dt;
         }
 
         // Apply movement with collision; order depends on vertical motion
-        let dx = horiz.x * dt; let dz = horiz.z * dt; let dy = self.vel.y * dt;
+        let dx = horiz.x * dt;
+        let dz = horiz.z * dt;
+        let dy = self.vel.y * dt;
         let moved_y = if dy > 0.0 {
             // Ascending (jump/climb): move up first, then horizontal
             let my = self.move_axis(sample, 1, dy);
@@ -137,7 +184,10 @@ impl Walker {
             self.move_axis(sample, 1, dy)
         };
         // Land
-        if dy < 0.0 && moved_y.abs() < dy.abs() * 0.5 { self.on_ground = true; self.vel.y = 0.0; }
+        if dy < 0.0 && moved_y.abs() < dy.abs() * 0.5 {
+            self.on_ground = true;
+            self.vel.y = 0.0;
+        }
 
         // Clamp only vertically; horizontal bounds are unbounded to allow streaming into negative chunks
         let max_y = (world.world_size_y() as f32) - self.height - 0.001;

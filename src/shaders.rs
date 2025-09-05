@@ -42,7 +42,13 @@ impl LeavesShader {
             loc_strength,
         };
         // Default palette from old code
-        s.set_autumn_palette([0.905, 0.678, 0.161], [0.847, 0.451, 0.122], [0.710, 0.200, 0.153], [0.431, 0.231, 0.039], 1.0);
+        s.set_autumn_palette(
+            [0.905, 0.678, 0.161],
+            [0.847, 0.451, 0.122],
+            [0.710, 0.200, 0.153],
+            [0.431, 0.231, 0.039],
+            1.0,
+        );
         Some(s)
     }
 
@@ -54,17 +60,39 @@ impl LeavesShader {
         p3: [f32; 3],
         strength: f32,
     ) {
-        if self.loc_palette0 >= 0 { self.shader.set_shader_value(self.loc_palette0, p0); }
-        if self.loc_palette1 >= 0 { self.shader.set_shader_value(self.loc_palette1, p1); }
-        if self.loc_palette2 >= 0 { self.shader.set_shader_value(self.loc_palette2, p2); }
-        if self.loc_palette3 >= 0 { self.shader.set_shader_value(self.loc_palette3, p3); }
-        if self.loc_strength >= 0 { self.shader.set_shader_value(self.loc_strength, strength); }
+        if self.loc_palette0 >= 0 {
+            self.shader.set_shader_value(self.loc_palette0, p0);
+        }
+        if self.loc_palette1 >= 0 {
+            self.shader.set_shader_value(self.loc_palette1, p1);
+        }
+        if self.loc_palette2 >= 0 {
+            self.shader.set_shader_value(self.loc_palette2, p2);
+        }
+        if self.loc_palette3 >= 0 {
+            self.shader.set_shader_value(self.loc_palette3, p3);
+        }
+        if self.loc_strength >= 0 {
+            self.shader.set_shader_value(self.loc_strength, strength);
+        }
     }
 
-    pub fn update_frame_uniforms(&mut self, camera_pos: Vector3, fog_color: [f32; 3], fog_start: f32, fog_end: f32) {
-        if self.loc_fog_color >= 0 { self.shader.set_shader_value(self.loc_fog_color, fog_color); }
-        if self.loc_fog_start >= 0 { self.shader.set_shader_value(self.loc_fog_start, fog_start); }
-        if self.loc_fog_end >= 0 { self.shader.set_shader_value(self.loc_fog_end, fog_end); }
+    pub fn update_frame_uniforms(
+        &mut self,
+        camera_pos: Vector3,
+        fog_color: [f32; 3],
+        fog_start: f32,
+        fog_end: f32,
+    ) {
+        if self.loc_fog_color >= 0 {
+            self.shader.set_shader_value(self.loc_fog_color, fog_color);
+        }
+        if self.loc_fog_start >= 0 {
+            self.shader.set_shader_value(self.loc_fog_start, fog_start);
+        }
+        if self.loc_fog_end >= 0 {
+            self.shader.set_shader_value(self.loc_fog_end, fog_end);
+        }
         if self.loc_camera_pos >= 0 {
             let cam = [camera_pos.x, camera_pos.y, camera_pos.z];
             self.shader.set_shader_value(self.loc_camera_pos, cam);
@@ -90,13 +118,31 @@ impl FogShader {
         let loc_fog_start = shader.get_shader_location("fogStart");
         let loc_fog_end = shader.get_shader_location("fogEnd");
         let loc_camera_pos = shader.get_shader_location("cameraPos");
-        Some(Self { shader, loc_fog_color, loc_fog_start, loc_fog_end, loc_camera_pos })
+        Some(Self {
+            shader,
+            loc_fog_color,
+            loc_fog_start,
+            loc_fog_end,
+            loc_camera_pos,
+        })
     }
 
-    pub fn update_frame_uniforms(&mut self, camera_pos: Vector3, fog_color: [f32; 3], fog_start: f32, fog_end: f32) {
-        if self.loc_fog_color >= 0 { self.shader.set_shader_value(self.loc_fog_color, fog_color); }
-        if self.loc_fog_start >= 0 { self.shader.set_shader_value(self.loc_fog_start, fog_start); }
-        if self.loc_fog_end >= 0 { self.shader.set_shader_value(self.loc_fog_end, fog_end); }
+    pub fn update_frame_uniforms(
+        &mut self,
+        camera_pos: Vector3,
+        fog_color: [f32; 3],
+        fog_start: f32,
+        fog_end: f32,
+    ) {
+        if self.loc_fog_color >= 0 {
+            self.shader.set_shader_value(self.loc_fog_color, fog_color);
+        }
+        if self.loc_fog_start >= 0 {
+            self.shader.set_shader_value(self.loc_fog_start, fog_start);
+        }
+        if self.loc_fog_end >= 0 {
+            self.shader.set_shader_value(self.loc_fog_end, fog_end);
+        }
         if self.loc_camera_pos >= 0 {
             let cam = [camera_pos.x, camera_pos.y, camera_pos.z];
             self.shader.set_shader_value(self.loc_camera_pos, cam);
