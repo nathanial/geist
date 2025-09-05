@@ -97,7 +97,10 @@ fn main() {
                         buf.blocks[idx] = b;
                     }
                 }
-                if let Some(cpu) = build_chunk_greedy_cpu_buf(&buf, Some(&ls), &w, Some(&edits), job.neighbors, job.cx, job.cz) {
+                // Take a consistent edits snapshot for this chunk and its immediate neighbors for border occlusion
+                let snap_vec = edits.snapshot_for_region(job.cx, job.cz, 1);
+                let snap_map: std::collections::HashMap<(i32,i32,i32), voxel::Block> = snap_vec.into_iter().collect();
+                if let Some(cpu) = build_chunk_greedy_cpu_buf(&buf, Some(&ls), &w, Some(&snap_map), job.neighbors, job.cx, job.cz) {
                     let _ = tx.send(JobOut { cpu, buf });
                 }
             }
@@ -251,71 +254,8 @@ fn main() {
         for out in res_rx.try_iter() {
             let cpu = out.cpu;
             let key = (cpu.cx, cpu.cz);
-            if let Some(cr_loaded_read) = loaded.get(&key) {
-                // Decide if we can color-only update: geometry and part set must match
-                let mut ok = true;
-                // Check GPU vs CPU vertex counts for each existing part
-                for (fm, model) in &cr_loaded_read.parts {
-                    match cpu.parts.get(fm) {
-                        Some(mb) => {
-                            if let Some(mesh) = model.meshes().get(0) {
-                                let gpu_v = mesh.as_ref().vertexCount as usize;
-                                let cpu_v = mb.vertex_count();
-                                if gpu_v != cpu_v { ok = false; break; }
-                            } else { ok = false; break; }
-                        }
-                        None => { ok = false; break; }
-                    }
-                }
-                // Ensure no extra CPU parts appear
-                if ok {
-                    for fm in cpu.parts.keys() {
-                        if !cr_loaded_read.parts.iter().any(|(f,_)| f == fm) { ok = false; break; }
-                    }
-                }
-
-                if ok {
-                    // Do color-only updates now with a mutable borrow
-                    if let Some(cr_loaded) = loaded.get_mut(&key) {
-                        for (fm, model) in &mut cr_loaded.parts {
-                            if let Some(mb) = cpu.parts.get(fm) {
-                                let colors: &[u8] = mb.colors();
-                                if let Some(mesh) = model.meshes_mut().get_mut(0) {
-                                    unsafe { mesh.update_buffer::<u8>(3, colors, 0); }
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // Geometry changed or part set differs: rebuild the GPU mesh for this chunk
-                    if let Some(mut cr) = upload_chunk_mesh(&mut rl, &thread, cpu, &mut tex_cache) {
-                        // Assign shaders to materials (leaves vs fog)
-                        for (fm, model) in &mut cr.parts {
-                            if let Some(mat) = model.materials_mut().get_mut(0) {
-                                match fm {
-                                    FaceMaterial::Leaves(_) => {
-                                        if let Some(ref ls) = leaves_shader {
-                                            let dest = mat.shader_mut();
-                                            let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
-                                            let src_ptr: *const raylib::ffi::Shader = ls.shader.as_ref();
-                                            unsafe { std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1); }
-                                        }
-                                    }
-                                    _ => {
-                                        if let Some(ref fs) = fog_shader {
-                                            let dest = mat.shader_mut();
-                                            let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
-                                            let src_ptr: *const raylib::ffi::Shader = fs.shader.as_ref();
-                                            unsafe { std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1); }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        loaded.insert(key, cr);
-                    }
-                }
-            } else if let Some(mut cr) = upload_chunk_mesh(&mut rl, &thread, cpu, &mut tex_cache) {
+            // Always rebuild GPU geometry for simplicity and correctness with edits
+            if let Some(mut cr) = upload_chunk_mesh(&mut rl, &thread, cpu, &mut tex_cache) {
                 // Assign shaders to materials (leaves vs fog)
                 for (fm, model) in &mut cr.parts {
                     if let Some(mat) = model.materials_mut().get_mut(0) {
@@ -399,8 +339,8 @@ fn main() {
                             if prev.emission() > 0 { lighting_store.remove_emitter_world(wx, wy, wz); }
                             let ccx = wx.div_euclid(sx); let ccz = wz.div_euclid(sz);
                             enqueue(ccx, ccz);
-                            // Neighbor chunks too
-                            for (dcx,dcz) in [(-1,0),(1,0),(0,-1),(0,1),(0,0)] { enqueue(ccx+dcx, ccz+dcz); }
+                            // Neighbor chunks too (3x3 around edit, like old code)
+                            for dcz in -1..=1 { for dcx in -1..=1 { enqueue(ccx+dcx, ccz+dcz); } }
                         }
                     }
                     if rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_RIGHT) {
@@ -411,7 +351,7 @@ fn main() {
                             if place_type.emission() > 0 { lighting_store.add_emitter_world(wx, wy, wz, place_type.emission()); }
                             let ccx = wx.div_euclid(sx); let ccz = wz.div_euclid(sz);
                             enqueue(ccx, ccz);
-                            for (dcx,dcz) in [(-1,0),(1,0),(0,-1),(0,1),(0,0)] { enqueue(ccx+dcx, ccz+dcz); }
+                            for dcz in -1..=1 { for dcx in -1..=1 { enqueue(ccx+dcx, ccz+dcz); } }
                         }
                     }
                 }

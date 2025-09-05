@@ -53,4 +53,16 @@ impl EditStore {
         }
         Vec::new()
     }
+
+    // Snapshot of all edits across a chunk region (inclusive radius in chunk units)
+    pub fn snapshot_for_region(&self, cx: i32, cz: i32, radius: i32) -> Vec<((i32,i32,i32), Block)> {
+        let mut out = Vec::new();
+        if let Ok(g) = self.inner.read() {
+            for dz in -radius..=radius { for dx in -radius..=radius {
+                let k = (cx + dx, cz + dz);
+                if let Some(m) = g.get(&k) { for (k2,v) in m.iter() { out.push((*k2, *v)); } }
+            }}
+        }
+        out
+    }
 }

@@ -1,5 +1,5 @@
 use crate::voxel::{Block, TreeSpecies, World};
-use crate::edit::EditStore;
+use std::collections::HashMap as StdHashMap;
 use crate::lighting::{LightGrid, LightingStore, LightBorders};
 use crate::chunkbuf::ChunkBuf;
 use raylib::prelude::*;
@@ -147,7 +147,16 @@ pub struct NeighborsLoaded {
 }
 
 #[inline]
-fn is_occluder(buf: &ChunkBuf, world: &World, edits: Option<&EditStore>, nmask: NeighborsLoaded, here: Block, nx: i32, ny: i32, nz: i32) -> bool {
+fn is_occluder(
+    buf: &ChunkBuf,
+    world: &World,
+    edits: Option<&StdHashMap<(i32,i32,i32), Block>>,
+    nmask: NeighborsLoaded,
+    here: Block,
+    nx: i32,
+    ny: i32,
+    nz: i32,
+) -> bool {
     if !here.is_solid() { return false; }
     // Check inside this chunk first
     if buf.contains_world(nx, ny, nz) {
@@ -169,7 +178,7 @@ fn is_occluder(buf: &ChunkBuf, world: &World, edits: Option<&EditStore>, nmask: 
     // Y outside world or not strictly an adjacent chunk border: treat as air
     if !neighbor_loaded { return false; }
     // Query edits overlay first, falling back to world generation
-    let nb = if let Some(es) = edits { es.get(nx, ny, nz).unwrap_or_else(|| world.block_at(nx, ny, nz)) } else { world.block_at(nx, ny, nz) };
+    let nb = if let Some(es) = edits { es.get(&(nx,ny,nz)).copied().unwrap_or_else(|| world.block_at(nx, ny, nz)) } else { world.block_at(nx, ny, nz) };
     nb.is_solid()
 }
 
@@ -193,7 +202,7 @@ pub fn build_chunk_greedy_cpu_buf(
     buf: &ChunkBuf,
     lighting: Option<&LightingStore>,
     world: &World,
-    edits: Option<&EditStore>,
+    edits: Option<&StdHashMap<(i32,i32,i32), Block>>,
     neighbors: NeighborsLoaded,
     cx: i32,
     cz: i32,
