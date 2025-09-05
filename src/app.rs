@@ -119,7 +119,14 @@ impl App {
                         self.queue.emit_now(Event::ViewCenterChanged { ccx, ccz });
                     }
                 } else {
-                    // Fly camera mode moves separately; no player update
+                    // Fly camera mode moves the camera in step(); update view center from camera
+                    let ccx =
+                        (self.cam.position.x / self.gs.world.chunk_size_x as f32).floor() as i32;
+                    let ccz =
+                        (self.cam.position.z / self.gs.world.chunk_size_z as f32).floor() as i32;
+                    if (ccx, ccz) != self.gs.center_chunk {
+                        self.queue.emit_now(Event::ViewCenterChanged { ccx, ccz });
+                    }
                 }
             }
             Event::ViewCenterChanged { ccx, ccz } => {
@@ -447,7 +454,25 @@ impl App {
                 }
             }
             Event::WalkModeToggled => {
-                self.gs.walk_mode = !self.gs.walk_mode;
+                let new_mode = !self.gs.walk_mode;
+                self.gs.walk_mode = new_mode;
+                if new_mode {
+                    // Entering walk mode: align walker to current camera eye position
+                    self.gs.walker.yaw = self.cam.yaw;
+                    let mut p = self.cam.position;
+                    p.y -= self.gs.walker.eye_height; // convert eye -> feet position
+                    // Clamp vertical within world bounds for stability
+                    let max_y =
+                        (self.gs.world.world_size_y() as f32) - self.gs.walker.height - 0.001;
+                    p.y = p.y.clamp(0.0, max_y.max(0.0));
+                    self.gs.walker.pos = p;
+                    self.gs.walker.vel = Vector3::zero();
+                    self.gs.walker.on_ground = false;
+                    // Keep camera exactly at walker eye to avoid any snap
+                    self.cam.position = self.gs.walker.eye_position();
+                } else {
+                    // Entering fly mode: camera already at walker eye; continue from here
+                }
             }
             Event::GridToggled => {
                 self.gs.show_grid = !self.gs.show_grid;
