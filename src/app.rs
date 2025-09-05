@@ -47,7 +47,12 @@ impl App {
             let lx = local.x.floor() as i32;
             let ly = (local.y - 0.08).floor() as i32;
             let lz = local.z.floor() as i32;
-            if Self::structure_block_solid_at_local(st, lx, ly, lz) { return true; }
+            // Be robust to tiny clearance/step resolution by also checking one cell below
+            if Self::structure_block_solid_at_local(st, lx, ly, lz)
+                || Self::structure_block_solid_at_local(st, lx, ly - 1, lz)
+            {
+                return true;
+            }
         }
         false
     }
@@ -1053,7 +1058,7 @@ impl App {
             let in_bounds = lx >= 0 && ly >= 0 && lz >= 0 
                 && (lx as usize) < st.sx && (ly as usize) < st.sy && (lz as usize) < st.sz;
             
-            // Get the actual block at this position
+            // Get the actual block at this position (direct sample)
             let (block_at_pos, block_solid) = if in_bounds {
                 // Check edits first
                 if let Some(b) = st.edits.get(lx, ly, lz) {
@@ -1075,6 +1080,27 @@ impl App {
             d.draw_text(&format!("  Block at ({},{},{}): {} | Solid: {}", 
                 lx, ly, lz, block_at_pos, block_solid), 12, debug_y, 14, color);
             debug_y += 16;
+
+            // Also show the block one cell below the sample (helps diagnose edge cases)
+            if ly > 0 {
+                let by = ly - 1;
+                let (block_below, solid_below) = if lx >= 0 && by >= 0 && lz >= 0
+                    && (lx as usize) < st.sx && (by as usize) < st.sy && (lz as usize) < st.sz
+                {
+                    if let Some(b) = st.edits.get(lx, by, lz) {
+                        (format!("{:?} (edit)", b), b.is_solid())
+                    } else {
+                        let idx = st.idx(lx as usize, by as usize, lz as usize);
+                        let b = st.blocks[idx];
+                        (format!("{:?}", b), b.is_solid())
+                    }
+                } else {
+                    ("out of bounds".to_string(), false)
+                };
+                d.draw_text(&format!("  Block at below ({},{},{}): {} | Solid: {}",
+                    lx, by, lz, block_below, solid_below), 12, debug_y, 14, color);
+                debug_y += 16;
+            }
             
             // Show deck info and check what's at deck level
             let deck_y = (st.sy as f32 * 0.33) as i32;
