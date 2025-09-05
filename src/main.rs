@@ -85,9 +85,9 @@ fn main() {
         let edits = edit_store.clone();
         thread::spawn(move || {
             while let Ok(job) = wrx.recv() {
-                // Early-out if already built at or beyond this revision (ignore rev==0 to allow initial builds)
-                let built_rev = edits.get_built_rev(job.cx, job.cz);
-                if job.rev > 0 && built_rev >= job.rev { continue; }
+                // Skip if this exact job is outdated
+                let current_rev = edits.get_rev(job.cx, job.cz);
+                if job.rev > 0 && job.rev < current_rev { continue; }  // Skip outdated jobs
                 let mut buf = chunkbuf::generate_chunk_buffer(&w, job.cx, job.cz);
                 // Apply persistent edits for this chunk before meshing
                 let base_x = job.cx * buf.sx as i32; let base_z = job.cz * buf.sz as i32;
@@ -261,11 +261,19 @@ fn main() {
             let borders_changed = out.cpu.borders_changed;
             let cpu = out.cpu;
             let key = (out.cx, out.cz);
-            // Drop stale results: if a newer rev is recorded, skip (accept rev==0 initial builds)
+            // Check if this result is still valid
             let cur_rev = edit_store.get_rev(key.0, key.1);
-            let built_rev = edit_store.get_built_rev(key.0, key.1);
-            if out.rev < cur_rev || (out.rev > 0 && out.rev <= built_rev) {
+            if out.rev < cur_rev {
+                // A newer revision exists, re-enqueue
                 pending.remove(&key);
+                let nmask = NeighborsLoaded {
+                    neg_x: loaded.contains_key(&(key.0-1,key.1)),
+                    pos_x: loaded.contains_key(&(key.0+1,key.1)),
+                    neg_z: loaded.contains_key(&(key.0,key.1-1)),
+                    pos_z: loaded.contains_key(&(key.0,key.1+1)),
+                };
+                let _ = job_tx.send(BuildJob { cx: key.0, cz: key.1, neighbors: nmask, rev: cur_rev });
+                pending.insert(key);
                 continue;
             }
             // Always rebuild GPU geometry for simplicity and correctness with edits
@@ -298,24 +306,42 @@ fn main() {
             // Track buffer and mark built revision for this chunk
             loaded_bufs.insert(key, out.buf);
             edit_store.mark_built(key.0, key.1, out.rev);
-            // Requeue neighbors only when borders changed (lighting border delta)
             pending.remove(&key);
+            
+            // Check if any neighbors need rebuilding due to version mismatch
+            // This ensures neighbors are rebuilt when edits affect boundaries
+            let neighbors = [(key.0-1,key.1),(key.0+1,key.1),(key.0,key.1-1),(key.0,key.1+1)];
+            for nk in neighbors.iter() {
+                if !loaded.contains_key(nk) { continue; }
+                // Check if neighbor needs rebuild due to version mismatch
+                if edit_store.needs_rebuild(nk.0, nk.1) && !pending.contains(nk) {
+                    let (cx, cz) = *nk;
+                    let nmask = NeighborsLoaded {
+                        neg_x: loaded.contains_key(&(cx-1,cz)),
+                        pos_x: loaded.contains_key(&(cx+1,cz)),
+                        neg_z: loaded.contains_key(&(cx,cz-1)),
+                        pos_z: loaded.contains_key(&(cx,cz+1)),
+                    };
+                    let rev = edit_store.get_rev(cx, cz);
+                    let _ = job_tx.send(BuildJob { cx, cz, neighbors: nmask, rev });
+                    pending.insert(*nk);
+                }
+            }
+            
+            // Also requeue neighbors if lighting borders changed
             if borders_changed {
-                let neighbors = [(key.0-1,key.1),(key.0+1,key.1),(key.0,key.1-1),(key.0,key.1+1)];
                 for nk in neighbors.iter() {
-                    if !loaded.contains_key(nk) && !pending.contains(nk) { continue; }
-                    if !pending.contains(nk) {
-                        let (cx, cz) = *nk;
-                        let nmask = NeighborsLoaded {
-                            neg_x: loaded.contains_key(&(cx-1,cz)),
-                            pos_x: loaded.contains_key(&(cx+1,cz)),
-                            neg_z: loaded.contains_key(&(cx,cz-1)),
-                            pos_z: loaded.contains_key(&(cx,cz+1)),
-                        };
-                        let rev = edit_store.get_rev(cx, cz);
-                        let _ = job_tx.send(BuildJob { cx, cz, neighbors: nmask, rev });
-                        pending.insert(*nk);
-                    }
+                    if !loaded.contains_key(nk) || pending.contains(nk) { continue; }
+                    let (cx, cz) = *nk;
+                    let nmask = NeighborsLoaded {
+                        neg_x: loaded.contains_key(&(cx-1,cz)),
+                        pos_x: loaded.contains_key(&(cx+1,cz)),
+                        neg_z: loaded.contains_key(&(cx,cz-1)),
+                        pos_z: loaded.contains_key(&(cx,cz+1)),
+                    };
+                    let rev = edit_store.get_rev(cx, cz);
+                    let _ = job_tx.send(BuildJob { cx, cz, neighbors: nmask, rev });
+                    pending.insert(*nk);
                 }
             }
         }
@@ -356,11 +382,15 @@ fn main() {
                         if prev.is_solid() {
                             edit_store.set(wx, wy, wz, voxel::Block::Air);
                             if prev.emission() > 0 { lighting_store.remove_emitter_world(wx, wy, wz); }
-                            // Bump change revision for affected region
+                            // Bump change revision and get all affected chunks
                             let _ = edit_store.bump_region_around(wx, wz);
-                            let ccx = wx.div_euclid(sx); let ccz = wz.div_euclid(sz);
-                            // Only enqueue the edited chunk; neighbors will follow if borders changed
-                            enqueue(ccx, ccz);
+                            let affected = edit_store.get_affected_chunks(wx, wz);
+                            // Enqueue all affected chunks for rebuild
+                            for (cx, cz) in affected {
+                                if loaded.contains_key(&(cx, cz)) {
+                                    enqueue(cx, cz);
+                                }
+                            }
                         }
                     }
                     if rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_RIGHT) {

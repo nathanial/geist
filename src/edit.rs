@@ -76,9 +76,56 @@ impl EditStore {
         let stamp = self.counter.fetch_add(1, Ordering::SeqCst) + 1;
         let (cx, cz) = self.chunk_key(wx, wz);
         if let Ok(mut r) = self.rev.write() {
-            for dz in -1..=1 { for dx in -1..=1 { r.insert((cx+dx, cz+dz), stamp); } }
+            // Only bump the chunk that was directly edited and its immediate neighbors
+            // if the edit is near a chunk boundary (within 1 block of edge)
+            let x0 = cx * self.sx;
+            let z0 = cz * self.sz;
+            let lx = wx - x0;
+            let lz = wz - z0;
+            
+            // Always bump the current chunk
+            r.insert((cx, cz), stamp);
+            
+            // Check if near chunk boundaries and bump neighbors accordingly
+            if lx == 0 { r.insert((cx-1, cz), stamp); }
+            if lx == self.sx - 1 { r.insert((cx+1, cz), stamp); }
+            if lz == 0 { r.insert((cx, cz-1), stamp); }
+            if lz == self.sz - 1 { r.insert((cx, cz+1), stamp); }
+            
+            // Check corners
+            if lx == 0 && lz == 0 { r.insert((cx-1, cz-1), stamp); }
+            if lx == 0 && lz == self.sz - 1 { r.insert((cx-1, cz+1), stamp); }
+            if lx == self.sx - 1 && lz == 0 { r.insert((cx+1, cz-1), stamp); }
+            if lx == self.sx - 1 && lz == self.sz - 1 { r.insert((cx+1, cz+1), stamp); }
         }
         stamp
+    }
+    
+    // Get list of chunks affected by an edit at world position
+    pub fn get_affected_chunks(&self, wx: i32, wz: i32) -> Vec<(i32, i32)> {
+        let mut affected = Vec::new();
+        let (cx, cz) = self.chunk_key(wx, wz);
+        let x0 = cx * self.sx;
+        let z0 = cz * self.sz;
+        let lx = wx - x0;
+        let lz = wz - z0;
+        
+        // Always include current chunk
+        affected.push((cx, cz));
+        
+        // Check if near chunk boundaries
+        if lx == 0 { affected.push((cx-1, cz)); }
+        if lx == self.sx - 1 { affected.push((cx+1, cz)); }
+        if lz == 0 { affected.push((cx, cz-1)); }
+        if lz == self.sz - 1 { affected.push((cx, cz+1)); }
+        
+        // Check corners
+        if lx == 0 && lz == 0 { affected.push((cx-1, cz-1)); }
+        if lx == 0 && lz == self.sz - 1 { affected.push((cx-1, cz+1)); }
+        if lx == self.sx - 1 && lz == 0 { affected.push((cx+1, cz-1)); }
+        if lx == self.sx - 1 && lz == self.sz - 1 { affected.push((cx+1, cz+1)); }
+        
+        affected
     }
 
     pub fn get_rev(&self, cx: i32, cz: i32) -> u64 {
@@ -87,9 +134,17 @@ impl EditStore {
 
     pub fn mark_built(&self, cx: i32, cz: i32, rev: u64) {
         if let Ok(mut b) = self.built.write() {
+            // Only update if this is a newer revision
             let e = b.entry((cx,cz)).or_insert(0);
             if rev > *e { *e = rev; }
         }
+    }
+    
+    // Check if a chunk needs rebuilding
+    pub fn needs_rebuild(&self, cx: i32, cz: i32) -> bool {
+        let current_rev = self.get_rev(cx, cz);
+        let built_rev = self.get_built_rev(cx, cz);
+        current_rev > built_rev
     }
 
     pub fn get_built_rev(&self, cx: i32, cz: i32) -> u64 {
