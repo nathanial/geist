@@ -69,9 +69,9 @@ fn main() {
 
     // Mesh worker threads
     #[derive(Clone, Copy, Debug)]
-    struct BuildJob { cx: i32, cz: i32, neighbors: NeighborsLoaded }
+    struct BuildJob { cx: i32, cz: i32, neighbors: NeighborsLoaded, rev: u64 }
     let (job_tx, job_rx) = mpsc::channel::<BuildJob>();
-    struct JobOut { cpu: ChunkMeshCPU, buf: chunkbuf::ChunkBuf }
+    struct JobOut { cpu: ChunkMeshCPU, buf: chunkbuf::ChunkBuf, cx: i32, cz: i32, rev: u64 }
     let (res_tx, res_rx) = mpsc::channel::<JobOut>();
     let worker_count: usize = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8);
     // Per‑worker channels
@@ -85,6 +85,9 @@ fn main() {
         let edits = edit_store.clone();
         thread::spawn(move || {
             while let Ok(job) = wrx.recv() {
+                // Early-out if already built at or beyond this revision
+                let built_rev = edits.get_built_rev(job.cx, job.cz);
+                if built_rev >= job.rev { continue; }
                 let mut buf = chunkbuf::generate_chunk_buffer(&w, job.cx, job.cz);
                 // Apply persistent edits for this chunk before meshing
                 let base_x = job.cx * buf.sx as i32; let base_z = job.cz * buf.sz as i32;
@@ -101,7 +104,7 @@ fn main() {
                 let snap_vec = edits.snapshot_for_region(job.cx, job.cz, 1);
                 let snap_map: std::collections::HashMap<(i32,i32,i32), voxel::Block> = snap_vec.into_iter().collect();
                 if let Some(cpu) = build_chunk_greedy_cpu_buf(&buf, Some(&ls), &w, Some(&snap_map), job.neighbors, job.cx, job.cz) {
-                    let _ = tx.send(JobOut { cpu, buf });
+                    let _ = tx.send(JobOut { cpu, buf, cx: job.cx, cz: job.cz, rev: job.rev });
                 }
             }
         });
@@ -190,7 +193,8 @@ fn main() {
                     neg_z: loaded.contains_key(&(cx,cz-1)),
                     pos_z: loaded.contains_key(&(cx,cz+1)),
                 };
-                let _ = job_tx.send(BuildJob { cx, cz, neighbors: nmask });
+                let rev = edit_store.get_rev(cx, cz);
+                let _ = job_tx.send(BuildJob { cx, cz, neighbors: nmask, rev });
                 pending.insert((cx,cz));
             }
         }
@@ -207,7 +211,8 @@ fn main() {
                     neg_z: loaded.contains_key(&(cx,cz-1)),
                     pos_z: loaded.contains_key(&(cx,cz+1)),
                 };
-                let _ = job_tx.send(BuildJob { cx, cz, neighbors: nmask });
+                let rev = edit_store.get_rev(cx, cz);
+                let _ = job_tx.send(BuildJob { cx, cz, neighbors: nmask, rev });
                 pending.insert((cx,cz));
             }
         }
@@ -244,7 +249,8 @@ fn main() {
                             neg_z: loaded.contains_key(&(cx,cz-1)),
                             pos_z: loaded.contains_key(&(cx,cz+1)),
                         };
-                        let _ = job_tx.send(BuildJob { cx, cz, neighbors: nmask });
+                        let rev = edit_store.get_rev(cx, cz);
+                        let _ = job_tx.send(BuildJob { cx, cz, neighbors: nmask, rev });
                         pending.insert(key);
                     }
                 }
@@ -253,7 +259,14 @@ fn main() {
         // Drain completed meshes (upload to GPU) before drawing
         for out in res_rx.try_iter() {
             let cpu = out.cpu;
-            let key = (cpu.cx, cpu.cz);
+            let key = (out.cx, out.cz);
+            // Drop stale results: if a newer rev is recorded, skip
+            let cur_rev = edit_store.get_rev(key.0, key.1);
+            let built_rev = edit_store.get_built_rev(key.0, key.1);
+            if out.rev < cur_rev || out.rev <= built_rev {
+                pending.remove(&key);
+                continue;
+            }
             // Always rebuild GPU geometry for simplicity and correctness with edits
             if let Some(mut cr) = upload_chunk_mesh(&mut rl, &thread, cpu, &mut tex_cache) {
                 // Assign shaders to materials (leaves vs fog)
@@ -281,8 +294,9 @@ fn main() {
                 }
                 loaded.insert(key, cr);
             }
-            // Track buffer for this chunk
+            // Track buffer and mark built revision for this chunk
             loaded_bufs.insert(key, out.buf);
+            edit_store.mark_built(key.0, key.1, out.rev);
             // Requeue neighbors to converge lighting across borders
             let neighbors = [(key.0-1,key.1),(key.0+1,key.1),(key.0,key.1-1),(key.0,key.1+1)];
             pending.remove(&key);
@@ -296,7 +310,8 @@ fn main() {
                         neg_z: loaded.contains_key(&(cx,cz-1)),
                         pos_z: loaded.contains_key(&(cx,cz+1)),
                     };
-                    let _ = job_tx.send(BuildJob { cx, cz, neighbors: nmask });
+                    let rev = edit_store.get_rev(cx, cz);
+                    let _ = job_tx.send(BuildJob { cx, cz, neighbors: nmask, rev });
                     pending.insert(*nk);
                 }
             }
@@ -326,7 +341,8 @@ fn main() {
                                 neg_z: loaded.contains_key(&(cx,cz-1)),
                                 pos_z: loaded.contains_key(&(cx,cz+1)),
                             };
-                            let _ = job_tx.send(BuildJob { cx, cz, neighbors: nmask });
+                            let rev = edit_store.get_rev(cx, cz);
+                            let _ = job_tx.send(BuildJob { cx, cz, neighbors: nmask, rev });
                             pending.insert((cx,cz));
                         }
                     };
@@ -337,6 +353,8 @@ fn main() {
                         if prev.is_solid() {
                             edit_store.set(wx, wy, wz, voxel::Block::Air);
                             if prev.emission() > 0 { lighting_store.remove_emitter_world(wx, wy, wz); }
+                            // Bump change revision for affected region
+                            let _ = edit_store.bump_region_around(wx, wz);
                             let ccx = wx.div_euclid(sx); let ccz = wz.div_euclid(sz);
                             enqueue(ccx, ccz);
                             // Neighbor chunks too (3x3 around edit, like old code)
@@ -349,6 +367,7 @@ fn main() {
                         if wy >= 0 && wy < chunk_size_y as i32 {
                             edit_store.set(wx, wy, wz, place_type);
                             if place_type.emission() > 0 { lighting_store.add_emitter_world(wx, wy, wz, place_type.emission()); }
+                            let _ = edit_store.bump_region_around(wx, wz);
                             let ccx = wx.div_euclid(sx); let ccz = wz.div_euclid(sz);
                             enqueue(ccx, ccz);
                             for dcz in -1..=1 { for dcx in -1..=1 { enqueue(ccx+dcx, ccz+dcz); } }

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::sync::RwLock;
+use std::sync::{RwLock};
+use std::sync::atomic::{AtomicU64, Ordering};
 use crate::voxel::Block;
 
 pub struct EditStore {
@@ -8,11 +9,15 @@ pub struct EditStore {
     sz: i32,
     // Map per-chunk: key=(cx,cz) -> map of world coords -> Block
     inner: RwLock<HashMap<(i32,i32), HashMap<(i32,i32,i32), Block>>>,
+    // Change-tracking
+    rev: RwLock<HashMap<(i32,i32), u64>>,       // latest requested change affecting chunk
+    built: RwLock<HashMap<(i32,i32), u64>>,     // last built rev for chunk
+    counter: AtomicU64,
 }
 
 impl EditStore {
     pub fn new(sx: i32, sy: i32, sz: i32) -> Self {
-        Self { sx, sy, sz, inner: RwLock::new(HashMap::new()) }
+        Self { sx, sy, sz, inner: RwLock::new(HashMap::new()), rev: RwLock::new(HashMap::new()), built: RwLock::new(HashMap::new()), counter: AtomicU64::new(0) }
     }
 
     #[inline]
@@ -64,5 +69,30 @@ impl EditStore {
             }}
         }
         out
+    }
+
+    // Change-tracking API
+    pub fn bump_region_around(&self, wx: i32, wz: i32) -> u64 {
+        let stamp = self.counter.fetch_add(1, Ordering::SeqCst) + 1;
+        let (cx, cz) = self.chunk_key(wx, wz);
+        if let Ok(mut r) = self.rev.write() {
+            for dz in -1..=1 { for dx in -1..=1 { r.insert((cx+dx, cz+dz), stamp); } }
+        }
+        stamp
+    }
+
+    pub fn get_rev(&self, cx: i32, cz: i32) -> u64 {
+        self.rev.read().ok().and_then(|m| m.get(&(cx,cz)).copied()).unwrap_or(0)
+    }
+
+    pub fn mark_built(&self, cx: i32, cz: i32, rev: u64) {
+        if let Ok(mut b) = self.built.write() {
+            let e = b.entry((cx,cz)).or_insert(0);
+            if rev > *e { *e = rev; }
+        }
+    }
+
+    pub fn get_built_rev(&self, cx: i32, cz: i32) -> u64 {
+        self.built.read().ok().and_then(|m| m.get(&(cx,cz)).copied()).unwrap_or(0)
     }
 }
