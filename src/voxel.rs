@@ -21,6 +21,7 @@ pub enum Block {
     Wood(TreeSpecies),
     Leaves(TreeSpecies),
     Glowstone,
+    Beacon,
 }
 
 impl Block {
@@ -33,7 +34,17 @@ impl Block {
     pub fn emission(&self) -> u8 {
         match self {
             Block::Glowstone => 255,
+            Block::Beacon => 100,  // Beacon emits at level 100
             _ => 0,
+        }
+    }
+    
+    #[inline]
+    pub fn light_attenuation(&self) -> i32 {
+        // How much light diminishes when passing through or from this block
+        match self {
+            Block::Beacon => 1,  // Beacon light only diminishes by 1 per block
+            _ => 32,  // Normal blocks use standard attenuation
         }
     }
 }

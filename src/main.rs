@@ -147,6 +147,7 @@ fn main() {
         FaceMaterial::Sand,
         FaceMaterial::Snow,
         FaceMaterial::Glowstone,
+        FaceMaterial::Beacon,
     ];
     for sp in species.iter().copied() {
         mats.push(FaceMaterial::WoodTop(sp));
@@ -179,6 +180,7 @@ fn main() {
         if rl.is_key_pressed(KeyboardKey::KEY_FOUR) { place_type = voxel::Block::Grass; }
         if rl.is_key_pressed(KeyboardKey::KEY_FIVE) { place_type = voxel::Block::Snow; }
         if rl.is_key_pressed(KeyboardKey::KEY_SIX) { place_type = voxel::Block::Glowstone; }
+        if rl.is_key_pressed(KeyboardKey::KEY_SEVEN) { place_type = voxel::Block::Beacon; }
         // Place/remove dynamic emitter at a point in front of the camera
         if rl.is_key_pressed(KeyboardKey::KEY_L) {
             let fwd = cam.forward();
@@ -381,7 +383,9 @@ fn main() {
                         let prev = sampler(wx,wy,wz);
                         if prev.is_solid() {
                             edit_store.set(wx, wy, wz, voxel::Block::Air);
-                            if prev.emission() > 0 { lighting_store.remove_emitter_world(wx, wy, wz); }
+                            if prev.emission() > 0 { 
+                                lighting_store.remove_emitter_world(wx, wy, wz); 
+                            }
                             // Bump change revision and get all affected chunks
                             let _ = edit_store.bump_region_around(wx, wz);
                             let affected = edit_store.get_affected_chunks(wx, wz);
@@ -398,7 +402,13 @@ fn main() {
                         let wx = hit.px; let wy = hit.py; let wz = hit.pz;
                         if wy >= 0 && wy < chunk_size_y as i32 {
                             edit_store.set(wx, wy, wz, place_type);
-                            if place_type.emission() > 0 { lighting_store.add_emitter_world(wx, wy, wz, place_type.emission()); }
+                            if place_type.emission() > 0 { 
+                                if matches!(place_type, voxel::Block::Beacon) {
+                                    lighting_store.add_beacon_world(wx, wy, wz, place_type.emission());
+                                } else {
+                                    lighting_store.add_emitter_world(wx, wy, wz, place_type.emission());
+                                }
+                            }
                             let _ = edit_store.bump_region_around(wx, wz);
                             let ccx = wx.div_euclid(sx); let ccz = wz.div_euclid(sz);
                             // Only enqueue the edited chunk; neighbors will follow if borders changed
@@ -598,7 +608,7 @@ fn main() {
         }
 
         let hud_mode = if walk_mode { "Walk" } else { "Fly" };
-        let hud = format!("{}: Tab capture, WASD{} move{}, V toggle mode, F wireframe, G grid, B bounds, L add light, K remove light | Place: {:?} | LMB remove, RMB place", 
+        let hud = format!("{}: Tab capture, WASD{} move{}, V toggle mode, F wireframe, G grid, B bounds, L add light, K remove light | Place: {:?} (1-7 to select) | LMB remove, RMB place", 
                           hud_mode, if walk_mode {""} else {"+QE"}, if walk_mode {", Space jump, Shift run"} else {""}, place_type);
         d.draw_text(&hud, 12, 12, 18, Color::DARKGRAY);
         d.draw_fps(12, 36);
