@@ -8,7 +8,7 @@ use camera::FlyCamera;
 use raylib::prelude::*;
 use raylib::core::texture::Image;
 use voxel::World;
-use mesher::{FaceMaterial, build_chunk_greedy_cpu, upload_chunk_mesh, ChunkMeshCPU};
+use mesher::{FaceMaterial, build_chunk_greedy_cpu, upload_chunk_mesh, ChunkMeshCPU, TextureCache};
 use lighting::LightingStore;
 // Frustum culling removed for stability
 use std::path::Path;
@@ -94,6 +94,8 @@ fn main() {
     // Fog shaders
     let mut leaves_shader = shaders::LeavesShader::load(&mut rl, &thread);
     let mut fog_shader = shaders::FogShader::load(&mut rl, &thread);
+    // Texture cache
+    let mut tex_cache = TextureCache::new();
 
     while !rl.window_should_close() {
         let dt = rl.get_frame_time();
@@ -163,7 +165,7 @@ fn main() {
                 // Decide if we can color-only update: geometry and part set must match
                 let mut ok = true;
                 // Check GPU vs CPU vertex counts for each existing part
-                for (fm, model, _tex) in &cr_loaded_read.parts {
+                for (fm, model) in &cr_loaded_read.parts {
                     match cpu.parts.get(fm) {
                         Some(mb) => {
                             if let Some(mesh) = model.meshes().get(0) {
@@ -178,14 +180,14 @@ fn main() {
                 // Ensure no extra CPU parts appear
                 if ok {
                     for fm in cpu.parts.keys() {
-                        if !cr_loaded_read.parts.iter().any(|(f,_,_)| f == fm) { ok = false; break; }
+                        if !cr_loaded_read.parts.iter().any(|(f,_)| f == fm) { ok = false; break; }
                     }
                 }
 
                 if ok {
                     // Do color-only updates now with a mutable borrow
                     if let Some(cr_loaded) = loaded.get_mut(&key) {
-                        for (fm, model, _tex) in &mut cr_loaded.parts {
+                        for (fm, model) in &mut cr_loaded.parts {
                             if let Some(mb) = cpu.parts.get(fm) {
                                 let colors: &[u8] = mb.colors();
                                 if let Some(mesh) = model.meshes_mut().get_mut(0) {
@@ -196,9 +198,9 @@ fn main() {
                     }
                 } else {
                     // Geometry changed or part set differs: rebuild the GPU mesh for this chunk
-                    if let Some(mut cr) = upload_chunk_mesh(&mut rl, &thread, cpu) {
+                    if let Some(mut cr) = upload_chunk_mesh(&mut rl, &thread, cpu, &mut tex_cache) {
                         // Assign shaders to materials (leaves vs fog)
-                        for (fm, model, _tex) in &mut cr.parts {
+                        for (fm, model) in &mut cr.parts {
                             if let Some(mat) = model.materials_mut().get_mut(0) {
                                 match fm {
                                     FaceMaterial::Leaves(_) => {
@@ -223,9 +225,9 @@ fn main() {
                         loaded.insert(key, cr);
                     }
                 }
-            } else if let Some(mut cr) = upload_chunk_mesh(&mut rl, &thread, cpu) {
+            } else if let Some(mut cr) = upload_chunk_mesh(&mut rl, &thread, cpu, &mut tex_cache) {
                 // Assign shaders to materials (leaves vs fog)
-                for (fm, model, _tex) in &mut cr.parts {
+                for (fm, model) in &mut cr.parts {
                     if let Some(mat) = model.materials_mut().get_mut(0) {
                         match fm {
                             FaceMaterial::Leaves(_) => {
@@ -286,7 +288,7 @@ fn main() {
 
             // Draw loaded chunks (no frustum culling)
             for (_key, cr) in &loaded {
-                for (_fm, model, _tex) in &cr.parts {
+                for (_fm, model) in &cr.parts {
                     if wireframe { d3.draw_model_wires(model, Vector3::zero(), 1.0, Color::WHITE); }
                     else { d3.draw_model(model, Vector3::zero(), 1.0, Color::WHITE); }
                 }

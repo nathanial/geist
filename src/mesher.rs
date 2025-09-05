@@ -2,6 +2,7 @@ use crate::voxel::{Block, World, TreeSpecies};
 use crate::lighting::{LightGrid, LightingStore, LightBorders};
 use raylib::prelude::*;
 use raylib::core::math::BoundingBox;
+use std::collections::HashMap;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum FaceMaterial {
@@ -141,7 +142,7 @@ pub struct ChunkRender {
     pub cx: i32,
     pub cz: i32,
     pub bbox: BoundingBox,
-    pub parts: Vec<(FaceMaterial, raylib::core::models::Model, raylib::core::texture::Texture2D)>,
+    pub parts: Vec<(FaceMaterial, raylib::core::models::Model)>,
 }
 
 pub struct ChunkMeshCPU {
@@ -397,6 +398,7 @@ pub fn upload_chunk_mesh(
     rl: &mut RaylibHandle,
     thread: &RaylibThread,
     cpu: ChunkMeshCPU,
+    tex_cache: &mut TextureCache,
 ) -> Option<ChunkRender> {
     let mut parts_gpu = Vec::new();
     for (fm, mb) in cpu.parts.into_iter() {
@@ -425,19 +427,16 @@ pub fn upload_chunk_mesh(
         let mut mesh = unsafe { raylib::core::models::Mesh::from_raw(raw) };
         unsafe { mesh.upload(false); }
         let model = rl.load_model_from_mesh(thread, unsafe { mesh.make_weak() }).ok()?;
-        // Load texture
-        let mut tex_opt = None;
-        for p in fm.texture_candidates() {
-            if let Ok(t) = rl.load_texture(thread, p) { tex_opt = Some(t); break; }
-        }
-        let tex = tex_opt?;
-        tex.set_texture_filter(thread, raylib::consts::TextureFilter::TEXTURE_FILTER_POINT);
-        tex.set_texture_wrap(thread, raylib::consts::TextureWrap::TEXTURE_WRAP_REPEAT);
+        // Get cached texture and assign
         let mut model = model;
         if let Some(mat) = model.materials_mut().get_mut(0) {
-            mat.set_material_texture(raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO, &tex);
+            if let Some(tex) = tex_cache.get_or_load(rl, thread, &fm.texture_candidates()) {
+                mat.set_material_texture(raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO, tex);
+            } else {
+                // No texture available; leave material as-is
+            }
         }
-        parts_gpu.push((fm, model, tex));
+        parts_gpu.push((fm, model));
     }
     Some(ChunkRender { cx: cpu.cx, cz: cpu.cz, bbox: cpu.bbox, parts: parts_gpu })
 }
@@ -452,5 +451,32 @@ pub fn build_chunk_greedy(
     thread: &RaylibThread,
 ) -> Option<ChunkRender> {
     let cpu = build_chunk_greedy_cpu(world, lighting, cx, cz)?;
-    upload_chunk_mesh(rl, thread, cpu)
+    // Build with a local cache to avoid repeated loads in this code path
+    let mut cache = TextureCache::new();
+    upload_chunk_mesh(rl, thread, cpu, &mut cache)
+}
+
+// Simple per-app texture cache keyed by file path; loads each texture once and reuses it across chunks.
+pub struct TextureCache {
+    map: HashMap<&'static str, raylib::core::texture::Texture2D>,
+}
+
+impl TextureCache {
+    pub fn new() -> Self { Self { map: HashMap::new() } }
+
+    pub fn get_or_load<'a>(&'a mut self, rl: &mut RaylibHandle, thread: &RaylibThread, candidates: &[&'static str]) -> Option<&'a raylib::core::texture::Texture2D> {
+        // Pick first candidate that either exists in cache or loads successfully
+        for &p in candidates {
+            if self.map.contains_key(p) {
+                return self.map.get(p);
+            }
+            if let Ok(t) = rl.load_texture(thread, p) {
+                t.set_texture_filter(thread, raylib::consts::TextureFilter::TEXTURE_FILTER_POINT);
+                t.set_texture_wrap(thread, raylib::consts::TextureWrap::TEXTURE_WRAP_REPEAT);
+                self.map.insert(p, t);
+                return self.map.get(p);
+            }
+        }
+        None
+    }
 }
