@@ -97,7 +97,7 @@ fn main() {
                         buf.blocks[idx] = b;
                     }
                 }
-                if let Some(cpu) = build_chunk_greedy_cpu_buf(&buf, Some(&ls), &w, job.neighbors, job.cx, job.cz) {
+                if let Some(cpu) = build_chunk_greedy_cpu_buf(&buf, Some(&ls), &w, Some(&edits), job.neighbors, job.cx, job.cz) {
                     let _ = tx.send(JobOut { cpu, buf });
                 }
             }
