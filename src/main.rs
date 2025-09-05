@@ -2,6 +2,7 @@ mod camera;
 mod voxel;
 mod mesher;
 mod shaders;
+mod lighting;
 
 use camera::FlyCamera;
 use raylib::prelude::*;

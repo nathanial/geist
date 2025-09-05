@@ -1,4 +1,5 @@
 use crate::voxel::{Block, World, TreeSpecies};
+use crate::lighting::LightGrid;
 use raylib::prelude::*;
 use raylib::core::math::BoundingBox;
 
@@ -59,10 +60,11 @@ pub struct MeshBuild {
     norm: Vec<f32>,
     uv: Vec<f32>,
     idx: Vec<u16>,
+    col: Vec<u8>,
 }
 
 impl MeshBuild {
-    fn add_quad(&mut self, a: Vector3, b: Vector3, c: Vector3, d: Vector3, n: Vector3, u1: f32, v1: f32, flip_v: bool) {
+    fn add_quad(&mut self, a: Vector3, b: Vector3, c: Vector3, d: Vector3, n: Vector3, u1: f32, v1: f32, flip_v: bool, rgba: [u8;4]) {
         let base = self.pos.len() as u32 / 3;
         // Start with the same order the old code used (a,d,c,b)
         let mut vs = [a, d, c, b];
@@ -87,6 +89,7 @@ impl MeshBuild {
             self.pos.extend_from_slice(&[vs[i].x, vs[i].y, vs[i].z]);
             self.norm.extend_from_slice(&[n.x, n.y, n.z]);
             self.uv.extend_from_slice(&[uvs[i].0, uvs[i].1]);
+            self.col.extend_from_slice(&[rgba[0], rgba[1], rgba[2], rgba[3]]);
         }
         // Two triangles: (0,1,2) and (0,2,3)
         self.idx.extend_from_slice(&[
@@ -154,6 +157,11 @@ pub fn build_chunk_greedy_cpu(
 
     use std::collections::HashMap;
     let mut builds: HashMap<FaceMaterial, MeshBuild> = HashMap::new();
+    let light = LightGrid::compute_baseline(world, cx, cz);
+    let color_for = |x: usize, y: usize, z: usize, face: usize| -> [u8;4] {
+        let l = light.sample_face_local(x, y, z, face);
+        [l, l, l, 255]
+    };
 
     // Y layers: top (+Y) and bottom (-Y)
     for y in 0..sy {
@@ -181,6 +189,7 @@ pub fn build_chunk_greedy_cpu(
                 let fx = (base_x + x as i32) as f32; let fz = (base_z + z as i32) as f32; let fy = (y as f32) + 1.0;
                 let u1 = w as f32; let v1 = h as f32;
                 let mb = builds.entry(codev).or_default();
+                let rgba = color_for(x, y, z, 0);
                 mb.add_quad(
                     Vector3::new(fx, fy, fz),
                     Vector3::new(fx + u1, fy, fz),
@@ -189,6 +198,7 @@ pub fn build_chunk_greedy_cpu(
                     Vector3::new(0.0, 1.0, 0.0),
                     u1, v1,
                     false,
+                    rgba,
                 );
                 for zz in 0..h { for xx in 0..w { used[(z + zz) * sx + (x + xx)] = true; } }
             }}
@@ -216,6 +226,7 @@ pub fn build_chunk_greedy_cpu(
                 let fx = (base_x + x as i32) as f32; let fz = (base_z + z as i32) as f32; let fy = y as f32;
                 let u1 = w as f32; let v1 = h as f32;
                 let mb = builds.entry(codev).or_default();
+                let rgba = color_for(x, y, z, 1);
                 mb.add_quad(
                     Vector3::new(fx, fy, fz + v1),
                     Vector3::new(fx + u1, fy, fz + v1),
@@ -224,6 +235,7 @@ pub fn build_chunk_greedy_cpu(
                     Vector3::new(0.0, -1.0, 0.0),
                     u1, v1,
                     false,
+                    rgba,
                 );
                 for zz in 0..h { for xx in 0..w { used[(z + zz) * sx + (x + xx)] = true; } }
             }}
@@ -260,6 +272,7 @@ pub fn build_chunk_greedy_cpu(
                 let u1 = w as f32; let v1 = h as f32;
                 let mb = builds.entry(codev).or_default();
                 if !pos {
+                    let rgba = color_for(x, y, z, 3);
                     mb.add_quad(
                         Vector3::new(fx, fy + v1, fz),
                         Vector3::new(fx, fy + v1, fz + u1),
@@ -268,8 +281,10 @@ pub fn build_chunk_greedy_cpu(
                         Vector3::new(-1.0, 0.0, 0.0),
                         u1, v1,
                         false,
+                        rgba,
                     );
                 } else {
+                    let rgba = color_for(x, y, z, 2);
                     mb.add_quad(
                         Vector3::new(fx, fy + v1, fz + u1),
                         Vector3::new(fx, fy + v1, fz),
@@ -278,6 +293,7 @@ pub fn build_chunk_greedy_cpu(
                         Vector3::new(1.0, 0.0, 0.0),
                         u1, v1,
                         false,
+                        rgba,
                     );
                 }
                 for yy in 0..v1 as usize { for zz in 0..u1 as usize { used[(y + yy) * sz + (z + zz)] = true; } }
@@ -314,6 +330,7 @@ pub fn build_chunk_greedy_cpu(
                 let u1 = w as f32; let v1 = h as f32;
                 let mb = builds.entry(codev).or_default();
                 if !pos {
+                    let rgba = color_for(x, y, z, 5);
                     mb.add_quad(
                         Vector3::new(fx, fy + v1, fz),
                         Vector3::new(fx + u1, fy + v1, fz),
@@ -322,8 +339,10 @@ pub fn build_chunk_greedy_cpu(
                         Vector3::new(0.0, 0.0, -1.0),
                         u1, v1,
                         false,
+                        rgba,
                     );
                 } else {
+                    let rgba = color_for(x, y, z, 4);
                     mb.add_quad(
                         Vector3::new(fx + u1, fy + v1, fz),
                         Vector3::new(fx, fy + v1, fz),
@@ -332,6 +351,7 @@ pub fn build_chunk_greedy_cpu(
                         Vector3::new(0.0, 0.0, 1.0),
                         u1, v1,
                         false,
+                        rgba,
                     );
                 }
                 for yy in 0..v1 as usize { for xx in 0..u1 as usize { used[(y + yy) * sx + (x + xx)] = true; } }
@@ -363,14 +383,17 @@ pub fn upload_chunk_mesh(
             let nbytes = (mb.norm.len() * std::mem::size_of::<f32>()) as u32;
             let tbytes = (mb.uv.len() * std::mem::size_of::<f32>()) as u32;
             let ibytes = (mb.idx.len() * std::mem::size_of::<u16>()) as u32;
+            let cbytes = (mb.col.len() * std::mem::size_of::<u8>()) as u32;
             raw.vertices = raylib::ffi::MemAlloc(vbytes) as *mut f32;
             raw.normals = raylib::ffi::MemAlloc(nbytes) as *mut f32;
             raw.texcoords = raylib::ffi::MemAlloc(tbytes) as *mut f32;
             raw.indices = raylib::ffi::MemAlloc(ibytes) as *mut u16;
+            raw.colors = raylib::ffi::MemAlloc(cbytes) as *mut u8;
             std::ptr::copy_nonoverlapping(mb.pos.as_ptr(), raw.vertices, mb.pos.len());
             std::ptr::copy_nonoverlapping(mb.norm.as_ptr(), raw.normals, mb.norm.len());
             std::ptr::copy_nonoverlapping(mb.uv.as_ptr(), raw.texcoords, mb.uv.len());
             std::ptr::copy_nonoverlapping(mb.idx.as_ptr(), raw.indices, mb.idx.len());
+            std::ptr::copy_nonoverlapping(mb.col.as_ptr(), raw.colors, mb.col.len());
         }
         let mut mesh = unsafe { raylib::core::models::Mesh::from_raw(raw) };
         unsafe { mesh.upload(false); }
