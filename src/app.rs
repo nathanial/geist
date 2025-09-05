@@ -126,6 +126,20 @@ impl App {
         Self::log_event(self.gs.tick, &env.kind);
         match env.kind {
             Event::Tick => {}
+            Event::StructurePoseUpdated { id, pos, yaw_deg, delta } => {
+                if let Some(st) = self.gs.structures.get_mut(&id) {
+                    st.last_delta = delta;
+                    st.pose.pos = pos;
+                    st.pose.yaw_deg = yaw_deg;
+                    // Keep player perfectly in sync if attached to this structure
+                    if let Some(att) = self.gs.ground_attach {
+                        if att.id == id {
+                            let world_from_local = rotate_yaw(att.local_offset, st.pose.yaw_deg) + st.pose.pos;
+                            self.gs.walker.pos = world_from_local;
+                        }
+                    }
+                }
+            }
             Event::MovementRequested {
                 dt_ms,
                 yaw,
@@ -152,6 +166,8 @@ impl App {
                                 // Capture local feet offset and attach
                                 let local = rotate_yaw_inv(self.gs.walker.pos - st.pose.pos, st.pose.yaw_deg);
                                 self.gs.ground_attach = Some(crate::gamestate::GroundAttach { id: *id, grace: 8, local_offset: local });
+                                // Emit lifecycle event for observability
+                                self.queue.emit_now(Event::PlayerAttachedToStructure { id: *id, local_offset: local });
                                 // Snap to exact projection this tick
                                 self.gs.walker.pos = rotate_yaw(local, st.pose.yaw_deg) + st.pose.pos;
                                 break;
@@ -208,6 +224,8 @@ impl App {
                                 self.gs.ground_attach = Some(crate::gamestate::GroundAttach { id: att.id, grace: att.grace - 1, local_offset: att.local_offset });
                             } else {
                                 self.gs.ground_attach = None;
+                                // Emit lifecycle event
+                                self.queue.emit_now(Event::PlayerDetachedFromStructure { id: att.id });
                             }
                         } else {
                             self.gs.ground_attach = None;
@@ -230,6 +248,19 @@ impl App {
                         (self.cam.position.z / self.gs.world.chunk_size_z as f32).floor() as i32;
                     if (ccx, ccz) != self.gs.center_chunk {
                         self.queue.emit_now(Event::ViewCenterChanged { ccx, ccz });
+                    }
+                }
+            }
+            Event::PlayerAttachedToStructure { id, local_offset } => {
+                // Idempotent: set/refresh attachment state
+                if self.gs.structures.contains_key(&id) {
+                    self.gs.ground_attach = Some(crate::gamestate::GroundAttach { id, grace: 8, local_offset });
+                }
+            }
+            Event::PlayerDetachedFromStructure { id } => {
+                if let Some(att) = self.gs.ground_attach {
+                    if att.id == id {
+                        self.gs.ground_attach = None;
                     }
                 }
             }
@@ -746,7 +777,7 @@ impl App {
                 .emit_now(Event::RaycastEditRequested { place, block });
         }
 
-        // Update structure poses (simple circular motion)
+        // Update structure poses (simple circular motion) via events
         let world_center = Vector3::new(
             (self.gs.world.world_size_x() as f32) * 0.5,
             (self.gs.world.world_size_y() as f32) * 0.7,
@@ -754,15 +785,15 @@ impl App {
         );
         let radius = 40.0f32;
         let ang = (self.gs.tick as f32) * 0.004;
-        for (_id, st) in self.gs.structures.iter_mut() {
+        for (id, st) in self.gs.structures.iter() {
             let new_x = world_center.x + radius * ang.cos();
             let new_z = world_center.z + radius * ang.sin();
             let prev = st.pose.pos;
             let newp = Vector3::new(new_x, prev.y, new_z);
-            st.last_delta = newp - prev;
-            st.pose.pos = newp;
+            let delta = newp - prev;
             // Keep yaw fixed until render rotation is wired, so collisions match visuals
-            st.pose.yaw_deg = 0.0;
+            let yaw = 0.0_f32;
+            self.queue.emit_now(Event::StructurePoseUpdated { id: *id, pos: newp, yaw_deg: yaw, delta });
         }
 
         // Movement intent for this tick (dt→ms)
@@ -1039,11 +1070,22 @@ impl App {
             E::StructureBuildCompleted { id, rev, .. } => {
                 log::info!(target: "events", "[tick {}] StructureBuildCompleted id={} rev={}", tick, id, rev);
             }
+            E::StructurePoseUpdated { id, pos, yaw_deg, delta } => {
+                log::trace!(target: "events", "[tick {}] StructurePoseUpdated id={} pos=({:.2},{:.2},{:.2}) yaw={:.1} delta=({:.2},{:.2},{:.2})",
+                    tick, id, pos.x, pos.y, pos.z, yaw_deg, delta.x, delta.y, delta.z);
+            }
             E::StructureBlockPlaced { id, lx, ly, lz, block } => {
                 log::info!(target: "events", "[tick {}] StructureBlockPlaced id={} ({},{},{}) block={:?}", tick, id, lx, ly, lz, block);
             }
             E::StructureBlockRemoved { id, lx, ly, lz } => {
                 log::info!(target: "events", "[tick {}] StructureBlockRemoved id={} ({},{},{})", tick, id, lx, ly, lz);
+            }
+            E::PlayerAttachedToStructure { id, local_offset } => {
+                log::info!(target: "events", "[tick {}] PlayerAttachedToStructure id={} local=({:.2},{:.2},{:.2})",
+                    tick, id, local_offset.x, local_offset.y, local_offset.z);
+            }
+            E::PlayerDetachedFromStructure { id } => {
+                log::info!(target: "events", "[tick {}] PlayerDetachedFromStructure id={}", tick, id);
             }
             E::LightEmitterAdded {
                 wx,

@@ -5,6 +5,7 @@ use crate::lighting::LightBorders;
 use crate::mesher::{ChunkMeshCPU, NeighborsLoaded};
 use crate::structure::StructureId;
 use crate::voxel::Block;
+use raylib::prelude::Vector3;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RebuildCause {
@@ -93,6 +94,13 @@ pub enum Event {
         rev: u64,
         cpu: ChunkMeshCPU,
     },
+    // Structure transform updates (pose/motion)
+    StructurePoseUpdated {
+        id: StructureId,
+        pos: Vector3,
+        yaw_deg: f32,
+        delta: Vector3,
+    },
     StructureBlockPlaced {
         id: StructureId,
         lx: i32,
@@ -105,6 +113,15 @@ pub enum Event {
         lx: i32,
         ly: i32,
         lz: i32,
+    },
+
+    // Player ↔ structure attachment lifecycle
+    PlayerAttachedToStructure {
+        id: StructureId,
+        local_offset: Vector3,
+    },
+    PlayerDetachedFromStructure {
+        id: StructureId,
     },
 
     // Lighting
