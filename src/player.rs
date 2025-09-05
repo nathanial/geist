@@ -148,9 +148,5 @@ impl Walker {
         self.pos.y = self.pos.y.clamp(0.0, max_y.max(0.0));
     }
 
-    // Back-compat: update using World sampler
-    pub fn update(&mut self, rl: &mut raylib::RaylibHandle, world: &World, dt: f32, yaw: f32) {
-        let sampler = |x: i32, y: i32, z: i32| world.block_at(x,y,z);
-        self.update_with_sampler(rl, &sampler, world, dt, yaw)
-    }
+    // No back-compat path: the walker updates only via an explicit sampler tied to loaded chunk buffers.
 }
