@@ -101,5 +101,19 @@ impl FlyCamera {
             self.position += wish_dir * speed * dt;
         }
     }
-}
 
+    // Update only mouse-look/capture; leave translation to an external controller (e.g., Walker)
+    pub fn update_look_only(&mut self, rl: &mut RaylibHandle, dt: f32) {
+        // Toggle mouse capture with Tab
+        if rl.is_key_pressed(KeyboardKey::KEY_TAB) {
+            self.captured = !self.captured;
+            if self.captured { rl.disable_cursor(); } else { rl.enable_cursor(); }
+        }
+        if self.captured {
+            let md = rl.get_mouse_delta();
+            self.yaw += md.x * self.mouse_sensitivity;
+            self.pitch -= md.y * self.mouse_sensitivity;
+            self.pitch = self.pitch.clamp(-89.9, 89.9);
+        }
+    }
+}

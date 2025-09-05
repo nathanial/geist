@@ -3,6 +3,7 @@ mod voxel;
 mod mesher;
 mod shaders;
 mod lighting;
+mod player;
 
 use camera::FlyCamera;
 use raylib::prelude::*;
@@ -37,12 +38,15 @@ fn main() {
     let world = Arc::new(World::new(chunks_x, chunks_z, chunk_size_x, chunk_size_y, chunk_size_z, world_seed));
     let lighting_store = Arc::new(LightingStore::new(chunk_size_x, chunk_size_y, chunk_size_z));
 
-    // Place camera to see the scene
-    let mut cam = FlyCamera::new(Vector3::new(
+    // Place camera/player
+    let spawn = Vector3::new(
         (world.world_size_x() as f32) * 0.5,
-        (chunk_size_y as f32) * 0.8,
-        (world.world_size_z() as f32) * 0.5 + 20.0,
-    ));
+        (chunk_size_y as f32) as f32,
+        (world.world_size_z() as f32) * 0.5,
+    );
+    let mut cam = FlyCamera::new(spawn + Vector3::new(0.0, 5.0, 20.0));
+    let mut walker = player::Walker::new(Vector3::new(spawn.x, (chunk_size_y as f32) * 0.8, spawn.z));
+    let mut walk_mode = true; // start in walk mode
 
     // Rendering options
     let mut show_grid = true;
@@ -126,7 +130,9 @@ fn main() {
 
     while !rl.window_should_close() {
         let dt = rl.get_frame_time();
-        cam.update(&mut rl, dt);
+        // Toggle walk/fly
+        if rl.is_key_pressed(KeyboardKey::KEY_V) { walk_mode = !walk_mode; }
+        if walk_mode { cam.update_look_only(&mut rl, dt); } else { cam.update(&mut rl, dt); }
 
         if rl.is_key_pressed(KeyboardKey::KEY_G) {
             show_grid = !show_grid;
@@ -287,6 +293,12 @@ fn main() {
             }
         }
 
+        // Player/walker update and camera follow
+        if walk_mode {
+            walker.update(&mut rl, &world, dt, cam.yaw);
+            cam.position = walker.eye_position();
+        }
+
         // Prepare camera for drawing
         let camera3d = cam.to_camera3d();
 
@@ -347,7 +359,12 @@ fn main() {
             }
         }
 
-        d.draw_text("Voxel view: Tab capture, WASD+QE fly, F wireframe, G grid, B chunk bounds, L add light, K remove light", 12, 12, 18, Color::DARKGRAY);
+        let hud = if walk_mode {
+            "Walk: Tab capture, WASD move, Space jump, Shift run, V toggle fly, F wireframe, G grid, B chunk bounds, L add light, K remove light"
+        } else {
+            "Fly: Tab capture, WASD+QE move, V toggle walk, F wireframe, G grid, B chunk bounds, L add light, K remove light"
+        };
+        d.draw_text(hud, 12, 12, 18, Color::DARKGRAY);
         d.draw_fps(12, 36);
     }
 }
