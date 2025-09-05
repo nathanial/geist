@@ -4,7 +4,7 @@ use crate::chunkbuf::ChunkBuf;
 use crate::mesher::{ChunkMeshCPU, NeighborsLoaded};
 use crate::voxel::Block;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum RebuildCause {
     Edit,
     LightingBorder,

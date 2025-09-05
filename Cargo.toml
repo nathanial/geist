@@ -6,3 +6,5 @@ edition = "2024"
 [dependencies]
 raylib = "5.5.1"
 fastnoise-lite = "1.1.1"
+log = "0.4"
+env_logger = "0.11"

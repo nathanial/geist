@@ -76,6 +76,8 @@ impl App {
         thread: &RaylibThread,
         env: EventEnvelope,
     ) {
+        // Log a concise line for the processed event
+        Self::log_event(self.gs.tick, &env.kind);
         match env.kind {
             Event::Tick => {}
             Event::MovementRequested { dt_ms, yaw, walk_mode } => {
@@ -254,9 +256,12 @@ impl App {
                                 }
                             }
                             let _ = self.gs.edits.bump_region_around(wx, wz);
-                            let ccx = wx.div_euclid(sx);
-                            let ccz = wz.div_euclid(sz);
-                            self.queue.emit_now(Event::ChunkRebuildRequested { cx: ccx, cz: ccz, cause: RebuildCause::Edit });
+                            // Rebuild edited chunk and any boundary-adjacent neighbors that are loaded
+                            for (cx, cz) in self.gs.edits.get_affected_chunks(wx, wz) {
+                                if self.runtime.renders.contains_key(&(cx, cz)) {
+                                    self.queue.emit_now(Event::ChunkRebuildRequested { cx, cz, cause: RebuildCause::Edit });
+                                }
+                            }
                         }
                     } else {
                         // remove at hit
@@ -428,5 +433,55 @@ impl App {
         );
         d.draw_text(&hud, 12, 12, 18, Color::DARKGRAY);
         d.draw_fps(12, 36);
+    }
+}
+
+impl App {
+    fn log_event(tick: u64, ev: &crate::event::Event) {
+        use crate::event::Event as E;
+        match ev {
+            E::Tick => {
+                log::trace!(target: "events", "[tick {}] Tick", tick);
+            }
+            E::MovementRequested { dt_ms, yaw, walk_mode } => {
+                log::trace!(target: "events", "[tick {}] MovementRequested dt_ms={} yaw={:.1} mode={}",
+                    tick, dt_ms, yaw, if *walk_mode {"walk"} else {"fly"});
+            }
+            E::RaycastEditRequested { place, block } => {
+                log::info!(target: "events", "[tick {}] RaycastEditRequested {} block={:?}",
+                    tick, if *place {"place"} else {"remove"}, block);
+            }
+            E::ViewCenterChanged { ccx, ccz } => {
+                log::info!(target: "events", "[tick {}] ViewCenterChanged cc=({}, {})", tick, ccx, ccz);
+            }
+            E::EnsureChunkLoaded { cx, cz } => {
+                log::info!(target: "events", "[tick {}] EnsureChunkLoaded ({}, {})", tick, cx, cz);
+            }
+            E::EnsureChunkUnloaded { cx, cz } => {
+                log::info!(target: "events", "[tick {}] EnsureChunkUnloaded ({}, {})", tick, cx, cz);
+            }
+            E::ChunkRebuildRequested { cx, cz, cause } => {
+                log::debug!(target: "events", "[tick {}] ChunkRebuildRequested ({}, {}) cause={:?}", tick, cx, cz, cause);
+            }
+            E::BuildChunkJobRequested { cx, cz, neighbors, rev, job_id } => {
+                let mask = [neighbors.neg_x, neighbors.pos_x, neighbors.neg_z, neighbors.pos_z];
+                log::info!(target: "events", "[tick {}] BuildChunkJobRequested ({}, {}) rev={} nmask={:?} job_id={:#x}",
+                    tick, cx, cz, rev, mask, job_id);
+            }
+            E::BuildChunkJobCompleted { cx, cz, rev, job_id, .. } => {
+                log::info!(target: "events", "[tick {}] BuildChunkJobCompleted ({}, {}) rev={} job_id={:#x}",
+                    tick, cx, cz, rev, job_id);
+            }
+            E::LightEmitterAdded { wx, wy, wz, level, is_beacon } => {
+                log::info!(target: "events", "[tick {}] LightEmitterAdded ({},{},{}) level={} beacon={}",
+                    tick, wx, wy, wz, level, is_beacon);
+            }
+            E::LightEmitterRemoved { wx, wy, wz } => {
+                log::info!(target: "events", "[tick {}] LightEmitterRemoved ({},{},{})", tick, wx, wy, wz);
+            }
+            E::LightBordersUpdated { cx, cz } => {
+                log::debug!(target: "events", "[tick {}] LightBordersUpdated ({}, {})", tick, cx, cz);
+            }
+        }
     }
 }
