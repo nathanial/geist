@@ -101,6 +101,8 @@ impl MeshBuild {
     }
 
     pub fn colors(&self) -> &[u8] { &self.col }
+    pub fn vertex_count(&self) -> usize { self.pos.len() / 3 }
+    pub fn index_count(&self) -> usize { self.idx.len() }
 }
 
 fn face_material_for(block: Block, face: usize) -> Option<FaceMaterial> {
@@ -165,22 +167,23 @@ pub fn build_chunk_greedy_cpu(
     use std::collections::HashMap;
     let mut builds: HashMap<FaceMaterial, MeshBuild> = HashMap::new();
     let light = match lighting { Some(store) => LightGrid::compute_with_borders(world, cx, cz, store), None => LightGrid::compute_baseline(world, cx, cz) };
-    let color_for = |x: usize, y: usize, z: usize, face: usize| -> [u8;4] {
-        let l = light.sample_face_local(x, y, z, face);
-        [l, l, l, 255]
-    };
 
     // Y layers: top (+Y) and bottom (-Y)
     for y in 0..sy {
         // top faces at y+1 plane
         {
-            let mut mask: Vec<Option<FaceMaterial>> = vec![None; sx * sz];
+            let mut mask: Vec<Option<(FaceMaterial,u8)>> = vec![None; sx * sz];
             for z in 0..sz { for x in 0..sx {
                 let gx = base_x + x as i32; let gz = base_z + z as i32;
                 let here = world.block_at(gx, y as i32, gz);
                 if here.is_solid() {
                     let neigh = is_occluder_for(world, here, gx as i32, (y as i32) + 1, gz as i32);
-                    if !neigh { mask[z * sx + x] = face_material_for(here, 0); }
+                    if !neigh {
+                        if let Some(fm) = face_material_for(here, 0) {
+                            let l = light.sample_face_local(x, y, z, 0);
+                            mask[z * sx + x] = Some((fm, l));
+                        }
+                    }
                 }
             }}
             // greedy merge on mask (x,z)
@@ -195,8 +198,8 @@ pub fn build_chunk_greedy_cpu(
                 }
                 let fx = (base_x + x as i32) as f32; let fz = (base_z + z as i32) as f32; let fy = (y as f32) + 1.0;
                 let u1 = w as f32; let v1 = h as f32;
-                let mb = builds.entry(codev).or_default();
-                let rgba = color_for(x, y, z, 0);
+                let mb = builds.entry(codev.0).or_default();
+                let rgba = [codev.1, codev.1, codev.1, 255];
                 mb.add_quad(
                     Vector3::new(fx, fy, fz),
                     Vector3::new(fx + u1, fy, fz),
@@ -212,13 +215,18 @@ pub fn build_chunk_greedy_cpu(
         }
         // bottom faces at y plane
         {
-            let mut mask: Vec<Option<FaceMaterial>> = vec![None; sx * sz];
+            let mut mask: Vec<Option<(FaceMaterial,u8)>> = vec![None; sx * sz];
             for z in 0..sz { for x in 0..sx {
                 let gx = base_x + x as i32; let gz = base_z + z as i32;
                 let here = world.block_at(gx, y as i32, gz);
                 if here.is_solid() {
                     let neigh = is_occluder_for(world, here, gx as i32, (y as i32) - 1, gz as i32);
-                    if !neigh { mask[z * sx + x] = face_material_for(here, 1); }
+                    if !neigh {
+                        if let Some(fm) = face_material_for(here, 1) {
+                            let l = light.sample_face_local(x, y, z, 1);
+                            mask[z * sx + x] = Some((fm, l));
+                        }
+                    }
                 }
             }}
             let mut used = vec![false; sx * sz];
@@ -232,8 +240,8 @@ pub fn build_chunk_greedy_cpu(
                 }
                 let fx = (base_x + x as i32) as f32; let fz = (base_z + z as i32) as f32; let fy = y as f32;
                 let u1 = w as f32; let v1 = h as f32;
-                let mb = builds.entry(codev).or_default();
-                let rgba = color_for(x, y, z, 1);
+                let mb = builds.entry(codev.0).or_default();
+                let rgba = [codev.1, codev.1, codev.1, 255];
                 mb.add_quad(
                     Vector3::new(fx, fy, fz + v1),
                     Vector3::new(fx + u1, fy, fz + v1),
@@ -252,7 +260,7 @@ pub fn build_chunk_greedy_cpu(
     // X planes: negative and positive
     for x in 0..sx {
         for &pos in &[false, true] {
-            let mut mask: Vec<Option<FaceMaterial>> = vec![None; sz * sy];
+            let mut mask: Vec<Option<(FaceMaterial,u8)>> = vec![None; sz * sy];
             for z in 0..sz { for y in 0..sy {
                 let gx = base_x + x as i32; let gz = base_z + z as i32; let gy = y as i32;
                 let here = world.block_at(gx, gy, gz);
@@ -262,7 +270,12 @@ pub fn build_chunk_greedy_cpu(
                     } else {
                         is_occluder_for(world, here, (gx as i32) - 1, gy as i32, gz as i32)
                     };
-                    if !neigh { mask[y * sz + z] = face_material_for(here, if pos { 2 } else { 3 }); }
+                    if !neigh {
+                        if let Some(fm) = face_material_for(here, if pos { 2 } else { 3 }) {
+                            let l = light.sample_face_local(x, y, z, if pos { 2 } else { 3 });
+                            mask[y * sz + z] = Some((fm, l));
+                        }
+                    }
                 }
             }}
             let mut used = vec![false; sz * sy];
@@ -277,9 +290,9 @@ pub fn build_chunk_greedy_cpu(
                 let fx = (base_x + x as i32) as f32 + if pos { 1.0 } else { 0.0 };
                 let fy = y as f32; let fz = (base_z + z as i32) as f32;
                 let u1 = w as f32; let v1 = h as f32;
-                let mb = builds.entry(codev).or_default();
+                let mb = builds.entry(codev.0).or_default();
                 if !pos {
-                    let rgba = color_for(x, y, z, 3);
+                    let rgba = [codev.1, codev.1, codev.1, 255];
                     mb.add_quad(
                         Vector3::new(fx, fy + v1, fz),
                         Vector3::new(fx, fy + v1, fz + u1),
@@ -291,7 +304,7 @@ pub fn build_chunk_greedy_cpu(
                         rgba,
                     );
                 } else {
-                    let rgba = color_for(x, y, z, 2);
+                    let rgba = [codev.1, codev.1, codev.1, 255];
                     mb.add_quad(
                         Vector3::new(fx, fy + v1, fz + u1),
                         Vector3::new(fx, fy + v1, fz),
@@ -311,7 +324,7 @@ pub fn build_chunk_greedy_cpu(
     // Z planes: negative and positive
     for z in 0..sz {
         for &pos in &[false, true] {
-            let mut mask: Vec<Option<FaceMaterial>> = vec![None; sx * sy];
+            let mut mask: Vec<Option<(FaceMaterial,u8)>> = vec![None; sx * sy];
             for x in 0..sx { for y in 0..sy {
                 let gx = base_x + x as i32; let gz = base_z + z as i32; let gy = y as i32;
                 let here = world.block_at(gx, gy, gz);
@@ -321,7 +334,12 @@ pub fn build_chunk_greedy_cpu(
                     } else {
                         is_occluder_for(world, here, gx as i32, gy as i32, (gz as i32) - 1)
                     };
-                    if !neigh { mask[y * sx + x] = face_material_for(here, if pos { 4 } else { 5 }); }
+                    if !neigh {
+                        if let Some(fm) = face_material_for(here, if pos { 4 } else { 5 }) {
+                            let l = light.sample_face_local(x, y, z, if pos { 4 } else { 5 });
+                            mask[y * sx + x] = Some((fm, l));
+                        }
+                    }
                 }
             }}
             let mut used = vec![false; sx * sy];
@@ -335,9 +353,9 @@ pub fn build_chunk_greedy_cpu(
                 }
                 let fx = (base_x + x as i32) as f32; let fy = y as f32; let fz = (base_z + z as i32) as f32 + if pos { 1.0 } else { 0.0 };
                 let u1 = w as f32; let v1 = h as f32;
-                let mb = builds.entry(codev).or_default();
+                let mb = builds.entry(codev.0).or_default();
                 if !pos {
-                    let rgba = color_for(x, y, z, 5);
+                    let rgba = [codev.1, codev.1, codev.1, 255];
                     mb.add_quad(
                         Vector3::new(fx, fy + v1, fz),
                         Vector3::new(fx + u1, fy + v1, fz),
@@ -349,7 +367,7 @@ pub fn build_chunk_greedy_cpu(
                         rgba,
                     );
                 } else {
-                    let rgba = color_for(x, y, z, 4);
+                    let rgba = [codev.1, codev.1, codev.1, 255];
                     mb.add_quad(
                         Vector3::new(fx + u1, fy + v1, fz),
                         Vector3::new(fx, fy + v1, fz),

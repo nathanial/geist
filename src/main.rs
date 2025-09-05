@@ -159,16 +159,68 @@ fn main() {
         // Drain completed meshes (upload to GPU) before drawing
         for cpu in res_rx.try_iter() {
             let key = (cpu.cx, cpu.cz);
-            if let Some(cr_loaded) = loaded.get_mut(&key) {
-                // Fast path: update only color buffers if geometry matches
-                for (fm, model, _tex) in &mut cr_loaded.parts {
-                    if let Some(mb) = cpu.parts.get(fm) {
-                        let colors: &[u8] = mb.colors();
-                        if let Some(mesh) = model.meshes_mut().get_mut(0) {
-                            unsafe { mesh.update_buffer::<u8>(3, colors, 0); }
+            if let Some(cr_loaded_read) = loaded.get(&key) {
+                // Decide if we can color-only update: geometry and part set must match
+                let mut ok = true;
+                // Check GPU vs CPU vertex counts for each existing part
+                for (fm, model, _tex) in &cr_loaded_read.parts {
+                    match cpu.parts.get(fm) {
+                        Some(mb) => {
+                            if let Some(mesh) = model.meshes().get(0) {
+                                let gpu_v = mesh.as_ref().vertexCount as usize;
+                                let cpu_v = mb.vertex_count();
+                                if gpu_v != cpu_v { ok = false; break; }
+                            } else { ok = false; break; }
                         }
-                    } else {
-                        // Missing part; fallback to full rebuild
+                        None => { ok = false; break; }
+                    }
+                }
+                // Ensure no extra CPU parts appear
+                if ok {
+                    for fm in cpu.parts.keys() {
+                        if !cr_loaded_read.parts.iter().any(|(f,_,_)| f == fm) { ok = false; break; }
+                    }
+                }
+
+                if ok {
+                    // Do color-only updates now with a mutable borrow
+                    if let Some(cr_loaded) = loaded.get_mut(&key) {
+                        for (fm, model, _tex) in &mut cr_loaded.parts {
+                            if let Some(mb) = cpu.parts.get(fm) {
+                                let colors: &[u8] = mb.colors();
+                                if let Some(mesh) = model.meshes_mut().get_mut(0) {
+                                    unsafe { mesh.update_buffer::<u8>(3, colors, 0); }
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    // Geometry changed or part set differs: rebuild the GPU mesh for this chunk
+                    if let Some(mut cr) = upload_chunk_mesh(&mut rl, &thread, cpu) {
+                        // Assign shaders to materials (leaves vs fog)
+                        for (fm, model, _tex) in &mut cr.parts {
+                            if let Some(mat) = model.materials_mut().get_mut(0) {
+                                match fm {
+                                    FaceMaterial::Leaves(_) => {
+                                        if let Some(ref ls) = leaves_shader {
+                                            let dest = mat.shader_mut();
+                                            let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
+                                            let src_ptr: *const raylib::ffi::Shader = ls.shader.as_ref();
+                                            unsafe { std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1); }
+                                        }
+                                    }
+                                    _ => {
+                                        if let Some(ref fs) = fog_shader {
+                                            let dest = mat.shader_mut();
+                                            let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
+                                            let src_ptr: *const raylib::ffi::Shader = fs.shader.as_ref();
+                                            unsafe { std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1); }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        loaded.insert(key, cr);
                     }
                 }
             } else if let Some(mut cr) = upload_chunk_mesh(&mut rl, &thread, cpu) {
