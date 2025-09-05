@@ -9,6 +9,7 @@ use raylib::prelude::*;
 use raylib::core::texture::Image;
 use voxel::World;
 use mesher::{FaceMaterial, build_chunk_greedy_cpu, upload_chunk_mesh, ChunkMeshCPU, TextureCache};
+use voxel::TreeSpecies;
 use lighting::LightingStore;
 // Frustum culling removed for stability
 use std::path::Path;
@@ -96,6 +97,32 @@ fn main() {
     let mut fog_shader = shaders::FogShader::load(&mut rl, &thread);
     // Texture cache
     let mut tex_cache = TextureCache::new();
+    // Preload all textures used by face materials to avoid first-use hitches
+    let species = [
+        TreeSpecies::Oak,
+        TreeSpecies::Birch,
+        TreeSpecies::Spruce,
+        TreeSpecies::Jungle,
+        TreeSpecies::Acacia,
+        TreeSpecies::DarkOak,
+    ];
+    let mut mats: Vec<FaceMaterial> = vec![
+        FaceMaterial::GrassTop,
+        FaceMaterial::GrassSide,
+        FaceMaterial::Dirt,
+        FaceMaterial::Stone,
+        FaceMaterial::Sand,
+        FaceMaterial::Snow,
+        FaceMaterial::Glowstone,
+    ];
+    for sp in species.iter().copied() {
+        mats.push(FaceMaterial::WoodTop(sp));
+        mats.push(FaceMaterial::WoodSide(sp));
+        mats.push(FaceMaterial::Leaves(sp));
+    }
+    for fm in &mats {
+        let _ = tex_cache.get_or_load(&mut rl, &thread, &fm.texture_candidates());
+    }
 
     while !rl.window_should_close() {
         let dt = rl.get_frame_time();
