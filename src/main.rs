@@ -142,7 +142,19 @@ fn main() {
         // Drain completed meshes (upload to GPU) before drawing
         for cpu in res_rx.try_iter() {
             let key = (cpu.cx, cpu.cz);
-            if let Some(mut cr) = upload_chunk_mesh(&mut rl, &thread, cpu) {
+            if let Some(cr_loaded) = loaded.get_mut(&key) {
+                // Fast path: update only color buffers if geometry matches
+                for (fm, model, _tex) in &mut cr_loaded.parts {
+                    if let Some(mb) = cpu.parts.get(fm) {
+                        let colors: &[u8] = mb.colors();
+                        if let Some(mesh) = model.meshes_mut().get_mut(0) {
+                            unsafe { mesh.update_buffer::<u8>(3, colors, 0); }
+                        }
+                    } else {
+                        // Missing part; fallback to full rebuild
+                    }
+                }
+            } else if let Some(mut cr) = upload_chunk_mesh(&mut rl, &thread, cpu) {
                 // Assign shaders to materials (leaves vs fog)
                 for (fm, model, _tex) in &mut cr.parts {
                     if let Some(mat) = model.materials_mut().get_mut(0) {
@@ -168,13 +180,9 @@ fn main() {
                 }
                 loaded.insert(key, cr);
             }
-            // If this chunk's borders changed, schedule neighbors to converge lighting
+            // Requeue neighbors to converge lighting across borders
             let neighbors = [(key.0-1,key.1),(key.0+1,key.1),(key.0,key.1-1),(key.0,key.1+1)];
-            if let Some(true) = loaded.get(&key).map(|_| true) {
-                // Note: borders_changed flag was consumed inside cpu; pass via key in future if needed
-            }
             pending.remove(&key);
-            // naive requeue neighbors (best-effort); coordinator would be better
             for nk in neighbors.iter() {
                 if !loaded.contains_key(nk) && !pending.contains(nk) { continue; }
                 if !pending.contains(nk) { let _ = job_tx.send(*nk); pending.insert(*nk); }

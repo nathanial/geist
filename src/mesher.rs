@@ -99,6 +99,8 @@ impl MeshBuild {
             (base + 0) as u16, (base + 2) as u16, (base + 3) as u16,
         ]);
     }
+
+    pub fn colors(&self) -> &[u8] { &self.col }
 }
 
 fn face_material_for(block: Block, face: usize) -> Option<FaceMaterial> {
