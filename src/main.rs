@@ -10,7 +10,7 @@ use camera::FlyCamera;
 use raylib::prelude::*;
 use raylib::core::texture::Image;
 use voxel::World;
-use mesher::{FaceMaterial, build_chunk_greedy_cpu, build_chunk_greedy_cpu_buf, upload_chunk_mesh, ChunkMeshCPU, TextureCache};
+use mesher::{FaceMaterial, build_chunk_greedy_cpu_buf, upload_chunk_mesh, ChunkMeshCPU, TextureCache};
 use voxel::TreeSpecies;
 use lighting::LightingStore;
 // Frustum culling removed for stability
