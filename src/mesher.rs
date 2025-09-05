@@ -267,7 +267,6 @@ pub struct ChunkMeshCPU {
     pub cz: i32,
     pub bbox: BoundingBox,
     pub parts: std::collections::HashMap<FaceMaterial, MeshBuild>,
-    pub borders_changed: bool,
 }
 
 pub fn build_chunk_greedy_cpu_buf(
@@ -278,7 +277,7 @@ pub fn build_chunk_greedy_cpu_buf(
     neighbors: NeighborsLoaded,
     cx: i32,
     cz: i32,
-) -> Option<ChunkMeshCPU> {
+) -> Option<(ChunkMeshCPU, Option<LightBorders>)> {
     let sx = buf.sx;
     let sy = buf.sy;
     let sz = buf.sz;
@@ -622,18 +621,18 @@ pub fn build_chunk_greedy_cpu_buf(
             base_z as f32 + sz as f32,
         ),
     );
-    let mut borders_changed = false;
-    if let Some(store) = lighting {
-        let lb = LightBorders::from_grid(&light);
-        borders_changed = store.update_borders(cx, cz, lb);
-    }
-    Some(ChunkMeshCPU {
+    // Instead of mutating the store directly, return the light borders
+    let light_borders = if lighting.is_some() {
+        Some(LightBorders::from_grid(&light))
+    } else {
+        None
+    };
+    Some((ChunkMeshCPU {
         cx,
         cz,
         bbox,
         parts: builds,
-        borders_changed,
-    })
+    }, light_borders))
 }
 
 pub fn upload_chunk_mesh(

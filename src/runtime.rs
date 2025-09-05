@@ -20,6 +20,7 @@ pub struct BuildJob {
 pub struct JobOut {
     pub cpu: ChunkMeshCPU,
     pub buf: chunkbuf::ChunkBuf,
+    pub light_borders: Option<crate::lighting::LightBorders>,
     pub cx: i32,
     pub cz: i32,
     pub rev: u64,
@@ -122,7 +123,7 @@ impl Runtime {
                     let snap_vec = edits.snapshot_for_region(job.cx, job.cz, 1);
                     let snap_map: std::collections::HashMap<(i32, i32, i32), crate::voxel::Block> =
                         snap_vec.into_iter().collect();
-                    if let Some(cpu) = mesher::build_chunk_greedy_cpu_buf(
+                    if let Some((cpu, light_borders)) = mesher::build_chunk_greedy_cpu_buf(
                         &buf,
                         Some(&ls),
                         &w,
@@ -131,7 +132,7 @@ impl Runtime {
                         job.cx,
                         job.cz,
                     ) {
-                        let _ = tx.send(JobOut { cpu, buf, cx: job.cx, cz: job.cz, rev: job.rev, job_id: job.job_id });
+                        let _ = tx.send(JobOut { cpu, buf, light_borders, cx: job.cx, cz: job.cz, rev: job.rev, job_id: job.job_id });
                     }
                 }
             });

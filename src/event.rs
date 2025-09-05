@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use crate::chunkbuf::ChunkBuf;
+use crate::lighting::LightBorders;
 use crate::mesher::{ChunkMeshCPU, NeighborsLoaded};
 use crate::voxel::Block;
 
@@ -39,7 +40,7 @@ pub enum Event {
         rev: u64,
         cpu: ChunkMeshCPU,
         buf: ChunkBuf,
-        borders_changed: bool,
+        light_borders: Option<LightBorders>,
         job_id: u64,
     },
 

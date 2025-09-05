@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use raylib::prelude::*;
 
@@ -6,7 +6,6 @@ use crate::event::{Event, EventEnvelope, EventQueue, RebuildCause};
 use crate::gamestate::{ChunkEntry, GameState};
 use crate::lighting::LightingStore;
 use crate::mesher::{upload_chunk_mesh, NeighborsLoaded};
-use crate::player::Walker;
 use crate::raycast;
 use crate::runtime::{BuildJob, JobOut, Runtime};
 use crate::voxel::{Block, World};
@@ -163,7 +162,7 @@ impl App {
             Event::BuildChunkJobRequested { cx, cz, neighbors, rev, job_id } => {
                 self.runtime.submit_build_job(BuildJob { cx, cz, neighbors, rev, job_id });
             }
-            Event::BuildChunkJobCompleted { cx, cz, rev, cpu, buf, borders_changed, job_id: _ } => {
+            Event::BuildChunkJobCompleted { cx, cz, rev, cpu, buf, light_borders, job_id: _ } => {
                 // Drop if stale
                 let cur_rev = self.gs.edits.get_rev(cx, cz);
                 if rev < cur_rev {
@@ -205,6 +204,12 @@ impl App {
                 self.gs.loaded.insert((cx, cz));
                 self.gs.pending.remove(&(cx, cz));
                 self.gs.edits.mark_built(cx, cz, rev);
+
+                // Update light borders in main thread (was previously done in worker)
+                let mut borders_changed = false;
+                if let Some(lb) = light_borders {
+                    borders_changed = self.gs.lighting.update_borders(cx, cz, lb);
+                }
 
                 // Requeue neighbors if borders changed
                 if borders_changed {
@@ -352,14 +357,13 @@ impl App {
         let mut results: Vec<JobOut> = self.runtime.drain_worker_results();
         results.sort_by_key(|r| r.job_id);
         for r in results {
-            let borders = r.cpu.borders_changed;
             self.queue.emit_now(Event::BuildChunkJobCompleted {
                 cx: r.cx,
                 cz: r.cz,
                 rev: r.rev,
                 cpu: r.cpu,
                 buf: r.buf,
-                borders_changed: borders,
+                light_borders: r.light_borders,
                 job_id: r.job_id,
             });
         }
@@ -400,7 +404,7 @@ impl App {
                 fs.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end);
             }
 
-            for ((_key, cr)) in &self.runtime.renders {
+            for (_key, cr) in &self.runtime.renders {
                 for (_fm, model) in &cr.parts {
                     if self.gs.wireframe {
                         d3.draw_model_wires(model, Vector3::zero(), 1.0, Color::WHITE);
@@ -412,7 +416,7 @@ impl App {
 
             if self.gs.show_chunk_bounds {
                 let col = Color::new(255, 64, 32, 200);
-                for ((_k, cr)) in &self.runtime.renders {
+                for (_k, cr) in &self.runtime.renders {
                     let min = cr.bbox.min;
                     let max = cr.bbox.max;
                     let center = Vector3::new((min.x + max.x) * 0.5, (min.y + max.y) * 0.5, (min.z + max.z) * 0.5);
