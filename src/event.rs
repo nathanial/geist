@@ -17,6 +17,13 @@ pub enum Event {
     Tick,
 
     // Input-derived intents
+    WalkModeToggled,
+    GridToggled,
+    WireframeToggled,
+    ChunkBoundsToggled,
+    PlaceTypeSelected {
+        block: Block,
+    },
     MovementRequested {
         dt_ms: u32,
         yaw: f32,

@@ -82,10 +82,9 @@ impl App {
             Event::MovementRequested {
                 dt_ms,
                 yaw,
-                walk_mode,
+                walk_mode: _,
             } => {
                 // update camera look first (yaw drives walker forward)
-                self.gs.walk_mode = walk_mode;
                 if self.gs.walk_mode {
                     // Collision sampler: edits > buf > world
                     let sx = self.gs.world.chunk_size_x as i32;
@@ -270,24 +269,12 @@ impl App {
                 self.gs.pending.remove(&(cx, cz));
                 self.gs.edits.mark_built(cx, cz, rev);
 
-                // Update light borders in main thread (was previously done in worker)
-                let mut borders_changed = false;
+                // Update light borders in main thread; if changed, emit a dedicated event
                 if let Some(lb) = light_borders {
-                    borders_changed = self.gs.lighting.update_borders(cx, cz, lb);
-                }
-
-                // Requeue neighbors if borders changed
-                if borders_changed {
-                    for (nx, nz) in [(cx - 1, cz), (cx + 1, cz), (cx, cz - 1), (cx, cz + 1)] {
-                        if self.runtime.renders.contains_key(&(nx, nz))
-                            && !self.gs.pending.contains(&(nx, nz))
-                        {
-                            self.queue.emit_now(Event::ChunkRebuildRequested {
-                                cx: nx,
-                                cz: nz,
-                                cause: RebuildCause::LightingBorder,
-                            });
-                        }
+                    let changed = self.gs.lighting.update_borders(cx, cz, lb);
+                    if changed {
+                        self.queue
+                            .emit_now(Event::LightBordersUpdated { cx, cz });
                     }
                 }
             }
@@ -445,14 +432,42 @@ impl App {
                     cause: RebuildCause::Edit,
                 });
             }
-            Event::LightBordersUpdated { .. } => {}
+            Event::LightBordersUpdated { cx, cz } => {
+                // Neighbor rebuilds in response to border changes, if loaded and not pending
+                for (nx, nz) in [(cx - 1, cz), (cx + 1, cz), (cx, cz - 1), (cx, cz + 1)] {
+                    if self.runtime.renders.contains_key(&(nx, nz))
+                        && !self.gs.pending.contains(&(nx, nz))
+                    {
+                        self.queue.emit_now(Event::ChunkRebuildRequested {
+                            cx: nx,
+                            cz: nz,
+                            cause: RebuildCause::LightingBorder,
+                        });
+                    }
+                }
+            }
+            Event::WalkModeToggled => {
+                self.gs.walk_mode = !self.gs.walk_mode;
+            }
+            Event::GridToggled => {
+                self.gs.show_grid = !self.gs.show_grid;
+            }
+            Event::WireframeToggled => {
+                self.gs.wireframe = !self.gs.wireframe;
+            }
+            Event::ChunkBoundsToggled => {
+                self.gs.show_chunk_bounds = !self.gs.show_chunk_bounds;
+            }
+            Event::PlaceTypeSelected { block } => {
+                self.gs.place_type = block;
+            }
         }
     }
 
     pub fn step(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread, dt: f32) {
         // Input handling → emit events
         if rl.is_key_pressed(KeyboardKey::KEY_V) {
-            self.gs.walk_mode = !self.gs.walk_mode;
+            self.queue.emit_now(Event::WalkModeToggled);
         }
         if self.gs.walk_mode {
             self.cam.update_look_only(rl, dt);
@@ -461,34 +476,34 @@ impl App {
         }
 
         if rl.is_key_pressed(KeyboardKey::KEY_G) {
-            self.gs.show_grid = !self.gs.show_grid;
+            self.queue.emit_now(Event::GridToggled);
         }
         if rl.is_key_pressed(KeyboardKey::KEY_F) {
-            self.gs.wireframe = !self.gs.wireframe;
+            self.queue.emit_now(Event::WireframeToggled);
         }
         if rl.is_key_pressed(KeyboardKey::KEY_B) {
-            self.gs.show_chunk_bounds = !self.gs.show_chunk_bounds;
+            self.queue.emit_now(Event::ChunkBoundsToggled);
         }
         if rl.is_key_pressed(KeyboardKey::KEY_ONE) {
-            self.gs.place_type = Block::Dirt;
+            self.queue.emit_now(Event::PlaceTypeSelected { block: Block::Dirt });
         }
         if rl.is_key_pressed(KeyboardKey::KEY_TWO) {
-            self.gs.place_type = Block::Stone;
+            self.queue.emit_now(Event::PlaceTypeSelected { block: Block::Stone });
         }
         if rl.is_key_pressed(KeyboardKey::KEY_THREE) {
-            self.gs.place_type = Block::Sand;
+            self.queue.emit_now(Event::PlaceTypeSelected { block: Block::Sand });
         }
         if rl.is_key_pressed(KeyboardKey::KEY_FOUR) {
-            self.gs.place_type = Block::Grass;
+            self.queue.emit_now(Event::PlaceTypeSelected { block: Block::Grass });
         }
         if rl.is_key_pressed(KeyboardKey::KEY_FIVE) {
-            self.gs.place_type = Block::Snow;
+            self.queue.emit_now(Event::PlaceTypeSelected { block: Block::Snow });
         }
         if rl.is_key_pressed(KeyboardKey::KEY_SIX) {
-            self.gs.place_type = Block::Glowstone;
+            self.queue.emit_now(Event::PlaceTypeSelected { block: Block::Glowstone });
         }
         if rl.is_key_pressed(KeyboardKey::KEY_SEVEN) {
-            self.gs.place_type = Block::Beacon;
+            self.queue.emit_now(Event::PlaceTypeSelected { block: Block::Beacon });
         }
 
         // Light emitters via hotkeys
@@ -645,6 +660,21 @@ impl App {
         match ev {
             E::Tick => {
                 log::trace!(target: "events", "[tick {}] Tick", tick);
+            }
+            E::WalkModeToggled => {
+                log::info!(target: "events", "[tick {}] WalkModeToggled", tick);
+            }
+            E::GridToggled => {
+                log::info!(target: "events", "[tick {}] GridToggled", tick);
+            }
+            E::WireframeToggled => {
+                log::info!(target: "events", "[tick {}] WireframeToggled", tick);
+            }
+            E::ChunkBoundsToggled => {
+                log::info!(target: "events", "[tick {}] ChunkBoundsToggled", tick);
+            }
+            E::PlaceTypeSelected { block } => {
+                log::info!(target: "events", "[tick {}] PlaceTypeSelected block={:?}", tick, block);
             }
             E::MovementRequested {
                 dt_ms,
