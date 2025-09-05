@@ -372,6 +372,31 @@ fn main() {
             }
         }
 
+        // Debug overlay: current chunk coordinates and camera facing
+        {
+            let ccx_dbg = (cam.position.x / chunk_size_x as f32).floor() as i32;
+            let ccz_dbg = (cam.position.z / chunk_size_z as f32).floor() as i32;
+            let mut yawn = cam.yaw % 360.0; if yawn < 0.0 { yawn += 360.0; }
+            let dir = if yawn >= 315.0 || yawn < 45.0 { "E" }
+                      else if yawn < 135.0 { "S" }
+                      else if yawn < 225.0 { "W" }
+                      else { "N" };
+            let f = cam.forward();
+            let line1 = format!("Chunk: ({}, {}), Pos: ({:.1}, {:.1}, {:.1})", ccx_dbg, ccz_dbg, cam.position.x, cam.position.y, cam.position.z);
+            let line2 = format!("Facing: {}  yaw={:.1}°  fwd=({:.2},{:.2},{:.2})", dir, yawn, f.x, f.y, f.z);
+            // Local-in-chunk and distance to chunk edges (for seam debugging)
+            let x0 = (ccx_dbg * chunk_size_x as i32) as f32;
+            let z0 = (ccz_dbg * chunk_size_z as i32) as f32;
+            let lx = cam.position.x - x0;
+            let lz = cam.position.z - z0;
+            let dx_edge = (lx.min(chunk_size_x as f32 - lx)).abs();
+            let dz_edge = (lz.min(chunk_size_z as f32 - lz)).abs();
+            let line3 = format!("Local: ({:.2}, {:.2})  edge_dx={:.2} edge_dz={:.2}", lx, lz, dx_edge, dz_edge);
+            d.draw_text(&line1, 12, 60, 18, Color::DARKGREEN);
+            d.draw_text(&line2, 12, 80, 18, Color::DARKGREEN);
+            d.draw_text(&line3, 12, 100, 18, Color::DARKGREEN);
+        }
+
         let hud = if walk_mode {
             "Walk: Tab capture, WASD move, Space jump, Shift run, V toggle fly, F wireframe, G grid, B chunk bounds, L add light, K remove light"
         } else {
