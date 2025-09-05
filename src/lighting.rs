@@ -1,4 +1,5 @@
 use crate::voxel::{World, Block};
+use crate::chunkbuf::ChunkBuf;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -94,6 +95,79 @@ impl LightGrid {
                         if lg.block_light[idn] < vnext { lg.block_light[idn] = vnext; q.push_back((nxi, nyi, nzi, vnext)); }
                     }
                     _ => {}
+                }
+            }
+        }
+        lg
+    }
+
+    pub fn compute_with_borders_buf(buf: &ChunkBuf, store: &LightingStore) -> Self {
+        let sx = buf.sx; let sy = buf.sy; let sz = buf.sz;
+        let mut lg = Self::new(sx, sy, sz);
+        // Skylight seeds (Air at top to 255); leaves block skylight
+        use std::collections::VecDeque;
+        let mut q_sky = VecDeque::new();
+        for z in 0..sz { for x in 0..sx {
+            let mut open_above = true;
+            for y in (0..sy).rev() {
+                let b = buf.get_local(x,y,z);
+                let idx = lg.idx(x,y,z);
+                if open_above {
+                    if matches!(b, Block::Air) { lg.skylight[idx] = 255; q_sky.push_back((x,y,z,255u8)); }
+                    else { open_above = false; lg.skylight[idx] = 0; }
+                } else { lg.skylight[idx] = 0; }
+            }
+        }}
+        // Emitters from blocks in this chunk
+        let mut q = VecDeque::new();
+        for z in 0..sz { for y in 0..sy { for x in 0..sx {
+            let em = buf.get_local(x,y,z).emission();
+            if em > 0 { let idx = lg.idx(x,y,z); lg.block_light[idx] = em; q.push_back((x,y,z,em)); }
+        }}}
+        // Dynamic emitters from store (chunk coordinates are same as buf.cx,buf.cz)
+        for (x,y,z,level) in store.emitters_for_chunk(buf.cx, buf.cz) {
+            if x < sx && y < sy && z < sz { let idx = lg.idx(x,y,z); if lg.block_light[idx] < level { lg.block_light[idx] = level; q.push_back((x,y,z,level)); } }
+        }
+        // Seed from neighbor borders if any
+        let nb = store.get_neighbor_borders(buf.cx, buf.cz);
+        lg.nb_xn_blk = nb.xn.clone(); lg.nb_xp_blk = nb.xp.clone(); lg.nb_zn_blk = nb.zn.clone(); lg.nb_zp_blk = nb.zp.clone();
+        lg.nb_xn_sky = nb.sk_xn.clone(); lg.nb_xp_sky = nb.sk_xp.clone(); lg.nb_zn_sky = nb.sk_zn.clone(); lg.nb_zp_sky = nb.sk_zp.clone();
+        let atten: i32 = 32;
+        if let Some(ref plane) = nb.xn { for z in 0..sz { for y in 0..sy { let v = plane[y*sz+z] as i32 - atten; if v > 0 { let v8=v as u8; let idx=lg.idx(0,y,z); if lg.block_light[idx] < v8 { lg.block_light[idx]=v8; q.push_back((0,y,z,v8)); } } }} }
+        if let Some(ref plane) = nb.xp { for z in 0..sz { for y in 0..sy { let v = plane[y*sz+z] as i32 - atten; if v > 0 { let v8=v as u8; let xx=sx-1; let idx=lg.idx(xx,y,z); if lg.block_light[idx] < v8 { lg.block_light[idx]=v8; q.push_back((xx,y,z,v8)); } } }} }
+        if let Some(ref plane) = nb.zn { for x in 0..sx { for y in 0..sy { let v = plane[y*sx+x] as i32 - atten; if v > 0 { let v8=v as u8; let idx=lg.idx(x,y,0); if lg.block_light[idx] < v8 { lg.block_light[idx]=v8; q.push_back((x,y,0,v8)); } } }} }
+        if let Some(ref plane) = nb.zp { for x in 0..sx { for y in 0..sy { let v = plane[y*sx+x] as i32 - atten; if v > 0 { let v8=v as u8; let zz=sz-1; let idx=lg.idx(x,y,zz); if lg.block_light[idx] < v8 { lg.block_light[idx]=v8; q.push_back((x,y,zz,v8)); } } }} }
+        if let Some(ref plane) = nb.sk_xn { for z in 0..sz { for y in 0..sy { let v = plane[y*sz+z] as i32 - atten; if v > 0 { let v8=v as u8; let idx=lg.idx(0,y,z); if lg.skylight[idx] < v8 { lg.skylight[idx]=v8; q_sky.push_back((0,y,z,v8)); } } }} }
+        if let Some(ref plane) = nb.sk_xp { for z in 0..sz { for y in 0..sy { let v = plane[y*sz+z] as i32 - atten; if v > 0 { let v8=v as u8; let xx=sx-1; let idx=lg.idx(xx,y,z); if lg.skylight[idx] < v8 { lg.skylight[idx]=v8; q_sky.push_back((xx,y,z,v8)); } } }} }
+        if let Some(ref plane) = nb.sk_zn { for x in 0..sx { for y in 0..sy { let v = plane[y*sx+x] as i32 - atten; if v > 0 { let v8=v as u8; let idx=lg.idx(x,y,0); if lg.skylight[idx] < v8 { lg.skylight[idx]=v8; q_sky.push_back((x,y,0,v8)); } } }} }
+        if let Some(ref plane) = nb.sk_zp { for x in 0..sx { for y in 0..sy { let v = plane[y*sx+x] as i32 - atten; if v > 0 { let v8=v as u8; let zz=sz-1; let idx=lg.idx(x,y,zz); if lg.skylight[idx] < v8 { lg.skylight[idx]=v8; q_sky.push_back((x,y,zz,v8)); } } }} }
+        // Skylight BFS within chunk (Air only)
+        while let Some((x,y,z,v)) = q_sky.pop_front() {
+            let vcur = v as i32; if vcur <= atten { continue; }
+            let vnext = (vcur - atten) as u8;
+            let neigh = [ (1,0,0),(-1,0,0),(0,1,0),(0,-1,0),(0,0,1),(0,0,-1) ];
+            for (dx,dy,dz) in neigh {
+                let nx = x as isize + dx; let ny = y as isize + dy; let nz = z as isize + dz;
+                if nx < 0 || ny < 0 || nz < 0 || nx >= sx as isize || ny >= sy as isize || nz >= sz as isize { continue; }
+                let nxi = nx as usize; let nyi = ny as usize; let nzi = nz as usize;
+                if matches!(buf.get_local(nxi, nyi, nzi), Block::Air) {
+                    let idn = lg.idx(nxi, nyi, nzi);
+                    if lg.skylight[idn] < vnext { lg.skylight[idn] = vnext; q_sky.push_back((nxi, nyi, nzi, vnext)); }
+                }
+            }
+        }
+        // Block-light BFS within chunk (Air only; leaves block)
+        while let Some((x,y,z,v)) = q.pop_front() {
+            let vcur = v as i32; if vcur <= atten { continue; }
+            let vnext = (vcur - atten) as u8;
+            let neigh = [ (1,0,0),(-1,0,0),(0,1,0),(0,-1,0),(0,0,1),(0,0,-1) ];
+            for (dx,dy,dz) in neigh {
+                let nx = x as isize + dx; let ny = y as isize + dy; let nz = z as isize + dz;
+                if nx < 0 || ny < 0 || nz < 0 || nx >= sx as isize || ny >= sy as isize || nz >= sz as isize { continue; }
+                let nxi = nx as usize; let nyi = ny as usize; let nzi = nz as usize;
+                if matches!(buf.get_local(nxi, nyi, nzi), Block::Air) {
+                    let idn = lg.idx(nxi, nyi, nzi);
+                    if lg.block_light[idn] < vnext { lg.block_light[idn] = vnext; q.push_back((nxi, nyi, nzi, vnext)); }
                 }
             }
         }

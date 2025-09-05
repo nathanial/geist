@@ -46,7 +46,9 @@ impl Walker {
         }
     }
 
-    fn aabb_collides(&self, world: &World, pos: Vector3) -> bool {
+    fn aabb_collides_with<F>(&self, sample: &F, pos: Vector3) -> bool
+    where F: Fn(i32,i32,i32) -> Block
+    {
         let rx = self.radius; let rz = self.radius; let h = self.height;
         let min_x = (pos.x - rx).floor() as i32;
         let max_x = (pos.x + rx).floor() as i32;
@@ -57,7 +59,7 @@ impl Walker {
         for y in min_y..=max_y {
             for z in min_z..=max_z {
                 for x in min_x..=max_x {
-                    let b = world.block_at(x, y, z);
+                    let b = sample(x, y, z);
                     if Self::is_solid_for_collision(b) { return true; }
                 }
             }
@@ -65,7 +67,9 @@ impl Walker {
         false
     }
 
-    fn move_axis(&mut self, world: &World, axis: usize, amt: f32) -> f32 {
+    fn move_axis<F>(&mut self, sample: &F, axis: usize, amt: f32) -> f32
+    where F: Fn(i32,i32,i32) -> Block
+    {
         if amt == 0.0 { return 0.0; }
         const STEP_RES: f32 = 0.05;
         let mut moved = 0.0_f32;
@@ -75,7 +79,7 @@ impl Walker {
             let s = if remaining.abs() < step.abs() { remaining } else { step };
             let mut p = self.pos;
             match axis { 0 => p.x += s, 1 => p.y += s, _ => p.z += s };
-            if self.aabb_collides(world, p) {
+            if self.aabb_collides_with(sample, p) {
                 break; // collision
             } else {
                 self.pos = p; moved += s; remaining -= s;
@@ -84,7 +88,9 @@ impl Walker {
         moved
     }
 
-    pub fn update(&mut self, rl: &mut raylib::RaylibHandle, world: &World, dt: f32, yaw: f32) {
+    pub fn update_with_sampler<F>(&mut self, rl: &mut raylib::RaylibHandle, sample: &F, world: &World, dt: f32, yaw: f32)
+    where F: Fn(i32,i32,i32) -> Block
+    {
         self.yaw = yaw;
         // Input wishdir (XZ plane) based on yaw
         let yaw_rad = self.yaw.to_radians();
@@ -105,7 +111,7 @@ impl Walker {
         // Gravity and jumping
         // Ground check: test a slightly larger offset down for stability
         let mut below = self.pos; below.y -= 0.10;
-        self.on_ground = self.aabb_collides(world, below);
+        self.on_ground = self.aabb_collides_with(sample, below);
         if self.on_ground {
             // Reset vertical velocity and allow jump
             if self.vel.y < 0.0 { self.vel.y = 0.0; }
@@ -120,15 +126,15 @@ impl Walker {
         let dx = horiz.x * dt; let dz = horiz.z * dt; let dy = self.vel.y * dt;
         let moved_y = if dy > 0.0 {
             // Ascending (jump/climb): move up first, then horizontal
-            let my = self.move_axis(world, 1, dy);
-            self.move_axis(world, 0, dx);
-            self.move_axis(world, 2, dz);
+            let my = self.move_axis(sample, 1, dy);
+            self.move_axis(sample, 0, dx);
+            self.move_axis(sample, 2, dz);
             my
         } else {
             // Descending / grounded: hug terrain by doing horizontal first
-            self.move_axis(world, 0, dx);
-            self.move_axis(world, 2, dz);
-            self.move_axis(world, 1, dy)
+            self.move_axis(sample, 0, dx);
+            self.move_axis(sample, 2, dz);
+            self.move_axis(sample, 1, dy)
         };
         // Land
         if dy < 0.0 && moved_y.abs() < dy.abs() * 0.5 { self.on_ground = true; self.vel.y = 0.0; }
@@ -140,5 +146,11 @@ impl Walker {
         self.pos.x = self.pos.x.clamp(0.001, max_x);
         self.pos.z = self.pos.z.clamp(0.001, max_z);
         self.pos.y = self.pos.y.clamp(0.0, max_y.max(0.0));
+    }
+
+    // Back-compat: update using World sampler
+    pub fn update(&mut self, rl: &mut raylib::RaylibHandle, world: &World, dt: f32, yaw: f32) {
+        let sampler = |x: i32, y: i32, z: i32| world.block_at(x,y,z);
+        self.update_with_sampler(rl, &sampler, world, dt, yaw)
     }
 }

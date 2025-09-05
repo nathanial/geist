@@ -3,13 +3,14 @@ mod voxel;
 mod mesher;
 mod shaders;
 mod lighting;
+mod chunkbuf;
 mod player;
 
 use camera::FlyCamera;
 use raylib::prelude::*;
 use raylib::core::texture::Image;
 use voxel::World;
-use mesher::{FaceMaterial, build_chunk_greedy_cpu, upload_chunk_mesh, ChunkMeshCPU, TextureCache};
+use mesher::{FaceMaterial, build_chunk_greedy_cpu, build_chunk_greedy_cpu_buf, upload_chunk_mesh, ChunkMeshCPU, TextureCache};
 use voxel::TreeSpecies;
 use lighting::LightingStore;
 // Frustum culling removed for stability
@@ -58,13 +59,15 @@ fn main() {
 
     // Streaming chunk state
     let mut loaded: HashMap<(i32,i32), mesher::ChunkRender> = HashMap::new();
+    let mut loaded_bufs: HashMap<(i32,i32), chunkbuf::ChunkBuf> = HashMap::new();
     let mut pending: HashSet<(i32,i32)> = HashSet::new();
     let view_radius_chunks: i32 = 6;
     let mut last_center_chunk: (i32, i32) = (i32::MIN, i32::MIN);
 
     // Mesh worker threads
     let (job_tx, job_rx) = mpsc::channel::<(i32,i32)>();
-    let (res_tx, res_rx) = mpsc::channel::<ChunkMeshCPU>();
+    struct JobOut { cpu: ChunkMeshCPU, buf: chunkbuf::ChunkBuf }
+    let (res_tx, res_rx) = mpsc::channel::<JobOut>();
     let worker_count: usize = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8);
     // Per‑worker channels
     let mut worker_txs: Vec<mpsc::Sender<(i32,i32)>> = Vec::with_capacity(worker_count);
@@ -76,8 +79,9 @@ fn main() {
         let ls = lighting_store.clone();
         thread::spawn(move || {
             while let Ok((cx, cz)) = wrx.recv() {
-                if let Some(cpu) = build_chunk_greedy_cpu(&w, Some(&ls), cx, cz) {
-                    let _ = tx.send(cpu);
+                let buf = chunkbuf::generate_chunk_buffer(&w, cx, cz);
+                if let Some(cpu) = build_chunk_greedy_cpu_buf(&buf, Some(&ls), cx, cz) {
+                    let _ = tx.send(JobOut { cpu, buf });
                 }
             }
         });
@@ -178,6 +182,7 @@ fn main() {
                 for key in current_keys {
                     if !desired.contains(&key) {
                         loaded.remove(&key);
+                        loaded_bufs.remove(&key);
                     }
                 }
                 // Cancel pending for far chunks
@@ -192,7 +197,8 @@ fn main() {
             }
 
         // Drain completed meshes (upload to GPU) before drawing
-        for cpu in res_rx.try_iter() {
+        for out in res_rx.try_iter() {
+            let cpu = out.cpu;
             let key = (cpu.cx, cpu.cz);
             if let Some(cr_loaded_read) = loaded.get(&key) {
                 // Decide if we can color-only update: geometry and part set must match
@@ -284,6 +290,8 @@ fn main() {
                 }
                 loaded.insert(key, cr);
             }
+            // Track buffer for this chunk
+            loaded_bufs.insert(key, out.buf);
             // Requeue neighbors to converge lighting across borders
             let neighbors = [(key.0-1,key.1),(key.0+1,key.1),(key.0,key.1-1),(key.0,key.1+1)];
             pending.remove(&key);
@@ -293,9 +301,14 @@ fn main() {
             }
         }
 
-        // Player/walker update and camera follow
+        // Player/walker update and camera follow (tight coupling: collide only with loaded buffers)
         if walk_mode {
-            walker.update(&mut rl, &world, dt, cam.yaw);
+            let sx = chunk_size_x as i32; let sz = chunk_size_z as i32;
+            let sampler = |wx: i32, wy: i32, wz: i32| -> voxel::Block {
+                let cx = wx.div_euclid(sx); let cz = wz.div_euclid(sz);
+                if let Some(buf) = loaded_bufs.get(&(cx,cz)) { buf.get_world(wx, wy, wz).unwrap_or(voxel::Block::Air) } else { voxel::Block::Air }
+            };
+            walker.update_with_sampler(&mut rl, &sampler, &world, dt, cam.yaw);
             cam.position = walker.eye_position();
         }
 
