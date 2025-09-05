@@ -388,10 +388,10 @@ fn main() {
                 }
             }
 
-            // Optional: show chunk bounding boxes to debug seams
+            // Optional: show chunk bounding boxes to debug seams and neighbor-load status
             if show_chunk_bounds {
                 let col = Color::new(255, 64, 32, 200);
-                for (_key, cr) in &loaded {
+                for ((_key_cx, _key_cz), cr) in &loaded {
                     let min = cr.bbox.min;
                     let max = cr.bbox.max;
                     let center = Vector3::new(
@@ -405,6 +405,45 @@ fn main() {
                         (max.z - min.z).abs(),
                     );
                     d3.draw_cube_wires(center, size.x, size.y, size.z, col);
+
+                    // Neighbor overlay: draw small outward lines per face (green=loaded, red=missing)
+                    let cx = cr.cx; let cz = cr.cz;
+                    let neg_x_loaded = loaded.contains_key(&(cx-1, cz));
+                    let pos_x_loaded = loaded.contains_key(&(cx+1, cz));
+                    let neg_z_loaded = loaded.contains_key(&(cx, cz-1));
+                    let pos_z_loaded = loaded.contains_key(&(cx, cz+1));
+                    let mid_y = center.y; // mid-height indicator
+                    let len = 1.5_f32;    // arrow length outward
+                    let eps = 0.06_f32;   // small offset to avoid z-fighting
+
+                    // West (-X)
+                    {
+                        let c = if neg_x_loaded { Color::GREEN } else { Color::RED };
+                        let start = Vector3::new(min.x - eps, mid_y, center.z);
+                        let end = Vector3::new(min.x - eps - len, mid_y, center.z);
+                        d3.draw_line_3D(start, end, c);
+                    }
+                    // East (+X)
+                    {
+                        let c = if pos_x_loaded { Color::GREEN } else { Color::RED };
+                        let start = Vector3::new(max.x + eps, mid_y, center.z);
+                        let end = Vector3::new(max.x + eps + len, mid_y, center.z);
+                        d3.draw_line_3D(start, end, c);
+                    }
+                    // North (-Z)
+                    {
+                        let c = if neg_z_loaded { Color::GREEN } else { Color::RED };
+                        let start = Vector3::new(center.x, mid_y, min.z - eps);
+                        let end = Vector3::new(center.x, mid_y, min.z - eps - len);
+                        d3.draw_line_3D(start, end, c);
+                    }
+                    // South (+Z)
+                    {
+                        let c = if pos_z_loaded { Color::GREEN } else { Color::RED };
+                        let start = Vector3::new(center.x, mid_y, max.z + eps);
+                        let end = Vector3::new(center.x, mid_y, max.z + eps + len);
+                        d3.draw_line_3D(start, end, c);
+                    }
                 }
             }
         }
@@ -429,9 +468,17 @@ fn main() {
             let dx_edge = (lx.min(chunk_size_x as f32 - lx)).abs();
             let dz_edge = (lz.min(chunk_size_z as f32 - lz)).abs();
             let line3 = format!("Local: ({:.2}, {:.2})  edge_dx={:.2} edge_dz={:.2}", lx, lz, dx_edge, dz_edge);
+            // Neighbor mask for current chunk (G=loaded, R=missing)
+            let w_loaded = loaded.contains_key(&(ccx_dbg-1, ccz_dbg));
+            let e_loaded = loaded.contains_key(&(ccx_dbg+1, ccz_dbg));
+            let n_loaded = loaded.contains_key(&(ccx_dbg, ccz_dbg-1));
+            let s_loaded = loaded.contains_key(&(ccx_dbg, ccz_dbg+1));
+            let sym = |b: bool| if b { 'G' } else { 'R' };
+            let line4 = format!("Neighbors: W={} E={} N={} S={}", sym(w_loaded), sym(e_loaded), sym(n_loaded), sym(s_loaded));
             d.draw_text(&line1, 12, 60, 18, Color::DARKGREEN);
             d.draw_text(&line2, 12, 80, 18, Color::DARKGREEN);
             d.draw_text(&line3, 12, 100, 18, Color::DARKGREEN);
+            d.draw_text(&line4, 12, 120, 18, Color::DARKGREEN);
         }
 
         let hud = if walk_mode {
