@@ -17,16 +17,47 @@ pub enum Event {
     Tick,
 
     // Input-derived intents
-    MovementRequested { dt_ms: u32, yaw: f32, walk_mode: bool },
-    RaycastEditRequested { place: bool, block: Block },
+    MovementRequested {
+        dt_ms: u32,
+        yaw: f32,
+        walk_mode: bool,
+    },
+    RaycastEditRequested {
+        place: bool,
+        block: Block,
+    },
+    BlockPlaced {
+        wx: i32,
+        wy: i32,
+        wz: i32,
+        block: Block,
+    },
+    BlockRemoved {
+        wx: i32,
+        wy: i32,
+        wz: i32,
+    },
 
     // Player/view
-    ViewCenterChanged { ccx: i32, ccz: i32 },
+    ViewCenterChanged {
+        ccx: i32,
+        ccz: i32,
+    },
 
     // Streaming & meshing
-    EnsureChunkLoaded { cx: i32, cz: i32 },
-    EnsureChunkUnloaded { cx: i32, cz: i32 },
-    ChunkRebuildRequested { cx: i32, cz: i32, cause: RebuildCause },
+    EnsureChunkLoaded {
+        cx: i32,
+        cz: i32,
+    },
+    EnsureChunkUnloaded {
+        cx: i32,
+        cz: i32,
+    },
+    ChunkRebuildRequested {
+        cx: i32,
+        cz: i32,
+        cause: RebuildCause,
+    },
     BuildChunkJobRequested {
         cx: i32,
         cz: i32,
@@ -45,9 +76,22 @@ pub enum Event {
     },
 
     // Lighting
-    LightEmitterAdded { wx: i32, wy: i32, wz: i32, level: u8, is_beacon: bool },
-    LightEmitterRemoved { wx: i32, wy: i32, wz: i32 },
-    LightBordersUpdated { cx: i32, cz: i32 },
+    LightEmitterAdded {
+        wx: i32,
+        wy: i32,
+        wz: i32,
+        level: u8,
+        is_beacon: bool,
+    },
+    LightEmitterRemoved {
+        wx: i32,
+        wy: i32,
+        wz: i32,
+    },
+    LightBordersUpdated {
+        cx: i32,
+        cz: i32,
+    },
 }
 
 pub struct EventEnvelope {
@@ -65,12 +109,18 @@ pub struct EventQueue {
 
 impl Default for EventQueue {
     fn default() -> Self {
-        Self { by_tick: BTreeMap::new(), now: 0, next_id: 1 }
+        Self {
+            by_tick: BTreeMap::new(),
+            now: 0,
+            next_id: 1,
+        }
     }
 }
 
 impl EventQueue {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     #[inline]
     fn alloc_id(&mut self) -> u64 {
@@ -81,7 +131,11 @@ impl EventQueue {
 
     pub fn emit_now(&mut self, kind: Event) -> u64 {
         let id = self.alloc_id();
-        let env = EventEnvelope { id, tick: self.now, kind };
+        let env = EventEnvelope {
+            id,
+            tick: self.now,
+            kind,
+        };
         self.by_tick.entry(self.now).or_default().push_back(env);
         id
     }

@@ -87,16 +87,32 @@ impl EditStore {
         self.rev.insert((cx, cz), stamp);
 
         // Check if near chunk boundaries and bump neighbors accordingly
-        if lx == 0 { self.rev.insert((cx - 1, cz), stamp); }
-        if lx == self.sx - 1 { self.rev.insert((cx + 1, cz), stamp); }
-        if lz == 0 { self.rev.insert((cx, cz - 1), stamp); }
-        if lz == self.sz - 1 { self.rev.insert((cx, cz + 1), stamp); }
+        if lx == 0 {
+            self.rev.insert((cx - 1, cz), stamp);
+        }
+        if lx == self.sx - 1 {
+            self.rev.insert((cx + 1, cz), stamp);
+        }
+        if lz == 0 {
+            self.rev.insert((cx, cz - 1), stamp);
+        }
+        if lz == self.sz - 1 {
+            self.rev.insert((cx, cz + 1), stamp);
+        }
 
         // Check corners
-        if lx == 0 && lz == 0 { self.rev.insert((cx - 1, cz - 1), stamp); }
-        if lx == 0 && lz == self.sz - 1 { self.rev.insert((cx - 1, cz + 1), stamp); }
-        if lx == self.sx - 1 && lz == 0 { self.rev.insert((cx + 1, cz - 1), stamp); }
-        if lx == self.sx - 1 && lz == self.sz - 1 { self.rev.insert((cx + 1, cz + 1), stamp); }
+        if lx == 0 && lz == 0 {
+            self.rev.insert((cx - 1, cz - 1), stamp);
+        }
+        if lx == 0 && lz == self.sz - 1 {
+            self.rev.insert((cx - 1, cz + 1), stamp);
+        }
+        if lx == self.sx - 1 && lz == 0 {
+            self.rev.insert((cx + 1, cz - 1), stamp);
+        }
+        if lx == self.sx - 1 && lz == self.sz - 1 {
+            self.rev.insert((cx + 1, cz + 1), stamp);
+        }
         stamp
     }
 
@@ -150,7 +166,9 @@ impl EditStore {
     pub fn mark_built(&mut self, cx: i32, cz: i32, rev: u64) {
         // Only update if this is a newer revision
         let e = self.built.entry((cx, cz)).or_insert(0);
-        if rev > *e { *e = rev; }
+        if rev > *e {
+            *e = rev;
+        }
     }
 
     // Check if a chunk needs rebuilding

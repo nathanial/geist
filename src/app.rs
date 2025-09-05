@@ -5,7 +5,7 @@ use raylib::prelude::*;
 use crate::event::{Event, EventEnvelope, EventQueue, RebuildCause};
 use crate::gamestate::{ChunkEntry, GameState};
 use crate::lighting::LightingStore;
-use crate::mesher::{upload_chunk_mesh, NeighborsLoaded};
+use crate::mesher::{NeighborsLoaded, upload_chunk_mesh};
 use crate::raycast;
 use crate::runtime::{BuildJob, JobOut, Runtime};
 use crate::voxel::{Block, World};
@@ -39,7 +39,12 @@ impl App {
         let ccx = (cam.position.x / world.chunk_size_x as f32).floor() as i32;
         let ccz = (cam.position.z / world.chunk_size_z as f32).floor() as i32;
         queue.emit_now(Event::ViewCenterChanged { ccx, ccz });
-        Self { gs, queue, runtime, cam }
+        Self {
+            gs,
+            queue,
+            runtime,
+            cam,
+        }
     }
 
     fn neighbor_mask(&self, cx: i32, cz: i32) -> NeighborsLoaded {
@@ -69,17 +74,16 @@ impl App {
         h
     }
 
-    fn handle_event(
-        &mut self,
-        rl: &mut RaylibHandle,
-        thread: &RaylibThread,
-        env: EventEnvelope,
-    ) {
+    fn handle_event(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread, env: EventEnvelope) {
         // Log a concise line for the processed event
         Self::log_event(self.gs.tick, &env.kind);
         match env.kind {
             Event::Tick => {}
-            Event::MovementRequested { dt_ms, yaw, walk_mode } => {
+            Event::MovementRequested {
+                dt_ms,
+                yaw,
+                walk_mode,
+            } => {
                 // update camera look first (yaw drives walker forward)
                 self.gs.walk_mode = walk_mode;
                 if self.gs.walk_mode {
@@ -108,8 +112,10 @@ impl App {
                     );
                     self.cam.position = self.gs.walker.eye_position();
                     // Emit ViewCenterChanged if center moved
-                    let ccx = (self.cam.position.x / self.gs.world.chunk_size_x as f32).floor() as i32;
-                    let ccz = (self.cam.position.z / self.gs.world.chunk_size_z as f32).floor() as i32;
+                    let ccx =
+                        (self.cam.position.x / self.gs.world.chunk_size_x as f32).floor() as i32;
+                    let ccz =
+                        (self.cam.position.z / self.gs.world.chunk_size_z as f32).floor() as i32;
                     if (ccx, ccz) != self.gs.center_chunk {
                         self.queue.emit_now(Event::ViewCenterChanged { ccx, ccz });
                     }
@@ -131,7 +137,10 @@ impl App {
                 let current: Vec<(i32, i32)> = self.runtime.renders.keys().cloned().collect();
                 for key in current {
                     if !desired.contains(&key) {
-                        self.queue.emit_now(Event::EnsureChunkUnloaded { cx: key.0, cz: key.1 });
+                        self.queue.emit_now(Event::EnsureChunkUnloaded {
+                            cx: key.0,
+                            cz: key.1,
+                        });
                     }
                 }
                 // Cancel pending for far chunks
@@ -139,7 +148,10 @@ impl App {
                 // Load new ones
                 for key in desired {
                     if !self.runtime.renders.contains_key(&key) && !self.gs.pending.contains(&key) {
-                        self.queue.emit_now(Event::EnsureChunkLoaded { cx: key.0, cz: key.1 });
+                        self.queue.emit_now(Event::EnsureChunkLoaded {
+                            cx: key.0,
+                            cz: key.1,
+                        });
                     }
                 }
             }
@@ -150,33 +162,71 @@ impl App {
                 self.gs.pending.remove(&(cx, cz));
             }
             Event::EnsureChunkLoaded { cx, cz } => {
-                if self.runtime.renders.contains_key(&(cx, cz)) || self.gs.pending.contains(&(cx, cz)) {
+                if self.runtime.renders.contains_key(&(cx, cz))
+                    || self.gs.pending.contains(&(cx, cz))
+                {
                     return;
                 }
                 let neighbors = self.neighbor_mask(cx, cz);
                 let rev = self.gs.edits.get_rev(cx, cz);
                 let job_id = Self::job_hash(cx, cz, rev, neighbors);
-                self.queue.emit_now(Event::BuildChunkJobRequested { cx, cz, neighbors, rev, job_id });
+                self.queue.emit_now(Event::BuildChunkJobRequested {
+                    cx,
+                    cz,
+                    neighbors,
+                    rev,
+                    job_id,
+                });
                 self.gs.pending.insert((cx, cz));
             }
-            Event::BuildChunkJobRequested { cx, cz, neighbors, rev, job_id } => {
+            Event::BuildChunkJobRequested {
+                cx,
+                cz,
+                neighbors,
+                rev,
+                job_id,
+            } => {
                 // Prepare edit snapshots for workers (pure)
                 let chunk_edits = self.gs.edits.snapshot_for_chunk(cx, cz);
                 let region_edits = self.gs.edits.snapshot_for_region(cx, cz, 1);
-                self.runtime.submit_build_job(BuildJob { cx, cz, neighbors, rev, job_id, chunk_edits, region_edits });
+                self.runtime.submit_build_job(BuildJob {
+                    cx,
+                    cz,
+                    neighbors,
+                    rev,
+                    job_id,
+                    chunk_edits,
+                    region_edits,
+                });
             }
-            Event::BuildChunkJobCompleted { cx, cz, rev, cpu, buf, light_borders, job_id: _ } => {
+            Event::BuildChunkJobCompleted {
+                cx,
+                cz,
+                rev,
+                cpu,
+                buf,
+                light_borders,
+                job_id: _,
+            } => {
                 // Drop if stale
                 let cur_rev = self.gs.edits.get_rev(cx, cz);
                 if rev < cur_rev {
                     // Re-enqueue latest
                     let neighbors = self.neighbor_mask(cx, cz);
                     let job_id = Self::job_hash(cx, cz, cur_rev, neighbors);
-                    self.queue.emit_now(Event::BuildChunkJobRequested { cx, cz, neighbors, rev: cur_rev, job_id });
+                    self.queue.emit_now(Event::BuildChunkJobRequested {
+                        cx,
+                        cz,
+                        neighbors,
+                        rev: cur_rev,
+                        job_id,
+                    });
                     return;
                 }
                 // Upload to GPU
-                if let Some(mut cr) = upload_chunk_mesh(rl, thread, cpu, &mut self.runtime.tex_cache) {
+                if let Some(mut cr) =
+                    upload_chunk_mesh(rl, thread, cpu, &mut self.runtime.tex_cache)
+                {
                     // Assign shaders
                     for (fm, model) in &mut cr.parts {
                         if let Some(mat) = model.materials_mut().get_mut(0) {
@@ -185,16 +235,22 @@ impl App {
                                     if let Some(ref ls) = self.runtime.leaves_shader {
                                         let dest = mat.shader_mut();
                                         let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
-                                        let src_ptr: *const raylib::ffi::Shader = ls.shader.as_ref();
-                                        unsafe { std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1); }
+                                        let src_ptr: *const raylib::ffi::Shader =
+                                            ls.shader.as_ref();
+                                        unsafe {
+                                            std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1);
+                                        }
                                     }
                                 }
                                 _ => {
                                     if let Some(ref fs) = self.runtime.fog_shader {
                                         let dest = mat.shader_mut();
                                         let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
-                                        let src_ptr: *const raylib::ffi::Shader = fs.shader.as_ref();
-                                        unsafe { std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1); }
+                                        let src_ptr: *const raylib::ffi::Shader =
+                                            fs.shader.as_ref();
+                                        unsafe {
+                                            std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1);
+                                        }
                                     }
                                 }
                             }
@@ -203,7 +259,13 @@ impl App {
                     self.runtime.renders.insert((cx, cz), cr);
                 }
                 // Update CPU buf & built rev
-                self.gs.chunks.insert((cx, cz), ChunkEntry { buf: Some(buf), built_rev: rev });
+                self.gs.chunks.insert(
+                    (cx, cz),
+                    ChunkEntry {
+                        buf: Some(buf),
+                        built_rev: rev,
+                    },
+                );
                 self.gs.loaded.insert((cx, cz));
                 self.gs.pending.remove(&(cx, cz));
                 self.gs.edits.mark_built(cx, cz, rev);
@@ -217,30 +279,46 @@ impl App {
                 // Requeue neighbors if borders changed
                 if borders_changed {
                     for (nx, nz) in [(cx - 1, cz), (cx + 1, cz), (cx, cz - 1), (cx, cz + 1)] {
-                        if self.runtime.renders.contains_key(&(nx, nz)) && !self.gs.pending.contains(&(nx, nz)) {
-                            self.queue.emit_now(Event::ChunkRebuildRequested { cx: nx, cz: nz, cause: RebuildCause::LightingBorder });
+                        if self.runtime.renders.contains_key(&(nx, nz))
+                            && !self.gs.pending.contains(&(nx, nz))
+                        {
+                            self.queue.emit_now(Event::ChunkRebuildRequested {
+                                cx: nx,
+                                cz: nz,
+                                cause: RebuildCause::LightingBorder,
+                            });
                         }
                     }
                 }
             }
             Event::ChunkRebuildRequested { cx, cz, cause: _ } => {
-                if !self.runtime.renders.contains_key(&(cx, cz)) || self.gs.pending.contains(&(cx, cz)) {
+                if !self.runtime.renders.contains_key(&(cx, cz))
+                    || self.gs.pending.contains(&(cx, cz))
+                {
                     return;
                 }
                 let neighbors = self.neighbor_mask(cx, cz);
                 let rev = self.gs.edits.get_rev(cx, cz);
                 let job_id = Self::job_hash(cx, cz, rev, neighbors);
-                self.queue.emit_now(Event::BuildChunkJobRequested { cx, cz, neighbors, rev, job_id });
+                self.queue.emit_now(Event::BuildChunkJobRequested {
+                    cx,
+                    cz,
+                    neighbors,
+                    rev,
+                    job_id,
+                });
                 self.gs.pending.insert((cx, cz));
             }
             Event::RaycastEditRequested { place, block } => {
-                // Perform raycast and apply edit
+                // Perform raycast and emit edit events
                 let org = self.cam.position;
                 let dir = self.cam.forward();
                 let sx = self.gs.world.chunk_size_x as i32;
                 let sz = self.gs.world.chunk_size_z as i32;
                 let sampler = |wx: i32, wy: i32, wz: i32| -> Block {
-                    if let Some(b) = self.gs.edits.get(wx, wy, wz) { return b; }
+                    if let Some(b) = self.gs.edits.get(wx, wy, wz) {
+                        return b;
+                    }
                     let cx = wx.div_euclid(sx);
                     let cz = wz.div_euclid(sz);
                     if let Some(cent) = self.gs.chunks.get(&(cx, cz)) {
@@ -250,53 +328,110 @@ impl App {
                     }
                     self.gs.world.block_at(wx, wy, wz)
                 };
-                let is_solid = |wx: i32, wy: i32, wz: i32| -> bool { sampler(wx, wy, wz).is_solid() };
+                let is_solid =
+                    |wx: i32, wy: i32, wz: i32| -> bool { sampler(wx, wy, wz).is_solid() };
                 if let Some(hit) = raycast::raycast_first_hit_with_face(org, dir, 5.0, is_solid) {
                     if place {
-                        let wx = hit.px; let wy = hit.py; let wz = hit.pz;
+                        let wx = hit.px;
+                        let wy = hit.py;
+                        let wz = hit.pz;
                         if wy >= 0 && wy < self.gs.world.chunk_size_y as i32 {
-                            self.gs.edits.set(wx, wy, wz, block);
-                            if block.emission() > 0 {
-                                if matches!(block, Block::Beacon) {
-                                    self.gs.lighting.add_beacon_world(wx, wy, wz, block.emission());
-                                } else {
-                                    self.gs.lighting.add_emitter_world(wx, wy, wz, block.emission());
-                                }
-                            }
-                            let _ = self.gs.edits.bump_region_around(wx, wz);
-                            // Rebuild edited chunk and any boundary-adjacent neighbors that are loaded
-                            for (cx, cz) in self.gs.edits.get_affected_chunks(wx, wz) {
-                                if self.runtime.renders.contains_key(&(cx, cz)) {
-                                    self.queue.emit_now(Event::ChunkRebuildRequested { cx, cz, cause: RebuildCause::Edit });
-                                }
-                            }
+                            // Emit place; lighting handled in BlockPlaced handler
+                            self.queue
+                                .emit_now(Event::BlockPlaced { wx, wy, wz, block });
                         }
                     } else {
                         // remove at hit
-                        let wx = hit.bx; let wy = hit.by; let wz = hit.bz;
+                        let wx = hit.bx;
+                        let wy = hit.by;
+                        let wz = hit.bz;
                         let prev = sampler(wx, wy, wz);
                         if prev.is_solid() {
-                            self.gs.edits.set(wx, wy, wz, Block::Air);
-                            if prev.emission() > 0 { self.gs.lighting.remove_emitter_world(wx, wy, wz); }
-                            let _ = self.gs.edits.bump_region_around(wx, wz);
-                            for (cx, cz) in self.gs.edits.get_affected_chunks(wx, wz) {
-                                if self.runtime.renders.contains_key(&(cx, cz)) {
-                                    self.queue.emit_now(Event::ChunkRebuildRequested { cx, cz, cause: RebuildCause::Edit });
-                                }
-                            }
+                            self.queue.emit_now(Event::BlockRemoved { wx, wy, wz });
                         }
                     }
                 }
             }
-            Event::LightEmitterAdded { wx, wy, wz, level, is_beacon } => {
-                if is_beacon { self.gs.lighting.add_beacon_world(wx, wy, wz, level); }
-                else { self.gs.lighting.add_emitter_world(wx, wy, wz, level); }
+            Event::BlockPlaced { wx, wy, wz, block } => {
+                self.gs.edits.set(wx, wy, wz, block);
+                if block.emission() > 0 {
+                    let is_beacon = matches!(block, Block::Beacon);
+                    self.queue.emit_now(Event::LightEmitterAdded {
+                        wx,
+                        wy,
+                        wz,
+                        level: block.emission(),
+                        is_beacon,
+                    });
+                }
+                let _ = self.gs.edits.bump_region_around(wx, wz);
+                // Rebuild edited chunk and any boundary-adjacent neighbors that are loaded
+                for (cx, cz) in self.gs.edits.get_affected_chunks(wx, wz) {
+                    if self.runtime.renders.contains_key(&(cx, cz)) {
+                        self.queue.emit_now(Event::ChunkRebuildRequested {
+                            cx,
+                            cz,
+                            cause: RebuildCause::Edit,
+                        });
+                    }
+                }
+            }
+            Event::BlockRemoved { wx, wy, wz } => {
+                // Determine previous block to update lighting
+                let sx = self.gs.world.chunk_size_x as i32;
+                let sz = self.gs.world.chunk_size_z as i32;
+                let sampler = |wx: i32, wy: i32, wz: i32| -> Block {
+                    if let Some(b) = self.gs.edits.get(wx, wy, wz) {
+                        return b;
+                    }
+                    let cx = wx.div_euclid(sx);
+                    let cz = wz.div_euclid(sz);
+                    if let Some(cent) = self.gs.chunks.get(&(cx, cz)) {
+                        if let Some(ref buf) = cent.buf {
+                            return buf.get_world(wx, wy, wz).unwrap_or(Block::Air);
+                        }
+                    }
+                    self.gs.world.block_at(wx, wy, wz)
+                };
+                let prev = sampler(wx, wy, wz);
+                if prev.emission() > 0 {
+                    self.queue
+                        .emit_now(Event::LightEmitterRemoved { wx, wy, wz });
+                }
+                self.gs.edits.set(wx, wy, wz, Block::Air);
+                let _ = self.gs.edits.bump_region_around(wx, wz);
+                for (cx, cz) in self.gs.edits.get_affected_chunks(wx, wz) {
+                    if self.runtime.renders.contains_key(&(cx, cz)) {
+                        self.queue.emit_now(Event::ChunkRebuildRequested {
+                            cx,
+                            cz,
+                            cause: RebuildCause::Edit,
+                        });
+                    }
+                }
+            }
+            Event::LightEmitterAdded {
+                wx,
+                wy,
+                wz,
+                level,
+                is_beacon,
+            } => {
+                if is_beacon {
+                    self.gs.lighting.add_beacon_world(wx, wy, wz, level);
+                } else {
+                    self.gs.lighting.add_emitter_world(wx, wy, wz, level);
+                }
                 // schedule rebuild of that chunk
                 let sx = self.gs.world.chunk_size_x as i32;
                 let sz = self.gs.world.chunk_size_z as i32;
                 let cx = wx.div_euclid(sx);
                 let cz = wz.div_euclid(sz);
-                self.queue.emit_now(Event::ChunkRebuildRequested { cx, cz, cause: RebuildCause::Edit });
+                self.queue.emit_now(Event::ChunkRebuildRequested {
+                    cx,
+                    cz,
+                    cause: RebuildCause::Edit,
+                });
             }
             Event::LightEmitterRemoved { wx, wy, wz } => {
                 self.gs.lighting.remove_emitter_world(wx, wy, wz);
@@ -304,7 +439,11 @@ impl App {
                 let sz = self.gs.world.chunk_size_z as i32;
                 let cx = wx.div_euclid(sx);
                 let cz = wz.div_euclid(sz);
-                self.queue.emit_now(Event::ChunkRebuildRequested { cx, cz, cause: RebuildCause::Edit });
+                self.queue.emit_now(Event::ChunkRebuildRequested {
+                    cx,
+                    cz,
+                    cause: RebuildCause::Edit,
+                });
             }
             Event::LightBordersUpdated { .. } => {}
         }
@@ -312,49 +451,88 @@ impl App {
 
     pub fn step(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread, dt: f32) {
         // Input handling → emit events
-        if rl.is_key_pressed(KeyboardKey::KEY_V) { self.gs.walk_mode = !self.gs.walk_mode; }
+        if rl.is_key_pressed(KeyboardKey::KEY_V) {
+            self.gs.walk_mode = !self.gs.walk_mode;
+        }
         if self.gs.walk_mode {
             self.cam.update_look_only(rl, dt);
         } else {
             self.cam.update(rl, dt);
         }
 
-        if rl.is_key_pressed(KeyboardKey::KEY_G) { self.gs.show_grid = !self.gs.show_grid; }
-        if rl.is_key_pressed(KeyboardKey::KEY_F) { self.gs.wireframe = !self.gs.wireframe; }
-        if rl.is_key_pressed(KeyboardKey::KEY_B) { self.gs.show_chunk_bounds = !self.gs.show_chunk_bounds; }
-        if rl.is_key_pressed(KeyboardKey::KEY_ONE) { self.gs.place_type = Block::Dirt; }
-        if rl.is_key_pressed(KeyboardKey::KEY_TWO) { self.gs.place_type = Block::Stone; }
-        if rl.is_key_pressed(KeyboardKey::KEY_THREE) { self.gs.place_type = Block::Sand; }
-        if rl.is_key_pressed(KeyboardKey::KEY_FOUR) { self.gs.place_type = Block::Grass; }
-        if rl.is_key_pressed(KeyboardKey::KEY_FIVE) { self.gs.place_type = Block::Snow; }
-        if rl.is_key_pressed(KeyboardKey::KEY_SIX) { self.gs.place_type = Block::Glowstone; }
-        if rl.is_key_pressed(KeyboardKey::KEY_SEVEN) { self.gs.place_type = Block::Beacon; }
+        if rl.is_key_pressed(KeyboardKey::KEY_G) {
+            self.gs.show_grid = !self.gs.show_grid;
+        }
+        if rl.is_key_pressed(KeyboardKey::KEY_F) {
+            self.gs.wireframe = !self.gs.wireframe;
+        }
+        if rl.is_key_pressed(KeyboardKey::KEY_B) {
+            self.gs.show_chunk_bounds = !self.gs.show_chunk_bounds;
+        }
+        if rl.is_key_pressed(KeyboardKey::KEY_ONE) {
+            self.gs.place_type = Block::Dirt;
+        }
+        if rl.is_key_pressed(KeyboardKey::KEY_TWO) {
+            self.gs.place_type = Block::Stone;
+        }
+        if rl.is_key_pressed(KeyboardKey::KEY_THREE) {
+            self.gs.place_type = Block::Sand;
+        }
+        if rl.is_key_pressed(KeyboardKey::KEY_FOUR) {
+            self.gs.place_type = Block::Grass;
+        }
+        if rl.is_key_pressed(KeyboardKey::KEY_FIVE) {
+            self.gs.place_type = Block::Snow;
+        }
+        if rl.is_key_pressed(KeyboardKey::KEY_SIX) {
+            self.gs.place_type = Block::Glowstone;
+        }
+        if rl.is_key_pressed(KeyboardKey::KEY_SEVEN) {
+            self.gs.place_type = Block::Beacon;
+        }
 
         // Light emitters via hotkeys
         if rl.is_key_pressed(KeyboardKey::KEY_L) {
             let fwd = self.cam.forward();
             let p = self.cam.position + fwd * 4.0;
-            let wx = p.x.floor() as i32; let wy = p.y.floor() as i32; let wz = p.z.floor() as i32;
-            self.queue.emit_now(Event::LightEmitterAdded { wx, wy, wz, level: 255, is_beacon: false });
+            let wx = p.x.floor() as i32;
+            let wy = p.y.floor() as i32;
+            let wz = p.z.floor() as i32;
+            self.queue.emit_now(Event::LightEmitterAdded {
+                wx,
+                wy,
+                wz,
+                level: 255,
+                is_beacon: false,
+            });
         }
         if rl.is_key_pressed(KeyboardKey::KEY_K) {
             let fwd = self.cam.forward();
             let p = self.cam.position + fwd * 4.0;
-            let wx = p.x.floor() as i32; let wy = p.y.floor() as i32; let wz = p.z.floor() as i32;
-            self.queue.emit_now(Event::LightEmitterRemoved { wx, wy, wz });
+            let wx = p.x.floor() as i32;
+            let wy = p.y.floor() as i32;
+            let wz = p.z.floor() as i32;
+            self.queue
+                .emit_now(Event::LightEmitterRemoved { wx, wy, wz });
         }
 
         // Mouse edit intents
-        let want_edit = rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT) || rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_RIGHT);
+        let want_edit = rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT)
+            || rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_RIGHT);
         if want_edit {
             let place = rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_RIGHT);
             let block = self.gs.place_type;
-            self.queue.emit_now(Event::RaycastEditRequested { place, block });
+            self.queue
+                .emit_now(Event::RaycastEditRequested { place, block });
         }
 
         // Movement intent for this tick (dt→ms)
         let dt_ms = (dt.max(0.0) * 1000.0) as u32;
-        self.queue.emit_now(Event::MovementRequested { dt_ms, yaw: self.cam.yaw, walk_mode: self.gs.walk_mode });
+        self.queue.emit_now(Event::MovementRequested {
+            dt_ms,
+            yaw: self.cam.yaw,
+            walk_mode: self.gs.walk_mode,
+        });
 
         // Drain worker results, sort deterministically by job_id, and emit completion events for this tick
         let mut results: Vec<JobOut> = self.runtime.drain_worker_results();
@@ -377,7 +555,9 @@ impl App {
         while let Some(env) = self.queue.pop_ready() {
             self.handle_event(rl, thread, env);
             processed += 1;
-            if processed >= max_events { break; }
+            if processed >= max_events {
+                break;
+            }
         }
         self.gs.tick = self.gs.tick.wrapping_add(1);
         self.queue.advance_tick();
@@ -389,7 +569,9 @@ impl App {
         d.clear_background(Color::new(210, 221, 235, 255));
         {
             let mut d3 = d.begin_mode3D(camera3d);
-            if self.gs.show_grid { d3.draw_grid(64, 1.0); }
+            if self.gs.show_grid {
+                d3.draw_grid(64, 1.0);
+            }
 
             // Update shader uniforms
             let surface_fog = [210.0 / 255.0, 221.0 / 255.0, 235.0 / 255.0];
@@ -399,11 +581,13 @@ impl App {
             let underground = self.cam.position.y < underground_thr;
             let fog_color = if underground { cave_fog } else { surface_fog };
             if let Some(ref mut ls) = self.runtime.leaves_shader {
-                let fog_start = 64.0f32; let fog_end = 180.0f32;
+                let fog_start = 64.0f32;
+                let fog_end = 180.0f32;
                 ls.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end);
             }
             if let Some(ref mut fs) = self.runtime.fog_shader {
-                let fog_start = 64.0f32; let fog_end = 180.0f32;
+                let fog_start = 64.0f32;
+                let fog_end = 180.0f32;
                 fs.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end);
             }
 
@@ -422,8 +606,16 @@ impl App {
                 for (_k, cr) in &self.runtime.renders {
                     let min = cr.bbox.min;
                     let max = cr.bbox.max;
-                    let center = Vector3::new((min.x + max.x) * 0.5, (min.y + max.y) * 0.5, (min.z + max.z) * 0.5);
-                    let size = Vector3::new((max.x - min.x).abs(), (max.y - min.y).abs(), (max.z - min.z).abs());
+                    let center = Vector3::new(
+                        (min.x + max.x) * 0.5,
+                        (min.y + max.y) * 0.5,
+                        (min.z + max.z) * 0.5,
+                    );
+                    let size = Vector3::new(
+                        (max.x - min.x).abs(),
+                        (max.y - min.y).abs(),
+                        (max.z - min.z).abs(),
+                    );
                     d3.draw_cube_wires(center, size.x, size.y, size.z, col);
                 }
             }
@@ -435,7 +627,11 @@ impl App {
             "{}: Tab capture, WASD{} move{}, V toggle mode, F wireframe, G grid, B bounds, L add light, K remove light | Place: {:?} (1-7)",
             hud_mode,
             if self.gs.walk_mode { "" } else { "+QE" },
-            if self.gs.walk_mode { ", Space jump, Shift run" } else { "" },
+            if self.gs.walk_mode {
+                ", Space jump, Shift run"
+            } else {
+                ""
+            },
             self.gs.place_type,
         );
         d.draw_text(&hud, 12, 12, 18, Color::DARKGRAY);
@@ -450,13 +646,23 @@ impl App {
             E::Tick => {
                 log::trace!(target: "events", "[tick {}] Tick", tick);
             }
-            E::MovementRequested { dt_ms, yaw, walk_mode } => {
+            E::MovementRequested {
+                dt_ms,
+                yaw,
+                walk_mode,
+            } => {
                 log::trace!(target: "events", "[tick {}] MovementRequested dt_ms={} yaw={:.1} mode={}",
                     tick, dt_ms, yaw, if *walk_mode {"walk"} else {"fly"});
             }
             E::RaycastEditRequested { place, block } => {
                 log::info!(target: "events", "[tick {}] RaycastEditRequested {} block={:?}",
                     tick, if *place {"place"} else {"remove"}, block);
+            }
+            E::BlockPlaced { wx, wy, wz, block } => {
+                log::info!(target: "events", "[tick {}] BlockPlaced ({},{},{}) block={:?}", tick, wx, wy, wz, block);
+            }
+            E::BlockRemoved { wx, wy, wz } => {
+                log::info!(target: "events", "[tick {}] BlockRemoved ({},{},{})", tick, wx, wy, wz);
             }
             E::ViewCenterChanged { ccx, ccz } => {
                 log::info!(target: "events", "[tick {}] ViewCenterChanged cc=({}, {})", tick, ccx, ccz);
@@ -470,16 +676,39 @@ impl App {
             E::ChunkRebuildRequested { cx, cz, cause } => {
                 log::debug!(target: "events", "[tick {}] ChunkRebuildRequested ({}, {}) cause={:?}", tick, cx, cz, cause);
             }
-            E::BuildChunkJobRequested { cx, cz, neighbors, rev, job_id } => {
-                let mask = [neighbors.neg_x, neighbors.pos_x, neighbors.neg_z, neighbors.pos_z];
+            E::BuildChunkJobRequested {
+                cx,
+                cz,
+                neighbors,
+                rev,
+                job_id,
+            } => {
+                let mask = [
+                    neighbors.neg_x,
+                    neighbors.pos_x,
+                    neighbors.neg_z,
+                    neighbors.pos_z,
+                ];
                 log::info!(target: "events", "[tick {}] BuildChunkJobRequested ({}, {}) rev={} nmask={:?} job_id={:#x}",
                     tick, cx, cz, rev, mask, job_id);
             }
-            E::BuildChunkJobCompleted { cx, cz, rev, job_id, .. } => {
+            E::BuildChunkJobCompleted {
+                cx,
+                cz,
+                rev,
+                job_id,
+                ..
+            } => {
                 log::info!(target: "events", "[tick {}] BuildChunkJobCompleted ({}, {}) rev={} job_id={:#x}",
                     tick, cx, cz, rev, job_id);
             }
-            E::LightEmitterAdded { wx, wy, wz, level, is_beacon } => {
+            E::LightEmitterAdded {
+                wx,
+                wy,
+                wz,
+                level,
+                is_beacon,
+            } => {
                 log::info!(target: "events", "[tick {}] LightEmitterAdded ({},{},{}) level={} beacon={}",
                     tick, wx, wy, wz, level, is_beacon);
             }

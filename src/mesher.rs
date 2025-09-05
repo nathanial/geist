@@ -627,12 +627,15 @@ pub fn build_chunk_greedy_cpu_buf(
     } else {
         None
     };
-    Some((ChunkMeshCPU {
-        cx,
-        cz,
-        bbox,
-        parts: builds,
-    }, light_borders))
+    Some((
+        ChunkMeshCPU {
+            cx,
+            cz,
+            bbox,
+            parts: builds,
+        },
+        light_borders,
+    ))
 }
 
 pub fn upload_chunk_mesh(

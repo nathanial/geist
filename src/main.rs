@@ -1,7 +1,7 @@
+mod app;
 mod camera;
 mod chunkbuf;
 mod edit;
-mod app;
 mod event;
 mod gamestate;
 mod lighting;
@@ -13,8 +13,8 @@ mod shaders;
 mod voxel;
 
 use raylib::prelude::*;
-use voxel::World;
 use std::sync::Arc;
+use voxel::World;
 
 fn main() {
     // Initialize logging (RUST_LOG=info by default; override with env)
@@ -33,7 +33,9 @@ fn main() {
         .build();
 
     // Some raylib builds reset the trace level during init; set it again after init
-    unsafe { raylib::ffi::SetTraceLogLevel(7); }
+    unsafe {
+        raylib::ffi::SetTraceLogLevel(7);
+    }
 
     rl.set_target_fps(60);
     rl.disable_cursor();
@@ -52,14 +54,24 @@ fn main() {
         chunk_size_z,
         world_seed,
     ));
-    let lighting_store = Arc::new(lighting::LightingStore::new(chunk_size_x, chunk_size_y, chunk_size_z));
+    let lighting_store = Arc::new(lighting::LightingStore::new(
+        chunk_size_x,
+        chunk_size_y,
+        chunk_size_z,
+    ));
     let edit_store = edit::EditStore::new(
         chunk_size_x as i32,
         chunk_size_y as i32,
         chunk_size_z as i32,
     );
 
-    let mut app = crate::app::App::new(&mut rl, &thread, world.clone(), lighting_store.clone(), edit_store);
+    let mut app = crate::app::App::new(
+        &mut rl,
+        &thread,
+        world.clone(),
+        lighting_store.clone(),
+        edit_store,
+    );
 
     while !rl.window_should_close() {
         let dt = rl.get_frame_time();

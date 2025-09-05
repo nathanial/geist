@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::mpsc;
 use std::sync::Arc;
+use std::sync::mpsc;
 use std::thread;
 
 use crate::chunkbuf;
@@ -126,7 +126,15 @@ impl Runtime {
                         job.cx,
                         job.cz,
                     ) {
-                        let _ = tx.send(JobOut { cpu, buf, light_borders, cx: job.cx, cz: job.cz, rev: job.rev, job_id: job.job_id });
+                        let _ = tx.send(JobOut {
+                            cpu,
+                            buf,
+                            light_borders,
+                            cx: job.cx,
+                            cz: job.cz,
+                            rev: job.rev,
+                            job_id: job.job_id,
+                        });
                     }
                 }
             });
