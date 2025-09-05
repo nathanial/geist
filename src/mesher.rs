@@ -165,11 +165,8 @@ pub fn build_chunk_greedy_cpu(
     use std::collections::HashMap;
     let mut builds: HashMap<FaceMaterial, MeshBuild> = HashMap::new();
     let light = match lighting { Some(store) => LightGrid::compute_with_borders(world, cx, cz, store), None => LightGrid::compute_baseline(world, cx, cz) };
-    // Simple ambient floor to avoid pitch-black faces when skylight is vertical-only
     let color_for = |x: usize, y: usize, z: usize, face: usize| -> [u8;4] {
-        let mut l = light.sample_face_local(x, y, z, face);
-        let ambient: u8 = 28; // ~11% ambient
-        if l < ambient { l = ambient; }
+        let l = light.sample_face_local(x, y, z, face);
         [l, l, l, 255]
     };
 

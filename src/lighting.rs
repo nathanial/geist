@@ -322,19 +322,21 @@ impl LightGrid {
         let sx = world.chunk_size_x; let sy = world.chunk_size_y; let sz = world.chunk_size_z;
         let base_x = cx * sx as i32; let base_z = cz * sz as i32;
         let mut lg = Self::new(sx, sy, sz);
-        // Skylight (same as baseline)
+        // Skylight seeds: set top-of-column air to 255 and queue them for skylight BFS
+        use std::collections::VecDeque;
+        let mut q_sky = VecDeque::new();
         for z in 0..sz { for x in 0..sx {
             let mut open_above = true;
             for y in (0..sy).rev() {
                 let b = world.block_at(base_x + x as i32, y as i32, base_z + z as i32);
                 let idx = lg.idx(x,y,z);
                 if open_above {
-                    if matches!(b, Block::Air) { lg.skylight[idx] = 255; } else { open_above = false; lg.skylight[idx] = 0; }
+                    if matches!(b, Block::Air | Block::Leaves(_)) { lg.skylight[idx] = 255; q_sky.push_back((x,y,z,255u8)); }
+                    else { open_above = false; lg.skylight[idx] = 0; }
                 } else { lg.skylight[idx] = 0; }
             }
         }}
         // Seed emitters
-        use std::collections::VecDeque;
         let mut q = VecDeque::new();
         for z in 0..sz { for y in 0..sy { for x in 0..sx {
             let b = world.block_at(base_x + x as i32, y as i32, base_z + z as i32);
@@ -378,6 +380,47 @@ impl LightGrid {
             for x in 0..sx { for y in 0..sy {
                 let v = plane[y*sx+x] as i32 - atten; if v > 0 { let v8 = v as u8; let zz = sz-1; let idx = lg.idx(x,y,zz); if lg.block_light[idx] < v8 { lg.block_light[idx] = v8; q.push_back((x,y,zz,v8)); } }
             }}
+        }
+        // Seed skylight from neighbor skylight planes as well
+        if let Some(ref plane) = nb.sk_xn { // our x=0 face
+            for z in 0..sz { for y in 0..sy {
+                let v = plane[y*sz+z] as i32 - atten;
+                if v > 0 { let v8 = v as u8; let idx = lg.idx(0,y,z); if lg.skylight[idx] < v8 { lg.skylight[idx] = v8; q_sky.push_back((0,y,z,v8)); } }
+            }}
+        }
+        if let Some(ref plane) = nb.sk_xp { // our x=sx-1 face
+            for z in 0..sz { for y in 0..sy {
+                let v = plane[y*sz+z] as i32 - atten; if v > 0 { let v8 = v as u8; let xx = sx-1; let idx = lg.idx(xx,y,z); if lg.skylight[idx] < v8 { lg.skylight[idx] = v8; q_sky.push_back((xx,y,z,v8)); } }
+            }}
+        }
+        if let Some(ref plane) = nb.sk_zn { // our z=0 face
+            for x in 0..sx { for y in 0..sy {
+                let v = plane[y*sx+x] as i32 - atten; if v > 0 { let v8 = v as u8; let idx = lg.idx(x,y,0); if lg.skylight[idx] < v8 { lg.skylight[idx] = v8; q_sky.push_back((x,y,0,v8)); } }
+            }}
+        }
+        if let Some(ref plane) = nb.sk_zp { // our z=sz-1 face
+            for x in 0..sx { for y in 0..sy {
+                let v = plane[y*sx+x] as i32 - atten; if v > 0 { let v8 = v as u8; let zz = sz-1; let idx = lg.idx(x,y,zz); if lg.skylight[idx] < v8 { lg.skylight[idx] = v8; q_sky.push_back((x,y,zz,v8)); } }
+            }}
+        }
+
+        // Skylight BFS propagation (Air/Leaves only)
+        while let Some((x,y,z,v)) = q_sky.pop_front() {
+            let vcur = v as i32; if vcur <= atten { continue; }
+            let vnext = (vcur - atten) as u8;
+            let neigh = [ (1,0,0),(-1,0,0),(0,1,0),(0,-1,0),(0,0,1),(0,0,-1) ];
+            for (dx,dy,dz) in neigh {
+                let nx = x as isize + dx; let ny = y as isize + dy; let nz = z as isize + dz;
+                if nx < 0 || ny < 0 || nz < 0 || nx >= sx as isize || ny >= sy as isize || nz >= sz as isize { continue; }
+                let nxi = nx as usize; let nyi = ny as usize; let nzi = nz as usize;
+                let nbk = world.block_at(base_x + nxi as i32, nyi as i32, base_z + nzi as i32);
+                match nbk { Block::Air | Block::Leaves(_) => {
+                        let idn = lg.idx(nxi, nyi, nzi);
+                        if lg.skylight[idn] < vnext { lg.skylight[idn] = vnext; q_sky.push_back((nxi, nyi, nzi, vnext)); }
+                    }
+                    _ => {}
+                }
+            }
         }
         // BFS inside chunk
         while let Some((x,y,z,v)) = q.pop_front() {
