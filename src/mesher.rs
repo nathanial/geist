@@ -1,5 +1,5 @@
 use crate::voxel::{Block, World, TreeSpecies};
-use crate::lighting::LightGrid;
+use crate::lighting::{LightGrid, LightingStore, LightBorders};
 use raylib::prelude::*;
 use raylib::core::math::BoundingBox;
 
@@ -145,10 +145,12 @@ pub struct ChunkMeshCPU {
     pub cz: i32,
     pub bbox: BoundingBox,
     pub parts: std::collections::HashMap<FaceMaterial, MeshBuild>,
+    pub borders_changed: bool,
 }
 
 pub fn build_chunk_greedy_cpu(
     world: &World,
+    lighting: Option<&LightingStore>,
     cx: i32,
     cz: i32,
 ) -> Option<ChunkMeshCPU> {
@@ -160,7 +162,7 @@ pub fn build_chunk_greedy_cpu(
 
     use std::collections::HashMap;
     let mut builds: HashMap<FaceMaterial, MeshBuild> = HashMap::new();
-    let light = LightGrid::compute_baseline(world, cx, cz);
+    let light = match lighting { Some(store) => LightGrid::compute_with_borders(world, cx, cz, store), None => LightGrid::compute_baseline(world, cx, cz) };
     let color_for = |x: usize, y: usize, z: usize, face: usize| -> [u8;4] {
         let l = light.sample_face_local(x, y, z, face);
         [l, l, l, 255]
@@ -366,7 +368,9 @@ pub fn build_chunk_greedy_cpu(
         Vector3::new(base_x as f32, 0.0, base_z as f32),
         Vector3::new(base_x as f32 + sx as f32, sy as f32, base_z as f32 + sz as f32),
     );
-    Some(ChunkMeshCPU { cx, cz, bbox, parts: builds })
+    let mut borders_changed = false;
+    if let Some(store) = lighting { let lb = LightBorders::from_grid(&light); borders_changed = store.update_borders(cx, cz, lb); }
+    Some(ChunkMeshCPU { cx, cz, bbox, parts: builds, borders_changed })
 }
 
 pub fn upload_chunk_mesh(
@@ -421,11 +425,12 @@ pub fn upload_chunk_mesh(
 // Back-compat synchronous path, in case existing code calls it
 pub fn build_chunk_greedy(
     world: &World,
+    lighting: Option<&LightingStore>,
     cx: i32,
     cz: i32,
     rl: &mut RaylibHandle,
     thread: &RaylibThread,
 ) -> Option<ChunkRender> {
-    let cpu = build_chunk_greedy_cpu(world, cx, cz)?;
+    let cpu = build_chunk_greedy_cpu(world, lighting, cx, cz)?;
     upload_chunk_mesh(rl, thread, cpu)
 }

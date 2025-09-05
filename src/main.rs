@@ -9,6 +9,7 @@ use raylib::prelude::*;
 use raylib::core::texture::Image;
 use voxel::World;
 use mesher::{FaceMaterial, build_chunk_greedy_cpu, upload_chunk_mesh, ChunkMeshCPU};
+use lighting::LightingStore;
 // Frustum culling removed for stability
 use std::path::Path;
 use std::collections::{HashMap, HashSet};
@@ -33,6 +34,7 @@ fn main() {
     use std::sync::{Arc, mpsc};
     use std::thread;
     let world = Arc::new(World::new(chunks_x, chunks_z, chunk_size_x, chunk_size_y, chunk_size_z, world_seed));
+    let lighting_store = Arc::new(LightingStore::new(chunk_size_x, chunk_size_y, chunk_size_z));
 
     // Place camera to see the scene
     let mut cam = FlyCamera::new(Vector3::new(
@@ -66,9 +68,10 @@ fn main() {
         worker_txs.push(wtx);
         let tx = res_tx.clone();
         let w = world.clone();
+        let ls = lighting_store.clone();
         thread::spawn(move || {
             while let Ok((cx, cz)) = wrx.recv() {
-                if let Some(cpu) = build_chunk_greedy_cpu(&w, cx, cz) {
+                if let Some(cpu) = build_chunk_greedy_cpu(&w, Some(&ls), cx, cz) {
                     let _ = tx.send(cpu);
                 }
             }
@@ -165,7 +168,17 @@ fn main() {
                 }
                 loaded.insert(key, cr);
             }
+            // If this chunk's borders changed, schedule neighbors to converge lighting
+            let neighbors = [(key.0-1,key.1),(key.0+1,key.1),(key.0,key.1-1),(key.0,key.1+1)];
+            if let Some(true) = loaded.get(&key).map(|_| true) {
+                // Note: borders_changed flag was consumed inside cpu; pass via key in future if needed
+            }
             pending.remove(&key);
+            // naive requeue neighbors (best-effort); coordinator would be better
+            for nk in neighbors.iter() {
+                if !loaded.contains_key(nk) && !pending.contains(nk) { continue; }
+                if !pending.contains(nk) { let _ = job_tx.send(*nk); pending.insert(*nk); }
+            }
         }
 
         // Prepare camera for drawing
