@@ -616,6 +616,68 @@ impl App {
                 }
             }
 
+            // Raycast highlight: show where a placed block would go
+            // Sample order: edits > loaded chunk buffers > world
+            let org = self.cam.position;
+            let dir = self.cam.forward();
+            let sx = self.gs.world.chunk_size_x as i32;
+            let sy = self.gs.world.chunk_size_y as i32;
+            let sz = self.gs.world.chunk_size_z as i32;
+            let sampler = |wx: i32, wy: i32, wz: i32| -> Block {
+                if let Some(b) = self.gs.edits.get(wx, wy, wz) {
+                    return b;
+                }
+                let cx = wx.div_euclid(sx);
+                let cz = wz.div_euclid(sz);
+                if let Some(cent) = self.gs.chunks.get(&(cx, cz)) {
+                    if let Some(ref buf) = cent.buf {
+                        return buf.get_world(wx, wy, wz).unwrap_or(Block::Air);
+                    }
+                }
+                self.gs.world.block_at(wx, wy, wz)
+            };
+            let is_solid = |wx: i32, wy: i32, wz: i32| -> bool { sampler(wx, wy, wz).is_solid() };
+            if let Some(hit) = raycast::raycast_first_hit_with_face(org, dir, 5.0, is_solid) {
+                // Outline only the struck face of the solid block (bx,by,bz)
+                let (bx, by, bz) = (hit.bx, hit.by, hit.bz);
+                if by >= 0 && by < sy {
+                    let (x0, y0, z0) = (bx as f32, by as f32, bz as f32);
+                    let (x1, y1, z1) = (x0 + 1.0, y0 + 1.0, z0 + 1.0);
+                    let eps = 0.002f32;
+                    if hit.nx != 0 {
+                        let xf = if hit.nx > 0 { x1 } else { x0 } + (hit.nx as f32) * eps;
+                        let p1 = Vector3::new(xf, y0, z0);
+                        let p2 = Vector3::new(xf, y1, z0);
+                        let p3 = Vector3::new(xf, y1, z1);
+                        let p4 = Vector3::new(xf, y0, z1);
+                        d3.draw_line_3D(p1, p2, Color::YELLOW);
+                        d3.draw_line_3D(p2, p3, Color::YELLOW);
+                        d3.draw_line_3D(p3, p4, Color::YELLOW);
+                        d3.draw_line_3D(p4, p1, Color::YELLOW);
+                    } else if hit.ny != 0 {
+                        let yf = if hit.ny > 0 { y1 } else { y0 } + (hit.ny as f32) * eps;
+                        let p1 = Vector3::new(x0, yf, z0);
+                        let p2 = Vector3::new(x1, yf, z0);
+                        let p3 = Vector3::new(x1, yf, z1);
+                        let p4 = Vector3::new(x0, yf, z1);
+                        d3.draw_line_3D(p1, p2, Color::YELLOW);
+                        d3.draw_line_3D(p2, p3, Color::YELLOW);
+                        d3.draw_line_3D(p3, p4, Color::YELLOW);
+                        d3.draw_line_3D(p4, p1, Color::YELLOW);
+                    } else if hit.nz != 0 {
+                        let zf = if hit.nz > 0 { z1 } else { z0 } + (hit.nz as f32) * eps;
+                        let p1 = Vector3::new(x0, y0, zf);
+                        let p2 = Vector3::new(x1, y0, zf);
+                        let p3 = Vector3::new(x1, y1, zf);
+                        let p4 = Vector3::new(x0, y1, zf);
+                        d3.draw_line_3D(p1, p2, Color::YELLOW);
+                        d3.draw_line_3D(p2, p3, Color::YELLOW);
+                        d3.draw_line_3D(p3, p4, Color::YELLOW);
+                        d3.draw_line_3D(p4, p1, Color::YELLOW);
+                    }
+                }
+            }
+
             if self.gs.show_chunk_bounds {
                 let col = Color::new(255, 64, 32, 200);
                 for (_k, cr) in &self.runtime.renders {
