@@ -130,20 +130,16 @@
 - Texture/upload path: Upload path uses `MaterialCatalog` to resolve texture candidates and a `TextureCache` keyed by file path strings; first on-disk candidate wins.
 - Shader selection: `app.rs` assigns the leaves shader when the material’s `render_tag == "leaves"`; others get the fog shader.
 - Runtime wiring: `Runtime` now owns an `Arc<BlockRegistry>`; worker threads pass `&reg.materials` into meshing. The app passes the registry through.
-- Compatibility mapping: Present (temporary). Mesher maps legacy `Block` variants to registry names for known cubes/logs/leaves and falls back to `unknown` for unmapped cases.
+- Compatibility mapping: Removed from mesher/lighting. All materials/occlusion resolve via registry-backed runtime blocks (worldgen migration pending).
 - Build status: Project compiles with the new meshing path; rendering should be unchanged for covered materials.
 
 **Remaining Work (Prioritized)**
-- Shape-driven meshing: Replace `face_material_for`/`MaterialKey` with registry-driven `(shape, face role) -> MaterialId`; handle cubes, axis logs, slabs, stairs.
-- Occlusion by shape: Swap enum matches for shape-aware occluder logic in mesher (slab/stairs top/bottom rules; sides full).
-- Lighting flags: Add `propagates_sky`/`propagates_light` (or use `blocks_skylight` + `is_solid`) in `lighting.rs`; honor `emission` from registry.
-- Storage migration: Switch `ChunkBuf`, `Structure`, and `EditStore` to runtime `Block { id, state }`.
-- Worldgen/UI: Worldgen to produce runtime blocks; drive hotbar from `assets/voxels/hotbar.toml`; use `block.debug_name()` in UI.
-- Schematic translator: Implement `assets/voxels/palette_map.toml`-driven mapping; update `schem.rs` and `mcworld.rs` to reuse it.
+- Worldgen: Produce runtime blocks from registry (remove temporary runtime resolver), and drive hotbar from `assets/voxels/hotbar.toml`.
+- Schematic translator: Implement `assets/voxels/palette_map.toml`-driven mapping to runtime blocks; update `schem.rs`/`mcworld.rs`.
+- Occlusion: Finalize slabs/stairs occlusion using registry state after full runtime storage.
 - State packing: Implement `state_schema` packing/unpacking; enable by-property material selection.
 - Tests/docs: Add tests for state packing and registry lookups; update README/docs.
 - Cleanup: Remove legacy enums (`Block`, `MaterialKey`, `TreeSpecies`, `TerracottaColor`, `FaceMaterial`) after parity.
-  - Also remove the temporary legacy→registry name mapping in `mesher.rs` once storage is migrated to runtime `Block`.
 
 **Implementation TODO**
 - DONE: Core types and loaders in `src/blocks/*` with TOML parsing.
@@ -158,17 +154,16 @@
 - DONE: Shape-aware occlusion (registry-driven for cube-like blocks; legacy rules retained for slabs/stairs until registry shapes are added).
 - DONE: Block-light propagation flags via registry (`propagates_light`), applied in block and beacon BFS.
 - DONE: Slab/Stairs integrated as registry block types; mesher resolves their materials via registry property selectors.
-- NEXT: Finalize occlusion for slabs/stairs using registry state after runtime `Block` migration.
-- NEXT: Storage migration to runtime `Block` and worldgen/UI updates.
-- NEXT: Config-driven schematic translator and state packing.
-- NEXT: Tests for state packing and registry; docs/README updates.
+- DONE: Core storage migration to runtime `Block` for chunks, meshing, lighting, edits, events, and structures; app hotkeys/raycast updated.
+- NEXT: Worldgen emits runtime blocks from registry (remove temporary resolver); finalize occlusion for slabs/stairs using registry state; config-driven schematic translator and state packing; drive hotbar from config; tests/docs updates.
 
 **Integration Notes (from code audit)**
 - Mesh grouping key: Replace all uses of `FaceMaterial` as a map key in `ChunkMeshCPU`/`ChunkRender` with `MaterialId` (or `RenderKey`). Update `meshing_core` and upload paths accordingly.
 - Shader selection: Use material/block metadata for shader choice. Add `render_tag` (e.g., `"leaves"`) to materials or allow a block-type override; update `app.rs` to assign the leaves shader based on this tag.
 - Lighting: `LightGrid::compute_with_borders_buf(buf, store, reg)` now accepts the registry and seeds skylight through blocks with `blocks_skylight=false` (e.g., leaves). Block-light/beacon BFS uses `propagates_light`.
-- Slabs/Stairs: Defined as registry block types with `state_schema`; per-face materials selected via `by = "material"`. Mesher passes `{ material: <key> }` props and prefers registry material resolution with fallback.
-- Occlusion by shape: Mesher consults registry types for cube-like occlusion; slabs/stairs retain precise top/bottom occlusion using legacy state for now. After runtime `Block` migration, swap to registry state-driven occlusion via `Shape` helpers and remove legacy matches.
+- Slabs/Stairs: Defined as registry block types with `state_schema`; per-face materials selected via `by = "material"`. Mesher resolves via registry selectors (no FaceMaterial).
+- Occlusion by shape: Mesher consults registry types for cube-like occlusion; slabs/stairs keep precise top/bottom occlusion for now. Cross-chunk occlusion is not performed to avoid seams without neighbor access.
+- Storage APIs: `generate_chunk_buffer(world, cx, cz, reg)` now requires `&BlockRegistry`. `Structure::new` requires `&BlockRegistry` to seed base blocks. Runtime/event/edit paths use runtime `Block`.
 - Light propagation flags: Skylight uses `blocks_skylight`; block-light uses `propagates_light`. BFS updated to honor these flags (current default allows only air).
 - Leaves collision: Keep leaves `solid=true` for collisions to match current behavior unless changed via config.
 - Material resolution: Implement a resolver that maps `(block, face, state)` to `MaterialId` (for cubes) and use per-shape emitters for non-cubes; both paths feed `MaterialId` to meshing/grouping.
@@ -224,6 +219,7 @@
 - Inspect trees: trunk materials top/side; leaves have correct shader effect and block skylight.
 - Toggle wireframe and verify greedy meshing (large stitched quads, minimal draw calls).
 - Optional: Add a temporary material+block to TOML (e.g., `granite`) and place via edit to confirm pipeline.
+ - Verify chunk seams: faces on chunk borders remain when neighbors are unloaded; no unintended holes at seams.
 
 **Open Questions / Decisions**
 - **Config format:** TOML is suggested for readability; JSON is acceptable; RON is another option. TOML chosen for consistency with Rust ecosystem.
