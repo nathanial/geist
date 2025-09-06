@@ -32,6 +32,7 @@ fn main() {
         .size(1280, 720)
         .title("Geist Voxel View (Rust)")
         .msaa_4x()
+        .resizable()
         .build();
 
     // Some raylib builds reset the trace level during init; set it again after init
