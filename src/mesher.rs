@@ -177,6 +177,37 @@ fn material_id_for_key_and_face(reg: &BlockRegistry, key: MaterialKey, face: usi
 }
 
 #[inline]
+fn material_key_prop_value(key: MaterialKey) -> &'static str {
+    match key {
+        MaterialKey::SmoothStone => "smooth_stone",
+        MaterialKey::Sandstone => "sandstone",
+        MaterialKey::RedSandstone => "red_sandstone",
+        MaterialKey::Cobblestone => "cobblestone",
+        MaterialKey::MossyCobblestone => "mossy_cobblestone",
+        MaterialKey::StoneBricks => "stone_bricks",
+        MaterialKey::MossyStoneBricks => "mossy_stone_bricks",
+        MaterialKey::QuartzBlock => "quartz_block",
+        MaterialKey::Planks(sp) => match sp {
+            crate::voxel::TreeSpecies::Oak => "planks_oak",
+            crate::voxel::TreeSpecies::Birch => "planks_birch",
+            crate::voxel::TreeSpecies::Spruce => "planks_spruce",
+            crate::voxel::TreeSpecies::Jungle => "planks_jungle",
+            crate::voxel::TreeSpecies::Acacia => "planks_acacia",
+            crate::voxel::TreeSpecies::DarkOak => "planks_dark_oak",
+        },
+        MaterialKey::PrismarineBricks => "prismarine_bricks",
+        MaterialKey::EndStone => "end_stone",
+        MaterialKey::EndStoneBricks => "end_stone_bricks",
+        MaterialKey::Granite => "granite",
+        MaterialKey::Diorite => "diorite",
+        MaterialKey::Andesite => "andesite",
+        MaterialKey::PolishedGranite => "polished_granite",
+        MaterialKey::PolishedDiorite => "polished_diorite",
+        MaterialKey::PolishedAndesite => "polished_andesite",
+    }
+}
+
+#[inline]
 fn emit_box(
     builds: &mut std::collections::HashMap<MaterialId, MeshBuild>,
     buf: &ChunkBuf,
@@ -562,6 +593,9 @@ pub fn build_chunk_greedy_cpu_buf(
             Some((mid, l))
         },
     );
+    // Prepare registry types for special shapes if available
+    let slab_ty = reg.id_by_name("slab").and_then(|id| reg.get(id));
+    let stairs_ty = reg.id_by_name("stairs").and_then(|id| reg.get(id));
     // Special-shapes pass: mesh slabs and stairs
     for z in 0..sz {
         for y in 0..sy {
@@ -591,7 +625,24 @@ pub fn build_chunk_greedy_cpu_buf(
                             z,
                             base_x,
                             base_z,
-                            &|face| material_id_for_key_and_face(reg, keyc, face),
+                            &|face| {
+                                if let Some(ty) = slab_ty {
+                                    let role = match face {
+                                        0 => FaceRole::Top,
+                                        1 => FaceRole::Bottom,
+                                        _ => FaceRole::Side,
+                                    };
+                                    let mut props = std::collections::HashMap::new();
+                                    props.insert(
+                                        "material".to_string(),
+                                        material_key_prop_value(keyc).to_string(),
+                                    );
+                                    if let Some(mid) = ty.materials.material_for_props(role, &props) {
+                                        return mid;
+                                    }
+                                }
+                                material_id_for_key_and_face(reg, keyc, face)
+                            },
                             min,
                             max,
                         );
@@ -888,7 +939,24 @@ pub fn build_chunk_greedy_cpu_buf(
                             z,
                             base_x,
                             base_z,
-                            &|face| material_id_for_key_and_face(reg, keyc, face),
+                            &|face| {
+                                if let Some(ty) = stairs_ty {
+                                    let role = match face {
+                                        0 => FaceRole::Top,
+                                        1 => FaceRole::Bottom,
+                                        _ => FaceRole::Side,
+                                    };
+                                    let mut props = std::collections::HashMap::new();
+                                    props.insert(
+                                        "material".to_string(),
+                                        material_key_prop_value(keyc).to_string(),
+                                    );
+                                    if let Some(mid) = ty.materials.material_for_props(role, &props) {
+                                        return mid;
+                                    }
+                                }
+                                material_id_for_key_and_face(reg, keyc, face)
+                            },
                             min_a,
                             max_a,
                         );
@@ -940,7 +1008,24 @@ pub fn build_chunk_greedy_cpu_buf(
                             z,
                             base_x,
                             base_z,
-                            &|face| material_id_for_key_and_face(reg, keyc, face),
+                            &|face| {
+                                if let Some(ty) = stairs_ty {
+                                    let role = match face {
+                                        0 => FaceRole::Top,
+                                        1 => FaceRole::Bottom,
+                                        _ => FaceRole::Side,
+                                    };
+                                    let mut props = std::collections::HashMap::new();
+                                    props.insert(
+                                        "material".to_string(),
+                                        material_key_prop_value(keyc).to_string(),
+                                    );
+                                    if let Some(mid) = ty.materials.material_for_props(role, &props) {
+                                        return mid;
+                                    }
+                                }
+                                material_id_for_key_and_face(reg, keyc, face)
+                            },
                             min_b,
                             max_b,
                         );

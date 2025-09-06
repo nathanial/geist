@@ -52,6 +52,29 @@ impl CompiledMaterials {
             None => None,
         }
     }
+
+    pub fn material_for_props(
+        &self,
+        role: FaceRole,
+        props: &std::collections::HashMap<String, String>,
+    ) -> Option<MaterialId> {
+        let pick = match role {
+            FaceRole::Top => self.top.as_ref().or(self.all.as_ref()),
+            FaceRole::Bottom => self.bottom.as_ref().or(self.all.as_ref()),
+            FaceRole::Side => self.side.as_ref().or(self.all.as_ref()),
+            FaceRole::All => self.all.as_ref(),
+        }?;
+        match pick {
+            ResolvedSelector::Fixed(id) => Some(*id),
+            ResolvedSelector::By { by, map } => {
+                if let Some(val) = props.get(by) {
+                    map.get(val).copied()
+                } else {
+                    None
+                }
+            }
+        }
+    }
 }
 
 #[derive(Default, Clone, Debug)]

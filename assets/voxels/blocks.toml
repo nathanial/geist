@@ -64,6 +64,125 @@ emission = 10
 shape = "cube"
 materials = { all = "beacon" }
 
+# Slab (generic): half + material
+[[blocks]]
+name = "slab"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = { kind = "slab", half = { from = "half" } }
+state_schema = { half = ["bottom","top"], material = [
+  "smooth_stone","sandstone","red_sandstone","cobblestone","mossy_cobblestone",
+  "stone_bricks","mossy_stone_bricks","end_stone","end_stone_bricks","prismarine_bricks",
+  "granite","diorite","andesite","polished_granite","polished_diorite","polished_andesite",
+  "planks_oak","planks_birch","planks_spruce","planks_jungle","planks_acacia","planks_dark_oak",
+  "quartz_block"
+] }
+materials.top = { by = "material", map = { 
+  smooth_stone = "smooth_stone",
+  sandstone = "sandstone_top",
+  red_sandstone = "red_sandstone_top",
+  cobblestone = "cobblestone",
+  mossy_cobblestone = "mossy_cobblestone",
+  stone_bricks = "stone_bricks",
+  mossy_stone_bricks = "mossy_stone_bricks",
+  end_stone = "end_stone",
+  end_stone_bricks = "end_stone_bricks",
+  prismarine_bricks = "prismarine_bricks",
+  granite = "granite",
+  diorite = "diorite",
+  andesite = "andesite",
+  polished_granite = "polished_granite",
+  polished_diorite = "polished_diorite",
+  polished_andesite = "polished_andesite",
+  planks_oak = "oak_planks",
+  planks_birch = "birch_planks",
+  planks_spruce = "spruce_planks",
+  planks_jungle = "jungle_planks",
+  planks_acacia = "acacia_planks",
+  planks_dark_oak = "oak_planks",
+  quartz_block = "quartz_block_top"
+} }
+materials.bottom = { by = "material", map = { 
+  smooth_stone = "smooth_stone",
+  sandstone = "sandstone_bottom",
+  red_sandstone = "red_sandstone_bottom",
+  cobblestone = "cobblestone",
+  mossy_cobblestone = "mossy_cobblestone",
+  stone_bricks = "stone_bricks",
+  mossy_stone_bricks = "mossy_stone_bricks",
+  end_stone = "end_stone",
+  end_stone_bricks = "end_stone_bricks",
+  prismarine_bricks = "prismarine_bricks",
+  granite = "granite",
+  diorite = "diorite",
+  andesite = "andesite",
+  polished_granite = "polished_granite",
+  polished_diorite = "polished_diorite",
+  polished_andesite = "polished_andesite",
+  planks_oak = "oak_planks",
+  planks_birch = "birch_planks",
+  planks_spruce = "spruce_planks",
+  planks_jungle = "jungle_planks",
+  planks_acacia = "acacia_planks",
+  planks_dark_oak = "oak_planks",
+  quartz_block = "quartz_block_top"
+} }
+materials.side = { by = "material", map = { 
+  smooth_stone = "smooth_stone",
+  sandstone = "sandstone_side",
+  red_sandstone = "red_sandstone_side",
+  cobblestone = "cobblestone",
+  mossy_cobblestone = "mossy_cobblestone",
+  stone_bricks = "stone_bricks",
+  mossy_stone_bricks = "mossy_stone_bricks",
+  end_stone = "end_stone",
+  end_stone_bricks = "end_stone_bricks",
+  prismarine_bricks = "prismarine_bricks",
+  granite = "granite",
+  diorite = "diorite",
+  andesite = "andesite",
+  polished_granite = "polished_granite",
+  polished_diorite = "polished_diorite",
+  polished_andesite = "polished_andesite",
+  planks_oak = "oak_planks",
+  planks_birch = "birch_planks",
+  planks_spruce = "spruce_planks",
+  planks_jungle = "jungle_planks",
+  planks_acacia = "acacia_planks",
+  planks_dark_oak = "oak_planks",
+  quartz_block = "quartz_block_side"
+} }
+
+# Stairs (generic): half + facing + material
+[[blocks]]
+name = "stairs"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = { kind = "stairs", half = { from = "half" }, facing = { from = "facing" } }
+state_schema = { half = ["bottom","top"], facing = ["north","south","west","east"], material = [
+  "planks_oak","planks_birch","planks_spruce","planks_jungle","planks_acacia","planks_dark_oak",
+  "smooth_stone","cobblestone","mossy_cobblestone","stone_bricks","quartz_block","sandstone","red_sandstone"
+] }
+materials.top = { by = "material", map = {
+  planks_oak = "oak_planks", planks_birch = "birch_planks", planks_spruce = "spruce_planks",
+  planks_jungle = "jungle_planks", planks_acacia = "acacia_planks", planks_dark_oak = "oak_planks",
+  smooth_stone = "smooth_stone", cobblestone = "cobblestone", mossy_cobblestone = "mossy_cobblestone",
+  stone_bricks = "stone_bricks", quartz_block = "quartz_block_top", sandstone = "sandstone_top", red_sandstone = "red_sandstone_top"
+} }
+materials.bottom = { by = "material", map = {
+  planks_oak = "oak_planks", planks_birch = "birch_planks", planks_spruce = "spruce_planks",
+  planks_jungle = "jungle_planks", planks_acacia = "acacia_planks", planks_dark_oak = "oak_planks",
+  smooth_stone = "smooth_stone", cobblestone = "cobblestone", mossy_cobblestone = "mossy_cobblestone",
+  stone_bricks = "stone_bricks", quartz_block = "quartz_block_top", sandstone = "sandstone_bottom", red_sandstone = "red_sandstone_bottom"
+} }
+materials.side = { by = "material", map = {
+  planks_oak = "oak_planks", planks_birch = "birch_planks", planks_spruce = "spruce_planks",
+  planks_jungle = "jungle_planks", planks_acacia = "acacia_planks", planks_dark_oak = "oak_planks",
+  smooth_stone = "smooth_stone", cobblestone = "cobblestone", mossy_cobblestone = "mossy_cobblestone",
+  stone_bricks = "stone_bricks", quartz_block = "quartz_block_side", sandstone = "sandstone_side", red_sandstone = "red_sandstone_side"
+} }
 # Logs (fixed vertical orientation)
 [[blocks]]
 name = "oak_log"
