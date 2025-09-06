@@ -395,7 +395,7 @@ impl LightGrid {
                 }
             }
         }
-        // Skylight BFS within chunk (Air only)
+        // Skylight BFS within chunk (registry-controlled passability)
         while let Some((x, y, z, v)) = q_sky.pop_front() {
             let vcur = v as i32;
             if vcur <= atten {
@@ -426,7 +426,7 @@ impl LightGrid {
                 let nxi = nx as usize;
                 let nyi = ny as usize;
                 let nzi = nz as usize;
-                if matches!(buf.get_local(nxi, nyi, nzi), Block::Air) {
+                if skylight_transparent(buf.get_local(nxi, nyi, nzi), reg) {
                     let idn = lg.idx(nxi, nyi, nzi);
                     if lg.skylight[idn] < vnext {
                         lg.skylight[idn] = vnext;
@@ -435,7 +435,7 @@ impl LightGrid {
                 }
             }
         }
-        // Block-light BFS within chunk (Air only; leaves block)
+        // Block-light BFS within chunk (registry-controlled passability)
         // Normal lights with standard attenuation
         while let Some((x, y, z, v)) = q.pop_front() {
             let vcur = v as i32;
@@ -467,7 +467,7 @@ impl LightGrid {
                 let nxi = nx as usize;
                 let nyi = ny as usize;
                 let nzi = nz as usize;
-                if matches!(buf.get_local(nxi, nyi, nzi), Block::Air) {
+                if block_light_passable(buf.get_local(nxi, nyi, nzi), reg) {
                     let idn = lg.idx(nxi, nyi, nzi);
                     if lg.block_light[idn] < vnext {
                         lg.block_light[idn] = vnext;
@@ -558,7 +558,7 @@ impl LightGrid {
                 let nxi = nx as usize;
                 let nyi = ny as usize;
                 let nzi = nz as usize;
-                if matches!(buf.get_local(nxi, nyi, nzi), Block::Air) {
+                if block_light_passable(buf.get_local(nxi, nyi, nzi), reg) {
                     let idn = lg.idx(nxi, nyi, nzi);
                     if lg.beacon_light[idn] < vnext {
                         lg.beacon_light[idn] = vnext;
@@ -763,6 +763,25 @@ fn map_legacy_block_to_registry_name(b: Block) -> Option<&'static str> {
         Block::Leaves(voxel::TreeSpecies::Acacia) => Some("acacia_leaves"),
         Block::Leaves(voxel::TreeSpecies::DarkOak) => Some("oak_leaves"),
         _ => None,
+    }
+}
+
+// Helper: determine if a legacy Block allows block-light propagation using the runtime registry.
+// Returns true for Air and any block that has `propagates_light=true` in registry.
+#[inline]
+fn block_light_passable(b: Block, reg: &BlockRegistry) -> bool {
+    match b {
+        Block::Air => true,
+        _ => {
+            if let Some(name) = map_legacy_block_to_registry_name(b) {
+                if let Some(id) = reg.id_by_name(name) {
+                    if let Some(ty) = reg.get(id) {
+                        return ty.propagates_light(0);
+                    }
+                }
+            }
+            false
+        }
     }
 }
 

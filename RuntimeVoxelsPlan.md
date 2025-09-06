@@ -69,6 +69,7 @@
       id = 0
       solid = false
       blocks_skylight = false
+      propagates_light = true
       emission = 0
       shape = "cube"
       materials = { all = "unknown" }
@@ -155,7 +156,8 @@
 - DONE: Legacy FaceMaterial usage removed from mesher; only referenced in docs.
 - DONE: Skylight propagation now consults registry `blocks_skylight`.
 - DONE: Shape-aware occlusion (registry-driven for cube-like blocks; legacy rules retained for slabs/stairs until registry shapes are added).
-- NEXT: Extend occlusion to slabs/stairs via registry shapes; then block-light propagation flags.
+- DONE: Block-light propagation flags via registry (`propagates_light`), applied in block and beacon BFS.
+- NEXT: Extend occlusion to slabs/stairs via registry shapes.
 - NEXT: Storage migration to runtime `Block` and worldgen/UI updates.
 - NEXT: Config-driven schematic translator and state packing.
 - NEXT: Tests for state packing and registry; docs/README updates.
@@ -165,7 +167,7 @@
 - Shader selection: Use material/block metadata for shader choice. Add `render_tag` (e.g., `"leaves"`) to materials or allow a block-type override; update `app.rs` to assign the leaves shader based on this tag.
 - Lighting: `LightGrid::compute_with_borders_buf(buf, store, reg)` now accepts the registry and seeds skylight through blocks with `blocks_skylight=false` (e.g., leaves).
 - Occlusion by shape: Mesher now consults registry types to decide occlusion for cube-like blocks; slabs/stairs retain legacy rules until registry shapes are introduced. Implement final per-shape rules via `Shape` helpers once runtime blocks land.
-- Light propagation flags: Add `propagates_sky` and `propagates_light` to block types; update skylight and block-light BFS to propagate through blocks with the appropriate flags (current parity: only air propagates both).
+- Light propagation flags: Skylight uses `blocks_skylight`; block-light uses `propagates_light`. BFS updated to honor these flags (current default allows only air).
 - Leaves collision: Keep leaves `solid=true` for collisions to match current behavior unless changed via config.
 - Material resolution: Implement a resolver that maps `(block, face, state)` to `MaterialId` (for cubes) and use per-shape emitters for non-cubes; both paths feed `MaterialId` to meshing/grouping.
 - Debug names: Implement `Block::debug_name()` via registry for UI/debug prints.

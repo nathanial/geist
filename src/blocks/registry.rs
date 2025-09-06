@@ -13,6 +13,7 @@ pub struct BlockType {
     pub name: String,
     pub solid: bool,
     pub blocks_skylight: bool,
+    pub propagates_light: bool,
     pub emission: u8,
     pub shape: Shape,
     pub materials: CompiledMaterials,
@@ -88,18 +89,20 @@ impl BlockRegistry {
             let name = def.name.clone();
             let solid = def.solid.unwrap_or(true);
             let blocks_skylight = def.blocks_skylight.unwrap_or(solid);
+            let propagates_light = def.propagates_light.unwrap_or(false);
             let emission = def.emission.unwrap_or(0);
             let shape = compile_shape(def.shape);
             let mats = compile_materials(&reg.materials, def.materials);
             let state_schema = def.state_schema.unwrap_or_default();
 
-            let ty = BlockType { id, name: def.name, solid, blocks_skylight, emission, shape, materials: mats, state_schema };
+            let ty = BlockType { id, name: def.name, solid, blocks_skylight, propagates_light, emission, shape, materials: mats, state_schema };
             if reg.blocks.len() <= id as usize {
                 reg.blocks.resize(id as usize + 1, BlockType {
                     id,
                     name: String::new(),
                     solid: false,
                     blocks_skylight: false,
+                    propagates_light: false,
                     emission: 0,
                     shape: Shape::None,
                     materials: CompiledMaterials::default(),
@@ -163,7 +166,7 @@ fn compile_materials(matcat: &MaterialCatalog, mats: Option<MaterialsDef>) -> Co
 impl BlockType {
     pub fn is_solid(&self, _state: BlockState) -> bool { self.solid }
     pub fn blocks_skylight(&self, _state: BlockState) -> bool { self.blocks_skylight }
+    pub fn propagates_light(&self, _state: BlockState) -> bool { self.propagates_light }
     pub fn light_emission(&self, _state: BlockState) -> u8 { self.emission }
     pub fn debug_name(&self) -> &str { &self.name }
 }
-

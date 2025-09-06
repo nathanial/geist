@@ -17,6 +17,8 @@ pub struct BlockDef {
     #[serde(default)]
     pub blocks_skylight: Option<bool>,
     #[serde(default)]
+    pub propagates_light: Option<bool>,
+    #[serde(default)]
     pub emission: Option<u8>,
 
     #[serde(default)]
@@ -72,4 +74,3 @@ pub enum MaterialSelector {
     Key(String),
     By { by: String, #[serde(default)] map: HashMap<String, String> },
 }
-

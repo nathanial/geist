@@ -3,6 +3,7 @@ name = "air"
 id = 0
 solid = false
 blocks_skylight = false
+propagates_light = true
 emission = 0
 shape = "cube"
 materials = { all = "unknown" }
