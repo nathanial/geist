@@ -129,7 +129,7 @@
 - Texture/upload path: Upload path uses `MaterialCatalog` to resolve texture candidates and a `TextureCache` keyed by file path strings; first on-disk candidate wins.
 - Shader selection: `app.rs` assigns the leaves shader when the material’s `render_tag == "leaves"`; others get the fog shader.
 - Runtime wiring: `Runtime` now owns an `Arc<BlockRegistry>`; worker threads pass `&reg.materials` into meshing. The app passes the registry through.
-- Compatibility mapping: Removed. Mesher uses registry materials exclusively with an `unknown` fallback for unmapped cases.
+- Compatibility mapping: Present (temporary). Mesher maps legacy `Block` variants to registry names for known cubes/logs/leaves and falls back to `unknown` for unmapped cases.
 - Build status: Project compiles with the new meshing path; rendering should be unchanged for covered materials.
 
 **Remaining Work (Prioritized)**
@@ -142,6 +142,7 @@
 - State packing: Implement `state_schema` packing/unpacking; enable by-property material selection.
 - Tests/docs: Add tests for state packing and registry lookups; update README/docs.
 - Cleanup: Remove legacy enums (`Block`, `MaterialKey`, `TreeSpecies`, `TerracottaColor`, `FaceMaterial`) after parity.
+  - Also remove the temporary legacy→registry name mapping in `mesher.rs` once storage is migrated to runtime `Block`.
 
 **Implementation TODO**
 - DONE: Core types and loaders in `src/blocks/*` with TOML parsing.
@@ -151,7 +152,7 @@
 - DONE: Registry-driven material resolution in mesher; uses registry for cubes and falls back to `unknown` material when unmapped. Structure mesher also uses registry.
 - DONE: Expanded default pack to match current world visuals: added `sand`, `snow`, species logs (`oak/birch/spruce/jungle/acacia`), and leaves. Materials include `render_tag = "leaves"`.
 - DONE: Removed FaceMaterial usage from mesher; all grouping/selection uses `MaterialId` from the registry.
-- DONE: Legacy FaceMaterial enum and helpers compiled out behind `legacy_face_material` feature (not enabled by default).
+- DONE: Legacy FaceMaterial usage removed from mesher; only referenced in docs.
 - DONE: Skylight propagation now consults registry `blocks_skylight`.
 - NEXT: Shape-aware occlusion using registry shapes; then block-light propagation flags.
 - NEXT: Storage migration to runtime `Block` and worldgen/UI updates.
@@ -189,7 +190,7 @@
 **Estimated Impact (files)**
 - `src/voxel.rs`: replace `enum Block`, add worldgen helpers that consult registry.
 - `src/mesher.rs`: swap `match Block` with `shape` + `face_material`; keep geometry emitters; return `MaterialId` instead of `FaceMaterial`.
-- `src/lighting.rs`: delegate to `block.is_air()/is_solid()/emission()`.
+- `src/lighting.rs`: use registry flags for skylight (`blocks_skylight`) and keep `emission()` for block-light sources.
 - `src/meshing_core.rs`: group faces by `MaterialId` and carry light levels; remove `FaceMaterial` dependency.
 - `src/runtime.rs`, `src/app.rs`: update upload path and shader selection to use material `render_tag`.
 - `src/schem.rs`: replace mapping with config-driven translator.
@@ -197,6 +198,24 @@
 - `src/app.rs`, `src/gamestate.rs`, `src/player.rs`: UI hotbar, debug prints, collision via `is_solid()`.
 - New: `src/blocks/{mod.rs,registry.rs,types.rs,config.rs,material.rs}`.
 - New assets: `assets/voxels/{blocks.toml,materials.toml,palette_map.toml,hotbar.toml}`.
+
+**Status Summary**
+- Done: Materials/blocks configs and loaders; MaterialCatalog; BlockRegistry; mesher grouping by `MaterialId` and texture upload; leaves shader via `render_tag`; sand/snow/logs/leaves added; FaceMaterial effectively removed; skylight uses registry.
+- In Progress: Shape-aware occlusion using registry `Shape` model; migrate occlusion helpers to resolve via block type instead of legacy enums.
+- Next: Block-light propagation flags; migrate storage to runtime `Block` end-to-end; config-driven schematic translator; state packing; hotbar from config.
+
+**Acceptance Criteria**
+- Visual parity: Grass/dirt/stone, sand, snow render as before; logs/leaves for oak/birch/spruce/jungle/acacia match current, leaves use leaves shader.
+- Meshing: Geometry batches by `MaterialId` only; no `FaceMaterial` in the build/upload path.
+- Lighting: Skylight seeds through air and stops at any block with `blocks_skylight=true`; leaves block skylight per config; glowstone/beacon brightness patches unchanged.
+- Config: Adding a new cube block by TOML (materials + blocks) appears in worldgen or via edits without code changes.
+
+**Testing Steps**
+- Run the app and inspect a few chunks for parity (grass tops/sides, sand at beaches, snow at peaks).
+- Place each hotkey block and verify textures: dirt, stone, sand, grass, snow, glowstone, beacon.
+- Inspect trees: trunk materials top/side; leaves have correct shader effect and block skylight.
+- Toggle wireframe and verify greedy meshing (large stitched quads, minimal draw calls).
+- Optional: Add a temporary material+block to TOML (e.g., `granite`) and place via edit to confirm pipeline.
 
 **Open Questions / Decisions**
 - **Config format:** TOML is suggested for readability; JSON is acceptable; RON is another option. TOML chosen for consistency with Rust ecosystem.
