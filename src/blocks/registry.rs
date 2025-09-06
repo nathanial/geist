@@ -35,21 +35,23 @@ pub enum ResolvedSelector {
 }
 
 impl CompiledMaterials {
-    pub fn material_for(&self, role: FaceRole, _state: BlockState, _ty: &BlockType) -> Option<MaterialId> {
-        // NOTE: state decoding not yet implemented; return fixed or "all" as available.
+    pub fn material_for(&self, role: FaceRole, state: BlockState, ty: &BlockType) -> Option<MaterialId> {
+        // Pick selector by face role with fallback to `all`
         let pick = match role {
             FaceRole::Top => self.top.as_ref().or(self.all.as_ref()),
             FaceRole::Bottom => self.bottom.as_ref().or(self.all.as_ref()),
             FaceRole::Side => self.side.as_ref().or(self.all.as_ref()),
             FaceRole::All => self.all.as_ref(),
-        };
+        }?;
         match pick {
-            Some(ResolvedSelector::Fixed(id)) => Some(*id),
-            Some(ResolvedSelector::By { .. }) => {
-                // Until state decoding is wired, cannot resolve by-property
-                None
+            ResolvedSelector::Fixed(id) => Some(*id),
+            ResolvedSelector::By { by, map } => {
+                if let Some(val) = ty.state_prop_value(state, by) {
+                    map.get(val).copied()
+                } else {
+                    None
+                }
             }
-            None => None,
         }
     }
 
@@ -192,4 +194,36 @@ impl BlockType {
     pub fn propagates_light(&self, _state: BlockState) -> bool { self.propagates_light }
     pub fn light_emission(&self, _state: BlockState) -> u8 { self.emission }
     pub fn debug_name(&self) -> &str { &self.name }
+
+    // Decode a named property from the block state using the declared state_schema.
+    // Bit packing order is stable and derived by sorting property names ascending,
+    // assigning each field just enough bits to encode its allowed values (ceil(log2(len))).
+    pub fn state_prop_value<'a>(&'a self, state: BlockState, prop: &str) -> Option<&'a str> {
+        if self.state_schema.is_empty() {
+            return None;
+        }
+        let mut keys: Vec<&str> = self.state_schema.keys().map(|s| s.as_str()).collect();
+        keys.sort_unstable();
+        let mut offset: u32 = 0;
+        for k in keys {
+            let vals = self.state_schema.get(k).unwrap();
+            let vlen = vals.len() as u32;
+            let bits: u32 = if vlen <= 1 { 0 } else { 32 - (vlen - 1).leading_zeros() };
+            if k == prop {
+                if bits == 0 {
+                    // Single value field
+                    return vals.get(0).map(|s| s.as_str());
+                }
+                let mask: u32 = if bits >= 32 { u32::MAX } else { (1u32 << bits) - 1 };
+                let idx: usize = (((state as u32) >> offset) & mask) as usize;
+                return vals.get(idx).map(|s| s.as_str());
+            }
+            offset += bits;
+        }
+        None
+    }
+
+    pub fn state_prop_is_value(&self, state: BlockState, prop: &str, expect: &str) -> bool {
+        self.state_prop_value(state, prop) == Some(expect)
+    }
 }

@@ -208,6 +208,7 @@
 - DONE: Storage migration started and largely complete: `ChunkBuf` holds runtime `Block { id, state }`; world/worker generates buffers via `generate_chunk_buffer(world, cx, cz, reg)`; structure meshes built from runtime blocks; events/edits pass runtime blocks.
 - DONE: Shape-aware occlusion for cube-like blocks via registry; slab/stairs top/bottom occlusion via registry state.
 - DONE: Compile errors resolved. Removed legacy enum matches from active meshing path; App/Player/Structure now use registry for solidity/emission and `Block::AIR` constant.
+- DONE: State packing/unpacking implemented on `BlockType`; `CompiledMaterials::material_for` now resolves `by = { by, map }` using `BlockState`.
 - PARTIAL: Special-shape meshing (slabs/stairs) temporarily disabled in mesher pending registry-state emitters (no legacy shims retained).
 - PARTIAL: Schematic loader now maps legacy palette output to runtime via registry bridge; full `palette_map.toml` translator still pending.
 - PARTIAL: App hotbar still hardcoded; not yet driven by `assets/voxels/hotbar.toml`.
@@ -216,11 +217,12 @@
 - RESOLVED: Removed legacy special-shape matches from mesher; compile green.
 - RESOLVED: App/Player/Structure migrated to registry (`is_solid`, `emission`); `Block::AIR` used consistently.
 - RESOLVED: Removed unused legacy lighting palette helper.
+- RESOLVED: Added `BlockType::state_prop_value/state_prop_is_value` and updated mesher occlusion helpers to use them.
 
 **Remaining Work (No Shims)**
 - Reintroduce slab/stairs meshing using registry state: decode `half`/`facing` from `BlockState` and emit shape geometry; resolve face materials via `CompiledMaterials::By { by, map }`.
 - Remove `MaterialKey` and remaining legacy enums (`TreeSpecies`, `Dir4`, etc.) from code; rely solely on registry state and names.
-- Implement state packing/unpacking in registry to support by-property material selection without ad-hoc maps.
+ 
 - Implement config-driven schematic translator using `assets/voxels/palette_map.toml`; drop legacy `map_palette_*` functions.
 - Drive hotbar from `assets/voxels/hotbar.toml` and expose block debug names via registry.
 
@@ -236,7 +238,7 @@
 
 **Immediate Tasks**
 - Slab/stairs emitters: implement registry-state driven emitters and re-enable special-shape meshing.
-- State packing: centralize bit packing; update `CompiledMaterials::material_for` to use `BlockState` for `By { by, map }`.
+ 
 - Remove remaining legacy enums (`MaterialKey`, `TreeSpecies`, `Dir4`, etc.).
 - Schematic translator: implement `palette_map.toml` mapping; remove hardcoded palette handling.
 - Hotbar/UI: drive from config; use registry names for labels.

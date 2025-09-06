@@ -183,37 +183,14 @@ fn is_solid_runtime(b: Block, reg: &BlockRegistry) -> bool {
     reg.get(b.id).map(|ty| ty.is_solid(b.state)).unwrap_or(false)
 }
 
-#[inline]
-fn state_prop_value<'a>(ty: &'a crate::blocks::BlockType, prop: &str, state: rt::BlockState) -> Option<&'a str> {
-    // Derive bit offsets deterministically by sorting property names
-    let mut keys: Vec<&str> = ty.state_schema.keys().map(|s| s.as_str()).collect();
-    keys.sort_unstable();
-    let mut offset = 0u32;
-    for k in keys {
-        let vals = ty.state_schema.get(k).unwrap();
-        let bits = (32 - ((vals.len() as u32).saturating_sub(1)).leading_zeros()) as u32;
-        if k == prop {
-            let mask = if bits == 32 { u32::MAX } else { (1u32 << bits) - 1 };
-            let idx = ((state as u32) >> offset) & mask;
-            let ii = idx as usize;
-            return vals.get(ii).map(|s| s.as_str());
-        }
-        offset += bits;
-    }
-    None
-}
-
-#[inline]
-fn state_prop_is_value(ty: &crate::blocks::BlockType, prop: &str, state: rt::BlockState, expect: &str) -> bool {
-    state_prop_value(ty, prop, state) == Some(expect)
-}
+// Property decoding now lives on BlockType via registry (see state_prop_value/state_prop_is_value)
 
 #[inline]
 fn is_top_half_shape(b: Block, reg: &BlockRegistry) -> bool {
     if let Some(ty) = reg.get(b.id) {
         match &ty.shape {
             crate::blocks::Shape::Slab { half_from } | crate::blocks::Shape::Stairs { half_from, .. } => {
-                return state_prop_is_value(ty, half_from, b.state, "top");
+                return ty.state_prop_is_value(b.state, half_from, "top");
             }
             _ => {}
         }
@@ -503,7 +480,7 @@ fn occludes_face(nb: Block, face: usize, reg: &BlockRegistry) -> bool {
     if let Some(ty) = reg.get(nb.id) {
         match &ty.shape {
             crate::blocks::Shape::Slab { half_from } => {
-                let is_top = state_prop_is_value(ty, half_from, nb.state, "top");
+                let is_top = ty.state_prop_is_value(nb.state, half_from, "top");
                 return match face {
                     0 => !is_top, // above occluded by bottom slab
                     1 => is_top,  // below occluded by top slab
@@ -511,7 +488,7 @@ fn occludes_face(nb: Block, face: usize, reg: &BlockRegistry) -> bool {
                 };
             }
             crate::blocks::Shape::Stairs { half_from, .. } => {
-                let is_top = state_prop_is_value(ty, half_from, nb.state, "top");
+                let is_top = ty.state_prop_is_value(nb.state, half_from, "top");
                 return match face {
                     0 => !is_top,
                     1 => is_top,
