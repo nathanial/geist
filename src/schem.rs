@@ -1,4 +1,6 @@
 use std::path::Path;
+use std::path::PathBuf;
+use std::fs;
 
 use crate::voxel::{Block, TreeSpecies};
 
@@ -191,4 +193,35 @@ pub fn count_blocks_in_file(path: &Path) -> Result<Vec<(String, u64)>, String> {
         }
     }
     Ok(counts.into_iter().collect())
+}
+
+#[derive(Clone, Debug)]
+pub struct SchematicEntry {
+    pub path: PathBuf,
+    pub size: (i32, i32, i32),
+}
+
+pub fn list_schematics_with_size(dir: &Path) -> Result<Vec<SchematicEntry>, String> {
+    let mut out = Vec::new();
+    let rd = fs::read_dir(dir).map_err(|e| format!("read_dir {:?}: {}", dir, e))?;
+    for ent in rd {
+        let ent = ent.map_err(|e| format!("read_dir entry: {}", e))?;
+        let p = ent.path();
+        if p.is_file() {
+            if let Some(ext) = p.extension() {
+                if ext == "schem" {
+                    let (schem, _meta) = mc_schem::Schematic::from_file(
+                        p.to_str().ok_or_else(|| "invalid path".to_string())?,
+                    )
+                    .map_err(|e| format!("parse schem {:?}: {}", p, e))?;
+                    let shape = schem.shape();
+                    out.push(SchematicEntry {
+                        path: p,
+                        size: (shape[0] as i32, shape[1] as i32, shape[2] as i32),
+                    });
+                }
+            }
+        }
+    }
+    Ok(out)
 }

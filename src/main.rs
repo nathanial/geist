@@ -138,36 +138,12 @@ fn main() {
         chunk_size_z as i32,
     );
 
-    // Determine schematic placement origin; default to +1y in flat-world to sit on slab
-    let mut schem_origin: (i32, i32, i32) = (0, 0, 0);
-    if flat_world && !schem_only {
-        schem_origin = (0, 1, 0);
-    }
-    // Allow explicit override via --schem-offset x y z
-    {
-        let mut args = std::env::args().skip(1).collect::<Vec<String>>();
-        let mut i = 0usize;
-        while i < args.len() {
-            if args[i] == "--schem-offset" {
-                if i + 3 < args.len() {
-                    let px = args[i + 1].parse::<i32>().unwrap_or(0);
-                    let py = args[i + 2].parse::<i32>().unwrap_or(0);
-                    let pz = args[i + 3].parse::<i32>().unwrap_or(0);
-                    schem_origin = (px, py, pz);
-                    i += 3;
-                }
-            }
-            i += 1;
-        }
-    }
-
     let mut app = crate::app::App::new(
         &mut rl,
         &thread,
         world.clone(),
         lighting_store.clone(),
         edit_store,
-        schem_origin,
     );
 
     while !rl.window_should_close() {

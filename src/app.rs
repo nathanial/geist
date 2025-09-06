@@ -74,7 +74,6 @@ impl App {
         world: std::sync::Arc<World>,
         lighting: std::sync::Arc<LightingStore>,
         edits: crate::edit::EditStore,
-        schem_origin: (i32, i32, i32),
     ) -> Self {
         // Spawn: if flat world, start a few blocks above the slab; else near world top
         let spawn = if world.is_flat() {
@@ -96,30 +95,95 @@ impl App {
         let mut gs = GameState::new(world.clone(), edits, lighting.clone(), cam.position);
         let mut queue = EventQueue::new();
 
-        // Load a Sponge .schem into world edits at origin before streaming starts (also in flat world)
+        // Discover and load all .schem files in 'schematics/', laying them out based on size.
+        // In flat worlds, place on top of slab (y=1 if thickness>0, else y=0). In normal worlds, use y=0.
         {
             use std::path::Path;
-            let schem_path = Path::new("schematics/anvilstead.schem");
-            if schem_path.exists() {
-                match crate::schem::load_sponge_schem_apply_edits(schem_path, schem_origin, &mut gs.edits) {
-                    Ok((sx, sy, sz)) => {
-                        log::info!(
-                            "Loaded schem {:?} at ({},{},{}) ({}x{}x{})",
-                            schem_path,
-                            schem_origin.0,
-                            schem_origin.1,
-                            schem_origin.2,
-                            sx,
-                            sy,
-                            sz
-                        );
+            let dir = Path::new("schematics");
+            if dir.exists() {
+                match crate::schem::list_schematics_with_size(dir) {
+                    Ok(mut list) => {
+                        if list.is_empty() {
+                            log::info!("No .schem files found under {:?}", dir);
+                        } else {
+                            // Simple shelf layout with row width constrained to the configured world width
+                            let margin: i32 = 4;
+                            let row_width_limit: i32 = (world.world_size_x() as i32).max(64) - margin;
+                            let base_y: i32 = match world.mode {
+                                crate::voxel::WorldGenMode::Flat { thickness } => {
+                                    if thickness > 0 { 1 } else { 0 }
+                                }
+                                _ => 0,
+                            };
+
+                            // First, layout locally starting at (0,0)
+                            let mut placements: Vec<(std::path::PathBuf, (i32, i32, i32), (i32, i32))> = Vec::new();
+                            let mut cur_x: i32 = 0;
+                            let mut cur_z: i32 = 0;
+                            let mut row_depth: i32 = 0; // max sz in row + margin
+                            for ent in &list {
+                                let (sx, _sy, sz) = ent.size;
+                                if cur_x > 0 && cur_x + sx > row_width_limit {
+                                    cur_x = 0;
+                                    cur_z += row_depth;
+                                    row_depth = 0;
+                                }
+                                placements.push((ent.path.clone(), (cur_x, base_y, cur_z), (sx, sz)));
+                                cur_x += sx + margin;
+                                row_depth = row_depth.max(sz + margin);
+                            }
+                            // Compute local bounding box
+                            let mut min_x = i32::MAX;
+                            let mut max_x = i32::MIN;
+                            let mut min_z = i32::MAX;
+                            let mut max_z = i32::MIN;
+                            for (_p, (lx, _ly, lz), (sx, sz)) in &placements {
+                                min_x = min_x.min(*lx);
+                                min_z = min_z.min(*lz);
+                                max_x = max_x.max(*lx + sx);
+                                max_z = max_z.max(*lz + sz);
+                            }
+                            if min_x == i32::MAX {
+                                min_x = 0; max_x = 0; min_z = 0; max_z = 0;
+                            }
+                            let layout_cx = (min_x + max_x) / 2;
+                            let layout_cz = (min_z + max_z) / 2;
+                            let world_cx = (world.world_size_x() as i32) / 2;
+                            let world_cz = (world.world_size_z() as i32) / 2;
+                            let shift_x = world_cx - layout_cx;
+                            let shift_z = world_cz - layout_cz;
+
+                            // Apply
+                            for (p, (lx, ly, lz), (_sx, _sz)) in placements {
+                                let wx = lx + shift_x;
+                                let wy = ly;
+                                let wz = lz + shift_z;
+                                match crate::schem::load_sponge_schem_apply_edits(&p, (wx, wy, wz), &mut gs.edits) {
+                                    Ok((sx, sy, sz)) => {
+                                        log::info!(
+                                            "Loaded schem {:?} at ({},{},{}) ({}x{}x{})",
+                                            p,
+                                            wx,
+                                            wy,
+                                            wz,
+                                            sx,
+                                            sy,
+                                            sz
+                                        );
+                                    }
+                                    Err(e) => {
+                                        log::warn!("Failed loading schem {:?}: {}", p, e);
+                                    }
+                                }
+                            }
+                        }
                     }
                     Err(e) => {
-                        log::warn!("Failed loading schem {:?}: {}", schem_path, e);
+                        log::warn!("Failed scanning schematics dir {:?}: {}", dir, e);
                     }
                 }
             } else {
-                log::info!("Schematic not found at {:?}; skipping.", schem_path);
+                log::info!("Schematics dir {:?} not found; skipping.", dir);
             }
         }
 
