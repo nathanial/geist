@@ -923,14 +923,13 @@ impl App {
             let underground_thr = 0.30_f32 * world_h;
             let underground = self.cam.position.y < underground_thr;
             let fog_color = if underground { cave_fog } else { surface_fog };
+            // Diminish fog: push start/end farther out
+            let fog_start = 64.0f32;
+            let fog_end = 512.0f32 * 0.9;
             if let Some(ref mut ls) = self.runtime.leaves_shader {
-                let fog_start = 64.0f32;
-                let fog_end = 180.0f32;
                 ls.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end);
             }
             if let Some(ref mut fs) = self.runtime.fog_shader {
-                let fog_start = 64.0f32;
-                let fog_end = 180.0f32;
                 fs.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end);
             }
 
