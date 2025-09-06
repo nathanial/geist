@@ -8,7 +8,7 @@ use crate::lighting::LightingStore;
 use crate::mesher::{NeighborsLoaded, upload_chunk_mesh};
 use crate::raycast;
 use crate::runtime::{BuildJob, JobOut, Runtime, StructureBuildJob};
-use crate::structure::{Structure, Pose, StructureId, rotate_yaw, rotate_yaw_inv};
+use crate::structure::{Pose, Structure, StructureId, rotate_yaw, rotate_yaw_inv};
 use crate::voxel::{Block, World};
 
 pub struct App {
@@ -32,11 +32,22 @@ pub struct DebugStats {
 
 impl App {
     #[inline]
-    fn structure_block_solid_at_local(st: &crate::structure::Structure, lx: i32, ly: i32, lz: i32) -> bool {
-        if lx < 0 || ly < 0 || lz < 0 { return false; }
+    fn structure_block_solid_at_local(
+        st: &crate::structure::Structure,
+        lx: i32,
+        ly: i32,
+        lz: i32,
+    ) -> bool {
+        if lx < 0 || ly < 0 || lz < 0 {
+            return false;
+        }
         let (lxu, lyu, lzu) = (lx as usize, ly as usize, lz as usize);
-        if lxu >= st.sx || lyu >= st.sy || lzu >= st.sz { return false; }
-        if let Some(b) = st.edits.get(lx, ly, lz) { return b.is_solid(); }
+        if lxu >= st.sx || lyu >= st.sy || lzu >= st.sz {
+            return false;
+        }
+        if let Some(b) = st.edits.get(lx, ly, lz) {
+            return b.is_solid();
+        }
         st.blocks[st.idx(lxu, lyu, lzu)].is_solid()
     }
 
@@ -104,7 +115,11 @@ impl App {
                 // Determine base Y for placement (top of slab in flat worlds)
                 let base_y: i32 = match world.mode {
                     crate::voxel::WorldGenMode::Flat { thickness } => {
-                        if thickness > 0 { 1 } else { 0 }
+                        if thickness > 0 {
+                            1
+                        } else {
+                            0
+                        }
                     }
                     _ => 0,
                 };
@@ -129,11 +144,16 @@ impl App {
                             });
                             // Simple shelf layout with row width constrained to the configured world width
                             let margin: i32 = 4;
-                            let row_width_limit: i32 = (world.world_size_x() as i32).max(64) - margin;
+                            let row_width_limit: i32 =
+                                (world.world_size_x() as i32).max(64) - margin;
                             // base_y is computed above
 
                             // First, layout locally starting at (0,0)
-                            let mut placements: Vec<(std::path::PathBuf, (i32, i32, i32), (i32, i32))> = Vec::new();
+                            let mut placements: Vec<(
+                                std::path::PathBuf,
+                                (i32, i32, i32),
+                                (i32, i32),
+                            )> = Vec::new();
                             let mut cur_x: i32 = 0;
                             let mut cur_z: i32 = 0;
                             let mut row_depth: i32 = 0; // max sz in row + margin
@@ -144,7 +164,11 @@ impl App {
                                     cur_z += row_depth;
                                     row_depth = 0;
                                 }
-                                placements.push((ent.path.clone(), (cur_x, base_y, cur_z), (sx, sz)));
+                                placements.push((
+                                    ent.path.clone(),
+                                    (cur_x, base_y, cur_z),
+                                    (sx, sz),
+                                ));
                                 cur_x += sx + margin;
                                 row_depth = row_depth.max(sz + margin);
                             }
@@ -160,7 +184,10 @@ impl App {
                                 max_z = max_z.max(*lz + sz);
                             }
                             if min_x == i32::MAX {
-                                min_x = 0; max_x = 0; min_z = 0; max_z = 0;
+                                min_x = 0;
+                                max_x = 0;
+                                min_z = 0;
+                                max_z = 0;
                             }
                             let layout_cx = (min_x + max_x) / 2;
                             let layout_cz = (min_z + max_z) / 2;
@@ -174,7 +201,11 @@ impl App {
                                 let wx = lx + shift_x;
                                 let wy = ly;
                                 let wz = lz + shift_z;
-                                match crate::schem::load_any_schematic_apply_edits(&p, (wx, wy, wz), &mut gs.edits) {
+                                match crate::schem::load_any_schematic_apply_edits(
+                                    &p,
+                                    (wx, wy, wz),
+                                    &mut gs.edits,
+                                ) {
                                     Ok((sx, sy, sz)) => {
                                         log::info!(
                                             "Loaded schem {:?} at ({},{},{}) ({}x{}x{})",
@@ -201,14 +232,17 @@ impl App {
                 // Additionally, try to import .mcworld structures if the feature is enabled
                 match crate::mcworld::load_mcworlds_in_dir(dir, base_y, &mut gs.edits) {
                     Ok(list) => {
-                        for (name, (_x,_y,_z), (sx,sy,sz)) in list {
+                        for (name, (_x, _y, _z), (sx, sy, sz)) in list {
                             log::info!("Loaded mcworld structure {} ({}x{}x{})", name, sx, sy, sz);
                         }
                     }
                     Err(e) => {
                         // Only log info if not enabled; else warn
                         if e.contains("not enabled") {
-                            log::info!("{}.mcworld files present will be ignored unless built with --features mcworld", e);
+                            log::info!(
+                                "{}.mcworld files present will be ignored unless built with --features mcworld",
+                                e
+                            );
                         } else {
                             log::warn!("mcworld load: {}", e);
                         }
@@ -234,10 +268,16 @@ impl App {
             let st_sx = 32usize;
             let st_sy = 24usize;
             let st_sz = 32usize;
-            let pose = Pose { pos: world_center + Vector3::new(0.0, 16.0, 40.0), yaw_deg: 0.0 };
+            let pose = Pose {
+                pos: world_center + Vector3::new(0.0, 16.0, 40.0),
+                yaw_deg: 0.0,
+            };
             let st = Structure::new(castle_id, st_sx, st_sy, st_sz, pose);
             gs.structures.insert(castle_id, st);
-            queue.emit_now(Event::StructureBuildRequested { id: castle_id, rev: 1 });
+            queue.emit_now(Event::StructureBuildRequested {
+                id: castle_id,
+                rev: 1,
+            });
         }
         Self {
             gs,
@@ -280,7 +320,12 @@ impl App {
         Self::log_event(self.gs.tick, &env.kind);
         match env.kind {
             Event::Tick => {}
-            Event::StructurePoseUpdated { id, pos, yaw_deg, delta } => {
+            Event::StructurePoseUpdated {
+                id,
+                pos,
+                yaw_deg,
+                delta,
+            } => {
                 if let Some(st) = self.gs.structures.get_mut(&id) {
                     st.last_delta = delta;
                     st.pose.pos = pos;
@@ -288,7 +333,8 @@ impl App {
                     // Keep player perfectly in sync if attached to this structure
                     if let Some(att) = self.gs.ground_attach {
                         if att.id == id {
-                            let world_from_local = rotate_yaw(att.local_offset, st.pose.yaw_deg) + st.pose.pos;
+                            let world_from_local =
+                                rotate_yaw(att.local_offset, st.pose.yaw_deg) + st.pose.pos;
                             self.gs.walker.pos = world_from_local;
                         }
                     }
@@ -306,27 +352,38 @@ impl App {
                     let sz = self.gs.world.chunk_size_z as i32;
                     // Platform attachment: handle attachment and movement
                     let feet_world = self.gs.walker.pos;
-                    
+
                     // First, check for new attachment
                     if self.gs.ground_attach.is_none() {
                         for (id, st) in &self.gs.structures {
                             if self.is_feet_on_structure(st, feet_world) {
                                 // Capture local feet offset and attach
-                                let local = rotate_yaw_inv(self.gs.walker.pos - st.pose.pos, st.pose.yaw_deg);
-                                self.gs.ground_attach = Some(crate::gamestate::GroundAttach { id: *id, grace: 8, local_offset: local });
+                                let local = rotate_yaw_inv(
+                                    self.gs.walker.pos - st.pose.pos,
+                                    st.pose.yaw_deg,
+                                );
+                                self.gs.ground_attach = Some(crate::gamestate::GroundAttach {
+                                    id: *id,
+                                    grace: 8,
+                                    local_offset: local,
+                                });
                                 // Emit lifecycle event for observability
-                                self.queue.emit_now(Event::PlayerAttachedToStructure { id: *id, local_offset: local });
+                                self.queue.emit_now(Event::PlayerAttachedToStructure {
+                                    id: *id,
+                                    local_offset: local,
+                                });
                                 break;
                             }
                         }
                     }
-                    
+
                     // If attached, move with the platform BEFORE physics
                     if let Some(att) = self.gs.ground_attach {
                         if let Some(st) = self.gs.structures.get(&att.id) {
                             // Calculate where we should be based on our local offset and the platform's current position
-                            let target_world_pos = rotate_yaw(att.local_offset, st.pose.yaw_deg) + st.pose.pos;
-                            
+                            let target_world_pos =
+                                rotate_yaw(att.local_offset, st.pose.yaw_deg) + st.pose.pos;
+
                             // Move the player to maintain their position on the platform
                             self.gs.walker.pos = target_world_pos;
                         } else {
@@ -337,19 +394,30 @@ impl App {
                         // Check dynamic structures first
                         for (_id, st) in &self.gs.structures {
                             let local = rotate_yaw_inv(
-                                Vector3::new(wx as f32 + 0.5, wy as f32 + 0.5, wz as f32 + 0.5) - st.pose.pos,
+                                Vector3::new(wx as f32 + 0.5, wy as f32 + 0.5, wz as f32 + 0.5)
+                                    - st.pose.pos,
                                 st.pose.yaw_deg,
                             );
                             let lx = local.x.floor() as i32;
                             let ly = local.y.floor() as i32;
                             let lz = local.z.floor() as i32;
-                            if lx >= 0 && ly >= 0 && lz >= 0
-                                && (lx as usize) < st.sx && (ly as usize) < st.sy && (lz as usize) < st.sz
+                            if lx >= 0
+                                && ly >= 0
+                                && lz >= 0
+                                && (lx as usize) < st.sx
+                                && (ly as usize) < st.sy
+                                && (lz as usize) < st.sz
                             {
-                                if let Some(b) = st.edits.get(lx, ly, lz) { if b.is_solid() { return b; } }
+                                if let Some(b) = st.edits.get(lx, ly, lz) {
+                                    if b.is_solid() {
+                                        return b;
+                                    }
+                                }
                                 let idx = st.idx(lx as usize, ly as usize, lz as usize);
                                 let b = st.blocks[idx];
-                                if b.is_solid() { return b; }
+                                if b.is_solid() {
+                                    return b;
+                                }
                             }
                         }
                         if let Some(b) = self.gs.edits.get(wx, wy, wz) {
@@ -376,27 +444,29 @@ impl App {
                     if let Some(att) = self.gs.ground_attach {
                         if let Some(st) = self.gs.structures.get(&att.id) {
                             // Calculate new local position after physics (player may have moved)
-                            let new_local = rotate_yaw_inv(self.gs.walker.pos - st.pose.pos, st.pose.yaw_deg);
-                            
+                            let new_local =
+                                rotate_yaw_inv(self.gs.walker.pos - st.pose.pos, st.pose.yaw_deg);
+
                             // Check if we're still on the structure after physics
                             if self.is_feet_on_structure(st, self.gs.walker.pos) {
                                 // Update attachment with new local offset (this allows movement on the platform)
-                                self.gs.ground_attach = Some(crate::gamestate::GroundAttach { 
-                                    id: att.id, 
-                                    grace: 8, 
-                                    local_offset: new_local 
+                                self.gs.ground_attach = Some(crate::gamestate::GroundAttach {
+                                    id: att.id,
+                                    grace: 8,
+                                    local_offset: new_local,
                                 });
                             } else if att.grace > 0 {
                                 // We've left the structure surface but have grace period (jumping/stepping off edge)
-                                self.gs.ground_attach = Some(crate::gamestate::GroundAttach { 
-                                    id: att.id, 
-                                    grace: att.grace - 1, 
-                                    local_offset: new_local 
+                                self.gs.ground_attach = Some(crate::gamestate::GroundAttach {
+                                    id: att.id,
+                                    grace: att.grace - 1,
+                                    local_offset: new_local,
                                 });
                             } else {
                                 // Grace period expired, detach
                                 self.gs.ground_attach = None;
-                                self.queue.emit_now(Event::PlayerDetachedFromStructure { id: att.id });
+                                self.queue
+                                    .emit_now(Event::PlayerDetachedFromStructure { id: att.id });
                             }
                         } else {
                             self.gs.ground_attach = None;
@@ -425,7 +495,11 @@ impl App {
             Event::PlayerAttachedToStructure { id, local_offset } => {
                 // Idempotent: set/refresh attachment state
                 if self.gs.structures.contains_key(&id) {
-                    self.gs.ground_attach = Some(crate::gamestate::GroundAttach { id, grace: 8, local_offset });
+                    self.gs.ground_attach = Some(crate::gamestate::GroundAttach {
+                        id,
+                        grace: 8,
+                        local_offset,
+                    });
                 }
             }
             Event::PlayerDetachedFromStructure { id } => {
@@ -528,7 +602,9 @@ impl App {
                 }
             }
             Event::StructureBuildCompleted { id, rev, cpu } => {
-                if let Some(mut cr) = upload_chunk_mesh(rl, thread, cpu, &mut self.runtime.tex_cache) {
+                if let Some(mut cr) =
+                    upload_chunk_mesh(rl, thread, cpu, &mut self.runtime.tex_cache)
+                {
                     for (fm, model) in &mut cr.parts {
                         if let Some(mat) = model.materials_mut().get_mut(0) {
                             match fm {
@@ -536,16 +612,22 @@ impl App {
                                     if let Some(ref ls) = self.runtime.leaves_shader {
                                         let dest = mat.shader_mut();
                                         let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
-                                        let src_ptr: *const raylib::ffi::Shader = ls.shader.as_ref();
-                                        unsafe { std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1); }
+                                        let src_ptr: *const raylib::ffi::Shader =
+                                            ls.shader.as_ref();
+                                        unsafe {
+                                            std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1);
+                                        }
                                     }
                                 }
                                 _ => {
                                     if let Some(ref fs) = self.runtime.fog_shader {
                                         let dest = mat.shader_mut();
                                         let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
-                                        let src_ptr: *const raylib::ffi::Shader = fs.shader.as_ref();
-                                        unsafe { std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1); }
+                                        let src_ptr: *const raylib::ffi::Shader =
+                                            fs.shader.as_ref();
+                                        unsafe {
+                                            std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1);
+                                        }
                                     }
                                 }
                             }
@@ -553,7 +635,9 @@ impl App {
                     }
                     self.runtime.structure_renders.insert(id, cr);
                 }
-                if let Some(st) = self.gs.structures.get_mut(&id) { st.built_rev = rev; }
+                if let Some(st) = self.gs.structures.get_mut(&id) {
+                    st.built_rev = rev;
+                }
             }
             Event::BuildChunkJobCompleted {
                 cx,
@@ -630,8 +714,7 @@ impl App {
                 if let Some(lb) = light_borders {
                     let changed = self.gs.lighting.update_borders(cx, cz, lb);
                     if changed {
-                        self.queue
-                            .emit_now(Event::LightBordersUpdated { cx, cz });
+                        self.queue.emit_now(Event::LightBordersUpdated { cx, cz });
                     }
                 }
             }
@@ -672,20 +755,38 @@ impl App {
                     }
                     self.gs.world.block_at(wx, wy, wz)
                 };
-                let world_hit = raycast::raycast_first_hit_with_face(org, dir, 8.0 * 32.0, |x,y,z| sampler(x,y,z).is_solid());
+                let world_hit =
+                    raycast::raycast_first_hit_with_face(org, dir, 8.0 * 32.0, |x, y, z| {
+                        sampler(x, y, z).is_solid()
+                    });
                 let mut struct_hit: Option<(StructureId, raycast::RayHit, f32)> = None;
                 for (id, st) in &self.gs.structures {
                     let local_org = rotate_yaw_inv(org - st.pose.pos, st.pose.yaw_deg);
                     let local_dir = rotate_yaw_inv(dir, st.pose.yaw_deg);
                     let is_solid_local = |lx: i32, ly: i32, lz: i32| -> bool {
-                        if lx < 0 || ly < 0 || lz < 0 { return false; }
+                        if lx < 0 || ly < 0 || lz < 0 {
+                            return false;
+                        }
                         let (lxu, lyu, lzu) = (lx as usize, ly as usize, lz as usize);
-                        if lxu >= st.sx || lyu >= st.sy || lzu >= st.sz { return false; }
-                        if let Some(b) = st.edits.get(lx, ly, lz) { return b.is_solid(); }
+                        if lxu >= st.sx || lyu >= st.sy || lzu >= st.sz {
+                            return false;
+                        }
+                        if let Some(b) = st.edits.get(lx, ly, lz) {
+                            return b.is_solid();
+                        }
                         st.blocks[st.idx(lxu, lyu, lzu)].is_solid()
                     };
-                    if let Some(hit) = raycast::raycast_first_hit_with_face(local_org, local_dir, 8.0 * 32.0, |x,y,z| is_solid_local(x,y,z)) {
-                        let cc_local = Vector3::new(hit.bx as f32 + 0.5, hit.by as f32 + 0.5, hit.bz as f32 + 0.5);
+                    if let Some(hit) = raycast::raycast_first_hit_with_face(
+                        local_org,
+                        local_dir,
+                        8.0 * 32.0,
+                        |x, y, z| is_solid_local(x, y, z),
+                    ) {
+                        let cc_local = Vector3::new(
+                            hit.bx as f32 + 0.5,
+                            hit.by as f32 + 0.5,
+                            hit.bz as f32 + 0.5,
+                        );
                         let cc_world = rotate_yaw(cc_local, st.pose.yaw_deg) + st.pose.pos;
                         let d = cc_world - org;
                         let dist2 = d.x * d.x + d.y * d.y + d.z * d.z;
@@ -697,7 +798,11 @@ impl App {
                     (None, Some(_)) => true,
                     (Some(_), None) => false,
                     (Some(wh), Some((_id, _sh, sdist2))) => {
-                        let wc = Vector3::new(wh.bx as f32 + 0.5, wh.by as f32 + 0.5, wh.bz as f32 + 0.5);
+                        let wc = Vector3::new(
+                            wh.bx as f32 + 0.5,
+                            wh.by as f32 + 0.5,
+                            wh.bz as f32 + 0.5,
+                        );
                         let dw = wc - org;
                         let wdist2 = dw.x * dw.x + dw.y * dw.y + dw.z * dw.z;
                         *sdist2 < wdist2
@@ -709,9 +814,20 @@ impl App {
                         if place {
                             // Place on the adjacent empty cell directly (no extra normal offset)
                             let (lx, ly, lz) = (hit.px, hit.py, hit.pz);
-                            self.queue.emit_now(Event::StructureBlockPlaced { id, lx, ly, lz, block });
+                            self.queue.emit_now(Event::StructureBlockPlaced {
+                                id,
+                                lx,
+                                ly,
+                                lz,
+                                block,
+                            });
                         } else {
-                            self.queue.emit_now(Event::StructureBlockRemoved { id, lx: hit.bx, ly: hit.by, lz: hit.bz });
+                            self.queue.emit_now(Event::StructureBlockRemoved {
+                                id,
+                                lx: hit.bx,
+                                ly: hit.by,
+                                lz: hit.bz,
+                            });
                         }
                     }
                 } else if let Some(hit) = world_hit {
@@ -720,29 +836,40 @@ impl App {
                         let wy = hit.py;
                         let wz = hit.pz;
                         if wy >= 0 && wy < self.gs.world.chunk_size_y as i32 {
-                            self.queue.emit_now(Event::BlockPlaced { wx, wy, wz, block });
+                            self.queue
+                                .emit_now(Event::BlockPlaced { wx, wy, wz, block });
                         }
                     } else {
                         let wx = hit.bx;
                         let wy = hit.by;
                         let wz = hit.bz;
                         let prev = sampler(wx, wy, wz);
-                        if prev.is_solid() { self.queue.emit_now(Event::BlockRemoved { wx, wy, wz }); }
+                        if prev.is_solid() {
+                            self.queue.emit_now(Event::BlockRemoved { wx, wy, wz });
+                        }
                     }
                 }
             }
-            Event::StructureBlockPlaced { id, lx, ly, lz, block } => {
+            Event::StructureBlockPlaced {
+                id,
+                lx,
+                ly,
+                lz,
+                block,
+            } => {
                 if let Some(st) = self.gs.structures.get_mut(&id) {
                     st.set_local(lx, ly, lz, block);
                     let rev = st.dirty_rev;
-                    self.queue.emit_now(Event::StructureBuildRequested { id, rev });
+                    self.queue
+                        .emit_now(Event::StructureBuildRequested { id, rev });
                 }
             }
             Event::StructureBlockRemoved { id, lx, ly, lz } => {
                 if let Some(st) = self.gs.structures.get_mut(&id) {
                     st.remove_local(lx, ly, lz);
                     let rev = st.dirty_rev;
-                    self.queue.emit_now(Event::StructureBuildRequested { id, rev });
+                    self.queue
+                        .emit_now(Event::StructureBuildRequested { id, rev });
                 }
             }
             Event::BlockPlaced { wx, wy, wz, block } => {
@@ -913,25 +1040,36 @@ impl App {
             self.queue.emit_now(Event::FrustumCullingToggled);
         }
         if rl.is_key_pressed(KeyboardKey::KEY_ONE) {
-            self.queue.emit_now(Event::PlaceTypeSelected { block: Block::Dirt });
+            self.queue
+                .emit_now(Event::PlaceTypeSelected { block: Block::Dirt });
         }
         if rl.is_key_pressed(KeyboardKey::KEY_TWO) {
-            self.queue.emit_now(Event::PlaceTypeSelected { block: Block::Stone });
+            self.queue.emit_now(Event::PlaceTypeSelected {
+                block: Block::Stone,
+            });
         }
         if rl.is_key_pressed(KeyboardKey::KEY_THREE) {
-            self.queue.emit_now(Event::PlaceTypeSelected { block: Block::Sand });
+            self.queue
+                .emit_now(Event::PlaceTypeSelected { block: Block::Sand });
         }
         if rl.is_key_pressed(KeyboardKey::KEY_FOUR) {
-            self.queue.emit_now(Event::PlaceTypeSelected { block: Block::Grass });
+            self.queue.emit_now(Event::PlaceTypeSelected {
+                block: Block::Grass,
+            });
         }
         if rl.is_key_pressed(KeyboardKey::KEY_FIVE) {
-            self.queue.emit_now(Event::PlaceTypeSelected { block: Block::Snow });
+            self.queue
+                .emit_now(Event::PlaceTypeSelected { block: Block::Snow });
         }
         if rl.is_key_pressed(KeyboardKey::KEY_SIX) {
-            self.queue.emit_now(Event::PlaceTypeSelected { block: Block::Glowstone });
+            self.queue.emit_now(Event::PlaceTypeSelected {
+                block: Block::Glowstone,
+            });
         }
         if rl.is_key_pressed(KeyboardKey::KEY_SEVEN) {
-            self.queue.emit_now(Event::PlaceTypeSelected { block: Block::Beacon });
+            self.queue.emit_now(Event::PlaceTypeSelected {
+                block: Block::Beacon,
+            });
         }
 
         // Structure speed controls
@@ -988,7 +1126,12 @@ impl App {
             let delta = newp - prev;
             // Keep yaw fixed so collisions match visuals
             let yaw = 0.0_f32;
-            self.queue.emit_now(Event::StructurePoseUpdated { id: *id, pos: newp, yaw_deg: yaw, delta });
+            self.queue.emit_now(Event::StructurePoseUpdated {
+                id: *id,
+                pos: newp,
+                yaw_deg: yaw,
+                delta,
+            });
         }
 
         // Movement intent for this tick (dt→ms)
@@ -1016,7 +1159,11 @@ impl App {
 
         // Drain structure worker results
         for r in self.runtime.drain_structure_results() {
-            self.queue.emit_now(Event::StructureBuildCompleted { id: r.id, rev: r.rev, cpu: r.cpu });
+            self.queue.emit_now(Event::StructureBuildCompleted {
+                id: r.id,
+                rev: r.rev,
+                cpu: r.cpu,
+            });
         }
 
         // Process events scheduled for this tick with a budget
@@ -1036,18 +1183,20 @@ impl App {
     pub fn render(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread) {
         // Reset debug stats for this frame
         self.debug_stats = DebugStats::default();
-        
+
         // Calculate frustum for culling
         let screen_width = rl.get_screen_width() as f32;
         let screen_height = rl.get_screen_height() as f32;
         let aspect_ratio = screen_width / screen_height;
         let frustum = self.cam.calculate_frustum(aspect_ratio, 0.1, 10000.0); // Increased far plane
-        
+
         let camera3d = self.cam.to_camera3d();
         let mut d = rl.begin_drawing(thread);
         d.clear_background(Color::new(210, 221, 235, 255));
         // Ensure the depth buffer is cleared every frame to avoid ghost silhouettes when moving
-        unsafe { raylib::ffi::rlClearScreenBuffers(); }
+        unsafe {
+            raylib::ffi::rlClearScreenBuffers();
+        }
         {
             let mut d3 = d.begin_mode3D(camera3d);
             if self.gs.show_grid {
@@ -1077,7 +1226,7 @@ impl App {
                     self.debug_stats.chunks_culled += 1;
                     continue;
                 }
-                
+
                 self.debug_stats.chunks_rendered += 1;
                 for (_fm, model) in &cr.parts {
                     // Get mesh stats from the model
@@ -1087,7 +1236,7 @@ impl App {
                         self.debug_stats.total_triangles += mesh.triangleCount as usize;
                     }
                     self.debug_stats.draw_calls += 1;
-                    
+
                     if self.gs.wireframe {
                         d3.draw_model_wires(model, Vector3::zero(), 1.0, Color::WHITE);
                     } else {
@@ -1104,13 +1253,15 @@ impl App {
                         min: cr.bbox.min + st.pose.pos,
                         max: cr.bbox.max + st.pose.pos,
                     };
-                    
+
                     // Check if structure is within frustum
-                    if self.gs.frustum_culling_enabled && !frustum.contains_bounding_box(&translated_bbox) {
+                    if self.gs.frustum_culling_enabled
+                        && !frustum.contains_bounding_box(&translated_bbox)
+                    {
                         self.debug_stats.structures_culled += 1;
                         continue;
                     }
-                    
+
                     self.debug_stats.structures_rendered += 1;
                     for (_fm, model) in &cr.parts {
                         // Get mesh stats from the model
@@ -1120,7 +1271,7 @@ impl App {
                             self.debug_stats.total_triangles += mesh.triangleCount as usize;
                         }
                         self.debug_stats.draw_calls += 1;
-                        
+
                         // Yaw is ignored here if draw_model_ex isn't available; translation still applies
                         d3.draw_model(model, st.pose.pos, 1.0, Color::WHITE);
                     }
@@ -1228,7 +1379,7 @@ impl App {
         let y_pos = screen_height - (text_lines * line_height) - 10; // 10px margin from bottom
         d.draw_text(&debug_text, 10, y_pos, 20, Color::WHITE);
         d.draw_text(&debug_text, 11, y_pos + 1, 20, Color::BLACK); // Shadow for readability
-        
+
         // HUD
         let hud_mode = if self.gs.walk_mode { "Walk" } else { "Fly" };
         let hud = format!(
@@ -1245,59 +1396,123 @@ impl App {
         );
         d.draw_text(&hud, 12, 12, 18, Color::DARKGRAY);
         d.draw_fps(12, 36);
-        
+
         // Debug overlay for attachment status
         let mut debug_y = 60;
         d.draw_text("=== ATTACHMENT DEBUG ===", 12, debug_y, 16, Color::RED);
         debug_y += 20;
-        
+
         // Show attachment status
         if let Some(att) = self.gs.ground_attach {
-            d.draw_text(&format!("ATTACHED to structure ID: {}", att.id), 12, debug_y, 16, Color::GREEN);
+            d.draw_text(
+                &format!("ATTACHED to structure ID: {}", att.id),
+                12,
+                debug_y,
+                16,
+                Color::GREEN,
+            );
             debug_y += 18;
-            d.draw_text(&format!("  Grace period: {}", att.grace), 12, debug_y, 16, Color::GREEN);
+            d.draw_text(
+                &format!("  Grace period: {}", att.grace),
+                12,
+                debug_y,
+                16,
+                Color::GREEN,
+            );
             debug_y += 18;
-            d.draw_text(&format!("  Local offset: ({:.2}, {:.2}, {:.2})", 
-                att.local_offset.x, att.local_offset.y, att.local_offset.z), 12, debug_y, 16, Color::GREEN);
+            d.draw_text(
+                &format!(
+                    "  Local offset: ({:.2}, {:.2}, {:.2})",
+                    att.local_offset.x, att.local_offset.y, att.local_offset.z
+                ),
+                12,
+                debug_y,
+                16,
+                Color::GREEN,
+            );
             debug_y += 18;
         } else {
             d.draw_text("NOT ATTACHED", 12, debug_y, 16, Color::ORANGE);
             debug_y += 18;
         }
-        
+
         // Show walker position
-        d.draw_text(&format!("Walker pos: ({:.2}, {:.2}, {:.2})", 
-            self.gs.walker.pos.x, self.gs.walker.pos.y, self.gs.walker.pos.z), 12, debug_y, 16, Color::DARKGRAY);
+        d.draw_text(
+            &format!(
+                "Walker pos: ({:.2}, {:.2}, {:.2})",
+                self.gs.walker.pos.x, self.gs.walker.pos.y, self.gs.walker.pos.z
+            ),
+            12,
+            debug_y,
+            16,
+            Color::DARKGRAY,
+        );
         debug_y += 18;
-        
+
         // Show on_ground status
-        d.draw_text(&format!("On ground: {}", self.gs.walker.on_ground), 12, debug_y, 16, Color::DARKGRAY);
+        d.draw_text(
+            &format!("On ground: {}", self.gs.walker.on_ground),
+            12,
+            debug_y,
+            16,
+            Color::DARKGRAY,
+        );
         debug_y += 18;
-        
+
         // Check each structure and show detection status
         for (id, st) in &self.gs.structures {
             let on_structure = self.is_feet_on_structure(st, self.gs.walker.pos);
-            let color = if on_structure { Color::GREEN } else { Color::GRAY };
-            d.draw_text(&format!("Structure {}: on={} pos=({:.1},{:.1},{:.1}) delta=({:.3},{:.3},{:.3})", 
-                id, on_structure, st.pose.pos.x, st.pose.pos.y, st.pose.pos.z,
-                st.last_delta.x, st.last_delta.y, st.last_delta.z), 12, debug_y, 16, color);
+            let color = if on_structure {
+                Color::GREEN
+            } else {
+                Color::GRAY
+            };
+            d.draw_text(
+                &format!(
+                    "Structure {}: on={} pos=({:.1},{:.1},{:.1}) delta=({:.3},{:.3},{:.3})",
+                    id,
+                    on_structure,
+                    st.pose.pos.x,
+                    st.pose.pos.y,
+                    st.pose.pos.z,
+                    st.last_delta.x,
+                    st.last_delta.y,
+                    st.last_delta.z
+                ),
+                12,
+                debug_y,
+                16,
+                color,
+            );
             debug_y += 18;
-            
+
             // Show detailed detection info
             let local = rotate_yaw_inv(self.gs.walker.pos - st.pose.pos, st.pose.yaw_deg);
             let test_y = local.y - 0.08;
             let lx = local.x.floor() as i32;
             let ly = test_y.floor() as i32;
             let lz = local.z.floor() as i32;
-            
-            d.draw_text(&format!("  Local: ({:.2}, {:.2}, {:.2}) Test Y: {:.2} -> Grid: ({}, {}, {})", 
-                local.x, local.y, local.z, test_y, lx, ly, lz), 12, debug_y, 14, color);
+
+            d.draw_text(
+                &format!(
+                    "  Local: ({:.2}, {:.2}, {:.2}) Test Y: {:.2} -> Grid: ({}, {}, {})",
+                    local.x, local.y, local.z, test_y, lx, ly, lz
+                ),
+                12,
+                debug_y,
+                14,
+                color,
+            );
             debug_y += 16;
-            
+
             // Check if we're in bounds
-            let in_bounds = lx >= 0 && ly >= 0 && lz >= 0 
-                && (lx as usize) < st.sx && (ly as usize) < st.sy && (lz as usize) < st.sz;
-            
+            let in_bounds = lx >= 0
+                && ly >= 0
+                && lz >= 0
+                && (lx as usize) < st.sx
+                && (ly as usize) < st.sy
+                && (lz as usize) < st.sz;
+
             // Get the actual block at this position (direct sample)
             let (block_at_pos, block_solid) = if in_bounds {
                 // Check edits first
@@ -1312,20 +1527,40 @@ impl App {
             } else {
                 ("out of bounds".to_string(), false)
             };
-            
-            d.draw_text(&format!("  Bounds: 0..{} x 0..{} x 0..{} | In bounds: {}", 
-                st.sx, st.sy, st.sz, in_bounds), 12, debug_y, 14, color);
+
+            d.draw_text(
+                &format!(
+                    "  Bounds: 0..{} x 0..{} x 0..{} | In bounds: {}",
+                    st.sx, st.sy, st.sz, in_bounds
+                ),
+                12,
+                debug_y,
+                14,
+                color,
+            );
             debug_y += 16;
-            
-            d.draw_text(&format!("  Block at ({},{},{}): {} | Solid: {}", 
-                lx, ly, lz, block_at_pos, block_solid), 12, debug_y, 14, color);
+
+            d.draw_text(
+                &format!(
+                    "  Block at ({},{},{}): {} | Solid: {}",
+                    lx, ly, lz, block_at_pos, block_solid
+                ),
+                12,
+                debug_y,
+                14,
+                color,
+            );
             debug_y += 16;
 
             // Also show the block one cell below the sample (helps diagnose edge cases)
             if ly > 0 {
                 let by = ly - 1;
-                let (block_below, solid_below) = if lx >= 0 && by >= 0 && lz >= 0
-                    && (lx as usize) < st.sx && (by as usize) < st.sy && (lz as usize) < st.sz
+                let (block_below, solid_below) = if lx >= 0
+                    && by >= 0
+                    && lz >= 0
+                    && (lx as usize) < st.sx
+                    && (by as usize) < st.sy
+                    && (lz as usize) < st.sz
                 {
                     if let Some(b) = st.edits.get(lx, by, lz) {
                         (format!("{:?} (edit)", b), b.is_solid())
@@ -1337,22 +1572,44 @@ impl App {
                 } else {
                     ("out of bounds".to_string(), false)
                 };
-                d.draw_text(&format!("  Block at below ({},{},{}): {} | Solid: {}",
-                    lx, by, lz, block_below, solid_below), 12, debug_y, 14, color);
+                d.draw_text(
+                    &format!(
+                        "  Block at below ({},{},{}): {} | Solid: {}",
+                        lx, by, lz, block_below, solid_below
+                    ),
+                    12,
+                    debug_y,
+                    14,
+                    color,
+                );
                 debug_y += 16;
             }
-            
+
             // Show deck info and check what's at deck level
             let deck_y = (st.sy as f32 * 0.33) as i32;
-            d.draw_text(&format!("  Deck Y level: {} (expecting solid blocks here)", deck_y), 12, debug_y, 14, Color::BLUE);
+            d.draw_text(
+                &format!("  Deck Y level: {} (expecting solid blocks here)", deck_y),
+                12,
+                debug_y,
+                14,
+                Color::BLUE,
+            );
             debug_y += 16;
-            
+
             // Debug: Check what's actually at the deck level at player's X,Z
             if lx >= 0 && lz >= 0 && (lx as usize) < st.sx && (lz as usize) < st.sz {
                 let deck_idx = st.idx(lx as usize, deck_y as usize, lz as usize);
                 let deck_block = st.blocks[deck_idx];
-                d.draw_text(&format!("  Block at deck level ({},{},{}): {:?}", 
-                    lx, deck_y, lz, deck_block), 12, debug_y, 14, Color::MAGENTA);
+                d.draw_text(
+                    &format!(
+                        "  Block at deck level ({},{},{}): {:?}",
+                        lx, deck_y, lz, deck_block
+                    ),
+                    12,
+                    debug_y,
+                    14,
+                    Color::MAGENTA,
+                );
                 debug_y += 16;
             }
         }
@@ -1446,11 +1703,22 @@ impl App {
             E::StructureBuildCompleted { id, rev, .. } => {
                 log::info!(target: "events", "[tick {}] StructureBuildCompleted id={} rev={}", tick, id, rev);
             }
-            E::StructurePoseUpdated { id, pos, yaw_deg, delta } => {
+            E::StructurePoseUpdated {
+                id,
+                pos,
+                yaw_deg,
+                delta,
+            } => {
                 log::trace!(target: "events", "[tick {}] StructurePoseUpdated id={} pos=({:.2},{:.2},{:.2}) yaw={:.1} delta=({:.2},{:.2},{:.2})",
                     tick, id, pos.x, pos.y, pos.z, yaw_deg, delta.x, delta.y, delta.z);
             }
-            E::StructureBlockPlaced { id, lx, ly, lz, block } => {
+            E::StructureBlockPlaced {
+                id,
+                lx,
+                ly,
+                lz,
+                block,
+            } => {
                 log::info!(target: "events", "[tick {}] StructureBlockPlaced id={} ({},{},{}) block={:?}", tick, id, lx, ly, lz, block);
             }
             E::StructureBlockRemoved { id, lx, ly, lz } => {

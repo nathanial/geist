@@ -5,8 +5,8 @@ use crate::chunkbuf::ChunkBuf;
 use crate::edit::EditStore;
 use crate::lighting::LightingStore;
 use crate::player::Walker;
-use crate::voxel::{Block, World};
 use crate::structure::{Structure, StructureId};
+use crate::voxel::{Block, World};
 
 pub struct ChunkEntry {
     pub buf: Option<ChunkBuf>,

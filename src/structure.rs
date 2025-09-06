@@ -96,7 +96,9 @@ pub struct StructureEditStore {
 
 impl StructureEditStore {
     pub fn new() -> Self {
-        Self { inner: HashMap::new() }
+        Self {
+            inner: HashMap::new(),
+        }
     }
 
     pub fn get(&self, lx: i32, ly: i32, lz: i32) -> Option<Block> {

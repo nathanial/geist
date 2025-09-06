@@ -5,25 +5,30 @@ mod edit;
 mod event;
 mod gamestate;
 mod lighting;
+mod mcworld;
 mod mesher;
 mod meshing_core;
-mod structure;
 mod player;
 mod raycast;
 mod runtime;
-mod shaders;
-mod voxel;
 mod schem;
-mod mcworld;
+mod shaders;
+mod structure;
+mod voxel;
 
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use raylib::prelude::*;
+use std::path::PathBuf;
 use std::sync::Arc;
 use voxel::{World, WorldGenMode};
-use std::path::PathBuf;
-use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Parser, Debug)]
-#[command(name = "geist", version, about = "Geist voxel viewer", propagate_version = true)]
+#[command(
+    name = "geist",
+    version,
+    about = "Geist voxel viewer",
+    propagate_version = true
+)]
 struct Cli {
     /// Log to a file; optional path (defaults to geist.log if omitted)
     #[arg(long, global = true, num_args = 0..=1, value_name = "PATH", default_missing_value = "geist.log")]
@@ -78,10 +83,16 @@ struct RunArgs {
 }
 
 #[derive(Clone, Debug, ValueEnum)]
-enum WorldKind { Normal, Flat, SchemOnly }
+enum WorldKind {
+    Normal,
+    Flat,
+    SchemOnly,
+}
 
 impl Default for WorldKind {
-    fn default() -> Self { WorldKind::Normal }
+    fn default() -> Self {
+        WorldKind::Normal
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -128,8 +139,12 @@ fn main() {
                 eprintln!("Logging to file: {} (level: {:?})", path, level);
             }
             Err(e) => {
-                eprintln!("Failed to open log file {}: {}. Falling back to stderr.", path, e);
-                env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+                eprintln!(
+                    "Failed to open log file {}: {}. Falling back to stderr.",
+                    path, e
+                );
+                env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+                    .init();
             }
         }
     } else {
@@ -141,7 +156,9 @@ fn main() {
     let command = cli.command.unwrap_or(Command::Run(RunArgs::default()));
 
     match command {
-        Command::Schem { cmd: SchemCmd::Report(args) } => {
+        Command::Schem {
+            cmd: SchemCmd::Report(args),
+        } => {
             let schem_path = args
                 .path
                 .clone()
@@ -151,7 +168,9 @@ fn main() {
                     Ok(mut entries) => {
                         entries.sort_by(|a, b| b.1.cmp(&a.1));
                         println!("Block counts in {:?} (excluding air):", schem_path);
-                        for (id, c) in entries { println!("{:>8}  {}", c, id); }
+                        for (id, c) in entries {
+                            println!("{:>8}  {}", c, id);
+                        }
                     }
                     Err(e) => {
                         eprintln!("Failed to analyze {:?}: {}", schem_path, e);
@@ -159,13 +178,20 @@ fn main() {
                     }
                 }
             } else {
-                match crate::schem::find_unsupported_blocks_in_file(std::path::Path::new(&schem_path)) {
+                match crate::schem::find_unsupported_blocks_in_file(std::path::Path::new(
+                    &schem_path,
+                )) {
                     Ok(list) => {
                         if list.is_empty() {
-                            println!("All blocks in {:?} are supported by current mapper.", schem_path);
+                            println!(
+                                "All blocks in {:?} are supported by current mapper.",
+                                schem_path
+                            );
                         } else {
                             println!("Unsupported block types ({}):", list.len());
-                            for id in list { println!("- {}", id); }
+                            for id in list {
+                                println!("- {}", id);
+                            }
                         }
                     }
                     Err(e) => {
@@ -210,7 +236,9 @@ fn run_app(run: RunArgs) {
     let world_seed = run.seed;
     let world_mode = match run.world {
         WorldKind::SchemOnly => WorldGenMode::Flat { thickness: 0 },
-        WorldKind::Flat => WorldGenMode::Flat { thickness: run.flat_thickness.unwrap_or(1) },
+        WorldKind::Flat => WorldGenMode::Flat {
+            thickness: run.flat_thickness.unwrap_or(1),
+        },
         WorldKind::Normal => WorldGenMode::Normal,
     };
     let world = Arc::new(World::new(

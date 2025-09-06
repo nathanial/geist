@@ -46,13 +46,27 @@ impl ChunkBuf {
         Some(self.get_local(lx, wy as usize, lz))
     }
 
-    pub fn from_blocks_local(cx: i32, cz: i32, sx: usize, sy: usize, sz: usize, blocks: Vec<Block>) -> Self {
+    pub fn from_blocks_local(
+        cx: i32,
+        cz: i32,
+        sx: usize,
+        sy: usize,
+        sz: usize,
+        blocks: Vec<Block>,
+    ) -> Self {
         let mut b = blocks;
         let expect = sx * sy * sz;
         if b.len() != expect {
             b.resize(expect, Block::Air);
         }
-        ChunkBuf { cx, cz, sx, sy, sz, blocks: b }
+        ChunkBuf {
+            cx,
+            cz,
+            sx,
+            sy,
+            sz,
+            blocks: b,
+        }
     }
 }
 

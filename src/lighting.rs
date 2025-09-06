@@ -234,7 +234,10 @@ impl LightGrid {
                         .as_ref()
                         .and_then(|p| p.get(y * sz + z).cloned())
                         .unwrap_or(5);
-                    let atten = match dir { 1 | 2 | 3 | 4 => 1, _ => 32 };
+                    let atten = match dir {
+                        1 | 2 | 3 | 4 => 1,
+                        _ => 32,
+                    };
                     let v = orig_v as i32 - atten;
                     if v > 0 {
                         let v8 = v as u8;
@@ -257,7 +260,10 @@ impl LightGrid {
                         .as_ref()
                         .and_then(|p| p.get(y * sz + z).cloned())
                         .unwrap_or(5);
-                    let atten = match dir { 1 | 2 | 3 | 4 => 1, _ => 32 };
+                    let atten = match dir {
+                        1 | 2 | 3 | 4 => 1,
+                        _ => 32,
+                    };
                     let v = orig_v as i32 - atten;
                     if v > 0 {
                         let v8 = v as u8;
@@ -281,7 +287,10 @@ impl LightGrid {
                         .as_ref()
                         .and_then(|p| p.get(y * sx + x).cloned())
                         .unwrap_or(5);
-                    let atten = match dir { 1 | 2 | 3 | 4 => 1, _ => 32 };
+                    let atten = match dir {
+                        1 | 2 | 3 | 4 => 1,
+                        _ => 32,
+                    };
                     let v = orig_v as i32 - atten;
                     if v > 0 {
                         let v8 = v as u8;
@@ -304,7 +313,10 @@ impl LightGrid {
                         .as_ref()
                         .and_then(|p| p.get(y * sx + x).cloned())
                         .unwrap_or(5);
-                    let atten = match dir { 1 | 2 | 3 | 4 => 1, _ => 32 };
+                    let atten = match dir {
+                        1 | 2 | 3 | 4 => 1,
+                        _ => 32,
+                    };
                     let v = orig_v as i32 - atten;
                     if v > 0 {
                         let v8 = v as u8;

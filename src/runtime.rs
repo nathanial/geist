@@ -5,8 +5,8 @@ use std::thread;
 
 use crate::chunkbuf;
 use crate::mesher::{self, ChunkMeshCPU, NeighborsLoaded};
-use crate::structure::StructureId;
 use crate::shaders;
+use crate::structure::StructureId;
 use crate::voxel::World;
 
 #[derive(Clone, Debug)]
@@ -213,7 +213,14 @@ impl Runtime {
         {
             thread::spawn(move || {
                 while let Ok(job) = s_job_rx.recv() {
-                    let mut buf = chunkbuf::ChunkBuf::from_blocks_local(0, 0, job.sx, job.sy, job.sz, job.base_blocks.clone());
+                    let mut buf = chunkbuf::ChunkBuf::from_blocks_local(
+                        0,
+                        0,
+                        job.sx,
+                        job.sy,
+                        job.sz,
+                        job.base_blocks.clone(),
+                    );
                     for ((lx, ly, lz), b) in job.edits.iter().copied() {
                         if lx < 0 || ly < 0 || lz < 0 {
                             continue;
@@ -226,7 +233,11 @@ impl Runtime {
                         buf.blocks[idx] = b;
                     }
                     let cpu = mesher::build_voxel_body_cpu_buf(&buf, 180);
-                    let _ = s_res_tx.send(StructureJobOut { id: job.id, rev: job.rev, cpu });
+                    let _ = s_res_tx.send(StructureJobOut {
+                        id: job.id,
+                        rev: job.rev,
+                        cpu,
+                    });
                 }
             });
         }

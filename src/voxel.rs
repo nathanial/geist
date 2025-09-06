@@ -75,8 +75,15 @@ pub enum Block {
     Terracotta(TerracottaColor),
     QuartzPillar(Axis),
     // Special shapes (non-cubic)
-    Slab { half: SlabHalf, key: MaterialKey },
-    Stairs { dir: Dir4, half: SlabHalf, key: MaterialKey },
+    Slab {
+        half: SlabHalf,
+        key: MaterialKey,
+    },
+    Stairs {
+        dir: Dir4,
+        half: SlabHalf,
+        key: MaterialKey,
+    },
     Glowstone,
     Beacon,
 }
@@ -115,13 +122,25 @@ pub enum WorldGenMode {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub enum Axis { X, Y, Z }
+pub enum Axis {
+    X,
+    Y,
+    Z,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub enum SlabHalf { Bottom, Top }
+pub enum SlabHalf {
+    Bottom,
+    Top,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
-pub enum Dir4 { North, South, West, East }
+pub enum Dir4 {
+    North,
+    South,
+    West,
+    East,
+}
 
 // Material family for non-cubic shapes
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -189,7 +208,11 @@ impl World {
         }
         // Flat world shortcut: stone slab of configured thickness at base, otherwise air
         if let WorldGenMode::Flat { thickness } = self.mode {
-            return if y < thickness { Block::Stone } else { Block::Air };
+            return if y < thickness {
+                Block::Stone
+            } else {
+                Block::Air
+            };
         }
         // Base terrain sampling (shared with trees)
         let mut noise = FastNoiseLite::with_seed(self.seed);

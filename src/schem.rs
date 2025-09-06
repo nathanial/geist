@@ -1,10 +1,12 @@
-use std::path::{Path, PathBuf};
 use std::fs;
+use std::path::{Path, PathBuf};
 
 use crate::voxel::{Block, Dir4, MaterialKey, SlabHalf, TerracottaColor, TreeSpecies};
 
 // Map a Sponge palette key like "minecraft:oak_log[axis=y]" to our Block
-fn base_from_key(key: &str) -> &str { key.split('[').next().unwrap_or(key) }
+fn base_from_key(key: &str) -> &str {
+    key.split('[').next().unwrap_or(key)
+}
 
 fn axis_from_key(key: &str) -> Option<crate::voxel::Axis> {
     if let Some(start) = key.find('[') {
@@ -77,7 +79,9 @@ fn map_palette_key_to_block_opt(key: &str) -> Option<Block> {
         "minecraft:cut_red_sandstone" => Some(Block::SmoothRedSandstone),
         "minecraft:quartz_block" => Some(Block::QuartzBlock),
         "minecraft:chiseled_quartz_block" => Some(Block::QuartzBlock),
-        "minecraft:quartz_pillar" => Some(Block::QuartzPillar(axis_from_key(key).unwrap_or(crate::voxel::Axis::Y))),
+        "minecraft:quartz_pillar" => Some(Block::QuartzPillar(
+            axis_from_key(key).unwrap_or(crate::voxel::Axis::Y),
+        )),
         "minecraft:lapis_block" => Some(Block::LapisBlock),
         "minecraft:coal_block" => Some(Block::CoalBlock),
         "minecraft:prismarine_bricks" => Some(Block::PrismarineBricks),
@@ -124,12 +128,30 @@ fn map_palette_key_to_block_opt(key: &str) -> Option<Block> {
         "minecraft:rooted_dirt" => Some(Block::Dirt),
 
         // Logs with axis
-        "minecraft:oak_log" => Some(Block::LogAxis(TreeSpecies::Oak, axis_from_key(key).unwrap_or(crate::voxel::Axis::Y))),
-        "minecraft:birch_log" => Some(Block::LogAxis(TreeSpecies::Birch, axis_from_key(key).unwrap_or(crate::voxel::Axis::Y))),
-        "minecraft:spruce_log" => Some(Block::LogAxis(TreeSpecies::Spruce, axis_from_key(key).unwrap_or(crate::voxel::Axis::Y))),
-        "minecraft:jungle_log" => Some(Block::LogAxis(TreeSpecies::Jungle, axis_from_key(key).unwrap_or(crate::voxel::Axis::Y))),
-        "minecraft:acacia_log" => Some(Block::LogAxis(TreeSpecies::Acacia, axis_from_key(key).unwrap_or(crate::voxel::Axis::Y))),
-        "minecraft:dark_oak_log" => Some(Block::LogAxis(TreeSpecies::DarkOak, axis_from_key(key).unwrap_or(crate::voxel::Axis::Y))),
+        "minecraft:oak_log" => Some(Block::LogAxis(
+            TreeSpecies::Oak,
+            axis_from_key(key).unwrap_or(crate::voxel::Axis::Y),
+        )),
+        "minecraft:birch_log" => Some(Block::LogAxis(
+            TreeSpecies::Birch,
+            axis_from_key(key).unwrap_or(crate::voxel::Axis::Y),
+        )),
+        "minecraft:spruce_log" => Some(Block::LogAxis(
+            TreeSpecies::Spruce,
+            axis_from_key(key).unwrap_or(crate::voxel::Axis::Y),
+        )),
+        "minecraft:jungle_log" => Some(Block::LogAxis(
+            TreeSpecies::Jungle,
+            axis_from_key(key).unwrap_or(crate::voxel::Axis::Y),
+        )),
+        "minecraft:acacia_log" => Some(Block::LogAxis(
+            TreeSpecies::Acacia,
+            axis_from_key(key).unwrap_or(crate::voxel::Axis::Y),
+        )),
+        "minecraft:dark_oak_log" => Some(Block::LogAxis(
+            TreeSpecies::DarkOak,
+            axis_from_key(key).unwrap_or(crate::voxel::Axis::Y),
+        )),
 
         // Leaves
         "minecraft:oak_leaves" => Some(Block::Leaves(TreeSpecies::Oak)),
@@ -160,185 +182,591 @@ fn map_palette_key_to_block_opt(key: &str) -> Option<Block> {
 
         // Common transparent/decoration blocks -> treat as unsupported for now
         // Treat these as unsupported (None) rather than Air; we'll skip them in building if needed
-        "minecraft:glass" | "minecraft:glass_pane" | "minecraft:torch" | "minecraft:lantern"
-        | "minecraft:water" | "minecraft:lava" => None,
+        "minecraft:glass"
+        | "minecraft:glass_pane"
+        | "minecraft:torch"
+        | "minecraft:lantern"
+        | "minecraft:water"
+        | "minecraft:lava" => None,
 
         // --- Slabs (straight) ---
         "minecraft:oak_slab" => {
-            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::Planks(TreeSpecies::Oak)), _ => SlabHalf::Bottom };
-            Some(Block::Slab { half, key: MaterialKey::Planks(TreeSpecies::Oak) })
+            let half = match state_value(key, "type") {
+                Some("top") => SlabHalf::Top,
+                Some("bottom") => SlabHalf::Bottom,
+                Some("double") => return Some(Block::Planks(TreeSpecies::Oak)),
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Slab {
+                half,
+                key: MaterialKey::Planks(TreeSpecies::Oak),
+            })
         }
         "minecraft:spruce_slab" => {
-            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::Planks(TreeSpecies::Spruce)), _ => SlabHalf::Bottom };
-            Some(Block::Slab { half, key: MaterialKey::Planks(TreeSpecies::Spruce) })
+            let half = match state_value(key, "type") {
+                Some("top") => SlabHalf::Top,
+                Some("bottom") => SlabHalf::Bottom,
+                Some("double") => return Some(Block::Planks(TreeSpecies::Spruce)),
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Slab {
+                half,
+                key: MaterialKey::Planks(TreeSpecies::Spruce),
+            })
         }
         "minecraft:birch_slab" => {
-            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::Planks(TreeSpecies::Birch)), _ => SlabHalf::Bottom };
-            Some(Block::Slab { half, key: MaterialKey::Planks(TreeSpecies::Birch) })
+            let half = match state_value(key, "type") {
+                Some("top") => SlabHalf::Top,
+                Some("bottom") => SlabHalf::Bottom,
+                Some("double") => return Some(Block::Planks(TreeSpecies::Birch)),
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Slab {
+                half,
+                key: MaterialKey::Planks(TreeSpecies::Birch),
+            })
         }
         "minecraft:jungle_slab" => {
-            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::Planks(TreeSpecies::Jungle)), _ => SlabHalf::Bottom };
-            Some(Block::Slab { half, key: MaterialKey::Planks(TreeSpecies::Jungle) })
+            let half = match state_value(key, "type") {
+                Some("top") => SlabHalf::Top,
+                Some("bottom") => SlabHalf::Bottom,
+                Some("double") => return Some(Block::Planks(TreeSpecies::Jungle)),
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Slab {
+                half,
+                key: MaterialKey::Planks(TreeSpecies::Jungle),
+            })
         }
         "minecraft:acacia_slab" => {
-            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::Planks(TreeSpecies::Acacia)), _ => SlabHalf::Bottom };
-            Some(Block::Slab { half, key: MaterialKey::Planks(TreeSpecies::Acacia) })
+            let half = match state_value(key, "type") {
+                Some("top") => SlabHalf::Top,
+                Some("bottom") => SlabHalf::Bottom,
+                Some("double") => return Some(Block::Planks(TreeSpecies::Acacia)),
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Slab {
+                half,
+                key: MaterialKey::Planks(TreeSpecies::Acacia),
+            })
         }
         "minecraft:dark_oak_slab" => {
-            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::Planks(TreeSpecies::DarkOak)), _ => SlabHalf::Bottom };
-            Some(Block::Slab { half, key: MaterialKey::Planks(TreeSpecies::DarkOak) })
+            let half = match state_value(key, "type") {
+                Some("top") => SlabHalf::Top,
+                Some("bottom") => SlabHalf::Bottom,
+                Some("double") => return Some(Block::Planks(TreeSpecies::DarkOak)),
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Slab {
+                half,
+                key: MaterialKey::Planks(TreeSpecies::DarkOak),
+            })
         }
         "minecraft:smooth_stone_slab" | "minecraft:stone_slab" => {
-            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::SmoothStone), _ => SlabHalf::Bottom };
-            Some(Block::Slab { half, key: MaterialKey::SmoothStone })
+            let half = match state_value(key, "type") {
+                Some("top") => SlabHalf::Top,
+                Some("bottom") => SlabHalf::Bottom,
+                Some("double") => return Some(Block::SmoothStone),
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Slab {
+                half,
+                key: MaterialKey::SmoothStone,
+            })
         }
         "minecraft:sandstone_slab" => {
-            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::Sandstone), _ => SlabHalf::Bottom };
-            Some(Block::Slab { half, key: MaterialKey::Sandstone })
+            let half = match state_value(key, "type") {
+                Some("top") => SlabHalf::Top,
+                Some("bottom") => SlabHalf::Bottom,
+                Some("double") => return Some(Block::Sandstone),
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Slab {
+                half,
+                key: MaterialKey::Sandstone,
+            })
         }
         "minecraft:red_sandstone_slab" => {
-            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::RedSandstone), _ => SlabHalf::Bottom };
-            Some(Block::Slab { half, key: MaterialKey::RedSandstone })
+            let half = match state_value(key, "type") {
+                Some("top") => SlabHalf::Top,
+                Some("bottom") => SlabHalf::Bottom,
+                Some("double") => return Some(Block::RedSandstone),
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Slab {
+                half,
+                key: MaterialKey::RedSandstone,
+            })
         }
         "minecraft:cobblestone_slab" => {
-            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::Cobblestone), _ => SlabHalf::Bottom };
-            Some(Block::Slab { half, key: MaterialKey::Cobblestone })
+            let half = match state_value(key, "type") {
+                Some("top") => SlabHalf::Top,
+                Some("bottom") => SlabHalf::Bottom,
+                Some("double") => return Some(Block::Cobblestone),
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Slab {
+                half,
+                key: MaterialKey::Cobblestone,
+            })
         }
         "minecraft:mossy_cobblestone_slab" => {
-            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::MossyCobblestone), _ => SlabHalf::Bottom };
-            Some(Block::Slab { half, key: MaterialKey::MossyCobblestone })
+            let half = match state_value(key, "type") {
+                Some("top") => SlabHalf::Top,
+                Some("bottom") => SlabHalf::Bottom,
+                Some("double") => return Some(Block::MossyCobblestone),
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Slab {
+                half,
+                key: MaterialKey::MossyCobblestone,
+            })
         }
         "minecraft:stone_brick_slab" => {
-            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::StoneBricks), _ => SlabHalf::Bottom };
-            Some(Block::Slab { half, key: MaterialKey::StoneBricks })
+            let half = match state_value(key, "type") {
+                Some("top") => SlabHalf::Top,
+                Some("bottom") => SlabHalf::Bottom,
+                Some("double") => return Some(Block::StoneBricks),
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Slab {
+                half,
+                key: MaterialKey::StoneBricks,
+            })
         }
         "minecraft:end_stone_brick_slab" => {
-            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::EndStoneBricks), _ => SlabHalf::Bottom };
-            Some(Block::Slab { half, key: MaterialKey::EndStoneBricks })
+            let half = match state_value(key, "type") {
+                Some("top") => SlabHalf::Top,
+                Some("bottom") => SlabHalf::Bottom,
+                Some("double") => return Some(Block::EndStoneBricks),
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Slab {
+                half,
+                key: MaterialKey::EndStoneBricks,
+            })
         }
         "minecraft:prismarine_slab" => {
-            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::PrismarineBricks), _ => SlabHalf::Bottom };
-            Some(Block::Slab { half, key: MaterialKey::PrismarineBricks })
+            let half = match state_value(key, "type") {
+                Some("top") => SlabHalf::Top,
+                Some("bottom") => SlabHalf::Bottom,
+                Some("double") => return Some(Block::PrismarineBricks),
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Slab {
+                half,
+                key: MaterialKey::PrismarineBricks,
+            })
         }
         "minecraft:granite_slab" => {
-            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::Granite), _ => SlabHalf::Bottom };
-            Some(Block::Slab { half, key: MaterialKey::Granite })
+            let half = match state_value(key, "type") {
+                Some("top") => SlabHalf::Top,
+                Some("bottom") => SlabHalf::Bottom,
+                Some("double") => return Some(Block::Granite),
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Slab {
+                half,
+                key: MaterialKey::Granite,
+            })
         }
         "minecraft:diorite_slab" => {
-            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::Diorite), _ => SlabHalf::Bottom };
-            Some(Block::Slab { half, key: MaterialKey::Diorite })
+            let half = match state_value(key, "type") {
+                Some("top") => SlabHalf::Top,
+                Some("bottom") => SlabHalf::Bottom,
+                Some("double") => return Some(Block::Diorite),
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Slab {
+                half,
+                key: MaterialKey::Diorite,
+            })
         }
         "minecraft:andesite_slab" => {
-            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::Andesite), _ => SlabHalf::Bottom };
-            Some(Block::Slab { half, key: MaterialKey::Andesite })
+            let half = match state_value(key, "type") {
+                Some("top") => SlabHalf::Top,
+                Some("bottom") => SlabHalf::Bottom,
+                Some("double") => return Some(Block::Andesite),
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Slab {
+                half,
+                key: MaterialKey::Andesite,
+            })
         }
         "minecraft:polished_andesite_slab" => {
-            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::PolishedAndesite), _ => SlabHalf::Bottom };
-            Some(Block::Slab { half, key: MaterialKey::PolishedAndesite })
+            let half = match state_value(key, "type") {
+                Some("top") => SlabHalf::Top,
+                Some("bottom") => SlabHalf::Bottom,
+                Some("double") => return Some(Block::PolishedAndesite),
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Slab {
+                half,
+                key: MaterialKey::PolishedAndesite,
+            })
         }
         "minecraft:polished_granite_slab" => {
-            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::PolishedGranite), _ => SlabHalf::Bottom };
-            Some(Block::Slab { half, key: MaterialKey::PolishedGranite })
+            let half = match state_value(key, "type") {
+                Some("top") => SlabHalf::Top,
+                Some("bottom") => SlabHalf::Bottom,
+                Some("double") => return Some(Block::PolishedGranite),
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Slab {
+                half,
+                key: MaterialKey::PolishedGranite,
+            })
         }
         "minecraft:polished_diorite_slab" => {
-            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::PolishedDiorite), _ => SlabHalf::Bottom };
-            Some(Block::Slab { half, key: MaterialKey::PolishedDiorite })
+            let half = match state_value(key, "type") {
+                Some("top") => SlabHalf::Top,
+                Some("bottom") => SlabHalf::Bottom,
+                Some("double") => return Some(Block::PolishedDiorite),
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Slab {
+                half,
+                key: MaterialKey::PolishedDiorite,
+            })
         }
         "minecraft:smooth_sandstone_slab" => {
-            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::SmoothSandstone), _ => SlabHalf::Bottom };
-            Some(Block::Slab { half, key: MaterialKey::Sandstone })
+            let half = match state_value(key, "type") {
+                Some("top") => SlabHalf::Top,
+                Some("bottom") => SlabHalf::Bottom,
+                Some("double") => return Some(Block::SmoothSandstone),
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Slab {
+                half,
+                key: MaterialKey::Sandstone,
+            })
         }
 
         // --- Stairs (straight) ---
         "minecraft:oak_stairs" => {
-            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
-            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
-            Some(Block::Stairs { dir, half, key: MaterialKey::Planks(TreeSpecies::Oak) })
+            let dir = match state_value(key, "facing") {
+                Some("north") => Dir4::North,
+                Some("south") => Dir4::South,
+                Some("west") => Dir4::West,
+                Some("east") => Dir4::East,
+                _ => Dir4::North,
+            };
+            let half = match state_value(key, "half") {
+                Some("top") => SlabHalf::Top,
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Stairs {
+                dir,
+                half,
+                key: MaterialKey::Planks(TreeSpecies::Oak),
+            })
         }
         "minecraft:spruce_stairs" => {
-            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
-            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
-            Some(Block::Stairs { dir, half, key: MaterialKey::Planks(TreeSpecies::Spruce) })
+            let dir = match state_value(key, "facing") {
+                Some("north") => Dir4::North,
+                Some("south") => Dir4::South,
+                Some("west") => Dir4::West,
+                Some("east") => Dir4::East,
+                _ => Dir4::North,
+            };
+            let half = match state_value(key, "half") {
+                Some("top") => SlabHalf::Top,
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Stairs {
+                dir,
+                half,
+                key: MaterialKey::Planks(TreeSpecies::Spruce),
+            })
         }
         "minecraft:birch_stairs" => {
-            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
-            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
-            Some(Block::Stairs { dir, half, key: MaterialKey::Planks(TreeSpecies::Birch) })
+            let dir = match state_value(key, "facing") {
+                Some("north") => Dir4::North,
+                Some("south") => Dir4::South,
+                Some("west") => Dir4::West,
+                Some("east") => Dir4::East,
+                _ => Dir4::North,
+            };
+            let half = match state_value(key, "half") {
+                Some("top") => SlabHalf::Top,
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Stairs {
+                dir,
+                half,
+                key: MaterialKey::Planks(TreeSpecies::Birch),
+            })
         }
         "minecraft:jungle_stairs" => {
-            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
-            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
-            Some(Block::Stairs { dir, half, key: MaterialKey::Planks(TreeSpecies::Jungle) })
+            let dir = match state_value(key, "facing") {
+                Some("north") => Dir4::North,
+                Some("south") => Dir4::South,
+                Some("west") => Dir4::West,
+                Some("east") => Dir4::East,
+                _ => Dir4::North,
+            };
+            let half = match state_value(key, "half") {
+                Some("top") => SlabHalf::Top,
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Stairs {
+                dir,
+                half,
+                key: MaterialKey::Planks(TreeSpecies::Jungle),
+            })
         }
         "minecraft:acacia_stairs" => {
-            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
-            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
-            Some(Block::Stairs { dir, half, key: MaterialKey::Planks(TreeSpecies::Acacia) })
+            let dir = match state_value(key, "facing") {
+                Some("north") => Dir4::North,
+                Some("south") => Dir4::South,
+                Some("west") => Dir4::West,
+                Some("east") => Dir4::East,
+                _ => Dir4::North,
+            };
+            let half = match state_value(key, "half") {
+                Some("top") => SlabHalf::Top,
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Stairs {
+                dir,
+                half,
+                key: MaterialKey::Planks(TreeSpecies::Acacia),
+            })
         }
         "minecraft:dark_oak_stairs" => {
-            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
-            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
-            Some(Block::Stairs { dir, half, key: MaterialKey::Planks(TreeSpecies::DarkOak) })
+            let dir = match state_value(key, "facing") {
+                Some("north") => Dir4::North,
+                Some("south") => Dir4::South,
+                Some("west") => Dir4::West,
+                Some("east") => Dir4::East,
+                _ => Dir4::North,
+            };
+            let half = match state_value(key, "half") {
+                Some("top") => SlabHalf::Top,
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Stairs {
+                dir,
+                half,
+                key: MaterialKey::Planks(TreeSpecies::DarkOak),
+            })
         }
         "minecraft:stone_stairs" => {
-            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
-            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
-            Some(Block::Stairs { dir, half, key: MaterialKey::SmoothStone })
+            let dir = match state_value(key, "facing") {
+                Some("north") => Dir4::North,
+                Some("south") => Dir4::South,
+                Some("west") => Dir4::West,
+                Some("east") => Dir4::East,
+                _ => Dir4::North,
+            };
+            let half = match state_value(key, "half") {
+                Some("top") => SlabHalf::Top,
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Stairs {
+                dir,
+                half,
+                key: MaterialKey::SmoothStone,
+            })
         }
         "minecraft:cobblestone_stairs" => {
-            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
-            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
-            Some(Block::Stairs { dir, half, key: MaterialKey::Cobblestone })
+            let dir = match state_value(key, "facing") {
+                Some("north") => Dir4::North,
+                Some("south") => Dir4::South,
+                Some("west") => Dir4::West,
+                Some("east") => Dir4::East,
+                _ => Dir4::North,
+            };
+            let half = match state_value(key, "half") {
+                Some("top") => SlabHalf::Top,
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Stairs {
+                dir,
+                half,
+                key: MaterialKey::Cobblestone,
+            })
         }
         "minecraft:mossy_cobblestone_stairs" => {
-            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
-            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
-            Some(Block::Stairs { dir, half, key: MaterialKey::MossyCobblestone })
+            let dir = match state_value(key, "facing") {
+                Some("north") => Dir4::North,
+                Some("south") => Dir4::South,
+                Some("west") => Dir4::West,
+                Some("east") => Dir4::East,
+                _ => Dir4::North,
+            };
+            let half = match state_value(key, "half") {
+                Some("top") => SlabHalf::Top,
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Stairs {
+                dir,
+                half,
+                key: MaterialKey::MossyCobblestone,
+            })
         }
         "minecraft:stone_brick_stairs" => {
-            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
-            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
-            Some(Block::Stairs { dir, half, key: MaterialKey::StoneBricks })
+            let dir = match state_value(key, "facing") {
+                Some("north") => Dir4::North,
+                Some("south") => Dir4::South,
+                Some("west") => Dir4::West,
+                Some("east") => Dir4::East,
+                _ => Dir4::North,
+            };
+            let half = match state_value(key, "half") {
+                Some("top") => SlabHalf::Top,
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Stairs {
+                dir,
+                half,
+                key: MaterialKey::StoneBricks,
+            })
         }
         "minecraft:quartz_stairs" => {
-            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
-            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
-            Some(Block::Stairs { dir, half, key: MaterialKey::QuartzBlock })
+            let dir = match state_value(key, "facing") {
+                Some("north") => Dir4::North,
+                Some("south") => Dir4::South,
+                Some("west") => Dir4::West,
+                Some("east") => Dir4::East,
+                _ => Dir4::North,
+            };
+            let half = match state_value(key, "half") {
+                Some("top") => SlabHalf::Top,
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Stairs {
+                dir,
+                half,
+                key: MaterialKey::QuartzBlock,
+            })
         }
         "minecraft:smooth_sandstone_stairs" | "minecraft:sandstone_stairs" => {
-            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
-            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
-            Some(Block::Stairs { dir, half, key: MaterialKey::Sandstone })
+            let dir = match state_value(key, "facing") {
+                Some("north") => Dir4::North,
+                Some("south") => Dir4::South,
+                Some("west") => Dir4::West,
+                Some("east") => Dir4::East,
+                _ => Dir4::North,
+            };
+            let half = match state_value(key, "half") {
+                Some("top") => SlabHalf::Top,
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Stairs {
+                dir,
+                half,
+                key: MaterialKey::Sandstone,
+            })
         }
         "minecraft:polished_andesite_stairs" => {
-            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
-            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
-            Some(Block::Stairs { dir, half, key: MaterialKey::PolishedAndesite })
+            let dir = match state_value(key, "facing") {
+                Some("north") => Dir4::North,
+                Some("south") => Dir4::South,
+                Some("west") => Dir4::West,
+                Some("east") => Dir4::East,
+                _ => Dir4::North,
+            };
+            let half = match state_value(key, "half") {
+                Some("top") => SlabHalf::Top,
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Stairs {
+                dir,
+                half,
+                key: MaterialKey::PolishedAndesite,
+            })
         }
         "minecraft:polished_granite_stairs" => {
-            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
-            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
-            Some(Block::Stairs { dir, half, key: MaterialKey::PolishedGranite })
+            let dir = match state_value(key, "facing") {
+                Some("north") => Dir4::North,
+                Some("south") => Dir4::South,
+                Some("west") => Dir4::West,
+                Some("east") => Dir4::East,
+                _ => Dir4::North,
+            };
+            let half = match state_value(key, "half") {
+                Some("top") => SlabHalf::Top,
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Stairs {
+                dir,
+                half,
+                key: MaterialKey::PolishedGranite,
+            })
         }
         "minecraft:polished_diorite_stairs" => {
-            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
-            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
-            Some(Block::Stairs { dir, half, key: MaterialKey::PolishedDiorite })
+            let dir = match state_value(key, "facing") {
+                Some("north") => Dir4::North,
+                Some("south") => Dir4::South,
+                Some("west") => Dir4::West,
+                Some("east") => Dir4::East,
+                _ => Dir4::North,
+            };
+            let half = match state_value(key, "half") {
+                Some("top") => SlabHalf::Top,
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Stairs {
+                dir,
+                half,
+                key: MaterialKey::PolishedDiorite,
+            })
         }
         "minecraft:granite_stairs" => {
-            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
-            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
-            Some(Block::Stairs { dir, half, key: MaterialKey::Granite })
+            let dir = match state_value(key, "facing") {
+                Some("north") => Dir4::North,
+                Some("south") => Dir4::South,
+                Some("west") => Dir4::West,
+                Some("east") => Dir4::East,
+                _ => Dir4::North,
+            };
+            let half = match state_value(key, "half") {
+                Some("top") => SlabHalf::Top,
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Stairs {
+                dir,
+                half,
+                key: MaterialKey::Granite,
+            })
         }
         "minecraft:diorite_stairs" => {
-            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
-            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
-            Some(Block::Stairs { dir, half, key: MaterialKey::Diorite })
+            let dir = match state_value(key, "facing") {
+                Some("north") => Dir4::North,
+                Some("south") => Dir4::South,
+                Some("west") => Dir4::West,
+                Some("east") => Dir4::East,
+                _ => Dir4::North,
+            };
+            let half = match state_value(key, "half") {
+                Some("top") => SlabHalf::Top,
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Stairs {
+                dir,
+                half,
+                key: MaterialKey::Diorite,
+            })
         }
         "minecraft:andesite_stairs" => {
-            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
-            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
-            Some(Block::Stairs { dir, half, key: MaterialKey::Andesite })
+            let dir = match state_value(key, "facing") {
+                Some("north") => Dir4::North,
+                Some("south") => Dir4::South,
+                Some("west") => Dir4::West,
+                Some("east") => Dir4::East,
+                _ => Dir4::North,
+            };
+            let half = match state_value(key, "half") {
+                Some("top") => SlabHalf::Top,
+                _ => SlabHalf::Bottom,
+            };
+            Some(Block::Stairs {
+                dir,
+                half,
+                key: MaterialKey::Andesite,
+            })
         }
 
         _ => None,
@@ -372,7 +800,8 @@ fn nbt_schematic_from_file(path: &Path) -> Result<MCSchematicNBT, String> {
     use std::io::Read;
     let mut f = std::fs::File::open(path).map_err(|e| format!("open {:?}: {}", path, e))?;
     let mut data = Vec::new();
-    f.read_to_end(&mut data).map_err(|e| format!("read {:?}: {}", path, e))?;
+    f.read_to_end(&mut data)
+        .map_err(|e| format!("read {:?}: {}", path, e))?;
     // Try gzip-decompress
     let mut gz = flate2::read::GzDecoder::new(&data[..]);
     let mut dec = Vec::new();
@@ -385,8 +814,9 @@ fn nbt_schematic_from_file(path: &Path) -> Result<MCSchematicNBT, String> {
                     .map_err(|e2| format!("parse NBT {:?}: {} / {}", path, e, e2))
             }
         },
-        Err(_) => from_bytes::<MCSchematicNBT>(&data)
-            .map_err(|e| format!("parse NBT {:?}: {}", path, e)),
+        Err(_) => {
+            from_bytes::<MCSchematicNBT>(&data).map_err(|e| format!("parse NBT {:?}: {}", path, e))
+        }
     }
 }
 
@@ -399,7 +829,8 @@ fn numeric_id_to_block(id: u16, data: u8) -> Block {
         3 => Dirt,
         4 => Cobblestone,
         5 => {
-            let sp = match (data & 0x7) as u8 { // lower 3 bits
+            let sp = match (data & 0x7) as u8 {
+                // lower 3 bits
                 0 => Oak,
                 1 => Spruce,
                 2 => Birch,
@@ -412,8 +843,10 @@ fn numeric_id_to_block(id: u16, data: u8) -> Block {
         }
         12 => Sand,
         13 => Gravel,
-        17 => { // Logs (include axis when available)
-            let sp = match (data & 0x3) as u8 { // bottom 2 bits species in older versions
+        17 => {
+            // Logs (include axis when available)
+            let sp = match (data & 0x3) as u8 {
+                // bottom 2 bits species in older versions
                 0 => Oak,
                 1 => Spruce,
                 2 => Birch,
@@ -429,7 +862,8 @@ fn numeric_id_to_block(id: u16, data: u8) -> Block {
                 _ => LogAxis(sp, crate::voxel::Axis::Y),
             }
         }
-        18 => { // Leaves (ignore decay flags)
+        18 => {
+            // Leaves (ignore decay flags)
             let sp = match (data & 0x3) as u8 {
                 0 => Oak,
                 1 => Spruce,
@@ -440,7 +874,8 @@ fn numeric_id_to_block(id: u16, data: u8) -> Block {
             Leaves(sp)
         }
         22 => LapisBlock,
-        24 => { // Sandstone variants
+        24 => {
+            // Sandstone variants
             match data as u8 {
                 2 => SmoothSandstone,
                 _ => Sandstone,
@@ -450,7 +885,8 @@ fn numeric_id_to_block(id: u16, data: u8) -> Block {
         47 => Bookshelf,
         80 => Snow,
         89 => Glowstone,
-        98 => { // Stone bricks variants
+        98 => {
+            // Stone bricks variants
             match data as u8 {
                 1 => MossyStoneBricks,
                 _ => StoneBricks,
@@ -458,7 +894,8 @@ fn numeric_id_to_block(id: u16, data: u8) -> Block {
         }
         112 => NetherBricks,
         155 => QuartzBlock,
-        159 => { // stained hardened clay (terracotta) colored variants
+        159 => {
+            // stained hardened clay (terracotta) colored variants
             let c = match (data & 0x0F) as u8 {
                 0 => TerracottaColor::White,
                 1 => TerracottaColor::Orange,
@@ -481,9 +918,10 @@ fn numeric_id_to_block(id: u16, data: u8) -> Block {
             Terracotta(c)
         }
         168 => PrismarineBricks, // approximate all variants
-        172 => TerracottaPlain, // hardened clay (terracotta base)
+        172 => TerracottaPlain,  // hardened clay (terracotta base)
         173 => CoalBlock,
-        179 => { // Red sandstone
+        179 => {
+            // Red sandstone
             match data as u8 {
                 2 => SmoothRedSandstone,
                 _ => RedSandstone,
@@ -513,30 +951,47 @@ pub fn load_mcedit_schematic_apply_edits(
     oz += nbt.WEOffsetZ;
     let total = (w as usize) * (h as usize) * (l as usize);
     if blocks.len() != total || data.len() != total {
-        log::warn!(".schematic arrays size mismatch: blocks={}, data={}, expected={}", blocks.len(), data.len(), total);
+        log::warn!(
+            ".schematic arrays size mismatch: blocks={}, data={}, expected={}",
+            blocks.len(),
+            data.len(),
+            total
+        );
     }
     // Helper to read high 4 bits for id i
     let high4 = |i: usize| -> u16 {
-        if add.is_empty() { return 0; }
+        if add.is_empty() {
+            return 0;
+        }
         let half = i >> 1;
         let byte = add.get(half).copied().unwrap_or(0) as u16;
-        if (i & 1) == 0 { (byte & 0x0F) as u16 } else { ((byte >> 4) & 0x0F) as u16 }
+        if (i & 1) == 0 {
+            (byte & 0x0F) as u16
+        } else {
+            ((byte >> 4) & 0x0F) as u16
+        }
     };
     // Index order: (y * Length + z) * Width + x
     let mut unsupported: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
     for y in 0..h {
         for z in 0..l {
             for x in 0..w {
-                let i = (y as usize) * (l as usize) * (w as usize) + (z as usize) * (w as usize) + (x as usize);
+                let i = (y as usize) * (l as usize) * (w as usize)
+                    + (z as usize) * (w as usize)
+                    + (x as usize);
                 let id_low = *blocks.get(i).unwrap_or(&0) as u16;
                 let id = id_low | (high4(i) << 8);
                 let dv = *data.get(i).unwrap_or(&0) as u8;
                 let b = numeric_id_to_block(id, dv);
                 if matches!(b, Block::Air) {
-                    if id != 0 { unsupported.insert(id); }
+                    if id != 0 {
+                        unsupported.insert(id);
+                    }
                 } else {
                     // Track unknowns for reporting but still place them
-                    if matches!(b, Block::Unknown) { unsupported.insert(id); }
+                    if matches!(b, Block::Unknown) {
+                        unsupported.insert(id);
+                    }
                     edits.set(ox + x, oy + y, oz + z, b);
                 }
             }
@@ -544,7 +999,10 @@ pub fn load_mcedit_schematic_apply_edits(
     }
     if !unsupported.is_empty() {
         let ids: Vec<String> = unsupported.iter().map(|v| v.to_string()).collect();
-        log::info!(".schematic unsupported numeric block IDs encountered (mapped to unknown): {}", ids.join(", "));
+        log::info!(
+            ".schematic unsupported numeric block IDs encountered (mapped to unknown): {}",
+            ids.join(", ")
+        );
     }
     Ok((w as usize, h as usize, l as usize))
 }
@@ -554,7 +1012,10 @@ pub fn load_any_schematic_apply_edits(
     origin: (i32, i32, i32),
     edits: &mut crate::edit::EditStore,
 ) -> Result<(usize, usize, usize), String> {
-    let ext = path.extension().and_then(|e| Some(e.to_string_lossy().to_lowercase())).unwrap_or_default();
+    let ext = path
+        .extension()
+        .and_then(|e| Some(e.to_string_lossy().to_lowercase()))
+        .unwrap_or_default();
     if ext == "schem" {
         load_sponge_schem_apply_edits(path, origin, edits)
     } else if ext == "schematic" {
@@ -562,7 +1023,9 @@ pub fn load_any_schematic_apply_edits(
             Ok(s) => Ok(s),
             Err(e) => {
                 // As a last resort, try mc_schem parser if available
-                match mc_schem::Schematic::from_file(path.to_str().ok_or_else(|| "invalid path".to_string())?) {
+                match mc_schem::Schematic::from_file(
+                    path.to_str().ok_or_else(|| "invalid path".to_string())?,
+                ) {
                     Ok(_s) => load_sponge_schem_apply_edits(path, origin, edits),
                     Err(_) => Err(e),
                 }
@@ -579,10 +1042,9 @@ pub fn load_sponge_schem_apply_edits(
     edits: &mut crate::edit::EditStore,
 ) -> Result<(usize, usize, usize), String> {
     // Load via mc_schem high-level API
-    let (schem, _meta) = mc_schem::Schematic::from_file(
-        path.to_str().ok_or_else(|| "invalid path".to_string())?,
-    )
-    .map_err(|e| format!("parse schem: {e}"))?;
+    let (schem, _meta) =
+        mc_schem::Schematic::from_file(path.to_str().ok_or_else(|| "invalid path".to_string())?)
+            .map_err(|e| format!("parse schem: {e}"))?;
 
     // Enclosing shape in global xyz
     let shape = schem.shape();
@@ -593,7 +1055,9 @@ pub fn load_sponge_schem_apply_edits(
         for y in 0..shape[1] {
             for z in 0..shape[2] {
                 if let Some(b) = schem.first_block_at([x, y, z]) {
-                    if b.is_air() || b.is_structure_void() { continue; }
+                    if b.is_air() || b.is_structure_void() {
+                        continue;
+                    }
                     let key = b.full_id(); // like "minecraft:oak_log[axis=y]"
                     let mapped = map_palette_key_to_block(&key);
                     let wx = ox + x;
@@ -609,16 +1073,17 @@ pub fn load_sponge_schem_apply_edits(
 }
 
 pub fn find_unsupported_blocks_in_file(path: &Path) -> Result<Vec<String>, String> {
-    let (schem, _meta) = mc_schem::Schematic::from_file(
-        path.to_str().ok_or_else(|| "invalid path".to_string())?,
-    )
-    .map_err(|e| format!("parse schem: {e}"))?;
+    let (schem, _meta) =
+        mc_schem::Schematic::from_file(path.to_str().ok_or_else(|| "invalid path".to_string())?)
+            .map_err(|e| format!("parse schem: {e}"))?;
 
     // Use full palette across all regions
     let (palette, _lut) = schem.full_palette();
     let mut unsupported: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
     for (blk, _hash) in palette {
-        if blk.is_air() || blk.is_structure_void() { continue; }
+        if blk.is_air() || blk.is_structure_void() {
+            continue;
+        }
         let id = blk.full_id();
         if map_palette_key_to_block_opt(&id).is_none() {
             // Record only the base id without attributes to reduce duplicates
@@ -629,10 +1094,9 @@ pub fn find_unsupported_blocks_in_file(path: &Path) -> Result<Vec<String>, Strin
 }
 
 pub fn count_blocks_in_file(path: &Path) -> Result<Vec<(String, u64)>, String> {
-    let (schem, _meta) = mc_schem::Schematic::from_file(
-        path.to_str().ok_or_else(|| "invalid path".to_string())?,
-    )
-    .map_err(|e| format!("parse schem: {e}"))?;
+    let (schem, _meta) =
+        mc_schem::Schematic::from_file(path.to_str().ok_or_else(|| "invalid path".to_string())?)
+            .map_err(|e| format!("parse schem: {e}"))?;
 
     let shape = schem.shape();
     let mut counts: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
@@ -640,7 +1104,9 @@ pub fn count_blocks_in_file(path: &Path) -> Result<Vec<(String, u64)>, String> {
         for y in 0..shape[1] {
             for z in 0..shape[2] {
                 if let Some(b) = schem.first_block_at([x, y, z]) {
-                    if b.is_air() || b.is_structure_void() { continue; }
+                    if b.is_air() || b.is_structure_void() {
+                        continue;
+                    }
                     let key = b.full_id();
                     let id = base_from_key(&key).to_string();
                     *counts.entry(id).or_insert(0) += 1;
@@ -667,17 +1133,25 @@ pub fn list_schematics_with_size(dir: &Path) -> Result<Vec<SchematicEntry>, Stri
             if let Some(ext) = p.extension() {
                 let ext_s = ext.to_string_lossy();
                 if ext_s.eq_ignore_ascii_case("schem") {
-                    match mc_schem::Schematic::from_file(p.to_str().ok_or_else(|| "invalid path".to_string())?) {
+                    match mc_schem::Schematic::from_file(
+                        p.to_str().ok_or_else(|| "invalid path".to_string())?,
+                    ) {
                         Ok((schem, _meta)) => {
                             let shape = schem.shape();
-                            out.push(SchematicEntry { path: p, size: (shape[0] as i32, shape[1] as i32, shape[2] as i32) });
+                            out.push(SchematicEntry {
+                                path: p,
+                                size: (shape[0] as i32, shape[1] as i32, shape[2] as i32),
+                            });
                         }
                         Err(e) => return Err(format!("parse schem {:?}: {}", p, e)),
                     }
                 } else if ext_s.eq_ignore_ascii_case("schematic") {
                     // Fallback to NBT to get sizes even if mc_schem cannot parse due to missing tags
                     let nbt = nbt_schematic_from_file(&p)?;
-                    out.push(SchematicEntry { path: p, size: (nbt.Width as i32, nbt.Height as i32, nbt.Length as i32) });
+                    out.push(SchematicEntry {
+                        path: p,
+                        size: (nbt.Width as i32, nbt.Height as i32, nbt.Length as i32),
+                    });
                 }
             }
         }

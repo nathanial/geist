@@ -21,10 +21,7 @@ fn greedy_rects(
                 continue;
             }
             let mut w = 1;
-            while x + w < width
-                && mask[y * width + (x + w)] == code
-                && !used[y * width + (x + w)]
-            {
+            while x + w < width && mask[y * width + (x + w)] == code && !used[y * width + (x + w)] {
                 w += 1;
             }
             let mut h = 1;
@@ -254,4 +251,3 @@ where
 
     builds
 }
-
