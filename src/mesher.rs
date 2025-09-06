@@ -695,19 +695,20 @@ pub fn build_chunk_greedy_cpu_buf(
                 }
                 if let Some(fm) = face_material_for(here, face) {
                     let mut l = light.sample_face_local(x, y, z, face);
-                    // If top face and neighbor above is a top-half shape, sample one more cell above for light
+                    // For a top face shaded under a top-half slab/stair, allow side light only (no vertical skylight)
                     if face == 0 {
-                        // Convert world neighbor coords back to local if within this chunk
                         if buf.contains_world(nx, ny, nz) && ny >= 0 && (ny as usize) < sy {
                             let lx = (nx - base_x) as usize;
                             let ly = ny as usize;
                             let lz = (nz - base_z) as usize;
                             match buf.get_local(lx, ly, lz) {
                                 Block::Slab { half: SlabHalf::Top, .. } | Block::Stairs { half: SlabHalf::Top, .. } => {
-                                    if y + 1 < sy {
-                                        let l2 = light.sample_face_local(x, y + 1, z, 0);
-                                        l = l.max(l2);
-                                    }
+                                    let l2 = light
+                                        .sample_face_local(x, y, z, 2)
+                                        .max(light.sample_face_local(x, y, z, 3))
+                                        .max(light.sample_face_local(x, y, z, 4))
+                                        .max(light.sample_face_local(x, y, z, 5));
+                                    l = l.max(l2);
                                 }
                                 _ => {}
                             }
