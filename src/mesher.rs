@@ -64,8 +64,8 @@ pub enum FaceMaterial {
 impl FaceMaterial {
     pub fn texture_candidates(&self) -> Vec<&'static str> {
         match self {
-            FaceMaterial::GrassTop => vec!["assets/blocks/grass_block_top.png"],
-            FaceMaterial::GrassSide => vec!["assets/blocks/grass_block_side.png"],
+            FaceMaterial::GrassTop => vec!["assets/blocks/grass_top.png"],
+            FaceMaterial::GrassSide => vec!["assets/blocks/grass_side.png"],
             FaceMaterial::Dirt => vec!["assets/blocks/dirt.png"],
             FaceMaterial::Stone => vec!["assets/blocks/stone.png"],
             FaceMaterial::Sand => vec!["assets/blocks/sand.png"],
@@ -159,12 +159,12 @@ impl FaceMaterial {
                 TreeSpecies::Acacia => vec!["assets/blocks/acacia_log.png"],
             },
             FaceMaterial::Leaves(sp) => match sp {
-                TreeSpecies::Oak => vec!["assets/blocks/oak_leaves.png"],
-                TreeSpecies::DarkOak => vec!["assets/blocks/dark_oak_leaves.png"],
-                TreeSpecies::Birch => vec!["assets/blocks/birch_leaves.png"],
-                TreeSpecies::Spruce => vec!["assets/blocks/spruce_leaves.png"],
-                TreeSpecies::Jungle => vec!["assets/blocks/jungle_leaves.png"],
-                TreeSpecies::Acacia => vec!["assets/blocks/acacia_leaves.png"],
+                TreeSpecies::Oak => vec!["assets/blocks/leaves_oak_opaque.png"],
+                TreeSpecies::DarkOak => vec!["assets/blocks/leaves_oak_opaque.png"],
+                TreeSpecies::Birch => vec!["assets/blocks/leaves_birch_opaque.png"],
+                TreeSpecies::Spruce => vec!["assets/blocks/leaves_spruce_opaque.png"],
+                TreeSpecies::Jungle => vec!["assets/blocks/leaves_jungle_opaque.png"],
+                TreeSpecies::Acacia => vec!["assets/blocks/leaves_acacia_opaque.png"],
             },
         }
         .to_vec()
