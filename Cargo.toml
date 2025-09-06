@@ -13,3 +13,18 @@ simplelog = "0.12"
 fastnbt = "2.5"
 flate2 = "1.0"
 serde = { version = "1.0", features = ["derive"] }
+
+[features]
+default = []
+# Enable Bedrock .mcworld support (requires additional crates)
+mcworld = ["dep:bedrock-hematite-nbt", "dep:zip"]
+
+[dependencies.bedrock-hematite-nbt]
+version = "0.4"
+optional = true
+
+[dependencies.zip]
+version = "0.6"
+default-features = false
+features = ["deflate"]
+optional = true

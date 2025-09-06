@@ -101,6 +101,13 @@ impl App {
             use std::path::Path;
             let dir = Path::new("schematics");
             if dir.exists() {
+                // Determine base Y for placement (top of slab in flat worlds)
+                let base_y: i32 = match world.mode {
+                    crate::voxel::WorldGenMode::Flat { thickness } => {
+                        if thickness > 0 { 1 } else { 0 }
+                    }
+                    _ => 0,
+                };
                 match crate::schem::list_schematics_with_size(dir) {
                     Ok(mut list) => {
                         if list.is_empty() {
@@ -123,12 +130,7 @@ impl App {
                             // Simple shelf layout with row width constrained to the configured world width
                             let margin: i32 = 4;
                             let row_width_limit: i32 = (world.world_size_x() as i32).max(64) - margin;
-                            let base_y: i32 = match world.mode {
-                                crate::voxel::WorldGenMode::Flat { thickness } => {
-                                    if thickness > 0 { 1 } else { 0 }
-                                }
-                                _ => 0,
-                            };
+                            // base_y is computed above
 
                             // First, layout locally starting at (0,0)
                             let mut placements: Vec<(std::path::PathBuf, (i32, i32, i32), (i32, i32))> = Vec::new();
@@ -194,6 +196,22 @@ impl App {
                     }
                     Err(e) => {
                         log::warn!("Failed scanning schematics dir {:?}: {}", dir, e);
+                    }
+                }
+                // Additionally, try to import .mcworld structures if the feature is enabled
+                match crate::mcworld::load_mcworlds_in_dir(dir, base_y, &mut gs.edits) {
+                    Ok(list) => {
+                        for (name, (_x,_y,_z), (sx,sy,sz)) in list {
+                            log::info!("Loaded mcworld structure {} ({}x{}x{})", name, sx, sy, sz);
+                        }
+                    }
+                    Err(e) => {
+                        // Only log info if not enabled; else warn
+                        if e.contains("not enabled") {
+                            log::info!("{}.mcworld files present will be ignored unless built with --features mcworld", e);
+                        } else {
+                            log::warn!("mcworld load: {}", e);
+                        }
                     }
                 }
             } else {

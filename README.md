@@ -26,6 +26,13 @@ CLI options
 - `--schem-only`: Disable all terrain generation (even the slab); only the schematic contents are loaded. All `.schem` and `.schematic` files under `schematics/` are auto‑loaded and laid out with spacing.
 - `--log-file [path]`: Write logs to a file instead of the console. If `path` is omitted, defaults to `geist.log` in the current directory. Honor `RUST_LOG` for level (trace|debug|info|warn|error).
 
+Bedrock .mcworld (optional)
+
+- Build with feature `mcworld` to auto-import Bedrock `.mcworld` files placed in `schematics/`.
+- Command: `cargo run --features mcworld -- --flat-world`
+- What’s imported: any `structures/*.mcstructure` files found inside the `.mcworld` archive are parsed via `bedrock-hematite-nbt` and stamped into the world (states are simplified; many special blocks still map to air).
+- Limitations: Full Bedrock chunks (LevelDB) are not imported; only `.mcstructure` exports inside the world are supported for now.
+
 Highlights
 
 - Multi‑chunk world (grid) with seamless noise generation.

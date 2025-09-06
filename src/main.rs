@@ -14,6 +14,7 @@ mod runtime;
 mod shaders;
 mod voxel;
 mod schem;
+mod mcworld;
 
 use raylib::prelude::*;
 use std::sync::Arc;
