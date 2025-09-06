@@ -15,7 +15,7 @@
 **Design Goals**
 - **Runtime types:** Define blocks and their properties in config (TOML/JSON), not code.
 - **Stable core:** Keep core performance characteristics; keep `Block` as a compact, copyable voxel value in memory.
-- **Compatibility:** Preserve rendering, lighting, editing, and schematic import behavior via data-driven equivalents.
+- **Parity:** Match current visuals and behavior using the new data-driven system.
 - **Extensibility:** Allow families (e.g., planks species, terracotta colors) and stateful shapes (axis logs, slabs, stairs).
 
 **Proposed Architecture**
@@ -52,7 +52,7 @@
   - Replace `FaceMaterial` enums with a runtime catalog:
     - `MaterialId(u16)` and `Material { key: String, texture_candidates: Vec<PathBuf> }`.
     - Block types reference `MaterialId` per face role (top/bottom/side) and/or material families.
-  - For compatibility, keep existing `assets/blocks/*.png` paths; the catalog maps friendly keys to these paths.
+  - Map catalog keys to texture file paths (e.g., `assets/blocks/*.png`) via `assets/voxels/materials.toml`; reorganize assets as needed.
 
 - **States/Properties**
   - Stateful families (e.g., `planks` species, `terracotta` color, `log` axis):
@@ -120,31 +120,21 @@
       ```
   - `assets/voxels/palette_map.toml`: schematic mapping rules from Minecraft IDs/states to `{ name, state }` entries (replaces hardcoded `map_palette_key_to_block_opt`).
 
-**Refactor Plan (Condensed Phases)**
-- Phase 1: Core Runtime Blocks & Storage
-  - Implement `Block`, `BlockId`, `BlockState`, `BlockType`, `Shape`, and `BlockRegistry` with a minimal config loader (TOML) and a default pack mirroring current content.
-  - Introduce `MaterialCatalog` keyed by material names to existing texture paths; keep a temporary translation table for current `FaceMaterial` usage.
-  - Convert storage to runtime `Block`: update `ChunkBuf.blocks`, `Structure.blocks`, `EditStore`, and helpers. Add `Block::is_solid()` and `Block::emission()` delegating to the registry.
-  - Provide compatibility constructors and shims so existing call sites can compile during migration.
-
-- Phase 2: Rendering & Lighting Migration
-  - Replace `face_material_for` and special-case geometry with shape-driven emitters (Cube, AxisCube, Slab, Stairs) that query materials via the registry/catalog.
-  - Update `TextureCache` to load materials via catalog keys; preload equivalents to current textures.
-  - Replace hardcoded lighting logic with `block.is_solid()`/`block.emission()` and `blocks_skylight` from the registry; preserve current behavior for leaves and air initially.
-
-- Phase 3: IO, Worldgen & UI Integration
-  - Schematic import: replace hardcoded palette maps with `assets/voxels/palette_map.toml` rules that produce `{ name, state }` for both Sponge and legacy numeric formats.
-  - Worldgen: return runtime blocks (`air`, `stone`, `dirt`, `grass`, `sand`, `snow`, `glowstone`, `beacon`; `log`/`leaves` with `species`/`axis`).
-  - UI: add `assets/voxels/hotbar.toml` for key bindings; switch debug strings to `block.debug_name()`.
-
-- Phase 4: Cleanup, Optimization & Docs
-  - Remove legacy enums (`Block`, `MaterialKey`, `TreeSpecies`, `TerracottaColor`) and `FaceMaterial` once parity is verified.
-  - Eliminate temporary translation/shims, tighten state packing, and micro-opt the hot paths if needed.
-  - Update README and internal docs to the new config-driven system.
-
-**Incremental Compatibility Shims**
-- Add `impl From<LegacyBlock> for Block` during migration to keep the app running while converting subsystems.
-- Add a temporary translation table mapping legacy `FaceMaterial` to catalog material keys so texture cache preload continues to work unchanged.
+**Implementation TODO**
+- Implement core types: `Block`, `BlockId`, `BlockState`, `BlockType`, `Shape`, and `BlockRegistry` with TOML loader.
+- Replace storage to use runtime `Block` across `ChunkBuf`, `Structure`, `EditStore`, and helpers.
+- Replace `FaceMaterial` with `MaterialCatalog`; update `TextureCache` to load by catalog keys.
+- Replace mesher logic with shape-driven emitters (Cube, AxisCube, Slab, Stairs); query materials from registry.
+- Replace lighting logic to use `block.is_solid()`, `blocks_skylight`, and `emission()` from registry.
+- Add config files: `assets/voxels/blocks.toml`, `assets/voxels/materials.toml`, `assets/voxels/palette_map.toml`, `assets/voxels/hotbar.toml`.
+- Replace schematic palette mapping with config-driven translator using `palette_map.toml`.
+- Update worldgen to return runtime blocks and stateful variants (e.g., logs/leaves with species/axis).
+- Update UI/hotkeys/hotbar to data-driven config; switch debug strings to `block.debug_name()`.
+- Remove legacy enums and mappings: `Block`, `MaterialKey`, `TreeSpecies`, `TerracottaColor`, and `FaceMaterial`.
+- Drop all compatibility shims and old code paths; proceed directly with the new system.
+- Add unit tests for `BlockState` packing/unpacking and key registry lookups.
+- Provide a default block pack matching current visuals.
+- Update README and docs to describe the new data-driven system.
 
 **Performance Considerations**
 - **Memory:** New `Block` packs into 4 bytes (u16 id + u16 state) vs a large enum; reduces `ChunkBuf.blocks` memory.
@@ -160,10 +150,7 @@
 - Add a small unit test for `BlockState` packing/unpacking given a `state_schema`.
 
 **Migration Work Breakdown**
-- Phase 1: Types, registry, minimal config and catalog; convert storage to new `Block`; add shims.
-- Phase 2: Mesher shape emitters + catalog materials; lighting delegation.
-- Phase 3: Schematic mapping, worldgen runtime blocks, hotbar UI.
-- Phase 4: Remove legacy enums, drop shims, optimize, and document.
+- Direct implementation per TODO above; no phased migration or temporary shims.
 
 **Estimated Impact (files)**
 - `src/voxel.rs`: replace `enum Block`, add worldgen helpers that consult registry.
@@ -177,14 +164,13 @@
 
 **Open Questions / Decisions**
 - **Config format:** TOML is suggested for readability; JSON is acceptable; RON is another option. TOML chosen for consistency with Rust ecosystem.
-- **Skylight and leaves:** Currently all non-air block skylight is blocked. We can keep this behavior initially and later add a `blocks_skylight=false` option for leaves to let light pass if desired.
+- **Skylight and leaves:** Decide desired skylight behavior for leaves; set `blocks_skylight` accordingly in block configs.
 - **Double slab:** Represent as separate `Block` (cube with same material) or `slab{half=top|bottom}` plus rule; simplest is mapper converts `type=double` to the material’s base cube block.
 - **Material families vs separate block types:** Both supported via `state_schema.material` or multiple block definitions; start with stateful material property for slabs/stairs.
 
 **Next Steps**
-- Confirm TOML schema for blocks/materials/palette and agree on initial material key set.
-- Implement Phase 1: core types + registry + minimal catalog + storage conversion with compatibility shims.
-- Begin Phase 2 with Cube emitter and catalog-backed materials; follow with AxisCube, Slab, and Stairs.
+- Finalize TOML schemas and initial material key set.
+- Execute the Implementation TODO items directly (no phases).
 
 **Deliverables**
 - New runtime voxel system with config-defined blocks.
