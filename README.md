@@ -23,7 +23,8 @@ CLI options
 - `--flat-world`: Generate a flat world consisting only of an infinite stone slab (no hills, trees, or caves).
 - `--schem-report [path]`: Analyze a `.schem` file and print unsupported block IDs, then exit. Defaults to `schematics/anvilstead.schem`.
 - `--schem-report --counts [path]`: Print counts per block id in the `.schem` file (helps verify if trees/terrain are in the schematic).
-- `--schem-only`: Disable all terrain generation (even the slab); only the schematic contents are loaded. All `.schem` files under `schematics/` are auto‑loaded and laid out with spacing.
+- `--schem-only`: Disable all terrain generation (even the slab); only the schematic contents are loaded. All `.schem` and `.schematic` files under `schematics/` are auto‑loaded and laid out with spacing.
+- `--log-file [path]`: Write logs to a file instead of the console. If `path` is omitted, defaults to `geist.log` in the current directory. Honor `RUST_LOG` for level (trace|debug|info|warn|error).
 
 Highlights
 

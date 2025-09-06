@@ -106,6 +106,20 @@ impl App {
                         if list.is_empty() {
                             log::info!("No .schem files found under {:?}", dir);
                         } else {
+                            // Stable order: sort by filename (case-insensitive)
+                            list.sort_by(|a, b| {
+                                let an = a
+                                    .path
+                                    .file_name()
+                                    .map(|s| s.to_string_lossy().to_lowercase())
+                                    .unwrap_or_default();
+                                let bn = b
+                                    .path
+                                    .file_name()
+                                    .map(|s| s.to_string_lossy().to_lowercase())
+                                    .unwrap_or_default();
+                                an.cmp(&bn)
+                            });
                             // Simple shelf layout with row width constrained to the configured world width
                             let margin: i32 = 4;
                             let row_width_limit: i32 = (world.world_size_x() as i32).max(64) - margin;

@@ -24,6 +24,7 @@ fn main() {
     let mut flat_world = false;
     let mut schem_only = false;
     let mut schem_counts = false;
+    let mut log_file: Option<String> = None;
     {
         let mut args = std::env::args().skip(1).collect::<Vec<String>>();
         let mut report_mode = false;
@@ -44,6 +45,13 @@ fn main() {
                 schem_only = true;
             } else if a == "--counts" {
                 schem_counts = true;
+            } else if a == "--log-file" {
+                if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                    log_file = Some(args[i + 1].clone());
+                    i += 1;
+                } else {
+                    log_file = Some(String::from("geist.log"));
+                }
             }
             i += 1;
         }
@@ -81,8 +89,37 @@ fn main() {
         }
     }
 
-    // Initialize logging (RUST_LOG=info by default; override with env)
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    // Initialize logging: to file if --log-file used; else env_logger to stderr
+    if let Some(path) = log_file {
+        let level = match std::env::var("RUST_LOG")
+            .ok()
+            .unwrap_or_else(|| "info".to_string())
+            .to_lowercase()
+            .as_str()
+        {
+            "trace" => simplelog::LevelFilter::Trace,
+            "debug" => simplelog::LevelFilter::Debug,
+            "warn" => simplelog::LevelFilter::Warn,
+            "error" => simplelog::LevelFilter::Error,
+            _ => simplelog::LevelFilter::Info,
+        };
+        let config = simplelog::ConfigBuilder::new()
+            .set_target_level(simplelog::LevelFilter::Info)
+            .build();
+        match std::fs::File::create(&path) {
+            Ok(file) => {
+                let _ = simplelog::WriteLogger::init(level, config, file);
+                eprintln!("Logging to file: {} (level: {:?})", path, level);
+            }
+            Err(e) => {
+                eprintln!("Failed to open log file {}: {}. Falling back to stderr.", path, e);
+                env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+            }
+        }
+    } else {
+        // Initialize logging (RUST_LOG=info by default; override with env)
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    }
 
     // Silence raylib's internal logging unless debugging raylib itself
     unsafe {

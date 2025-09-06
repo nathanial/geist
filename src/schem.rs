@@ -209,7 +209,8 @@ pub fn list_schematics_with_size(dir: &Path) -> Result<Vec<SchematicEntry>, Stri
         let p = ent.path();
         if p.is_file() {
             if let Some(ext) = p.extension() {
-                if ext == "schem" {
+                let ext_s = ext.to_string_lossy();
+                if ext_s.eq_ignore_ascii_case("schem") || ext_s.eq_ignore_ascii_case("schematic") {
                     let (schem, _meta) = mc_schem::Schematic::from_file(
                         p.to_str().ok_or_else(|| "invalid path".to_string())?,
                     )
