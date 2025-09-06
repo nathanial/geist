@@ -18,6 +18,11 @@ cargo run
 
 This opens a window that renders a simple voxel terrain with a fly camera.
 
+CLI options
+
+- `--flat-world`: Generate a flat world consisting only of an infinite stone slab (no hills, trees, or caves).
+- `--schem-report [path]`: Analyze a `.schem` file and print unsupported block IDs, then exit. Defaults to `schematics/anvilstead.schem`.
+
 Highlights
 
 - Multi‑chunk world (grid) with seamless noise generation.

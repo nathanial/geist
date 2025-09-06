@@ -75,18 +75,27 @@ impl App {
         lighting: std::sync::Arc<LightingStore>,
         edits: crate::edit::EditStore,
     ) -> Self {
-        let spawn = Vector3::new(
-            (world.world_size_x() as f32) * 0.5,
-            (world.world_size_y() as f32) * 0.8,
-            (world.world_size_z() as f32) * 0.5,
-        );
+        // Spawn: if flat world, start a few blocks above the slab; else near world top
+        let spawn = if world.is_flat() {
+            Vector3::new(
+                (world.world_size_x() as f32) * 0.5,
+                6.0,
+                (world.world_size_z() as f32) * 0.5,
+            )
+        } else {
+            Vector3::new(
+                (world.world_size_x() as f32) * 0.5,
+                (world.world_size_y() as f32) * 0.8,
+                (world.world_size_z() as f32) * 0.5,
+            )
+        };
         let cam = crate::camera::FlyCamera::new(spawn + Vector3::new(0.0, 5.0, 20.0));
 
         let runtime = Runtime::new(&mut rl, thread, world.clone(), lighting.clone());
         let mut gs = GameState::new(world.clone(), edits, lighting.clone(), cam.position);
         let mut queue = EventQueue::new();
 
-        // Load a Sponge .schem into world edits at origin before streaming starts
+        // Load a Sponge .schem into world edits at origin before streaming starts (also in flat world)
         {
             use std::path::Path;
             let schem_path = Path::new("schematics/anvilstead.schem");
@@ -108,20 +117,22 @@ impl App {
         let ccx = (cam.position.x / world.chunk_size_x as f32).floor() as i32;
         let ccz = (cam.position.z / world.chunk_size_z as f32).floor() as i32;
         queue.emit_now(Event::ViewCenterChanged { ccx, ccz });
-        // Spawn a flying castle structure at high altitude (original placement)
-        let castle_id: StructureId = 1;
-        let world_center = Vector3::new(
-            (world.world_size_x() as f32) * 0.5,
-            (world.world_size_y() as f32) * 0.7,
-            (world.world_size_z() as f32) * 0.5,
-        );
-        let st_sx = 32usize;
-        let st_sy = 24usize;
-        let st_sz = 32usize;
-        let pose = Pose { pos: world_center + Vector3::new(0.0, 16.0, 40.0), yaw_deg: 0.0 };
-        let st = Structure::new(castle_id, st_sx, st_sy, st_sz, pose);
-        gs.structures.insert(castle_id, st);
-        queue.emit_now(Event::StructureBuildRequested { id: castle_id, rev: 1 });
+        // Spawn a flying castle structure at high altitude (skip for flat world)
+        if !world.is_flat() {
+            let castle_id: StructureId = 1;
+            let world_center = Vector3::new(
+                (world.world_size_x() as f32) * 0.5,
+                (world.world_size_y() as f32) * 0.7,
+                (world.world_size_z() as f32) * 0.5,
+            );
+            let st_sx = 32usize;
+            let st_sy = 24usize;
+            let st_sz = 32usize;
+            let pose = Pose { pos: world_center + Vector3::new(0.0, 16.0, 40.0), yaw_deg: 0.0 };
+            let st = Structure::new(castle_id, st_sx, st_sy, st_sz, pose);
+            gs.structures.insert(castle_id, st);
+            queue.emit_now(Event::StructureBuildRequested { id: castle_id, rev: 1 });
+        }
         Self {
             gs,
             queue,

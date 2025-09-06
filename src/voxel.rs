@@ -73,6 +73,14 @@ pub struct World {
     pub chunks_x: usize,
     pub chunks_z: usize,
     pub seed: i32,
+    pub mode: WorldGenMode,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum WorldGenMode {
+    Normal,
+    // An infinite flat slab of stone of given thickness from y=0 upwards
+    Flat { thickness: i32 },
 }
 
 impl World {
@@ -83,6 +91,7 @@ impl World {
         chunk_size_y: usize,
         chunk_size_z: usize,
         seed: i32,
+        mode: WorldGenMode,
     ) -> Self {
         Self {
             chunk_size_x,
@@ -91,6 +100,7 @@ impl World {
             chunks_x,
             chunks_z,
             seed,
+            mode,
         }
     }
 
@@ -113,6 +123,10 @@ impl World {
     pub fn block_at(&self, x: i32, y: i32, z: i32) -> Block {
         if y < 0 || y >= self.chunk_size_y as i32 {
             return Block::Air;
+        }
+        // Flat world shortcut: stone slab of configured thickness at base, otherwise air
+        if let WorldGenMode::Flat { thickness } = self.mode {
+            return if y < thickness { Block::Stone } else { Block::Air };
         }
         // Base terrain sampling (shared with trees)
         let mut noise = FastNoiseLite::with_seed(self.seed);
@@ -540,5 +554,12 @@ impl World {
         }
 
         base_block
+    }
+}
+
+impl World {
+    #[inline]
+    pub fn is_flat(&self) -> bool {
+        matches!(self.mode, WorldGenMode::Flat { .. })
     }
 }

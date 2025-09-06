@@ -17,10 +17,11 @@ mod schem;
 
 use raylib::prelude::*;
 use std::sync::Arc;
-use voxel::World;
+use voxel::{World, WorldGenMode};
 
 fn main() {
-    // Handle CLI mode: schematic support report
+    // Handle CLI args first
+    let mut flat_world = false;
     {
         let mut args = std::env::args().skip(1).collect::<Vec<String>>();
         let mut report_mode = false;
@@ -34,6 +35,8 @@ fn main() {
                     schem_path = args[i + 1].clone();
                     i += 1;
                 }
+            } else if a == "--flat-world" {
+                flat_world = true;
             }
             i += 1;
         }
@@ -86,6 +89,7 @@ fn main() {
     let chunks_x = 4usize;
     let chunks_z = 4usize;
     let world_seed = 1337;
+    let world_mode = if flat_world { WorldGenMode::Flat { thickness: 1 } } else { WorldGenMode::Normal };
     let world = Arc::new(World::new(
         chunks_x,
         chunks_z,
@@ -93,6 +97,7 @@ fn main() {
         chunk_size_y,
         chunk_size_z,
         world_seed,
+        world_mode,
     ));
     let lighting_store = Arc::new(lighting::LightingStore::new(
         chunk_size_x,
