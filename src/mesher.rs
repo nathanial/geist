@@ -728,8 +728,17 @@ pub fn build_chunk_greedy_cpu_buf(
                                 let nb = buf.get_local(x - 1, y, z);
                                 if is_full_cube(nb) {
                                     if let Some(fm) = face_material_for(nb, 2) {
-                                        let l = light.sample_face_local(x - 1, y, z, 2);
-                                        let lv = l.max(VISUAL_LIGHT_MIN);
+                                        let l0 = light.sample_face_local(x - 1, y, z, 2);
+                                        let lv = match half {
+                                            SlabHalf::Bottom => {
+                                                let la = if y + 1 < sy { light.sample_face_local(x - 1, y + 1, z, 2) } else { l0 };
+                                                l0.max(la).max(VISUAL_LIGHT_MIN)
+                                            }
+                                            SlabHalf::Top => {
+                                                let lb = if y > 0 { light.sample_face_local(x - 1, y - 1, z, 2) } else { l0 };
+                                                l0.max(lb).max(VISUAL_LIGHT_MIN)
+                                            }
+                                        };
                                         let rgba = [lv, lv, lv, 255];
                                         let mb = builds.entry(fm).or_default();
                                         let px = fx; // plane at x
@@ -753,8 +762,17 @@ pub fn build_chunk_greedy_cpu_buf(
                                 let nb = buf.get_local(x + 1, y, z);
                                 if is_full_cube(nb) {
                                     if let Some(fm) = face_material_for(nb, 3) {
-                                        let l = light.sample_face_local(x + 1, y, z, 3);
-                                        let lv = l.max(VISUAL_LIGHT_MIN);
+                                        let l0 = light.sample_face_local(x + 1, y, z, 3);
+                                        let lv = match half {
+                                            SlabHalf::Bottom => {
+                                                let la = if y + 1 < sy { light.sample_face_local(x + 1, y + 1, z, 3) } else { l0 };
+                                                l0.max(la).max(VISUAL_LIGHT_MIN)
+                                            }
+                                            SlabHalf::Top => {
+                                                let lb = if y > 0 { light.sample_face_local(x + 1, y - 1, z, 3) } else { l0 };
+                                                l0.max(lb).max(VISUAL_LIGHT_MIN)
+                                            }
+                                        };
                                         let rgba = [lv, lv, lv, 255];
                                         let mb = builds.entry(fm).or_default();
                                         let px = fx + 1.0; // plane at x+1
@@ -778,8 +796,17 @@ pub fn build_chunk_greedy_cpu_buf(
                                 let nb = buf.get_local(x, y, z - 1);
                                 if is_full_cube(nb) {
                                     if let Some(fm) = face_material_for(nb, 4) {
-                                        let l = light.sample_face_local(x, y, z - 1, 4);
-                                        let lv = l.max(VISUAL_LIGHT_MIN);
+                                        let l0 = light.sample_face_local(x, y, z - 1, 4);
+                                        let lv = match half {
+                                            SlabHalf::Bottom => {
+                                                let la = if y + 1 < sy { light.sample_face_local(x, y + 1, z - 1, 4) } else { l0 };
+                                                l0.max(la).max(VISUAL_LIGHT_MIN)
+                                            }
+                                            SlabHalf::Top => {
+                                                let lb = if y > 0 { light.sample_face_local(x, y - 1, z - 1, 4) } else { l0 };
+                                                l0.max(lb).max(VISUAL_LIGHT_MIN)
+                                            }
+                                        };
                                         let rgba = [lv, lv, lv, 255];
                                         let mb = builds.entry(fm).or_default();
                                         let pz = fz; // plane at z
@@ -803,8 +830,17 @@ pub fn build_chunk_greedy_cpu_buf(
                                 let nb = buf.get_local(x, y, z + 1);
                                 if is_full_cube(nb) {
                                     if let Some(fm) = face_material_for(nb, 5) {
-                                        let l = light.sample_face_local(x, y, z + 1, 5);
-                                        let lv = l.max(VISUAL_LIGHT_MIN);
+                                        let l0 = light.sample_face_local(x, y, z + 1, 5);
+                                        let lv = match half {
+                                            SlabHalf::Bottom => {
+                                                let la = if y + 1 < sy { light.sample_face_local(x, y + 1, z + 1, 5) } else { l0 };
+                                                l0.max(la).max(VISUAL_LIGHT_MIN)
+                                            }
+                                            SlabHalf::Top => {
+                                                let lb = if y > 0 { light.sample_face_local(x, y - 1, z + 1, 5) } else { l0 };
+                                                l0.max(lb).max(VISUAL_LIGHT_MIN)
+                                            }
+                                        };
                                         let rgba = [lv, lv, lv, 255];
                                         let mb = builds.entry(fm).or_default();
                                         let pz = fz + 1.0; // plane at z+1
