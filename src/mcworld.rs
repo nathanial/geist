@@ -110,7 +110,7 @@ pub fn load_mcworlds_in_dir(dir: &Path, base_y: i32, edits: &mut crate::edit::Ed
                     let mut blocks: Vec<crate::voxel::Block> = Vec::with_capacity(ms.indices.len());
                     for &ix in &ms.indices {
                         let bname = ms.palette.get(ix).cloned().unwrap_or_else(|| "minecraft:air".to_string());
-                        let b = super::schem::map_palette_key_to_block_opt(&bname).unwrap_or(crate::voxel::Block::Air);
+                        let b = super::schem::map_palette_key_to_block_opt(&bname).unwrap_or(crate::voxel::Block::Unknown);
                         blocks.push(b);
                     }
                     // Stamp as a local buffer at origin; then emit edits
@@ -143,4 +143,3 @@ pub fn load_mcworlds_in_dir(dir: &Path, base_y: i32, edits: &mut crate::edit::Ed
 pub fn load_mcworlds_in_dir(_dir: &std::path::Path, _base_y: i32, _edits: &mut crate::edit::EditStore) -> Result<Vec<(String, (i32,i32,i32), (i32,i32,i32))>, String> {
     Err("mcworld support not enabled; recompile with --features mcworld".into())
 }
-

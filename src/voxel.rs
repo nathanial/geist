@@ -33,6 +33,8 @@ pub enum TerracottaColor {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Block {
     Air,
+    // Placeholder for unrecognized/unsupported imported blocks
+    Unknown,
     Grass,
     Dirt,
     Stone,

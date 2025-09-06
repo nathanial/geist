@@ -12,6 +12,7 @@ const VISUAL_LIGHT_MIN: u8 = 18; // ~7% brightness floor
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum FaceMaterial {
+    Unknown,
     GrassTop,
     GrassSide, // needs V-flip
     Dirt,
@@ -64,6 +65,7 @@ pub enum FaceMaterial {
 impl FaceMaterial {
     pub fn texture_candidates(&self) -> Vec<&'static str> {
         match self {
+            FaceMaterial::Unknown => vec!["assets/blocks/unknown.png"],
             FaceMaterial::GrassTop => vec!["assets/blocks/grass_top.png"],
             FaceMaterial::GrassSide => vec!["assets/blocks/grass_side.png"],
             FaceMaterial::Dirt => vec!["assets/blocks/dirt.png"],
@@ -240,6 +242,7 @@ fn face_material_for(block: Block, face: usize) -> Option<FaceMaterial> {
     // face: 0=+Y(top), 1=-Y(bottom), 2=+X, 3=-X, 4=+Z, 5=-Z
     match block {
         Block::Air => None,
+        Block::Unknown => Some(FaceMaterial::Unknown),
         Block::Grass => match face {
             0 => Some(FaceMaterial::GrassTop),
             1 => Some(FaceMaterial::Dirt), // bottom is dirt

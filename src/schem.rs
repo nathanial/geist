@@ -346,8 +346,8 @@ fn map_palette_key_to_block_opt(key: &str) -> Option<Block> {
 }
 
 fn map_palette_key_to_block(key: &str) -> Block {
-    // Fallback to stone to preserve shape during build
-    map_palette_key_to_block_opt(key).unwrap_or(Block::Air)
+    // Fallback to a visible placeholder to preserve structure layout
+    map_palette_key_to_block_opt(key).unwrap_or(Block::Unknown)
 }
 
 // Fallback: MCEdit/old WorldEdit .schematic loader via NBT (fastnbt + optional gzip)
@@ -490,7 +490,7 @@ fn numeric_id_to_block(id: u16, data: u8) -> Block {
             }
         }
         121 => EndStone, // end stone legacy id
-        _ => Air,
+        _ => Unknown,
     }
 }
 
@@ -535,6 +535,8 @@ pub fn load_mcedit_schematic_apply_edits(
                 if matches!(b, Block::Air) {
                     if id != 0 { unsupported.insert(id); }
                 } else {
+                    // Track unknowns for reporting but still place them
+                    if matches!(b, Block::Unknown) { unsupported.insert(id); }
                     edits.set(ox + x, oy + y, oz + z, b);
                 }
             }
@@ -542,7 +544,7 @@ pub fn load_mcedit_schematic_apply_edits(
     }
     if !unsupported.is_empty() {
         let ids: Vec<String> = unsupported.iter().map(|v| v.to_string()).collect();
-        log::info!(".schematic unsupported numeric block IDs encountered (mapped to air): {}", ids.join(", "));
+        log::info!(".schematic unsupported numeric block IDs encountered (mapped to unknown): {}", ids.join(", "));
     }
     Ok((w as usize, h as usize, l as usize))
 }

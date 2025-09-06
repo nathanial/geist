@@ -80,6 +80,7 @@ impl Runtime {
         use crate::mesher::FaceMaterial;
         use crate::voxel::TreeSpecies;
         let mut mats: Vec<FaceMaterial> = vec![
+            FaceMaterial::Unknown,
             FaceMaterial::GrassTop,
             FaceMaterial::GrassSide,
             FaceMaterial::Dirt,
