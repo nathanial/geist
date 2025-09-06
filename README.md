@@ -16,21 +16,74 @@ A minimal Rust project using the `raylib` crate to render a simple 3D scene (gri
 cargo run
 ```
 
-This opens a window that renders a simple voxel terrain with a fly camera.
+This launches the voxel viewer with a fly camera using default world settings.
 
-CLI options
+## CLI
 
-- `--flat-world`: Generate a flat world consisting only of an infinite stone slab (no hills, trees, or caves).
-- `--schem-report [path]`: Analyze a `.schem` file and print unsupported block IDs, then exit. Defaults to `schematics/anvilstead.schem`.
-- `--schem-report --counts [path]`: Print counts per block id in the `.schem` file (helps verify if trees/terrain are in the schematic).
-- `--schem-only`: Disable all terrain generation (even the slab); only the schematic contents are loaded. All `.schem` and `.schematic` files under `schematics/` are auto‑loaded and laid out with spacing.
-- `--log-file [path]`: Write logs to a file instead of the console. If `path` is omitted, defaults to `geist.log` in the current directory. Honor `RUST_LOG` for level (trace|debug|info|warn|error).
+The app now uses subcommands via Clap.
+
+- Global
+  - `--log-file [PATH]`: Write logs to a file instead of stderr. If `PATH` is omitted, defaults to `geist.log`. Honors `RUST_LOG`.
+
+- `run`: start the viewer.
+  - `--world <normal|flat|schem-only>`: World preset (default: `normal`).
+  - `--flat-thickness <N>`: Thickness for `--world flat` (default: 1).
+  - `--seed <N>`: World seed (default: 1337).
+  - `--chunks-x <N>`, `--chunks-z <N>`: Number of chunks (default: 4x4).
+  - `--chunk-size-x <N>`, `--chunk-size-y <N>`, `--chunk-size-z <N>`: Chunk dimensions (default: 32x48x32).
+
+- `schem report [SCHEM_PATH]`: analyze a schematic file.
+  - `--counts`: Show counts per block id instead of unsupported list.
+  - `SCHEM_PATH`: Optional; defaults to `schematics/anvilstead.schem`.
+
+Examples
+
+```
+# Run with defaults
+cargo run -- run
+
+# Flat world (1 layer)
+cargo run -- run --world flat
+
+# Schematic-only (no terrain)
+cargo run -- run --world schem-only
+
+# Custom sizes and seed
+cargo run -- run --seed 42 --chunks-x 6 --chunks-z 6 --chunk-size-y 64
+
+# Analyze a schematic (unsupported list)
+cargo run -- schem report schematics/castle.schem
+
+# Analyze a schematic (counts)
+cargo run -- schem report schematics/castle.schem --counts
+
+# Log to file (default path)
+cargo run -- --log-file run
+
+# Log to file (custom path)
+cargo run -- --log-file logs/run.log run
+```
+
+Help
+
+```
+cargo run -- --help
+cargo run -- run --help
+cargo run -- schem --help
+```
+
+Migrating from legacy flags
+
+- `--flat-world` → `run --world flat`
+- `--schem-only` → `run --world schem-only`
+- `--schem-report [path]` → `schem report [path]`
+- `--schem-report --counts [path]` → `schem report [path] --counts`
 
 Bedrock .mcworld (optional)
 
 - Build with feature `mcworld` to auto-import Bedrock `.mcworld` files placed in `schematics/`.
-- Command: `cargo run --features mcworld -- --flat-world`
-- What’s imported: any `structures/*.mcstructure` files found inside the `.mcworld` archive are parsed via `bedrock-hematite-nbt` and stamped into the world (states are simplified; many special blocks still map to air).
+- Command: `cargo run --features mcworld -- run --world flat`
+- What’s imported: any `structures/*.mcstructure` files found inside the `.mcworld` archive are parsed via `bedrock-hematite-nbt` and stamped into the world (states are simplified; many special blocks still map to unknown or air).
 - Limitations: Full Bedrock chunks (LevelDB) are not imported; only `.mcstructure` exports inside the world are supported for now.
 
 Highlights

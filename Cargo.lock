@@ -476,6 +476,7 @@ name = "geist"
 version = "0.1.0"
 dependencies = [
  "bedrock-hematite-nbt",
+ "clap",
  "env_logger",
  "fastnbt",
  "fastnoise-lite",

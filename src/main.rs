@@ -19,79 +19,94 @@ mod mcworld;
 use raylib::prelude::*;
 use std::sync::Arc;
 use voxel::{World, WorldGenMode};
+use std::path::PathBuf;
+use clap::{Args, Parser, Subcommand, ValueEnum};
+
+#[derive(Parser, Debug)]
+#[command(name = "geist", version, about = "Geist voxel viewer", propagate_version = true)]
+struct Cli {
+    /// Log to a file; optional path (defaults to geist.log if omitted)
+    #[arg(long, global = true, num_args = 0..=1, value_name = "PATH", default_missing_value = "geist.log")]
+    log_file: Option<String>,
+
+    #[command(subcommand)]
+    command: Option<Command>,
+}
+
+#[derive(Subcommand, Debug)]
+enum Command {
+    /// Run the voxel viewer
+    Run(RunArgs),
+
+    /// Tools to inspect or analyze schematics
+    Schem {
+        #[command(subcommand)]
+        cmd: SchemCmd,
+    },
+}
+
+#[derive(Args, Debug, Default)]
+struct RunArgs {
+    /// World generation preset
+    #[arg(long, value_enum, default_value_t = WorldKind::Normal)]
+    world: WorldKind,
+
+    /// Flat world thickness (used when --world=flat)
+    #[arg(long)]
+    flat_thickness: Option<i32>,
+
+    /// World seed
+    #[arg(long, default_value_t = 1337)]
+    seed: i32,
+
+    /// Number of chunks along X
+    #[arg(long, default_value_t = 4)]
+    chunks_x: usize,
+    /// Number of chunks along Z
+    #[arg(long, default_value_t = 4)]
+    chunks_z: usize,
+
+    /// Chunk size along X
+    #[arg(long, default_value_t = 32)]
+    chunk_size_x: usize,
+    /// Chunk size along Y
+    #[arg(long, default_value_t = 48)]
+    chunk_size_y: usize,
+    /// Chunk size along Z
+    #[arg(long, default_value_t = 32)]
+    chunk_size_z: usize,
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+enum WorldKind { Normal, Flat, SchemOnly }
+
+impl Default for WorldKind {
+    fn default() -> Self { WorldKind::Normal }
+}
+
+#[derive(Subcommand, Debug)]
+enum SchemCmd {
+    /// Report unsupported blocks or counts from a schematic
+    Report(SchemReportArgs),
+}
+
+#[derive(Args, Debug)]
+struct SchemReportArgs {
+    /// Show block counts instead of unsupported list
+    #[arg(long, alias = "counts")]
+    counts: bool,
+
+    /// Optional schematic path
+    #[arg(value_name = "SCHEM_PATH")]
+    path: Option<PathBuf>,
+}
 
 fn main() {
-    // Handle CLI args first
-    let mut flat_world = false;
-    let mut schem_only = false;
-    let mut schem_counts = false;
-    let mut log_file: Option<String> = None;
-    {
-        let mut args = std::env::args().skip(1).collect::<Vec<String>>();
-        let mut report_mode = false;
-        let mut schem_path = String::from("schematics/anvilstead.schem");
-        let mut i = 0usize;
-        while i < args.len() {
-            let a = &args[i];
-            if a == "--schem-report" {
-                report_mode = true;
-                if i + 1 < args.len() && !args[i + 1].starts_with('-') {
-                    schem_path = args[i + 1].clone();
-                    i += 1;
-                }
-            } else if a == "--flat-world" {
-                flat_world = true;
-            } else if a == "--schem-only" {
-                // No terrain at all; only what the schematic places
-                schem_only = true;
-            } else if a == "--counts" {
-                schem_counts = true;
-            } else if a == "--log-file" {
-                if i + 1 < args.len() && !args[i + 1].starts_with('-') {
-                    log_file = Some(args[i + 1].clone());
-                    i += 1;
-                } else {
-                    log_file = Some(String::from("geist.log"));
-                }
-            }
-            i += 1;
-        }
-        if report_mode {
-            if schem_counts {
-                match crate::schem::count_blocks_in_file(std::path::Path::new(&schem_path)) {
-                    Ok(mut entries) => {
-                        entries.sort_by(|a, b| b.1.cmp(&a.1));
-                        println!("Block counts in {:?} (excluding air):", schem_path);
-                        for (id, c) in entries { println!("{:>8}  {}", c, id); }
-                        return;
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to analyze {:?}: {}", schem_path, e);
-                        std::process::exit(2);
-                    }
-                }
-            } else {
-                match crate::schem::find_unsupported_blocks_in_file(std::path::Path::new(&schem_path)) {
-                    Ok(list) => {
-                        if list.is_empty() {
-                            println!("All blocks in {:?} are supported by current mapper.", schem_path);
-                        } else {
-                            println!("Unsupported block types ({}):", list.len());
-                            for id in list { println!("- {}", id); }
-                        }
-                        return;
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to analyze {:?}: {}", schem_path, e);
-                        std::process::exit(2);
-                    }
-                }
-            }
-        }
-    }
+    // Parse CLI args
+    let cli = Cli::parse();
 
     // Initialize logging: to file if --log-file used; else env_logger to stderr
-    if let Some(path) = log_file {
+    if let Some(path) = cli.log_file.clone() {
         let level = match std::env::var("RUST_LOG")
             .ok()
             .unwrap_or_else(|| "info".to_string())
@@ -122,9 +137,53 @@ fn main() {
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     }
 
+    // Determine command (default to Run with defaults)
+    let command = cli.command.unwrap_or(Command::Run(RunArgs::default()));
+
+    match command {
+        Command::Schem { cmd: SchemCmd::Report(args) } => {
+            let schem_path = args
+                .path
+                .clone()
+                .unwrap_or_else(|| PathBuf::from("schematics/anvilstead.schem"));
+            if args.counts {
+                match crate::schem::count_blocks_in_file(std::path::Path::new(&schem_path)) {
+                    Ok(mut entries) => {
+                        entries.sort_by(|a, b| b.1.cmp(&a.1));
+                        println!("Block counts in {:?} (excluding air):", schem_path);
+                        for (id, c) in entries { println!("{:>8}  {}", c, id); }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to analyze {:?}: {}", schem_path, e);
+                        std::process::exit(2);
+                    }
+                }
+            } else {
+                match crate::schem::find_unsupported_blocks_in_file(std::path::Path::new(&schem_path)) {
+                    Ok(list) => {
+                        if list.is_empty() {
+                            println!("All blocks in {:?} are supported by current mapper.", schem_path);
+                        } else {
+                            println!("Unsupported block types ({}):", list.len());
+                            for id in list { println!("- {}", id); }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to analyze {:?}: {}", schem_path, e);
+                        std::process::exit(2);
+                    }
+                }
+            }
+            return;
+        }
+        Command::Run(run) => run_app(run),
+    }
+}
+
+fn run_app(run: RunArgs) {
     // Silence raylib's internal logging unless debugging raylib itself
     unsafe {
-        // 7 == LOG_NONE in raylib (0 was LOG_ALL and was too chatty)
+        // 7 == LOG_NONE in raylib (0 was LOG_NONE; 0 was LOG_ALL and was too chatty)
         raylib::ffi::SetTraceLogLevel(7);
     }
 
@@ -142,19 +201,17 @@ fn main() {
 
     rl.set_target_fps(60);
     rl.disable_cursor();
-    // World + stores
-    let chunk_size_x = 32usize;
-    let chunk_size_y = 48usize;
-    let chunk_size_z = 32usize;
-    let chunks_x = 4usize;
-    let chunks_z = 4usize;
-    let world_seed = 1337;
-    let world_mode = if schem_only {
-        WorldGenMode::Flat { thickness: 0 }
-    } else if flat_world {
-        WorldGenMode::Flat { thickness: 1 }
-    } else {
-        WorldGenMode::Normal
+    // World + stores (configurable via CLI)
+    let chunk_size_x = run.chunk_size_x;
+    let chunk_size_y = run.chunk_size_y;
+    let chunk_size_z = run.chunk_size_z;
+    let chunks_x = run.chunks_x;
+    let chunks_z = run.chunks_z;
+    let world_seed = run.seed;
+    let world_mode = match run.world {
+        WorldKind::SchemOnly => WorldGenMode::Flat { thickness: 0 },
+        WorldKind::Flat => WorldGenMode::Flat { thickness: run.flat_thickness.unwrap_or(1) },
+        WorldKind::Normal => WorldGenMode::Normal,
     };
     let world = Arc::new(World::new(
         chunks_x,
