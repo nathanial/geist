@@ -18,6 +18,73 @@ fn map_palette_key_to_block_opt(key: &str) -> Option<Block> {
         "minecraft:glowstone" => Some(Block::Glowstone),
         "minecraft:beacon" => Some(Block::Beacon),
 
+        // Common cubes
+        "minecraft:cobblestone" => Some(Block::Cobblestone),
+        "minecraft:mossy_cobblestone" => Some(Block::MossyCobblestone),
+        "minecraft:stone_bricks" => Some(Block::StoneBricks),
+        "minecraft:chiseled_stone_bricks" => Some(Block::StoneBricks),
+        "minecraft:mossy_stone_bricks" => Some(Block::MossyStoneBricks),
+        "minecraft:bricks" => Some(Block::Brick),
+        "minecraft:granite" => Some(Block::Granite),
+        "minecraft:diorite" => Some(Block::Diorite),
+        "minecraft:andesite" => Some(Block::Andesite),
+        "minecraft:polished_granite" => Some(Block::PolishedGranite),
+        "minecraft:polished_diorite" => Some(Block::PolishedDiorite),
+        "minecraft:polished_andesite" => Some(Block::PolishedAndesite),
+        "minecraft:gravel" => Some(Block::Gravel),
+        "minecraft:smooth_stone" => Some(Block::SmoothStone),
+        "minecraft:sandstone" => Some(Block::Sandstone),
+        "minecraft:smooth_sandstone" => Some(Block::SmoothSandstone),
+        "minecraft:cut_sandstone" => Some(Block::SmoothSandstone),
+        "minecraft:red_sandstone" => Some(Block::RedSandstone),
+        "minecraft:smooth_red_sandstone" => Some(Block::SmoothRedSandstone),
+        "minecraft:cut_red_sandstone" => Some(Block::SmoothRedSandstone),
+        "minecraft:quartz_block" => Some(Block::QuartzBlock),
+        "minecraft:chiseled_quartz_block" => Some(Block::QuartzBlock),
+        "minecraft:quartz_pillar" => Some(Block::QuartzBlock),
+        "minecraft:lapis_block" => Some(Block::LapisBlock),
+        "minecraft:coal_block" => Some(Block::CoalBlock),
+        "minecraft:prismarine_bricks" => Some(Block::PrismarineBricks),
+        "minecraft:nether_bricks" => Some(Block::NetherBricks),
+
+        // Planks
+        "minecraft:oak_planks" => Some(Block::Planks(TreeSpecies::Oak)),
+        "minecraft:birch_planks" => Some(Block::Planks(TreeSpecies::Birch)),
+        "minecraft:spruce_planks" => Some(Block::Planks(TreeSpecies::Spruce)),
+        "minecraft:jungle_planks" => Some(Block::Planks(TreeSpecies::Jungle)),
+        "minecraft:acacia_planks" => Some(Block::Planks(TreeSpecies::Acacia)),
+        "minecraft:dark_oak_planks" => Some(Block::Planks(TreeSpecies::DarkOak)),
+
+        // Dirt-like variants
+        "minecraft:coarse_dirt" => Some(Block::CoarseDirt),
+        "minecraft:podzol" => Some(Block::Podzol),
+
+        // Bookshelf
+        "minecraft:bookshelf" => Some(Block::Bookshelf),
+        "minecraft:chiseled_bookshelf" => Some(Block::Bookshelf),
+
+        // Logs with bark all around; approximate with logs
+        "minecraft:oak_wood" => Some(Block::Wood(TreeSpecies::Oak)),
+        "minecraft:birch_wood" => Some(Block::Wood(TreeSpecies::Birch)),
+        "minecraft:spruce_wood" => Some(Block::Wood(TreeSpecies::Spruce)),
+        "minecraft:jungle_wood" => Some(Block::Wood(TreeSpecies::Jungle)),
+        "minecraft:acacia_wood" => Some(Block::Wood(TreeSpecies::Acacia)),
+        "minecraft:dark_oak_wood" => Some(Block::Wood(TreeSpecies::DarkOak)),
+
+        // Ores -> approximate as stone for now
+        "minecraft:coal_ore" => Some(Block::Stone),
+        "minecraft:iron_ore" => Some(Block::Stone),
+        "minecraft:gold_ore" => Some(Block::Stone),
+        "minecraft:copper_ore" => Some(Block::Stone),
+        "minecraft:redstone_ore" => Some(Block::Stone),
+        "minecraft:lapis_ore" => Some(Block::Stone),
+        "minecraft:diamond_ore" => Some(Block::Stone),
+        "minecraft:emerald_ore" => Some(Block::Stone),
+        "minecraft:quartz_ore" => Some(Block::Stone),
+
+        // Other dirt-likes
+        "minecraft:rooted_dirt" => Some(Block::Dirt),
+
         // Logs
         "minecraft:oak_log" => Some(Block::Wood(TreeSpecies::Oak)),
         "minecraft:birch_log" => Some(Block::Wood(TreeSpecies::Birch)),
@@ -45,7 +112,7 @@ fn map_palette_key_to_block_opt(key: &str) -> Option<Block> {
 
 fn map_palette_key_to_block(key: &str) -> Block {
     // Fallback to stone to preserve shape during build
-    map_palette_key_to_block_opt(key).unwrap_or(Block::Stone)
+    map_palette_key_to_block_opt(key).unwrap_or(Block::Air)
 }
 
 pub fn load_sponge_schem_apply_edits(

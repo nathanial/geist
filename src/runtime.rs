@@ -88,6 +88,35 @@ impl Runtime {
             FaceMaterial::Snow,
             FaceMaterial::Glowstone,
             FaceMaterial::Beacon,
+            FaceMaterial::Cobblestone,
+            FaceMaterial::MossyCobblestone,
+            FaceMaterial::StoneBricks,
+            FaceMaterial::MossyStoneBricks,
+            FaceMaterial::Brick,
+            FaceMaterial::Granite,
+            FaceMaterial::Diorite,
+            FaceMaterial::Andesite,
+            FaceMaterial::PolishedGranite,
+            FaceMaterial::PolishedDiorite,
+            FaceMaterial::PolishedAndesite,
+            FaceMaterial::Gravel,
+            FaceMaterial::SmoothStone,
+            FaceMaterial::Bookshelf,
+            FaceMaterial::CoarseDirt,
+            FaceMaterial::PodzolTop,
+            FaceMaterial::PodzolSide,
+            FaceMaterial::SandstoneTop,
+            FaceMaterial::SandstoneBottom,
+            FaceMaterial::SandstoneSide,
+            FaceMaterial::RedSandstoneTop,
+            FaceMaterial::RedSandstoneBottom,
+            FaceMaterial::RedSandstoneSide,
+            FaceMaterial::QuartzBlockTop,
+            FaceMaterial::QuartzBlockSide,
+            FaceMaterial::LapisBlock,
+            FaceMaterial::CoalBlock,
+            FaceMaterial::PrismarineBricks,
+            FaceMaterial::NetherBricks,
         ];
         for sp in [
             TreeSpecies::Oak,
@@ -100,6 +129,7 @@ impl Runtime {
             mats.push(FaceMaterial::WoodTop(sp));
             mats.push(FaceMaterial::WoodSide(sp));
             mats.push(FaceMaterial::Leaves(sp));
+            mats.push(FaceMaterial::Planks(sp));
         }
         for fm in &mats {
             let _ = tex_cache.get_or_load(rl, thread, &fm.texture_candidates());
