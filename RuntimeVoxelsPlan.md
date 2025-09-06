@@ -123,38 +123,36 @@
 
 **Progress**
 - Scaffolding: Added `src/blocks/{types.rs, material.rs, config.rs, registry.rs, mod.rs}` for runtime blocks, shapes, materials, and config loaders.
-- Config assets: Created `assets/voxels/{materials.toml, blocks.toml, palette_map.toml, hotbar.toml}` with a seed set of materials and blocks (air, stone, dirt, grass, glowstone, beacon). Materials support optional `render_tag` (e.g., `"leaves"`).
-- Crate wiring: Added `toml` dependency and `mod blocks;`. On startup, `main.rs` loads the registry and logs counts to validate parsing.
-- Build status: Project compiles; no behavioral changes yet. State-based material selection is stubbed pending state packing.
+- Config assets: Created `assets/voxels/{materials.toml, blocks.toml, palette_map.toml, hotbar.toml}` with a seed set of materials and blocks (air, stone, dirt, grass, glowstone, beacon). Materials support optional `render_tag` (e.g., "leaves").
+- Crate wiring: Added `toml` and `mod blocks;`. `main.rs` loads the registry at startup and passes it to `App`/`Runtime`.
+- Meshing keys: `meshing_core` generalized; `mesher` now groups meshes by `MaterialId` end-to-end; `ChunkMeshCPU`/`ChunkRender` use `MaterialId` keys.
+- Texture/upload path: Upload path uses `MaterialCatalog` to resolve texture candidates and a `TextureCache` keyed by file path strings; first on-disk candidate wins.
+- Shader selection: `app.rs` assigns the leaves shader when the material’s `render_tag == "leaves"`; others get the fog shader.
+- Runtime wiring: `Runtime` now owns an `Arc<BlockRegistry>`; worker threads pass `&reg.materials` into meshing. The app passes the registry through.
+- Compatibility mapping: A temporary resolver maps legacy `FaceMaterial` to `MaterialId` via known material keys with texture-path fallback (keeps visuals stable while shape/material resolution is implemented).
+- Build status: Project compiles with the new meshing path; rendering should be unchanged for covered materials.
 
 **Remaining Work (Prioritized)**
-- Meshing keys: Replace `FaceMaterial` with `MaterialId` in `meshing_core.rs` masks/maps and `mesher.rs` build paths.
-- Shape-driven meshing: Query shape/materials from the registry and emit via existing cube/slab/stairs emitters; add material resolver per `FaceRole`.
-- Texture/upload path: Update `TextureCache` and `runtime.rs` to preload textures by `MaterialCatalog`, grouping meshes by `MaterialId`.
-- Shader selection: Choose shaders via `material.render_tag` (e.g., `"leaves"`) in `app.rs` and runtime upload path.
-- Lighting flags: Add `propagates_sky`/`propagates_light` or use `blocks_skylight` + `is_solid()` in `lighting.rs` BFS; honor `emission` from registry.
-- Storage migration: Swap enum `Block` for runtime `Block { id, state }` across `ChunkBuf`, `Structure`, and `EditStore`.
-- Worldgen/UI: Worldgen returns runtime blocks; hotbar/hotkeys read from `assets/voxels/hotbar.toml`; UI uses `block.debug_name()`.
-- Schematic translator: Implement `assets/voxels/palette_map.toml`-driven mapping and update both `schem.rs` and `mcworld.rs` to use it.
-- State packing: Implement `state_schema` packing/unpacking and hook up by-property material selection.
-- Tests/docs: Add unit tests for state packing and registry lookups; update README/docs.
-- Cleanup: Remove legacy enums (`Block`, `MaterialKey`, `TreeSpecies`, `TerracottaColor`, `FaceMaterial`) once parity is reached.
+- Shape-driven meshing: Replace `face_material_for`/`MaterialKey` with registry-driven `(shape, face role) -> MaterialId`; handle cubes, axis logs, slabs, stairs.
+- Occlusion by shape: Swap enum matches for shape-aware occluder logic in mesher (slab/stairs top/bottom rules; sides full).
+- Lighting flags: Add `propagates_sky`/`propagates_light` (or use `blocks_skylight` + `is_solid`) in `lighting.rs`; honor `emission` from registry.
+- Storage migration: Switch `ChunkBuf`, `Structure`, and `EditStore` to runtime `Block { id, state }`.
+- Worldgen/UI: Worldgen to produce runtime blocks; drive hotbar from `assets/voxels/hotbar.toml`; use `block.debug_name()` in UI.
+- Schematic translator: Implement `assets/voxels/palette_map.toml`-driven mapping; update `schem.rs` and `mcworld.rs` to reuse it.
+- State packing: Implement `state_schema` packing/unpacking; enable by-property material selection.
+- Tests/docs: Add tests for state packing and registry lookups; update README/docs.
+- Cleanup: Remove legacy enums (`Block`, `MaterialKey`, `TreeSpecies`, `TerracottaColor`, `FaceMaterial`) after parity.
 
 **Implementation TODO**
-- Implement core types: `Block`, `BlockId`, `BlockState`, `BlockType`, `Shape`, and `BlockRegistry` with TOML loader.
-- Replace storage to use runtime `Block` across `ChunkBuf`, `Structure`, `EditStore`, and helpers.
-- Replace `FaceMaterial` with `MaterialCatalog`; update `TextureCache` to load by catalog keys.
-- Replace mesher logic with shape-driven emitters (Cube, AxisCube, Slab, Stairs); query materials from registry.
-- Replace lighting logic to use `block.is_solid()`, `blocks_skylight`, and `emission()` from registry.
-- Add config files: `assets/voxels/blocks.toml`, `assets/voxels/materials.toml`, `assets/voxels/palette_map.toml`, `assets/voxels/hotbar.toml`.
-- Replace schematic palette mapping with config-driven translator using `palette_map.toml`.
-- Update worldgen to return runtime blocks and stateful variants (e.g., logs/leaves with species/axis).
-- Update UI/hotkeys/hotbar to data-driven config; switch debug strings to `block.debug_name()`.
-- Remove legacy enums and mappings: `Block`, `MaterialKey`, `TreeSpecies`, `TerracottaColor`, and `FaceMaterial`.
-- Drop all compatibility shims and old code paths; proceed directly with the new system.
-- Add unit tests for `BlockState` packing/unpacking and key registry lookups.
-- Provide a default block pack matching current visuals.
-- Update README and docs to describe the new data-driven system.
+- DONE: Core types and loaders in `src/blocks/*` with TOML parsing.
+- DONE: Config files under `assets/voxels/*` (materials, blocks, palette_map, hotbar).
+- DONE: Meshing groups by `MaterialId`; upload path uses `MaterialCatalog` and updated `TextureCache`.
+- DONE: Shader selection via `render_tag` in `app.rs`.
+- NEXT: Registry-driven material resolution per shape/face; retire `FaceMaterial` usage in mesher.
+- NEXT: Shape-aware occlusion; then lighting propagation flags from registry.
+- NEXT: Storage migration to runtime `Block` and worldgen/UI updates.
+- NEXT: Config-driven schematic translator and state packing.
+- NEXT: Tests for state packing and registry; docs/README updates.
 
 **Integration Notes (from code audit)**
 - Mesh grouping key: Replace all uses of `FaceMaterial` as a map key in `ChunkMeshCPU`/`ChunkRender` with `MaterialId` (or `RenderKey`). Update `meshing_core` and upload paths accordingly.

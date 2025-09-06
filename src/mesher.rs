@@ -1423,27 +1423,40 @@ pub fn upload_chunk_mesh(
                     .iter()
                     .map(|p| p.to_string_lossy().to_string())
                     .collect();
-                let mut set_done = false;
-                for p in &candidates {
-                    if let Some(tex) = tex_cache.get_ref(p) {
-                        mat.set_material_texture(
-                            raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO,
-                            tex,
-                        );
-                        set_done = true;
-                        break;
+                // Pick an on-disk path if possible, else use first candidate
+                let chosen: Option<String> = candidates
+                    .iter()
+                    .find(|p| std::path::Path::new(p.as_str()).exists())
+                    .cloned()
+                    .or_else(|| candidates.first().cloned());
+                if let Some(path) = chosen {
+                    use std::collections::hash_map::Entry;
+                    match tex_cache.map.entry(path.clone()) {
+                        Entry::Occupied(e) => {
+                            let tex = e.into_mut();
+                            mat.set_material_texture(
+                                raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO,
+                                tex,
+                            );
+                        }
+                        Entry::Vacant(v) => {
+                            if let Ok(t) = rl.load_texture(thread, &path) {
+                                t.set_texture_filter(
+                                    thread,
+                                    raylib::consts::TextureFilter::TEXTURE_FILTER_POINT,
+                                );
+                                t.set_texture_wrap(
+                                    thread,
+                                    raylib::consts::TextureWrap::TEXTURE_WRAP_REPEAT,
+                                );
+                                let tex = v.insert(t);
+                                mat.set_material_texture(
+                                    raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO,
+                                    tex,
+                                );
+                            }
+                        }
                     }
-                    if let Some(tex) = tex_cache.insert_from_path(rl, thread, p) {
-                        mat.set_material_texture(
-                            raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO,
-                            tex,
-                        );
-                        set_done = true;
-                        break;
-                    }
-                }
-                if !set_done {
-                    // No texture available; leave material as-is
                 }
             }
         }
@@ -1565,4 +1578,6 @@ impl TextureCache {
         }
         None
     }
+
+    // Note: higher-level helpers operate on a single chosen path to avoid borrow issues
 }
