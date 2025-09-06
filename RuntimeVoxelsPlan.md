@@ -148,7 +148,9 @@
 - DONE: Config files under `assets/voxels/*` (materials, blocks, palette_map, hotbar).
 - DONE: Meshing groups by `MaterialId`; upload path uses `MaterialCatalog` and updated `TextureCache`.
 - DONE: Shader selection via `render_tag` in `app.rs`.
-- NEXT: Registry-driven material resolution per shape/face; retire `FaceMaterial` usage in mesher.
+- DONE: Registry-driven material resolution in mesher; uses registry for cubes and falls back to `unknown` material when unmapped. Structure mesher also uses registry.
+- DONE: Expanded default pack to match current world visuals: added `sand`, `snow`, species logs (`oak/birch/spruce/jungle/acacia`), and leaves. Materials include `render_tag = "leaves"`.
+- DONE: Removed FaceMaterial usage from mesher; all grouping/selection uses `MaterialId` from the registry.
 - NEXT: Shape-aware occlusion; then lighting propagation flags from registry.
 - NEXT: Storage migration to runtime `Block` and worldgen/UI updates.
 - NEXT: Config-driven schematic translator and state packing.

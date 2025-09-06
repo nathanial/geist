@@ -5,7 +5,7 @@ use raylib::core::math::BoundingBox;
 use raylib::prelude::*;
 use std::collections::HashMap as StdHashMap;
 use std::collections::HashMap;
-use crate::blocks::{MaterialCatalog, MaterialId};
+use crate::blocks::{BlockRegistry, FaceRole, MaterialCatalog, MaterialId};
 
 // Visual-only lighting floor to avoid pitch-black faces in darkness.
 // Does not affect logical light propagation.
@@ -431,6 +431,107 @@ fn face_material_for(block: Block, face: usize) -> Option<FaceMaterial> {
 }
 
 #[inline]
+fn unknown_material_id(reg: &BlockRegistry) -> MaterialId {
+    reg.materials.get_id("unknown").unwrap_or(MaterialId(0))
+}
+
+#[inline]
+fn registry_material_for(block: Block, face: usize, reg: &BlockRegistry) -> Option<MaterialId> {
+    // Map legacy enum Block to registry block type name (seed set only)
+    let name_opt: Option<&'static str> = match block {
+        Block::Air => None,
+        Block::Stone => Some("stone"),
+        Block::Dirt => Some("dirt"),
+        Block::Grass => Some("grass"),
+        Block::Sand => Some("sand"),
+        Block::Snow => Some("snow"),
+        Block::Glowstone => Some("glowstone"),
+        Block::Beacon => Some("beacon"),
+        Block::Wood(crate::voxel::TreeSpecies::Oak) => Some("oak_log"),
+        Block::Wood(crate::voxel::TreeSpecies::Birch) => Some("birch_log"),
+        Block::Wood(crate::voxel::TreeSpecies::Spruce) => Some("spruce_log"),
+        Block::Wood(crate::voxel::TreeSpecies::Jungle) => Some("jungle_log"),
+        Block::Wood(crate::voxel::TreeSpecies::Acacia) => Some("acacia_log"),
+        Block::Wood(crate::voxel::TreeSpecies::DarkOak) => Some("oak_log"),
+        Block::Leaves(crate::voxel::TreeSpecies::Oak) => Some("oak_leaves"),
+        Block::Leaves(crate::voxel::TreeSpecies::Birch) => Some("birch_leaves"),
+        Block::Leaves(crate::voxel::TreeSpecies::Spruce) => Some("spruce_leaves"),
+        Block::Leaves(crate::voxel::TreeSpecies::Jungle) => Some("jungle_leaves"),
+        Block::Leaves(crate::voxel::TreeSpecies::Acacia) => Some("acacia_leaves"),
+        Block::Leaves(crate::voxel::TreeSpecies::DarkOak) => Some("oak_leaves"),
+        _ => None,
+    };
+    let name = match name_opt { Some(n) => n, None => return None };
+    let id = match reg.id_by_name(name) { Some(id) => id, None => return None };
+    let ty = match reg.get(id) { Some(t) => t, None => return None };
+    let role = match face {
+        0 => FaceRole::Top,
+        1 => FaceRole::Bottom,
+        2 | 3 | 4 | 5 => {
+            // For logs, treat 2/3/4/5 as Side; leaves/cubes use Side as well
+            FaceRole::Side
+        }
+        _ => FaceRole::Side,
+    };
+    ty.materials.material_for(role, 0, ty)
+}
+
+#[inline]
+fn registry_material_for_or_unknown(block: Block, face: usize, reg: &BlockRegistry) -> MaterialId {
+    registry_material_for(block, face, reg).unwrap_or_else(|| unknown_material_id(reg))
+}
+
+#[inline]
+fn material_id_for_key_and_face(reg: &BlockRegistry, key: MaterialKey, face: usize) -> MaterialId {
+    let mats = &reg.materials;
+    let get = |k: &str| mats.get_id(k).unwrap_or_else(|| unknown_material_id(reg));
+    match key {
+        MaterialKey::SmoothStone => get("smooth_stone"),
+        MaterialKey::Sandstone => match face {
+            0 => get("sandstone_top"),
+            1 => get("sandstone_bottom"),
+            _ => get("sandstone_side"),
+        },
+        MaterialKey::RedSandstone => match face {
+            0 => get("red_sandstone_top"),
+            1 => get("red_sandstone_bottom"),
+            _ => get("red_sandstone_side"),
+        },
+        MaterialKey::Cobblestone => get("cobblestone"),
+        MaterialKey::MossyCobblestone => get("mossy_cobblestone"),
+        MaterialKey::StoneBricks => get("stone_bricks"),
+        MaterialKey::MossyStoneBricks => get("mossy_stone_bricks"),
+        MaterialKey::QuartzBlock => match face {
+            0 | 1 => get("quartz_block_top"),
+            _ => get("quartz_block_side"),
+        },
+        MaterialKey::Planks(sp) => match sp {
+            crate::voxel::TreeSpecies::Oak => get("oak_planks"),
+            crate::voxel::TreeSpecies::Birch => get("birch_planks"),
+            crate::voxel::TreeSpecies::Spruce => get("spruce_planks"),
+            crate::voxel::TreeSpecies::Jungle => mats
+                .get_id("jungle_planks")
+                .unwrap_or_else(|| get("oak_planks")),
+            crate::voxel::TreeSpecies::Acacia => mats
+                .get_id("acacia_planks")
+                .unwrap_or_else(|| get("oak_planks")),
+            crate::voxel::TreeSpecies::DarkOak => get("oak_planks"),
+        },
+        MaterialKey::PrismarineBricks => get("prismarine_bricks"),
+        MaterialKey::EndStone => mats.get_id("end_stone").unwrap_or_else(|| get("stone")),
+        MaterialKey::EndStoneBricks => mats
+            .get_id("end_stone_bricks")
+            .unwrap_or_else(|| mats.get_id("stone_bricks").unwrap_or_else(|| get("stone"))),
+        MaterialKey::Granite => get("granite"),
+        MaterialKey::Diorite => get("diorite"),
+        MaterialKey::Andesite => get("andesite"),
+        MaterialKey::PolishedGranite => get("polished_granite"),
+        MaterialKey::PolishedDiorite => get("polished_diorite"),
+        MaterialKey::PolishedAndesite => get("polished_andesite"),
+    }
+}
+
+#[inline]
 fn face_material_for_key(key: MaterialKey, face: usize) -> FaceMaterial {
     match key {
         MaterialKey::SmoothStone => FaceMaterial::SmoothStone,
@@ -740,7 +841,7 @@ pub fn build_chunk_greedy_cpu_buf(
     neighbors: NeighborsLoaded,
     cx: i32,
     cz: i32,
-    mats: &MaterialCatalog,
+    reg: &BlockRegistry,
 ) -> Option<(ChunkMeshCPU, Option<LightBorders>)> {
     let sx = buf.sx;
     let sy = buf.sy;
@@ -779,39 +880,28 @@ pub fn build_chunk_greedy_cpu_buf(
             if is_occluder(buf, world, edits, neighbors, here, face, nx, ny, nz) {
                 return None;
             }
-            if let Some(fm) = face_material_for(here, face) {
-                let mut l = light.sample_face_local(x, y, z, face);
-                // For a top face shaded under a top-half slab/stair, allow side light only (no vertical skylight)
-                if face == 0 {
-                    if buf.contains_world(nx, ny, nz) && ny >= 0 && (ny as usize) < sy {
-                        let lx = (nx - base_x) as usize;
-                        let ly = ny as usize;
-                        let lz = (nz - base_z) as usize;
-                        match buf.get_local(lx, ly, lz) {
-                            Block::Slab {
-                                half: SlabHalf::Top,
-                                ..
-                            }
-                            | Block::Stairs {
-                                half: SlabHalf::Top,
-                                ..
-                            } => {
-                                let l2 = light
-                                    .sample_face_local(x, y, z, 2)
-                                    .max(light.sample_face_local(x, y, z, 3))
-                                    .max(light.sample_face_local(x, y, z, 4))
-                                    .max(light.sample_face_local(x, y, z, 5));
-                                l = l.max(l2);
-                            }
-                            _ => {}
+            // Resolve material via registry; fallback to unknown when unmapped
+            let mut l = light.sample_face_local(x, y, z, face);
+            if face == 0 {
+                if buf.contains_world(nx, ny, nz) && ny >= 0 && (ny as usize) < sy {
+                    let lx = (nx - base_x) as usize;
+                    let ly = ny as usize;
+                    let lz = (nz - base_z) as usize;
+                    match buf.get_local(lx, ly, lz) {
+                        Block::Slab { half: SlabHalf::Top, .. } | Block::Stairs { half: SlabHalf::Top, .. } => {
+                            let l2 = light
+                                .sample_face_local(x, y, z, 2)
+                                .max(light.sample_face_local(x, y, z, 3))
+                                .max(light.sample_face_local(x, y, z, 4))
+                                .max(light.sample_face_local(x, y, z, 5));
+                            l = l.max(l2);
                         }
+                        _ => {}
                     }
                 }
-                let mid = resolve_material_id(mats, fm);
-                Some((mid, l))
-            } else {
-                None
             }
+            let mid = registry_material_for_or_unknown(here, face, reg);
+            Some((mid, l))
         },
     );
     // Special-shapes pass: mesh slabs and stairs
@@ -842,7 +932,7 @@ pub fn build_chunk_greedy_cpu_buf(
                             z,
                             base_x,
                             base_z,
-                            &|face| resolve_material_id(mats, face_material_for_key(keyc, face)),
+                            &|face| material_id_for_key_and_face(reg, keyc, face),
                             min,
                             max,
                         );
@@ -865,28 +955,47 @@ pub fn build_chunk_greedy_cpu_buf(
                         if x > 0 {
                             let nb = buf.get_local(x - 1, y, z);
                             if is_full_cube(nb) {
-                                if let Some(fm) = face_material_for(nb, 2) {
+                                if let Some(mid) = registry_material_for(nb, 2, reg) {
                                     let l0 = light.sample_face_local(x - 1, y, z, 2);
                                     let lv = match half {
                                         SlabHalf::Bottom => {
-                                            let la = if y + 1 < sy {
-                                                light.sample_face_local(x - 1, y + 1, z, 2)
-                                            } else {
-                                                l0
-                                            };
+                                            let la = if y + 1 < sy { light.sample_face_local(x - 1, y + 1, z, 2) } else { l0 };
                                             l0.max(la).max(VISUAL_LIGHT_MIN)
                                         }
                                         SlabHalf::Top => {
-                                            let lb = if y > 0 {
-                                                light.sample_face_local(x - 1, y - 1, z, 2)
-                                            } else {
-                                                l0
-                                            };
+                                            let lb = if y > 0 { light.sample_face_local(x - 1, y - 1, z, 2) } else { l0 };
                                             l0.max(lb).max(VISUAL_LIGHT_MIN)
                                         }
                                     };
                                     let rgba = [lv, lv, lv, 255];
-                                    let mid = resolve_material_id(mats, fm);
+                                    let mb = builds.entry(mid).or_default();
+                                    let px = fx; // plane at x
+                                    // +X face orientation (normal +X)
+                                    mb.add_quad(
+                                        Vector3::new(px, vis_y1, fz + 1.0),
+                                        Vector3::new(px, vis_y1, fz),
+                                        Vector3::new(px, vis_y0, fz),
+                                        Vector3::new(px, vis_y0, fz + 1.0),
+                                        Vector3::new(1.0, 0.0, 0.0),
+                                        1.0,
+                                        vis_y1 - vis_y0,
+                                        false,
+                                        rgba,
+                                    );
+                                } else {
+                                    let l0 = light.sample_face_local(x - 1, y, z, 2);
+                                    let lv = match half {
+                                        SlabHalf::Bottom => {
+                                            let la = if y + 1 < sy { light.sample_face_local(x - 1, y + 1, z, 2) } else { l0 };
+                                            l0.max(la).max(VISUAL_LIGHT_MIN)
+                                        }
+                                        SlabHalf::Top => {
+                                            let lb = if y > 0 { light.sample_face_local(x - 1, y - 1, z, 2) } else { l0 };
+                                            l0.max(lb).max(VISUAL_LIGHT_MIN)
+                                        }
+                                    };
+                                    let rgba = [lv, lv, lv, 255];
+                                    let mid = registry_material_for_or_unknown(nb, 2, reg);
                                     let mb = builds.entry(mid).or_default();
                                     let px = fx; // plane at x
                                     // +X face orientation (normal +X)
@@ -908,28 +1017,47 @@ pub fn build_chunk_greedy_cpu_buf(
                         if x + 1 < sx {
                             let nb = buf.get_local(x + 1, y, z);
                             if is_full_cube(nb) {
-                                if let Some(fm) = face_material_for(nb, 3) {
+                                if let Some(mid) = registry_material_for(nb, 3, reg) {
                                     let l0 = light.sample_face_local(x + 1, y, z, 3);
                                     let lv = match half {
                                         SlabHalf::Bottom => {
-                                            let la = if y + 1 < sy {
-                                                light.sample_face_local(x + 1, y + 1, z, 3)
-                                            } else {
-                                                l0
-                                            };
+                                            let la = if y + 1 < sy { light.sample_face_local(x + 1, y + 1, z, 3) } else { l0 };
                                             l0.max(la).max(VISUAL_LIGHT_MIN)
                                         }
                                         SlabHalf::Top => {
-                                            let lb = if y > 0 {
-                                                light.sample_face_local(x + 1, y - 1, z, 3)
-                                            } else {
-                                                l0
-                                            };
+                                            let lb = if y > 0 { light.sample_face_local(x + 1, y - 1, z, 3) } else { l0 };
                                             l0.max(lb).max(VISUAL_LIGHT_MIN)
                                         }
                                     };
                                     let rgba = [lv, lv, lv, 255];
-                                    let mid = resolve_material_id(mats, fm);
+                                    let mb = builds.entry(mid).or_default();
+                                    let px = fx + 1.0; // plane at x+1
+                                    // -X face orientation (normal -X)
+                                    mb.add_quad(
+                                        Vector3::new(px, vis_y1, fz),
+                                        Vector3::new(px, vis_y1, fz + 1.0),
+                                        Vector3::new(px, vis_y0, fz + 1.0),
+                                        Vector3::new(px, vis_y0, fz),
+                                        Vector3::new(-1.0, 0.0, 0.0),
+                                        1.0,
+                                        vis_y1 - vis_y0,
+                                        false,
+                                        rgba,
+                                    );
+                                } else {
+                                    let l0 = light.sample_face_local(x + 1, y, z, 3);
+                                    let lv = match half {
+                                        SlabHalf::Bottom => {
+                                            let la = if y + 1 < sy { light.sample_face_local(x + 1, y + 1, z, 3) } else { l0 };
+                                            l0.max(la).max(VISUAL_LIGHT_MIN)
+                                        }
+                                        SlabHalf::Top => {
+                                            let lb = if y > 0 { light.sample_face_local(x + 1, y - 1, z, 3) } else { l0 };
+                                            l0.max(lb).max(VISUAL_LIGHT_MIN)
+                                        }
+                                    };
+                                    let rgba = [lv, lv, lv, 255];
+                                    let mid = registry_material_for_or_unknown(nb, 3, reg);
                                     let mb = builds.entry(mid).or_default();
                                     let px = fx + 1.0; // plane at x+1
                                     // -X face orientation (normal -X)
@@ -951,28 +1079,47 @@ pub fn build_chunk_greedy_cpu_buf(
                         if z > 0 {
                             let nb = buf.get_local(x, y, z - 1);
                             if is_full_cube(nb) {
-                                if let Some(fm) = face_material_for(nb, 4) {
+                                if let Some(mid) = registry_material_for(nb, 4, reg) {
                                     let l0 = light.sample_face_local(x, y, z - 1, 4);
                                     let lv = match half {
                                         SlabHalf::Bottom => {
-                                            let la = if y + 1 < sy {
-                                                light.sample_face_local(x, y + 1, z - 1, 4)
-                                            } else {
-                                                l0
-                                            };
+                                            let la = if y + 1 < sy { light.sample_face_local(x, y + 1, z - 1, 4) } else { l0 };
                                             l0.max(la).max(VISUAL_LIGHT_MIN)
                                         }
                                         SlabHalf::Top => {
-                                            let lb = if y > 0 {
-                                                light.sample_face_local(x, y - 1, z - 1, 4)
-                                            } else {
-                                                l0
-                                            };
+                                            let lb = if y > 0 { light.sample_face_local(x, y - 1, z - 1, 4) } else { l0 };
                                             l0.max(lb).max(VISUAL_LIGHT_MIN)
                                         }
                                     };
                                     let rgba = [lv, lv, lv, 255];
-                                    let mid = resolve_material_id(mats, fm);
+                                    let mb = builds.entry(mid).or_default();
+                                    let pz = fz; // plane at z
+                                    // +Z face orientation (normal +Z)
+                                    mb.add_quad(
+                                        Vector3::new(fx + 1.0, vis_y1, pz),
+                                        Vector3::new(fx, vis_y1, pz),
+                                        Vector3::new(fx, vis_y0, pz),
+                                        Vector3::new(fx + 1.0, vis_y0, pz),
+                                        Vector3::new(0.0, 0.0, 1.0),
+                                        1.0,
+                                        vis_y1 - vis_y0,
+                                        false,
+                                        rgba,
+                                    );
+                                } else {
+                                    let l0 = light.sample_face_local(x, y, z - 1, 4);
+                                    let lv = match half {
+                                        SlabHalf::Bottom => {
+                                            let la = if y + 1 < sy { light.sample_face_local(x, y + 1, z - 1, 4) } else { l0 };
+                                            l0.max(la).max(VISUAL_LIGHT_MIN)
+                                        }
+                                        SlabHalf::Top => {
+                                            let lb = if y > 0 { light.sample_face_local(x, y - 1, z - 1, 4) } else { l0 };
+                                            l0.max(lb).max(VISUAL_LIGHT_MIN)
+                                        }
+                                    };
+                                    let rgba = [lv, lv, lv, 255];
+                                    let mid = registry_material_for_or_unknown(nb, 4, reg);
                                     let mb = builds.entry(mid).or_default();
                                     let pz = fz; // plane at z
                                     // +Z face orientation (normal +Z)
@@ -994,28 +1141,47 @@ pub fn build_chunk_greedy_cpu_buf(
                         if z + 1 < sz {
                             let nb = buf.get_local(x, y, z + 1);
                             if is_full_cube(nb) {
-                                if let Some(fm) = face_material_for(nb, 5) {
+                                if let Some(mid) = registry_material_for(nb, 5, reg) {
                                     let l0 = light.sample_face_local(x, y, z + 1, 5);
                                     let lv = match half {
                                         SlabHalf::Bottom => {
-                                            let la = if y + 1 < sy {
-                                                light.sample_face_local(x, y + 1, z + 1, 5)
-                                            } else {
-                                                l0
-                                            };
+                                            let la = if y + 1 < sy { light.sample_face_local(x, y + 1, z + 1, 5) } else { l0 };
                                             l0.max(la).max(VISUAL_LIGHT_MIN)
                                         }
                                         SlabHalf::Top => {
-                                            let lb = if y > 0 {
-                                                light.sample_face_local(x, y - 1, z + 1, 5)
-                                            } else {
-                                                l0
-                                            };
+                                            let lb = if y > 0 { light.sample_face_local(x, y - 1, z + 1, 5) } else { l0 };
                                             l0.max(lb).max(VISUAL_LIGHT_MIN)
                                         }
                                     };
                                     let rgba = [lv, lv, lv, 255];
-                                    let mid = resolve_material_id(mats, fm);
+                                    let mb = builds.entry(mid).or_default();
+                                    let pz = fz + 1.0; // plane at z+1
+                                    // -Z face orientation (normal -Z)
+                                    mb.add_quad(
+                                        Vector3::new(fx, vis_y1, pz),
+                                        Vector3::new(fx + 1.0, vis_y1, pz),
+                                        Vector3::new(fx + 1.0, vis_y0, pz),
+                                        Vector3::new(fx, vis_y0, pz),
+                                        Vector3::new(0.0, 0.0, -1.0),
+                                        1.0,
+                                        vis_y1 - vis_y0,
+                                        false,
+                                        rgba,
+                                    );
+                                } else {
+                                    let l0 = light.sample_face_local(x, y, z + 1, 5);
+                                    let lv = match half {
+                                        SlabHalf::Bottom => {
+                                            let la = if y + 1 < sy { light.sample_face_local(x, y + 1, z + 1, 5) } else { l0 };
+                                            l0.max(la).max(VISUAL_LIGHT_MIN)
+                                        }
+                                        SlabHalf::Top => {
+                                            let lb = if y > 0 { light.sample_face_local(x, y - 1, z + 1, 5) } else { l0 };
+                                            l0.max(lb).max(VISUAL_LIGHT_MIN)
+                                        }
+                                    };
+                                    let rgba = [lv, lv, lv, 255];
+                                    let mid = registry_material_for_or_unknown(nb, 5, reg);
                                     let mb = builds.entry(mid).or_default();
                                     let pz = fz + 1.0; // plane at z+1
                                     // -Z face orientation (normal -Z)
@@ -1062,7 +1228,7 @@ pub fn build_chunk_greedy_cpu_buf(
                             z,
                             base_x,
                             base_z,
-                            &|face| resolve_material_id(mats, face_material_for_key(keyc, face)),
+                            &|face| material_id_for_key_and_face(reg, keyc, face),
                             min_a,
                             max_a,
                         );
@@ -1113,7 +1279,7 @@ pub fn build_chunk_greedy_cpu_buf(
                             z,
                             base_x,
                             base_z,
-                            &|face| resolve_material_id(mats, face_material_for_key(keyc, face)),
+                            &|face| material_id_for_key_and_face(reg, keyc, face),
                             min_b,
                             max_b,
                         );
@@ -1147,14 +1313,7 @@ pub fn build_chunk_greedy_cpu_buf(
                         if x > 0 {
                             let nb = buf.get_local(x - 1, y, z);
                             // Only for full cubes
-                            if let Some(fm) = if matches!(
-                                nb,
-                                Block::Slab { .. } | Block::Stairs { .. } | Block::Air
-                            ) {
-                                None
-                            } else {
-                                face_material_for(nb, 2)
-                            } {
+                            if !matches!(nb, Block::Slab { .. } | Block::Stairs { .. } | Block::Air) {
                                 let draw_top = matches!(half, SlabHalf::Bottom);
                                 let y0 = if draw_top { fy + 0.5 } else { fy };
                                 let y1 = if draw_top { fy + 1.0 } else { fy + 0.5 };
@@ -1163,7 +1322,7 @@ pub fn build_chunk_greedy_cpu_buf(
                                     let lv = sample_lv(x - 1, y, z, 2, draw_top);
                                     [lv, lv, lv, 255]
                                 };
-                                let mid = resolve_material_id(mats, fm);
+                                let mid = registry_material_for_or_unknown(nb, 2, reg);
                                 let mb = builds.entry(mid).or_default();
                                 // Compute z segments visible
                                 let segs: &[(f32, f32)] = match (dir, half) {
@@ -1200,14 +1359,7 @@ pub fn build_chunk_greedy_cpu_buf(
                         // EAST neighbor (-X face on neighbor at (x+1,y,z))
                         if x + 1 < sx {
                             let nb = buf.get_local(x + 1, y, z);
-                            if let Some(fm) = if matches!(
-                                nb,
-                                Block::Slab { .. } | Block::Stairs { .. } | Block::Air
-                            ) {
-                                None
-                            } else {
-                                face_material_for(nb, 3)
-                            } {
+                            if !matches!(nb, Block::Slab { .. } | Block::Stairs { .. } | Block::Air) {
                                 let draw_top = matches!(half, SlabHalf::Bottom);
                                 let y0 = if draw_top { fy + 0.5 } else { fy };
                                 let y1 = if draw_top { fy + 1.0 } else { fy + 0.5 };
@@ -1216,7 +1368,7 @@ pub fn build_chunk_greedy_cpu_buf(
                                     let lv = sample_lv(x + 1, y, z, 3, draw_top);
                                     [lv, lv, lv, 255]
                                 };
-                                let mid = resolve_material_id(mats, fm);
+                                let mid = registry_material_for_or_unknown(nb, 3, reg);
                                 let mb = builds.entry(mid).or_default();
                                 let segs: &[(f32, f32)] = match (dir, half) {
                                     (Dir4::North, SlabHalf::Bottom) => &[(fz + 0.5, fz + 1.0)],
@@ -1250,14 +1402,7 @@ pub fn build_chunk_greedy_cpu_buf(
                         // NORTH neighbor (+Z face on neighbor at (x,y,z-1))
                         if z > 0 {
                             let nb = buf.get_local(x, y, z - 1);
-                            if let Some(fm) = if matches!(
-                                nb,
-                                Block::Slab { .. } | Block::Stairs { .. } | Block::Air
-                            ) {
-                                None
-                            } else {
-                                face_material_for(nb, 4)
-                            } {
+                            if !matches!(nb, Block::Slab { .. } | Block::Stairs { .. } | Block::Air) {
                                 let draw_top = matches!(half, SlabHalf::Bottom);
                                 let y0 = if draw_top { fy + 0.5 } else { fy };
                                 let y1 = if draw_top { fy + 1.0 } else { fy + 0.5 };
@@ -1266,7 +1411,7 @@ pub fn build_chunk_greedy_cpu_buf(
                                     let lv = sample_lv(x, y, z - 1, 4, draw_top);
                                     [lv, lv, lv, 255]
                                 };
-                                let mid = resolve_material_id(mats, fm);
+                                let mid = registry_material_for_or_unknown(nb, 4, reg);
                                 let mb = builds.entry(mid).or_default();
                                 // X segments visible (since plane is Z)
                                 let segs: &[(f32, f32)] = match (dir, half) {
@@ -1301,14 +1446,7 @@ pub fn build_chunk_greedy_cpu_buf(
                         // SOUTH neighbor (-Z face on neighbor at (x,y,z+1))
                         if z + 1 < sz {
                             let nb = buf.get_local(x, y, z + 1);
-                            if let Some(fm) = if matches!(
-                                nb,
-                                Block::Slab { .. } | Block::Stairs { .. } | Block::Air
-                            ) {
-                                None
-                            } else {
-                                face_material_for(nb, 5)
-                            } {
+                            if !matches!(nb, Block::Slab { .. } | Block::Stairs { .. } | Block::Air) {
                                 let draw_top = matches!(half, SlabHalf::Bottom);
                                 let y0 = if draw_top { fy + 0.5 } else { fy };
                                 let y1 = if draw_top { fy + 1.0 } else { fy + 0.5 };
@@ -1317,7 +1455,7 @@ pub fn build_chunk_greedy_cpu_buf(
                                     let lv = sample_lv(x, y, z + 1, 5, draw_top);
                                     [lv, lv, lv, 255]
                                 };
-                                let mid = resolve_material_id(mats, fm);
+                                let mid = registry_material_for_or_unknown(nb, 5, reg);
                                 let mb = builds.entry(mid).or_default();
                                 let segs: &[(f32, f32)] = match (dir, half) {
                                     (Dir4::East, SlabHalf::Bottom) => &[(fx + 0.5, fx + 1.0)],
@@ -1478,7 +1616,7 @@ pub struct TextureCache {
 }
 
 // Local-body mesher: emits vertices in local-space [0..sx, 0..sz], no world/lighting deps.
-pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8) -> ChunkMeshCPU {
+pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry) -> ChunkMeshCPU {
     let sx = buf.sx;
     let sy = buf.sy;
     let sz = buf.sz;
@@ -1523,14 +1661,9 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8) -> ChunkMeshCPU {
                 if solid_local(buf, nx, ny, nz) {
                     return None;
                 }
-                if let Some(fm) = face_material_for(here, face) {
-                    let l = face_light(face, ambient);
-                    // Fallback to Unknown -> material id resolution to be provided by caller later.
-                    // For local body meshing used by structures preview, keep using a sentinel MaterialId(0).
-                    Some((MaterialId(0), l))
-                } else {
-                    None
-                }
+                let mid = registry_material_for_or_unknown(here, face, reg);
+                let l = face_light(face, ambient);
+                Some((mid, l))
             });
         let bbox = BoundingBox::new(
             Vector3::new(0.0, 0.0, 0.0),

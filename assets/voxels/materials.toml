@@ -3,6 +3,8 @@
 unknown = ["assets/blocks/unknown.png"]
 stone = ["assets/blocks/stone.png"]
 dirt = ["assets/blocks/dirt.png"]
+sand = ["assets/blocks/sand.png"]
+snow = ["assets/blocks/snow.png"]
 grass_top = ["assets/blocks/grass_top.png"]
 grass_side = ["assets/blocks/grass_side.png"]
 glowstone = ["assets/blocks/glowstone.png"]
@@ -53,3 +55,13 @@ spruce_log_top = { paths = ["assets/blocks/log_spruce_top.png"], render_tag = "l
 spruce_planks = ["assets/blocks/planks_spruce.png"]
 spruce_leaves = { paths = ["assets/blocks/leaves_spruce.png"], render_tag = "leaves" }
 
+# Additional wood species used by worldgen
+jungle_log = { paths = ["assets/blocks/log_jungle.png"], render_tag = "log" }
+jungle_log_top = { paths = ["assets/blocks/log_jungle_top.png"], render_tag = "log" }
+jungle_planks = ["assets/blocks/planks_jungle.png"]
+jungle_leaves = { paths = ["assets/blocks/leaves_jungle.png"], render_tag = "leaves" }
+
+acacia_log = { paths = ["assets/blocks/log_acacia.png"], render_tag = "log" }
+acacia_log_top = { paths = ["assets/blocks/log_acacia_top.png"], render_tag = "log" }
+acacia_planks = ["assets/blocks/planks_acacia.png"]
+acacia_leaves = { paths = ["assets/blocks/leaves_acacia.png"], render_tag = "leaves" }

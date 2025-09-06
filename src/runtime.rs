@@ -126,7 +126,7 @@ impl Runtime {
                         job.neighbors,
                         job.cx,
                         job.cz,
-                        &reg.materials,
+                        &reg,
                     ) {
                         let _ = tx.send(JobOut {
                             cpu,
@@ -157,6 +157,7 @@ impl Runtime {
 
         // Structure worker (single thread is fine for now)
         {
+            let reg = reg.clone();
             thread::spawn(move || {
                 while let Ok(job) = s_job_rx.recv() {
                     let mut buf = chunkbuf::ChunkBuf::from_blocks_local(
@@ -178,7 +179,7 @@ impl Runtime {
                         let idx = buf.idx(lxu, lyu, lzu);
                         buf.blocks[idx] = b;
                     }
-                    let cpu = mesher::build_voxel_body_cpu_buf(&buf, 180);
+                    let cpu = mesher::build_voxel_body_cpu_buf(&buf, 180, &reg);
                     let _ = s_res_tx.send(StructureJobOut {
                         id: job.id,
                         rev: job.rev,
