@@ -409,7 +409,7 @@ fn emit_box(
         let nz = gz;
         if !is_occluder(buf, world, edits, neighbors, here, nx, ny, nz) {
             let l = light.sample_face_local(x, y, z, 0);
-            let mut lv = l;
+            let lv = l.max(VISUAL_LIGHT_MIN);
             let rgba = [lv, lv, lv, 255];
             let fm = fm_for_face(0);
             let mb = builds.entry(fm).or_default();
@@ -433,7 +433,8 @@ fn emit_box(
         let nz = gz;
         if !is_occluder(buf, world, edits, neighbors, here, nx, ny, nz) {
             let l = light.sample_face_local(x, y, z, 1);
-            let rgba = [l, l, l, 255];
+            let lv = l.max(VISUAL_LIGHT_MIN);
+            let rgba = [lv, lv, lv, 255];
             let fm = fm_for_face(1);
             let mb = builds.entry(fm).or_default();
             mb.add_quad(
@@ -456,7 +457,8 @@ fn emit_box(
         let nz = gz;
         if !is_occluder(buf, world, edits, neighbors, here, nx, ny, nz) {
             let l = light.sample_face_local(x, y, z, 2);
-            let rgba = [l, l, l, 255];
+            let lv = l.max(VISUAL_LIGHT_MIN);
+            let rgba = [lv, lv, lv, 255];
             let fm = fm_for_face(2);
             let mb = builds.entry(fm).or_default();
             mb.add_quad(
@@ -479,7 +481,8 @@ fn emit_box(
         let nz = gz;
         if !is_occluder(buf, world, edits, neighbors, here, nx, ny, nz) {
             let l = light.sample_face_local(x, y, z, 3);
-            let rgba = [l, l, l, 255];
+            let lv = l.max(VISUAL_LIGHT_MIN);
+            let rgba = [lv, lv, lv, 255];
             let fm = fm_for_face(3);
             let mb = builds.entry(fm).or_default();
             mb.add_quad(
@@ -502,7 +505,8 @@ fn emit_box(
         let nz = gz + 1;
         if !is_occluder(buf, world, edits, neighbors, here, nx, ny, nz) {
             let l = light.sample_face_local(x, y, z, 4);
-            let rgba = [l, l, l, 255];
+            let lv = l.max(VISUAL_LIGHT_MIN);
+            let rgba = [lv, lv, lv, 255];
             let fm = fm_for_face(4);
             let mb = builds.entry(fm).or_default();
             mb.add_quad(
@@ -525,7 +529,8 @@ fn emit_box(
         let nz = gz - 1;
         if !is_occluder(buf, world, edits, neighbors, here, nx, ny, nz) {
             let l = light.sample_face_local(x, y, z, 5);
-            let rgba = [l, l, l, 255];
+            let lv = l.max(VISUAL_LIGHT_MIN);
+            let rgba = [lv, lv, lv, 255];
             let fm = fm_for_face(5);
             let mb = builds.entry(fm).or_default();
             mb.add_quad(
@@ -706,6 +711,118 @@ pub fn build_chunk_greedy_cpu_buf(
                                 min,
                                 max,
                             );
+
+                            // Restore partial neighbor faces that greedy culled fully
+                            // Visible portion is opposite half along Y
+                            let (vis_y0, vis_y1) = match half { SlabHalf::Bottom => (fy + 0.5, fy + 1.0), SlabHalf::Top => (fy, fy + 0.5) };
+                            // Helper to decide if neighbor is a full cube (not special)
+                            let is_full_cube = |b: Block| -> bool {
+                                match b {
+                                    Block::Slab { .. } | Block::Stairs { .. } => false,
+                                    Block::Air => false,
+                                    _ => true,
+                                }
+                            };
+                            // West neighbor (+X face on neighbor)
+                            if x > 0 {
+                                let nb = buf.get_local(x - 1, y, z);
+                                if is_full_cube(nb) {
+                                    if let Some(fm) = face_material_for(nb, 2) {
+                                        let l = light.sample_face_local(x - 1, y, z, 2);
+                                        let lv = l.max(VISUAL_LIGHT_MIN);
+                                        let rgba = [lv, lv, lv, 255];
+                                        let mb = builds.entry(fm).or_default();
+                                        let px = fx; // plane at x
+                                        // +X face orientation (normal +X)
+                                        mb.add_quad(
+                                            Vector3::new(px, vis_y1, fz + 1.0),
+                                            Vector3::new(px, vis_y1, fz),
+                                            Vector3::new(px, vis_y0, fz),
+                                            Vector3::new(px, vis_y0, fz + 1.0),
+                                            Vector3::new(1.0, 0.0, 0.0),
+                                            1.0,
+                                            vis_y1 - vis_y0,
+                                            false,
+                                            rgba,
+                                        );
+                                    }
+                                }
+                            }
+                            // East neighbor (-X face on neighbor)
+                            if x + 1 < sx {
+                                let nb = buf.get_local(x + 1, y, z);
+                                if is_full_cube(nb) {
+                                    if let Some(fm) = face_material_for(nb, 3) {
+                                        let l = light.sample_face_local(x + 1, y, z, 3);
+                                        let lv = l.max(VISUAL_LIGHT_MIN);
+                                        let rgba = [lv, lv, lv, 255];
+                                        let mb = builds.entry(fm).or_default();
+                                        let px = fx + 1.0; // plane at x+1
+                                        // -X face orientation (normal -X)
+                                        mb.add_quad(
+                                            Vector3::new(px, vis_y1, fz),
+                                            Vector3::new(px, vis_y1, fz + 1.0),
+                                            Vector3::new(px, vis_y0, fz + 1.0),
+                                            Vector3::new(px, vis_y0, fz),
+                                            Vector3::new(-1.0, 0.0, 0.0),
+                                            1.0,
+                                            vis_y1 - vis_y0,
+                                            false,
+                                            rgba,
+                                        );
+                                    }
+                                }
+                            }
+                            // North neighbor (+Z face on neighbor)
+                            if z > 0 {
+                                let nb = buf.get_local(x, y, z - 1);
+                                if is_full_cube(nb) {
+                                    if let Some(fm) = face_material_for(nb, 4) {
+                                        let l = light.sample_face_local(x, y, z - 1, 4);
+                                        let lv = l.max(VISUAL_LIGHT_MIN);
+                                        let rgba = [lv, lv, lv, 255];
+                                        let mb = builds.entry(fm).or_default();
+                                        let pz = fz; // plane at z
+                                        // +Z face orientation (normal +Z)
+                                        mb.add_quad(
+                                            Vector3::new(fx + 1.0, vis_y1, pz),
+                                            Vector3::new(fx, vis_y1, pz),
+                                            Vector3::new(fx, vis_y0, pz),
+                                            Vector3::new(fx + 1.0, vis_y0, pz),
+                                            Vector3::new(0.0, 0.0, 1.0),
+                                            1.0,
+                                            vis_y1 - vis_y0,
+                                            false,
+                                            rgba,
+                                        );
+                                    }
+                                }
+                            }
+                            // South neighbor (-Z face on neighbor)
+                            if z + 1 < sz {
+                                let nb = buf.get_local(x, y, z + 1);
+                                if is_full_cube(nb) {
+                                    if let Some(fm) = face_material_for(nb, 5) {
+                                        let l = light.sample_face_local(x, y, z + 1, 5);
+                                        let lv = l.max(VISUAL_LIGHT_MIN);
+                                        let rgba = [lv, lv, lv, 255];
+                                        let mb = builds.entry(fm).or_default();
+                                        let pz = fz + 1.0; // plane at z+1
+                                        // -Z face orientation (normal -Z)
+                                        mb.add_quad(
+                                            Vector3::new(fx, vis_y1, pz),
+                                            Vector3::new(fx + 1.0, vis_y1, pz),
+                                            Vector3::new(fx + 1.0, vis_y0, pz),
+                                            Vector3::new(fx, vis_y0, pz),
+                                            Vector3::new(0.0, 0.0, -1.0),
+                                            1.0,
+                                            vis_y1 - vis_y0,
+                                            false,
+                                            rgba,
+                                        );
+                                    }
+                                }
+                            }
                         }
                         Block::Stairs { dir, half, key } => {
                             let fx = base_x as f32 + x as f32;
