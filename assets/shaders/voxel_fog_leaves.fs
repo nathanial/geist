@@ -45,4 +45,3 @@ void main(){
   vec3 rgb = mix(fogColor, base, f);
   finalColor = vec4(rgb, tex.a); // use texture alpha (opaque leaves textures)
 }
-

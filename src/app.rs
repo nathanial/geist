@@ -391,13 +391,25 @@ impl App {
             }
             Event::StructureBuildCompleted { id, rev, cpu } => {
                 if let Some(mut cr) = upload_chunk_mesh(rl, thread, cpu, &mut self.runtime.tex_cache) {
-                    for (_fm, model) in &mut cr.parts {
+                    for (fm, model) in &mut cr.parts {
                         if let Some(mat) = model.materials_mut().get_mut(0) {
-                            if let Some(ref fs) = self.runtime.fog_shader {
-                                let dest = mat.shader_mut();
-                                let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
-                                let src_ptr: *const raylib::ffi::Shader = fs.shader.as_ref();
-                                unsafe { std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1); }
+                            match fm {
+                                crate::mesher::FaceMaterial::Leaves(_) => {
+                                    if let Some(ref ls) = self.runtime.leaves_shader {
+                                        let dest = mat.shader_mut();
+                                        let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
+                                        let src_ptr: *const raylib::ffi::Shader = ls.shader.as_ref();
+                                        unsafe { std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1); }
+                                    }
+                                }
+                                _ => {
+                                    if let Some(ref fs) = self.runtime.fog_shader {
+                                        let dest = mat.shader_mut();
+                                        let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
+                                        let src_ptr: *const raylib::ffi::Shader = fs.shader.as_ref();
+                                        unsafe { std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1); }
+                                    }
+                                }
                             }
                         }
                     }
@@ -887,6 +899,8 @@ impl App {
         let camera3d = self.cam.to_camera3d();
         let mut d = rl.begin_drawing(thread);
         d.clear_background(Color::new(210, 221, 235, 255));
+        // Ensure the depth buffer is cleared every frame to avoid ghost silhouettes when moving
+        unsafe { raylib::ffi::rlClearScreenBuffers(); }
         {
             let mut d3 = d.begin_mode3D(camera3d);
             if self.gs.show_grid {
