@@ -796,6 +796,17 @@ impl App {
             self.queue.emit_now(Event::PlaceTypeSelected { block: Block::Beacon });
         }
 
+        // Structure speed controls
+        if rl.is_key_pressed(KeyboardKey::KEY_MINUS) {
+            self.gs.structure_speed = (self.gs.structure_speed - 1.0).max(0.0);
+        }
+        if rl.is_key_pressed(KeyboardKey::KEY_EQUAL) {
+            self.gs.structure_speed = (self.gs.structure_speed + 1.0).min(64.0);
+        }
+        if rl.is_key_pressed(KeyboardKey::KEY_ZERO) {
+            self.gs.structure_speed = 0.0;
+        }
+
         // Light emitters via hotkeys
         if rl.is_key_pressed(KeyboardKey::KEY_L) {
             let fwd = self.cam.forward();
@@ -831,10 +842,8 @@ impl App {
                 .emit_now(Event::RaycastEditRequested { place, block });
         }
 
-        // Update structure poses: straight along +X axis (constant speed)
-        // Target speed chosen ~9.6 units/sec to match prior circular motion arc length
-        let speed_x = 9.6f32;
-        let step_dx = speed_x * dt.max(0.0);
+        // Update structure poses: straight along +X axis with adjustable speed
+        let step_dx = self.gs.structure_speed * dt.max(0.0);
         for (id, st) in self.gs.structures.iter() {
             let prev = st.pose.pos;
             let newp = Vector3::new(prev.x + step_dx, prev.y, prev.z);
@@ -1086,7 +1095,7 @@ impl App {
         // HUD
         let hud_mode = if self.gs.walk_mode { "Walk" } else { "Fly" };
         let hud = format!(
-            "{}: Tab capture, WASD{} move{}, V toggle mode, F wireframe, G grid, B bounds, C culling, L add light, K remove light | Place: {:?} (1-7) | Castle: moving",
+            "{}: Tab capture, WASD{} move{}, V toggle mode, F wireframe, G grid, B bounds, C culling, L add light, K remove light | Place: {:?} (1-7) | Castle v={:.1} (-/= adjust, 0 stop)",
             hud_mode,
             if self.gs.walk_mode { "" } else { "+QE" },
             if self.gs.walk_mode {
@@ -1095,6 +1104,7 @@ impl App {
                 ""
             },
             self.gs.place_type,
+            self.gs.structure_speed,
         );
         d.draw_text(&hud, 12, 12, 18, Color::DARKGRAY);
         d.draw_fps(12, 36);

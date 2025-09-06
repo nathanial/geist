@@ -42,6 +42,8 @@ pub struct GameState {
     // Dynamic voxel bodies (e.g., flying castle)
     pub structures: HashMap<StructureId, Structure>,
     pub ground_attach: Option<GroundAttach>,
+    // Control: global speed for moving structures (units/sec)
+    pub structure_speed: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -80,6 +82,7 @@ impl GameState {
             frustum_culling_enabled: true,
             structures: HashMap::new(),
             ground_attach: None,
+            structure_speed: 9.6,
         }
     }
 }
