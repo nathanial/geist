@@ -913,6 +913,184 @@ pub fn build_chunk_greedy_cpu_buf(
                                 min_b,
                                 max_b,
                             );
+
+                            // Restore partial neighbor faces occluded by stair shape.
+                            // Helper for light: combine face sample with one voxel above/below depending on which y-half we draw
+                            let sample_lv = |nx: usize, ny: usize, nz: usize, face: usize, draw_top_half: bool| -> u8 {
+                                let l0 = light.sample_face_local(nx, ny, nz, face);
+                                let ladd = if draw_top_half {
+                                    if ny + 1 < sy { light.sample_face_local(nx, ny + 1, nz, face) } else { l0 }
+                                } else {
+                                    if ny > 0 { light.sample_face_local(nx, ny - 1, nz, face) } else { l0 }
+                                };
+                                l0.max(ladd).max(VISUAL_LIGHT_MIN)
+                            };
+
+                            // WEST neighbor (+X face on neighbor at (x-1,y,z))
+                            if x > 0 {
+                                let nb = buf.get_local(x - 1, y, z);
+                                // Only for full cubes
+                                if let Some(fm) = if matches!(nb, Block::Slab{..} | Block::Stairs{..} | Block::Air) { None } else { face_material_for(nb, 2) } {
+                                    let draw_top = matches!(half, SlabHalf::Bottom);
+                                    let y0 = if draw_top { fy + 0.5 } else { fy };
+                                    let y1 = if draw_top { fy + 1.0 } else { fy + 0.5 };
+                                    let px = fx; // plane at x
+                                    let rgba = {
+                                        let lv = sample_lv(x - 1, y, z, 2, draw_top);
+                                        [lv, lv, lv, 255]
+                                    };
+                                    let mb = builds.entry(fm).or_default();
+                                    // Compute z segments visible
+                                    let segs: &[(f32, f32)] = match (dir, half) {
+                                        // Bottom: base occludes bottom half; riser occludes top half as:
+                                        (Dir4::North, SlabHalf::Bottom) => &[(fz + 0.5, fz + 1.0)],
+                                        (Dir4::South, SlabHalf::Bottom) => &[(fz, fz + 0.5)],
+                                        (Dir4::West,  SlabHalf::Bottom) => &[],
+                                        (Dir4::East,  SlabHalf::Bottom) => &[(fz, fz + 1.0)],
+                                        // Top: base occludes top half; riser occludes bottom half as:
+                                        (Dir4::North, SlabHalf::Top) => &[(fz + 0.5, fz + 1.0)],
+                                        (Dir4::South, SlabHalf::Top) => &[(fz, fz + 0.5)],
+                                        (Dir4::West,  SlabHalf::Top) => &[],
+                                        (Dir4::East,  SlabHalf::Top) => &[(fz, fz + 1.0)],
+                                    };
+                                    for &(z0, z1) in segs.iter() {
+                                        if z1 <= z0 { continue; }
+                                        // +X face
+                                        mb.add_quad(
+                                            Vector3::new(px, y1, z1),
+                                            Vector3::new(px, y1, z0),
+                                            Vector3::new(px, y0, z0),
+                                            Vector3::new(px, y0, z1),
+                                            Vector3::new(1.0, 0.0, 0.0),
+                                            z1 - z0,
+                                            y1 - y0,
+                                            false,
+                                            rgba,
+                                        );
+                                    }
+                                }
+                            }
+                            // EAST neighbor (-X face on neighbor at (x+1,y,z))
+                            if x + 1 < sx {
+                                let nb = buf.get_local(x + 1, y, z);
+                                if let Some(fm) = if matches!(nb, Block::Slab{..} | Block::Stairs{..} | Block::Air) { None } else { face_material_for(nb, 3) } {
+                                    let draw_top = matches!(half, SlabHalf::Bottom);
+                                    let y0 = if draw_top { fy + 0.5 } else { fy };
+                                    let y1 = if draw_top { fy + 1.0 } else { fy + 0.5 };
+                                    let px = fx + 1.0;
+                                    let rgba = {
+                                        let lv = sample_lv(x + 1, y, z, 3, draw_top);
+                                        [lv, lv, lv, 255]
+                                    };
+                                    let mb = builds.entry(fm).or_default();
+                                    let segs: &[(f32, f32)] = match (dir, half) {
+                                        (Dir4::North, SlabHalf::Bottom) => &[(fz + 0.5, fz + 1.0)],
+                                        (Dir4::South, SlabHalf::Bottom) => &[(fz, fz + 0.5)],
+                                        (Dir4::West,  SlabHalf::Bottom) => &[(fz, fz + 1.0)], // B at x half does not hit plane x+1 when West? Actually West B x in [fx,fx+0.5], plane at x+1 not intersected, so visible all top half
+                                        (Dir4::East,  SlabHalf::Bottom) => &[],
+                                        (Dir4::North, SlabHalf::Top) => &[(fz + 0.5, fz + 1.0)],
+                                        (Dir4::South, SlabHalf::Top) => &[(fz, fz + 0.5)],
+                                        (Dir4::West,  SlabHalf::Top) => &[(fz, fz + 1.0)],
+                                        (Dir4::East,  SlabHalf::Top) => &[],
+                                    };
+                                    for &(z0, z1) in segs.iter() {
+                                        if z1 <= z0 { continue; }
+                                        // -X face
+                                        mb.add_quad(
+                                            Vector3::new(px, y1, z0),
+                                            Vector3::new(px, y1, z1),
+                                            Vector3::new(px, y0, z1),
+                                            Vector3::new(px, y0, z0),
+                                            Vector3::new(-1.0, 0.0, 0.0),
+                                            z1 - z0,
+                                            y1 - y0,
+                                            false,
+                                            rgba,
+                                        );
+                                    }
+                                }
+                            }
+                            // NORTH neighbor (+Z face on neighbor at (x,y,z-1))
+                            if z > 0 {
+                                let nb = buf.get_local(x, y, z - 1);
+                                if let Some(fm) = if matches!(nb, Block::Slab{..} | Block::Stairs{..} | Block::Air) { None } else { face_material_for(nb, 4) } {
+                                    let draw_top = matches!(half, SlabHalf::Bottom);
+                                    let y0 = if draw_top { fy + 0.5 } else { fy };
+                                    let y1 = if draw_top { fy + 1.0 } else { fy + 0.5 };
+                                    let pz = fz;
+                                    let rgba = {
+                                        let lv = sample_lv(x, y, z - 1, 4, draw_top);
+                                        [lv, lv, lv, 255]
+                                    };
+                                    let mb = builds.entry(fm).or_default();
+                                    // X segments visible (since plane is Z)
+                                    let segs: &[(f32, f32)] = match (dir, half) {
+                                        (Dir4::East,  SlabHalf::Bottom) => &[(fx + 0.5, fx + 1.0)],
+                                        (Dir4::West,  SlabHalf::Bottom) => &[(fx, fx + 0.5)],
+                                        (Dir4::North, SlabHalf::Bottom) => &[(fx, fx + 1.0)],
+                                        (Dir4::South, SlabHalf::Bottom) => &[],
+                                        (Dir4::East,  SlabHalf::Top) => &[(fx + 0.5, fx + 1.0)],
+                                        (Dir4::West,  SlabHalf::Top) => &[(fx, fx + 0.5)],
+                                        (Dir4::North, SlabHalf::Top) => &[(fx, fx + 1.0)],
+                                        (Dir4::South, SlabHalf::Top) => &[],
+                                    };
+                                    for &(x0f, x1f) in segs.iter() {
+                                        if x1f <= x0f { continue; }
+                                        // +Z face
+                                        mb.add_quad(
+                                            Vector3::new(x1f, y1, pz),
+                                            Vector3::new(x0f, y1, pz),
+                                            Vector3::new(x0f, y0, pz),
+                                            Vector3::new(x1f, y0, pz),
+                                            Vector3::new(0.0, 0.0, 1.0),
+                                            x1f - x0f,
+                                            y1 - y0,
+                                            false,
+                                            rgba,
+                                        );
+                                    }
+                                }
+                            }
+                            // SOUTH neighbor (-Z face on neighbor at (x,y,z+1))
+                            if z + 1 < sz {
+                                let nb = buf.get_local(x, y, z + 1);
+                                if let Some(fm) = if matches!(nb, Block::Slab{..} | Block::Stairs{..} | Block::Air) { None } else { face_material_for(nb, 5) } {
+                                    let draw_top = matches!(half, SlabHalf::Bottom);
+                                    let y0 = if draw_top { fy + 0.5 } else { fy };
+                                    let y1 = if draw_top { fy + 1.0 } else { fy + 0.5 };
+                                    let pz = fz + 1.0;
+                                    let rgba = {
+                                        let lv = sample_lv(x, y, z + 1, 5, draw_top);
+                                        [lv, lv, lv, 255]
+                                    };
+                                    let mb = builds.entry(fm).or_default();
+                                    let segs: &[(f32, f32)] = match (dir, half) {
+                                        (Dir4::East,  SlabHalf::Bottom) => &[(fx + 0.5, fx + 1.0)],
+                                        (Dir4::West,  SlabHalf::Bottom) => &[(fx, fx + 0.5)],
+                                        (Dir4::North, SlabHalf::Bottom) => &[],
+                                        (Dir4::South, SlabHalf::Bottom) => &[(fx, fx + 1.0)],
+                                        (Dir4::East,  SlabHalf::Top) => &[(fx + 0.5, fx + 1.0)],
+                                        (Dir4::West,  SlabHalf::Top) => &[(fx, fx + 0.5)],
+                                        (Dir4::North, SlabHalf::Top) => &[],
+                                        (Dir4::South, SlabHalf::Top) => &[(fx, fx + 1.0)],
+                                    };
+                                    for &(x0f, x1f) in segs.iter() {
+                                        if x1f <= x0f { continue; }
+                                        // -Z face
+                                        mb.add_quad(
+                                            Vector3::new(x0f, y1, pz),
+                                            Vector3::new(x1f, y1, pz),
+                                            Vector3::new(x1f, y0, pz),
+                                            Vector3::new(x0f, y0, pz),
+                                            Vector3::new(0.0, 0.0, -1.0),
+                                            x1f - x0f,
+                                            y1 - y0,
+                                            false,
+                                            rgba,
+                                        );
+                                    }
+                                }
+                            }
                         }
                         _ => {}
                     }
