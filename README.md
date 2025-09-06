@@ -22,6 +22,9 @@ CLI options
 
 - `--flat-world`: Generate a flat world consisting only of an infinite stone slab (no hills, trees, or caves).
 - `--schem-report [path]`: Analyze a `.schem` file and print unsupported block IDs, then exit. Defaults to `schematics/anvilstead.schem`.
+- `--schem-report --counts [path]`: Print counts per block id in the `.schem` file (helps verify if trees/terrain are in the schematic).
+- `--schem-only`: Disable all terrain generation (even the slab); only the schematic contents are loaded.
+- `--schem-offset X Y Z`: Offset where the schematic is placed (default: `0 1 0` in `--flat-world`, `0 0 0` otherwise).
 
 Highlights
 

@@ -169,3 +169,26 @@ pub fn find_unsupported_blocks_in_file(path: &Path) -> Result<Vec<String>, Strin
     }
     Ok(unsupported.into_iter().collect())
 }
+
+pub fn count_blocks_in_file(path: &Path) -> Result<Vec<(String, u64)>, String> {
+    let (schem, _meta) = mc_schem::Schematic::from_file(
+        path.to_str().ok_or_else(|| "invalid path".to_string())?,
+    )
+    .map_err(|e| format!("parse schem: {e}"))?;
+
+    let shape = schem.shape();
+    let mut counts: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
+    for x in 0..shape[0] {
+        for y in 0..shape[1] {
+            for z in 0..shape[2] {
+                if let Some(b) = schem.first_block_at([x, y, z]) {
+                    if b.is_air() || b.is_structure_void() { continue; }
+                    let key = b.full_id();
+                    let id = base_from_key(&key).to_string();
+                    *counts.entry(id).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+    Ok(counts.into_iter().collect())
+}

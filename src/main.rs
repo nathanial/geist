@@ -22,6 +22,8 @@ use voxel::{World, WorldGenMode};
 fn main() {
     // Handle CLI args first
     let mut flat_world = false;
+    let mut schem_only = false;
+    let mut schem_counts = false;
     {
         let mut args = std::env::args().skip(1).collect::<Vec<String>>();
         let mut report_mode = false;
@@ -37,23 +39,43 @@ fn main() {
                 }
             } else if a == "--flat-world" {
                 flat_world = true;
+            } else if a == "--schem-only" {
+                // No terrain at all; only what the schematic places
+                schem_only = true;
+            } else if a == "--counts" {
+                schem_counts = true;
             }
             i += 1;
         }
         if report_mode {
-            match crate::schem::find_unsupported_blocks_in_file(std::path::Path::new(&schem_path)) {
-                Ok(list) => {
-                    if list.is_empty() {
-                        println!("All blocks in {:?} are supported by current mapper.", schem_path);
-                    } else {
-                        println!("Unsupported block types ({}):", list.len());
-                        for id in list { println!("- {}", id); }
+            if schem_counts {
+                match crate::schem::count_blocks_in_file(std::path::Path::new(&schem_path)) {
+                    Ok(mut entries) => {
+                        entries.sort_by(|a, b| b.1.cmp(&a.1));
+                        println!("Block counts in {:?} (excluding air):", schem_path);
+                        for (id, c) in entries { println!("{:>8}  {}", c, id); }
+                        return;
                     }
-                    return;
+                    Err(e) => {
+                        eprintln!("Failed to analyze {:?}: {}", schem_path, e);
+                        std::process::exit(2);
+                    }
                 }
-                Err(e) => {
-                    eprintln!("Failed to analyze {:?}: {}", schem_path, e);
-                    std::process::exit(2);
+            } else {
+                match crate::schem::find_unsupported_blocks_in_file(std::path::Path::new(&schem_path)) {
+                    Ok(list) => {
+                        if list.is_empty() {
+                            println!("All blocks in {:?} are supported by current mapper.", schem_path);
+                        } else {
+                            println!("Unsupported block types ({}):", list.len());
+                            for id in list { println!("- {}", id); }
+                        }
+                        return;
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to analyze {:?}: {}", schem_path, e);
+                        std::process::exit(2);
+                    }
                 }
             }
         }
@@ -89,7 +111,13 @@ fn main() {
     let chunks_x = 4usize;
     let chunks_z = 4usize;
     let world_seed = 1337;
-    let world_mode = if flat_world { WorldGenMode::Flat { thickness: 1 } } else { WorldGenMode::Normal };
+    let world_mode = if schem_only {
+        WorldGenMode::Flat { thickness: 0 }
+    } else if flat_world {
+        WorldGenMode::Flat { thickness: 1 }
+    } else {
+        WorldGenMode::Normal
+    };
     let world = Arc::new(World::new(
         chunks_x,
         chunks_z,
@@ -110,12 +138,36 @@ fn main() {
         chunk_size_z as i32,
     );
 
+    // Determine schematic placement origin; default to +1y in flat-world to sit on slab
+    let mut schem_origin: (i32, i32, i32) = (0, 0, 0);
+    if flat_world && !schem_only {
+        schem_origin = (0, 1, 0);
+    }
+    // Allow explicit override via --schem-offset x y z
+    {
+        let mut args = std::env::args().skip(1).collect::<Vec<String>>();
+        let mut i = 0usize;
+        while i < args.len() {
+            if args[i] == "--schem-offset" {
+                if i + 3 < args.len() {
+                    let px = args[i + 1].parse::<i32>().unwrap_or(0);
+                    let py = args[i + 2].parse::<i32>().unwrap_or(0);
+                    let pz = args[i + 3].parse::<i32>().unwrap_or(0);
+                    schem_origin = (px, py, pz);
+                    i += 3;
+                }
+            }
+            i += 1;
+        }
+    }
+
     let mut app = crate::app::App::new(
         &mut rl,
         &thread,
         world.clone(),
         lighting_store.clone(),
         edit_store,
+        schem_origin,
     );
 
     while !rl.window_should_close() {

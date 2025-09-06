@@ -74,6 +74,7 @@ impl App {
         world: std::sync::Arc<World>,
         lighting: std::sync::Arc<LightingStore>,
         edits: crate::edit::EditStore,
+        schem_origin: (i32, i32, i32),
     ) -> Self {
         // Spawn: if flat world, start a few blocks above the slab; else near world top
         let spawn = if world.is_flat() {
@@ -100,9 +101,18 @@ impl App {
             use std::path::Path;
             let schem_path = Path::new("schematics/anvilstead.schem");
             if schem_path.exists() {
-                match crate::schem::load_sponge_schem_apply_edits(schem_path, (0, 0, 0), &mut gs.edits) {
+                match crate::schem::load_sponge_schem_apply_edits(schem_path, schem_origin, &mut gs.edits) {
                     Ok((sx, sy, sz)) => {
-                        log::info!("Loaded schem {:?} as edits at origin ({}x{}x{})", schem_path, sx, sy, sz);
+                        log::info!(
+                            "Loaded schem {:?} at ({},{},{}) ({}x{}x{})",
+                            schem_path,
+                            schem_origin.0,
+                            schem_origin.1,
+                            schem_origin.2,
+                            sx,
+                            sy,
+                            sz
+                        );
                     }
                     Err(e) => {
                         log::warn!("Failed loading schem {:?}: {}", schem_path, e);
