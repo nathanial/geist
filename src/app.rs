@@ -800,21 +800,15 @@ impl App {
                 .emit_now(Event::RaycastEditRequested { place, block });
         }
 
-        // Update structure poses (simple circular motion) via events
-        let world_center = Vector3::new(
-            (self.gs.world.world_size_x() as f32) * 0.5,
-            (self.gs.world.world_size_y() as f32) * 0.7,
-            (self.gs.world.world_size_z() as f32) * 0.5,
-        );
-        let radius = 40.0f32;
-        let ang = (self.gs.tick as f32) * 0.004;
+        // Update structure poses: straight along +X axis (constant speed)
+        // Target speed chosen ~9.6 units/sec to match prior circular motion arc length
+        let speed_x = 9.6f32;
+        let step_dx = speed_x * dt.max(0.0);
         for (id, st) in self.gs.structures.iter() {
-            let new_x = world_center.x + radius * ang.cos();
-            let new_z = world_center.z + radius * ang.sin();
             let prev = st.pose.pos;
-            let newp = Vector3::new(new_x, prev.y, new_z);
+            let newp = Vector3::new(prev.x + step_dx, prev.y, prev.z);
             let delta = newp - prev;
-            // Keep yaw fixed until render rotation is wired, so collisions match visuals
+            // Keep yaw fixed so collisions match visuals
             let yaw = 0.0_f32;
             self.queue.emit_now(Event::StructurePoseUpdated { id: *id, pos: newp, yaw_deg: yaw, delta });
         }
