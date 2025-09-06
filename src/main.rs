@@ -20,6 +20,42 @@ use std::sync::Arc;
 use voxel::World;
 
 fn main() {
+    // Handle CLI mode: schematic support report
+    {
+        let mut args = std::env::args().skip(1).collect::<Vec<String>>();
+        let mut report_mode = false;
+        let mut schem_path = String::from("schematics/anvilstead.schem");
+        let mut i = 0usize;
+        while i < args.len() {
+            let a = &args[i];
+            if a == "--schem-report" {
+                report_mode = true;
+                if i + 1 < args.len() && !args[i + 1].starts_with('-') {
+                    schem_path = args[i + 1].clone();
+                    i += 1;
+                }
+            }
+            i += 1;
+        }
+        if report_mode {
+            match crate::schem::find_unsupported_blocks_in_file(std::path::Path::new(&schem_path)) {
+                Ok(list) => {
+                    if list.is_empty() {
+                        println!("All blocks in {:?} are supported by current mapper.", schem_path);
+                    } else {
+                        println!("Unsupported block types ({}):", list.len());
+                        for id in list { println!("- {}", id); }
+                    }
+                    return;
+                }
+                Err(e) => {
+                    eprintln!("Failed to analyze {:?}: {}", schem_path, e);
+                    std::process::exit(2);
+                }
+            }
+        }
+    }
+
     // Initialize logging (RUST_LOG=info by default; override with env)
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
