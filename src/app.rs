@@ -172,7 +172,7 @@ impl App {
                                 let wx = lx + shift_x;
                                 let wy = ly;
                                 let wz = lz + shift_z;
-                                match crate::schem::load_sponge_schem_apply_edits(&p, (wx, wy, wz), &mut gs.edits) {
+                                match crate::schem::load_any_schematic_apply_edits(&p, (wx, wy, wz), &mut gs.edits) {
                                     Ok((sx, sy, sz)) => {
                                         log::info!(
                                             "Loaded schem {:?} at ({},{},{}) ({}x{}x{})",

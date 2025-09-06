@@ -1,5 +1,4 @@
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::fs;
 
 use crate::voxel::{Block, TreeSpecies};
@@ -117,6 +116,198 @@ fn map_palette_key_to_block(key: &str) -> Block {
     map_palette_key_to_block_opt(key).unwrap_or(Block::Air)
 }
 
+// Fallback: MCEdit/old WorldEdit .schematic loader via NBT (fastnbt + optional gzip)
+#[derive(Debug, serde::Deserialize)]
+struct MCSchematicNBT {
+    Width: i16,
+    Height: i16,
+    Length: i16,
+    Blocks: Vec<u8>,
+    Data: Vec<u8>,
+    #[serde(default)]
+    AddBlocks: Vec<u8>,
+    #[serde(default)]
+    WEOffsetX: i32,
+    #[serde(default)]
+    WEOffsetY: i32,
+    #[serde(default)]
+    WEOffsetZ: i32,
+}
+
+fn nbt_schematic_from_file(path: &Path) -> Result<MCSchematicNBT, String> {
+    use std::io::Read;
+    let mut f = std::fs::File::open(path).map_err(|e| format!("open {:?}: {}", path, e))?;
+    let mut data = Vec::new();
+    f.read_to_end(&mut data).map_err(|e| format!("read {:?}: {}", path, e))?;
+    // Try gzip-decompress
+    let mut gz = flate2::read::GzDecoder::new(&data[..]);
+    let mut dec = Vec::new();
+    match std::io::Read::read_to_end(&mut gz, &mut dec) {
+        Ok(_) => match from_bytes::<MCSchematicNBT>(&dec) {
+            Ok(n) => Ok(n),
+            Err(e) => {
+                // Try raw
+                from_bytes::<MCSchematicNBT>(&data)
+                    .map_err(|e2| format!("parse NBT {:?}: {} / {}", path, e, e2))
+            }
+        },
+        Err(_) => from_bytes::<MCSchematicNBT>(&data)
+            .map_err(|e| format!("parse NBT {:?}: {}", path, e)),
+    }
+}
+
+fn numeric_id_to_block(id: u16, data: u8) -> Block {
+    use crate::voxel::{Block::*, TreeSpecies::*};
+    match id {
+        0 => Air,
+        1 => Stone,
+        2 => Grass,
+        3 => Dirt,
+        4 => Cobblestone,
+        5 => {
+            let sp = match (data & 0x7) as u8 { // lower 3 bits
+                0 => Oak,
+                1 => Spruce,
+                2 => Birch,
+                3 => Jungle,
+                4 => Acacia,
+                5 => DarkOak,
+                _ => Oak,
+            };
+            Planks(sp)
+        }
+        12 => Sand,
+        13 => Gravel,
+        17 => { // Logs (ignore axis)
+            let sp = match (data & 0x3) as u8 { // bottom 2 bits species in older versions
+                0 => Oak,
+                1 => Spruce,
+                2 => Birch,
+                3 => Jungle,
+                _ => Oak,
+            };
+            Wood(sp)
+        }
+        18 => { // Leaves (ignore decay flags)
+            let sp = match (data & 0x3) as u8 {
+                0 => Oak,
+                1 => Spruce,
+                2 => Birch,
+                3 => Jungle,
+                _ => Oak,
+            };
+            Leaves(sp)
+        }
+        22 => LapisBlock,
+        24 => { // Sandstone variants
+            match data as u8 {
+                2 => SmoothSandstone,
+                _ => Sandstone,
+            }
+        }
+        45 => Brick,
+        47 => Bookshelf,
+        80 => Snow,
+        89 => Glowstone,
+        98 => { // Stone bricks variants
+            match data as u8 {
+                1 => MossyStoneBricks,
+                _ => StoneBricks,
+            }
+        }
+        112 => NetherBricks,
+        155 => QuartzBlock,
+        159 => SmoothStone, // stained hardened clay -> approximate
+        168 => PrismarineBricks, // approximate all variants
+        172 => SmoothStone,     // hardened clay -> approximate
+        173 => CoalBlock,
+        179 => { // Red sandstone
+            match data as u8 {
+                2 => SmoothRedSandstone,
+                _ => RedSandstone,
+            }
+        }
+        _ => Air,
+    }
+}
+
+pub fn load_mcedit_schematic_apply_edits(
+    path: &Path,
+    origin: (i32, i32, i32),
+    edits: &mut crate::edit::EditStore,
+) -> Result<(usize, usize, usize), String> {
+    let nbt = nbt_schematic_from_file(path)?;
+    let w = nbt.Width as i32;
+    let h = nbt.Height as i32;
+    let l = nbt.Length as i32;
+    let blocks = &nbt.Blocks;
+    let data = &nbt.Data;
+    let add = &nbt.AddBlocks;
+    let (mut ox, mut oy, mut oz) = origin;
+    // Apply WEOffset if present (serde default is 0 when missing)
+    ox += nbt.WEOffsetX;
+    oy += nbt.WEOffsetY;
+    oz += nbt.WEOffsetZ;
+    let total = (w as usize) * (h as usize) * (l as usize);
+    if blocks.len() != total || data.len() != total {
+        log::warn!(".schematic arrays size mismatch: blocks={}, data={}, expected={}", blocks.len(), data.len(), total);
+    }
+    // Helper to read high 4 bits for id i
+    let high4 = |i: usize| -> u16 {
+        if add.is_empty() { return 0; }
+        let half = i >> 1;
+        let byte = add.get(half).copied().unwrap_or(0) as u16;
+        if (i & 1) == 0 { (byte & 0x0F) as u16 } else { ((byte >> 4) & 0x0F) as u16 }
+    };
+    // Index order: (y * Length + z) * Width + x
+    let mut unsupported: std::collections::BTreeSet<u16> = std::collections::BTreeSet::new();
+    for y in 0..h {
+        for z in 0..l {
+            for x in 0..w {
+                let i = (y as usize) * (l as usize) * (w as usize) + (z as usize) * (w as usize) + (x as usize);
+                let id_low = *blocks.get(i).unwrap_or(&0) as u16;
+                let id = id_low | (high4(i) << 8);
+                let dv = *data.get(i).unwrap_or(&0) as u8;
+                let b = numeric_id_to_block(id, dv);
+                if matches!(b, Block::Air) {
+                    if id != 0 { unsupported.insert(id); }
+                } else {
+                    edits.set(ox + x, oy + y, oz + z, b);
+                }
+            }
+        }
+    }
+    if !unsupported.is_empty() {
+        let ids: Vec<String> = unsupported.iter().map(|v| v.to_string()).collect();
+        log::info!(".schematic unsupported numeric block IDs encountered (mapped to air): {}", ids.join(", "));
+    }
+    Ok((w as usize, h as usize, l as usize))
+}
+
+pub fn load_any_schematic_apply_edits(
+    path: &Path,
+    origin: (i32, i32, i32),
+    edits: &mut crate::edit::EditStore,
+) -> Result<(usize, usize, usize), String> {
+    let ext = path.extension().and_then(|e| Some(e.to_string_lossy().to_lowercase())).unwrap_or_default();
+    if ext == "schem" {
+        load_sponge_schem_apply_edits(path, origin, edits)
+    } else if ext == "schematic" {
+        match load_mcedit_schematic_apply_edits(path, origin, edits) {
+            Ok(s) => Ok(s),
+            Err(e) => {
+                // As a last resort, try mc_schem parser if available
+                match mc_schem::Schematic::from_file(path.to_str().ok_or_else(|| "invalid path".to_string())?) {
+                    Ok(_s) => load_sponge_schem_apply_edits(path, origin, edits),
+                    Err(_) => Err(e),
+                }
+            }
+        }
+    } else {
+        Err(format!("unsupported schematic extension: {:?}", path))
+    }
+}
+
 pub fn load_sponge_schem_apply_edits(
     path: &Path,
     origin: (i32, i32, i32),
@@ -210,19 +401,22 @@ pub fn list_schematics_with_size(dir: &Path) -> Result<Vec<SchematicEntry>, Stri
         if p.is_file() {
             if let Some(ext) = p.extension() {
                 let ext_s = ext.to_string_lossy();
-                if ext_s.eq_ignore_ascii_case("schem") || ext_s.eq_ignore_ascii_case("schematic") {
-                    let (schem, _meta) = mc_schem::Schematic::from_file(
-                        p.to_str().ok_or_else(|| "invalid path".to_string())?,
-                    )
-                    .map_err(|e| format!("parse schem {:?}: {}", p, e))?;
-                    let shape = schem.shape();
-                    out.push(SchematicEntry {
-                        path: p,
-                        size: (shape[0] as i32, shape[1] as i32, shape[2] as i32),
-                    });
+                if ext_s.eq_ignore_ascii_case("schem") {
+                    match mc_schem::Schematic::from_file(p.to_str().ok_or_else(|| "invalid path".to_string())?) {
+                        Ok((schem, _meta)) => {
+                            let shape = schem.shape();
+                            out.push(SchematicEntry { path: p, size: (shape[0] as i32, shape[1] as i32, shape[2] as i32) });
+                        }
+                        Err(e) => return Err(format!("parse schem {:?}: {}", p, e)),
+                    }
+                } else if ext_s.eq_ignore_ascii_case("schematic") {
+                    // Fallback to NBT to get sizes even if mc_schem cannot parse due to missing tags
+                    let nbt = nbt_schematic_from_file(&p)?;
+                    out.push(SchematicEntry { path: p, size: (nbt.Width as i32, nbt.Height as i32, nbt.Length as i32) });
                 }
             }
         }
     }
     Ok(out)
 }
+use fastnbt::from_bytes;

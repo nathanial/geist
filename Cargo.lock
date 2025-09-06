@@ -454,10 +454,13 @@ name = "geist"
 version = "0.1.0"
 dependencies = [
  "env_logger",
+ "fastnbt",
  "fastnoise-lite",
+ "flate2",
  "log",
  "mc_schem",
  "raylib",
+ "serde",
  "simplelog",
 ]
 

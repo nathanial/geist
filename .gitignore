@@ -2,3 +2,5 @@ target/
 .DS_Store
 old-codebase/
 geist.log
+unconverted/
+worlds/
