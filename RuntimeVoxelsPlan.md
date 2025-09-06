@@ -52,7 +52,8 @@
   - Replace `FaceMaterial` enums with a runtime catalog:
     - `MaterialId(u16)` and `Material { key: String, texture_candidates: Vec<PathBuf> }`.
     - Block types reference `MaterialId` per face role (top/bottom/side) and/or material families.
-  - Map catalog keys to texture file paths (e.g., `assets/blocks/*.png`) via `assets/voxels/materials.toml`; reorganize assets as needed.
+  - Map catalog keys to texture file paths (e.g., `assets/blocks/*.png`) via `assets/voxels/materials.toml`; keep current paths for minimal churn.
+  - Add optional `render_tag` (e.g., `"leaves"`) on materials for shader selection.
 
 - **States/Properties**
   - Stateful families (e.g., `planks` species, `terracotta` color, `log` axis):
@@ -136,6 +137,17 @@
 - Provide a default block pack matching current visuals.
 - Update README and docs to describe the new data-driven system.
 
+**Integration Notes (from code audit)**
+- Mesh grouping key: Replace all uses of `FaceMaterial` as a map key in `ChunkMeshCPU`/`ChunkRender` with `MaterialId` (or `RenderKey`). Update `meshing_core` and upload paths accordingly.
+- Shader selection: Use material/block metadata for shader choice. Add `render_tag` (e.g., `"leaves"`) to materials or allow a block-type override; update `app.rs` to assign the leaves shader based on this tag.
+- Occlusion by shape: Replace `is_occluder/occludes_face` enum matches with shape-aware occlusion (e.g., slabs occlude top or bottom depending on half; stairs occlude top/bottom like slabs; sides full). Implement via `Shape` helpers.
+- Light propagation flags: Add `propagates_sky` and `propagates_light` to block types; update skylight and block-light BFS to propagate through blocks with the appropriate flags (current parity: only air propagates both).
+- Leaves collision: Keep leaves `solid=true` for collisions to match current behavior unless changed via config.
+- Material resolution: Implement a resolver that maps `(block, face, state)` to `MaterialId` (for cubes) and use per-shape emitters for non-cubes; both paths feed `MaterialId` to meshing/grouping.
+- Debug names: Implement `Block::debug_name()` via registry for UI/debug prints.
+- Schematic translator: Move hardcoded maps in `schem.rs` to a config-driven translator; ensure `mcworld.rs` calls the same translator.
+- Crates: Add `toml` to dependencies; reuse existing `serde` for config.
+
 **Performance Considerations**
 - **Memory:** New `Block` packs into 4 bytes (u16 id + u16 state) vs a large enum; reduces `ChunkBuf.blocks` memory.
 - **Dispatch:** Avoid virtual calls per-voxel by:
@@ -154,8 +166,10 @@
 
 **Estimated Impact (files)**
 - `src/voxel.rs`: replace `enum Block`, add worldgen helpers that consult registry.
-- `src/mesher.rs`: swap `match Block` with `shape` + `face_material`; keep geometry emitters.
+- `src/mesher.rs`: swap `match Block` with `shape` + `face_material`; keep geometry emitters; return `MaterialId` instead of `FaceMaterial`.
 - `src/lighting.rs`: delegate to `block.is_air()/is_solid()/emission()`.
+- `src/meshing_core.rs`: group faces by `MaterialId` and carry light levels; remove `FaceMaterial` dependency.
+- `src/runtime.rs`, `src/app.rs`: update upload path and shader selection to use material `render_tag`.
 - `src/schem.rs`: replace mapping with config-driven translator.
 - `src/chunkbuf.rs`, `src/structure.rs`, `src/edit.rs`: change to new `Block` struct.
 - `src/app.rs`, `src/gamestate.rs`, `src/player.rs`: UI hotbar, debug prints, collision via `is_solid()`.
