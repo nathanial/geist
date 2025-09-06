@@ -6,10 +6,12 @@ out vec2 fragTexCoord;
 out vec4 fragColor;
 out vec3 fragWorldPos;
 uniform mat4 mvp;
+uniform mat4 matModel; // provided by raylib per draw (model transform)
 void main(){
   fragTexCoord = vertexTexCoord;
   fragColor = vertexColor;
-  fragWorldPos = vertexPosition; // meshes are authored in world-space
+  // Compute true world-space position using the current model transform.
+  // This fixes fog distance for meshes drawn with a translation (e.g., structures).
+  fragWorldPos = (matModel * vec4(vertexPosition, 1.0)).xyz;
   gl_Position = mvp * vec4(vertexPosition, 1.0);
 }
-
