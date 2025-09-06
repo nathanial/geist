@@ -336,6 +336,8 @@ impl App {
                 self.gs.chunks.remove(&(cx, cz));
                 self.gs.loaded.remove(&(cx, cz));
                 self.gs.pending.remove(&(cx, cz));
+                // Also drop any persisted lighting state for this chunk to prevent growth
+                self.gs.lighting.clear_chunk(cx, cz);
             }
             Event::EnsureChunkLoaded { cx, cz } => {
                 if self.runtime.renders.contains_key(&(cx, cz))

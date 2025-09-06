@@ -854,6 +854,19 @@ impl LightingStore {
         }
     }
 
+    // Remove all persisted lighting data associated with a chunk.
+    // Called when a chunk is unloaded to prevent unbounded growth.
+    pub fn clear_chunk(&self, cx: i32, cz: i32) {
+        {
+            let mut map = self.borders.lock().unwrap();
+            map.remove(&(cx, cz));
+        }
+        {
+            let mut map = self.emitters.lock().unwrap();
+            map.remove(&(cx, cz));
+        }
+    }
+
     pub fn get_neighbor_borders(&self, cx: i32, cz: i32) -> NeighborBorders {
         let map = self.borders.lock().unwrap();
         let mut nb = NeighborBorders::empty(self.sx, self.sy, self.sz);
