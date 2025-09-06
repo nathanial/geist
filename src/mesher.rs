@@ -461,7 +461,7 @@ pub fn build_chunk_greedy_cpu_buf(
 
     // Unified path via meshing_core
     let light = match lighting {
-        Some(store) => LightGrid::compute_with_borders_buf(buf, store),
+        Some(store) => LightGrid::compute_with_borders_buf(buf, store, reg),
         None => return None,
     };
     let flip_v = [false, false, false, false, false, false];

@@ -1,5 +1,7 @@
 use crate::chunkbuf::ChunkBuf;
 use crate::voxel::Block;
+use crate::blocks::BlockRegistry;
+use crate::voxel;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -70,7 +72,7 @@ impl LightGrid {
         }
     }
 
-    pub fn compute_with_borders_buf(buf: &ChunkBuf, store: &LightingStore) -> Self {
+    pub fn compute_with_borders_buf(buf: &ChunkBuf, store: &LightingStore, reg: &BlockRegistry) -> Self {
         let sx = buf.sx;
         let sy = buf.sy;
         let sz = buf.sz;
@@ -85,7 +87,7 @@ impl LightGrid {
                     let b = buf.get_local(x, y, z);
                     let idx = lg.idx(x, y, z);
                     if open_above {
-                        if matches!(b, Block::Air) {
+                        if skylight_transparent(b, reg) {
                             lg.skylight[idx] = 255;
                             q_sky.push_back((x, y, z, 255u8));
                         } else {
@@ -715,6 +717,52 @@ impl LightGrid {
         let blk = self.block_light[i];
         let bcn = self.beacon_light[i];
         sky.max(blk).max(bcn)
+    }
+}
+
+// Helper: determine if a legacy Block is skylight-transparent using the runtime registry.
+// Returns true for Air and any block that does not block skylight per registry; false otherwise.
+#[inline]
+fn skylight_transparent(b: Block, reg: &BlockRegistry) -> bool {
+    match b {
+        Block::Air => true,
+        _ => {
+            if let Some(name) = map_legacy_block_to_registry_name(b) {
+                if let Some(id) = reg.id_by_name(name) {
+                    if let Some(ty) = reg.get(id) {
+                        return !ty.blocks_skylight(0);
+                    }
+                }
+            }
+            false
+        }
+    }
+}
+
+#[inline]
+fn map_legacy_block_to_registry_name(b: Block) -> Option<&'static str> {
+    match b {
+        Block::Air => Some("air"),
+        Block::Stone => Some("stone"),
+        Block::Dirt => Some("dirt"),
+        Block::Grass => Some("grass"),
+        Block::Sand => Some("sand"),
+        Block::Snow => Some("snow"),
+        Block::Glowstone => Some("glowstone"),
+        Block::Beacon => Some("beacon"),
+        Block::Wood(voxel::TreeSpecies::Oak) => Some("oak_log"),
+        Block::Wood(voxel::TreeSpecies::Birch) => Some("birch_log"),
+        Block::Wood(voxel::TreeSpecies::Spruce) => Some("spruce_log"),
+        Block::Wood(voxel::TreeSpecies::Jungle) => Some("jungle_log"),
+        Block::Wood(voxel::TreeSpecies::Acacia) => Some("acacia_log"),
+        Block::Wood(voxel::TreeSpecies::DarkOak) => Some("dark_oak_log"),
+        Block::Leaves(voxel::TreeSpecies::Oak) => Some("oak_leaves"),
+        Block::Leaves(voxel::TreeSpecies::Birch) => Some("birch_leaves"),
+        Block::Leaves(voxel::TreeSpecies::Spruce) => Some("spruce_leaves"),
+        Block::Leaves(voxel::TreeSpecies::Jungle) => Some("jungle_leaves"),
+        Block::Leaves(voxel::TreeSpecies::Acacia) => Some("acacia_leaves"),
+        Block::Leaves(voxel::TreeSpecies::DarkOak) => Some("oak_leaves"),
+        _ => None,
     }
 }
 
