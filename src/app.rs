@@ -730,6 +730,9 @@ impl App {
             Event::ChunkBoundsToggled => {
                 self.gs.show_chunk_bounds = !self.gs.show_chunk_bounds;
             }
+            Event::FrustumCullingToggled => {
+                self.gs.frustum_culling_enabled = !self.gs.frustum_culling_enabled;
+            }
             Event::PlaceTypeSelected { block } => {
                 self.gs.place_type = block;
             }
@@ -755,6 +758,9 @@ impl App {
         }
         if rl.is_key_pressed(KeyboardKey::KEY_B) {
             self.queue.emit_now(Event::ChunkBoundsToggled);
+        }
+        if rl.is_key_pressed(KeyboardKey::KEY_C) {
+            self.queue.emit_now(Event::FrustumCullingToggled);
         }
         if rl.is_key_pressed(KeyboardKey::KEY_ONE) {
             self.queue.emit_now(Event::PlaceTypeSelected { block: Block::Dirt });
@@ -876,7 +882,7 @@ impl App {
         let screen_width = rl.get_screen_width() as f32;
         let screen_height = rl.get_screen_height() as f32;
         let aspect_ratio = screen_width / screen_height;
-        let frustum = self.cam.calculate_frustum(aspect_ratio, 0.1, 1000.0);
+        let frustum = self.cam.calculate_frustum(aspect_ratio, 0.1, 10000.0); // Increased far plane
         
         let camera3d = self.cam.to_camera3d();
         let mut d = rl.begin_drawing(thread);
@@ -907,7 +913,7 @@ impl App {
 
             for (_key, cr) in &self.runtime.renders {
                 // Check if chunk is within frustum
-                if !frustum.contains_bounding_box(&cr.bbox) {
+                if self.gs.frustum_culling_enabled && !frustum.contains_bounding_box(&cr.bbox) {
                     self.debug_stats.chunks_culled += 1;
                     continue;
                 }
@@ -940,7 +946,7 @@ impl App {
                     };
                     
                     // Check if structure is within frustum
-                    if !frustum.contains_bounding_box(&translated_bbox) {
+                    if self.gs.frustum_culling_enabled && !frustum.contains_bounding_box(&translated_bbox) {
                         self.debug_stats.structures_culled += 1;
                         continue;
                     }
@@ -1066,7 +1072,7 @@ impl App {
         // HUD
         let hud_mode = if self.gs.walk_mode { "Walk" } else { "Fly" };
         let hud = format!(
-            "{}: Tab capture, WASD{} move{}, V toggle mode, F wireframe, G grid, B bounds, L add light, K remove light | Place: {:?} (1-7) | Castle: moving",
+            "{}: Tab capture, WASD{} move{}, V toggle mode, F wireframe, G grid, B bounds, C culling, L add light, K remove light | Place: {:?} (1-7) | Castle: moving",
             hud_mode,
             if self.gs.walk_mode { "" } else { "+QE" },
             if self.gs.walk_mode {
@@ -1210,6 +1216,9 @@ impl App {
             }
             E::ChunkBoundsToggled => {
                 log::info!(target: "events", "[tick {}] ChunkBoundsToggled", tick);
+            }
+            E::FrustumCullingToggled => {
+                log::info!(target: "events", "[tick {}] FrustumCullingToggled", tick);
             }
             E::PlaceTypeSelected { block } => {
                 log::info!(target: "events", "[tick {}] PlaceTypeSelected block={:?}", tick, block);

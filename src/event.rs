@@ -23,6 +23,7 @@ pub enum Event {
     GridToggled,
     WireframeToggled,
     ChunkBoundsToggled,
+    FrustumCullingToggled,
     PlaceTypeSelected {
         block: Block,
     },

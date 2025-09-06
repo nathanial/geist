@@ -89,47 +89,59 @@ impl FlyCamera {
     }
     
     pub fn calculate_frustum(&self, aspect_ratio: f32, near: f32, far: f32) -> Frustum {
-        let fov = 70.0_f32.to_radians();
+        let fov_y = 70.0_f32.to_radians();
         let forward = self.forward();
         let right = self.right();
-        let up = forward.cross(right);
+        let up = right.cross(forward).normalized();
         
-        let half_v_side = far * (fov * 0.5).tan();
-        let half_h_side = half_v_side * aspect_ratio;
+        // Calculate dimensions at near and far planes
+        let tan_half_fov = (fov_y * 0.5).tan();
+        let near_height = 2.0 * near * tan_half_fov;
+        let near_width = near_height * aspect_ratio;
+        let far_height = 2.0 * far * tan_half_fov;
+        let far_width = far_height * aspect_ratio;
         
-        let front_mult_far = forward * far;
-        let front_mult_near = forward * near;
+        // Calculate frustum corner points
+        let nc = self.position + forward * near; // near center
+        let fc = self.position + forward * far;  // far center
         
-        // Calculate frustum corners
-        let near_center = self.position + front_mult_near;
-        let far_center = self.position + front_mult_far;
+        // Near corners
+        let nlt = nc + up * (near_height * 0.5) - right * (near_width * 0.5); // near left top
+        let nrt = nc + up * (near_height * 0.5) + right * (near_width * 0.5); // near right top
+        let nlb = nc - up * (near_height * 0.5) - right * (near_width * 0.5); // near left bottom
+        let nrb = nc - up * (near_height * 0.5) + right * (near_width * 0.5); // near right bottom
         
-        // Near plane
-        let near_plane = Plane::new(forward, near_center);
+        // Create planes using cross products to get correct normals
+        // Each plane normal points INWARD to the frustum
         
-        // Far plane  
-        let far_plane = Plane::new(-forward, far_center);
+        // Near plane (normal points forward into frustum)
+        let near_plane = Plane::new(forward, nc);
         
-        // Left plane
-        let left_normal = ((near_center - right * half_h_side * (near / far)) - self.position)
-            .cross(up)
-            .normalized();
+        // Far plane (normal points backward into frustum)
+        let far_plane = Plane::new(-forward, fc);
+        
+        // Left plane (contains camera position, nlt, nlb)
+        let left_edge1 = (nlt - self.position).normalized();
+        let left_edge2 = (nlb - self.position).normalized();
+        let left_normal = left_edge2.cross(left_edge1).normalized();
         let left_plane = Plane::new(left_normal, self.position);
         
-        // Right plane
-        let right_normal = up.cross((near_center + right * half_h_side * (near / far)) - self.position)
-            .normalized();
+        // Right plane (contains camera position, nrb, nrt)
+        let right_edge1 = (nrb - self.position).normalized();
+        let right_edge2 = (nrt - self.position).normalized();
+        let right_normal = right_edge2.cross(right_edge1).normalized();
         let right_plane = Plane::new(right_normal, self.position);
         
-        // Top plane
-        let top_normal = right.cross((near_center + up * half_v_side * (near / far)) - self.position)
-            .normalized();
+        // Top plane (contains camera position, nrt, nlt)
+        let top_edge1 = (nrt - self.position).normalized();
+        let top_edge2 = (nlt - self.position).normalized();
+        let top_normal = top_edge2.cross(top_edge1).normalized();
         let top_plane = Plane::new(top_normal, self.position);
         
-        // Bottom plane
-        let bottom_normal = ((near_center - up * half_v_side * (near / far)) - self.position)
-            .cross(right)
-            .normalized();
+        // Bottom plane (contains camera position, nlb, nrb)
+        let bottom_edge1 = (nlb - self.position).normalized();
+        let bottom_edge2 = (nrb - self.position).normalized();
+        let bottom_normal = bottom_edge2.cross(bottom_edge1).normalized();
         let bottom_plane = Plane::new(bottom_normal, self.position);
         
         Frustum {
