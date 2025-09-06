@@ -407,7 +407,7 @@ fn emit_box(
         let nx = gx;
         let ny = gy + 1;
         let nz = gz;
-        if !is_occluder(buf, world, edits, neighbors, here, nx, ny, nz) {
+        if !is_occluder(buf, world, edits, neighbors, here, 0, nx, ny, nz) {
             let l = light.sample_face_local(x, y, z, 0);
             let lv = l.max(VISUAL_LIGHT_MIN);
             let rgba = [lv, lv, lv, 255];
@@ -431,7 +431,7 @@ fn emit_box(
         let nx = gx;
         let ny = gy - 1;
         let nz = gz;
-        if !is_occluder(buf, world, edits, neighbors, here, nx, ny, nz) {
+        if !is_occluder(buf, world, edits, neighbors, here, 1, nx, ny, nz) {
             let l = light.sample_face_local(x, y, z, 1);
             let lv = l.max(VISUAL_LIGHT_MIN);
             let rgba = [lv, lv, lv, 255];
@@ -455,7 +455,7 @@ fn emit_box(
         let nx = gx + 1;
         let ny = gy;
         let nz = gz;
-        if !is_occluder(buf, world, edits, neighbors, here, nx, ny, nz) {
+        if !is_occluder(buf, world, edits, neighbors, here, 2, nx, ny, nz) {
             let l = light.sample_face_local(x, y, z, 2);
             let lv = l.max(VISUAL_LIGHT_MIN);
             let rgba = [lv, lv, lv, 255];
@@ -479,7 +479,7 @@ fn emit_box(
         let nx = gx - 1;
         let ny = gy;
         let nz = gz;
-        if !is_occluder(buf, world, edits, neighbors, here, nx, ny, nz) {
+        if !is_occluder(buf, world, edits, neighbors, here, 3, nx, ny, nz) {
             let l = light.sample_face_local(x, y, z, 3);
             let lv = l.max(VISUAL_LIGHT_MIN);
             let rgba = [lv, lv, lv, 255];
@@ -503,7 +503,7 @@ fn emit_box(
         let nx = gx;
         let ny = gy;
         let nz = gz + 1;
-        if !is_occluder(buf, world, edits, neighbors, here, nx, ny, nz) {
+        if !is_occluder(buf, world, edits, neighbors, here, 4, nx, ny, nz) {
             let l = light.sample_face_local(x, y, z, 4);
             let lv = l.max(VISUAL_LIGHT_MIN);
             let rgba = [lv, lv, lv, 255];
@@ -527,7 +527,7 @@ fn emit_box(
         let nx = gx;
         let ny = gy;
         let nz = gz - 1;
-        if !is_occluder(buf, world, edits, neighbors, here, nx, ny, nz) {
+        if !is_occluder(buf, world, edits, neighbors, here, 5, nx, ny, nz) {
             let l = light.sample_face_local(x, y, z, 5);
             let lv = l.max(VISUAL_LIGHT_MIN);
             let rgba = [lv, lv, lv, 255];
@@ -565,6 +565,7 @@ fn is_occluder(
     edits: Option<&StdHashMap<(i32, i32, i32), Block>>,
     nmask: NeighborsLoaded,
     here: Block,
+    face: usize,
     nx: i32,
     ny: i32,
     nz: i32,
@@ -582,7 +583,8 @@ fn is_occluder(
         let lx = (nx - x0) as usize;
         let ly = ny as usize;
         let lz = (nz - z0) as usize;
-        return buf.get_local(lx, ly, lz).is_solid();
+        let nb = buf.get_local(lx, ly, lz);
+        return occludes_face(nb, face);
     }
     // Outside current chunk: only occlude if the corresponding neighbor chunk is loaded; otherwise treat as air
     let x0 = buf.cx * buf.sx as i32;
@@ -611,7 +613,24 @@ fn is_occluder(
     } else {
         world.block_at(nx, ny, nz)
     };
-    nb.is_solid()
+    occludes_face(nb, face)
+}
+
+#[inline]
+fn occludes_face(nb: Block, face: usize) -> bool {
+    match nb {
+        Block::Slab { half, .. } => match face {
+            0 => matches!(half, SlabHalf::Bottom), // neighbor above occludes only if bottom slab
+            1 => matches!(half, SlabHalf::Top),    // neighbor below occludes only if top slab
+            _ => nb.is_solid(), // sides treated as full for greedy; partial handled separately
+        },
+        Block::Stairs { half, .. } => match face {
+            0 => matches!(half, SlabHalf::Bottom),
+            1 => matches!(half, SlabHalf::Top),
+            _ => nb.is_solid(),
+        },
+        _ => nb.is_solid(),
+    }
 }
 
 pub struct ChunkRender {
@@ -671,11 +690,29 @@ pub fn build_chunk_greedy_cpu_buf(
                     5 => (gx, gy, gz - 1),
                     _ => unreachable!(),
                 };
-                if is_occluder(buf, world, edits, neighbors, here, nx, ny, nz) {
+                if is_occluder(buf, world, edits, neighbors, here, face, nx, ny, nz) {
                     return None;
                 }
                 if let Some(fm) = face_material_for(here, face) {
-                    let l = light.sample_face_local(x, y, z, face);
+                    let mut l = light.sample_face_local(x, y, z, face);
+                    // If top face and neighbor above is a top-half shape, sample one more cell above for light
+                    if face == 0 {
+                        // Convert world neighbor coords back to local if within this chunk
+                        if buf.contains_world(nx, ny, nz) && ny >= 0 && (ny as usize) < sy {
+                            let lx = (nx - base_x) as usize;
+                            let ly = ny as usize;
+                            let lz = (nz - base_z) as usize;
+                            match buf.get_local(lx, ly, lz) {
+                                Block::Slab { half: SlabHalf::Top, .. } | Block::Stairs { half: SlabHalf::Top, .. } => {
+                                    if y + 1 < sy {
+                                        let l2 = light.sample_face_local(x, y + 1, z, 0);
+                                        l = l.max(l2);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
                     Some((fm, l))
                 } else {
                     None
