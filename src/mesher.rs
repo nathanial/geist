@@ -111,7 +111,7 @@ pub struct MeshBuild {
 }
 
 impl MeshBuild {
-    fn add_quad(
+    pub(crate) fn add_quad(
         &mut self,
         a: Vector3,
         b: Vector3,
@@ -164,50 +164,7 @@ impl MeshBuild {
     }
 }
 
-// Generic greedy-rectangle sweep over a 2D mask. The mask is width*height laid out row-major.
-// For each maximal rectangle of identical Some(code), calls `emit(x, y, w, h, code)` once.
-#[inline]
-fn greedy_rects(
-    width: usize,
-    height: usize,
-    mask: &mut [Option<(FaceMaterial, u8)>],
-    mut emit: impl FnMut(usize, usize, usize, usize, (FaceMaterial, u8)),
-) {
-    let mut used = vec![false; width * height];
-    for y in 0..height {
-        for x in 0..width {
-            let idx = y * width + x;
-            let code = mask[idx];
-            if code.is_none() || used[idx] {
-                continue;
-            }
-            let mut w = 1;
-            while x + w < width
-                && mask[y * width + (x + w)] == code
-                && !used[y * width + (x + w)]
-            {
-                w += 1;
-            }
-            let mut h = 1;
-            'expand: while y + h < height {
-                for i in 0..w {
-                    let j = (y + h) * width + (x + i);
-                    if mask[j] != code || used[j] {
-                        break 'expand;
-                    }
-                }
-                h += 1;
-            }
-            // Safe to unwrap because we checked is_some above.
-            emit(x, y, w, h, code.unwrap());
-            for yy in 0..h {
-                for xx in 0..w {
-                    used[(y + yy) * width + (x + xx)] = true;
-                }
-            }
-        }
-    }
-}
+// (greedy_rects moved to meshing_core)
 
 fn face_material_for(block: Block, face: usize) -> Option<FaceMaterial> {
     // face: 0=+Y(top), 1=-Y(bottom), 2=+X, 3=-X, 4=+Z, 5=-Z
@@ -329,242 +286,55 @@ pub fn build_chunk_greedy_cpu_buf(
     let base_x = buf.cx * sx as i32;
     let base_z = buf.cz * sz as i32;
 
-    use std::collections::HashMap;
-    let mut builds: HashMap<FaceMaterial, MeshBuild> = HashMap::new();
+    // Unified path via meshing_core
     let light = match lighting {
         Some(store) => LightGrid::compute_with_borders_buf(buf, store),
         None => return None,
     };
-
-    // Y layers: top and bottom
-    for y in 0..sy {
-        // top faces
-        {
-            let mut mask: Vec<Option<(FaceMaterial, u8)>> = vec![None; sx * sz];
-            for z in 0..sz {
-                for x in 0..sx {
-                    let here = buf.get_local(x, y, z);
-                    if here.is_solid() {
-                        let gx = base_x + x as i32;
-                        let gz = base_z + z as i32;
-                        let neigh =
-                            is_occluder(buf, world, edits, neighbors, here, gx, (y as i32) + 1, gz);
-                        if !neigh {
-                            if let Some(fm) = face_material_for(here, 0) {
-                                let l = light.sample_face_local(x, y, z, 0);
-                                mask[z * sx + x] = Some((fm, l));
-                            }
-                        }
-                    }
+        let flip_v = [false, false, false, false, false, false];
+        let builds = crate::meshing_core::build_mesh_core(
+            buf,
+            base_x,
+            base_z,
+            flip_v,
+            Some(VISUAL_LIGHT_MIN),
+            |x, y, z, face, here| {
+                if !here.is_solid() {
+                    return None;
                 }
-            }
-            greedy_rects(sx, sz, &mut mask, |x, z, w, h, codev| {
-                let fx = (base_x + x as i32) as f32;
-                let fz = (base_z + z as i32) as f32;
-                let fy = (y as f32) + 1.0;
-                let u1 = w as f32;
-                let v1 = h as f32;
-                let mb = builds.entry(codev.0).or_default();
-                let lv = codev.1.max(VISUAL_LIGHT_MIN);
-                let rgba = [lv, lv, lv, 255];
-                mb.add_quad(
-                    Vector3::new(fx, fy, fz),
-                    Vector3::new(fx + u1, fy, fz),
-                    Vector3::new(fx + u1, fy, fz + v1),
-                    Vector3::new(fx, fy, fz + v1),
-                    Vector3::new(0.0, 1.0, 0.0),
-                    u1,
-                    v1,
-                    false,
-                    rgba,
-                );
-            });
-        }
-        // bottom faces
-        {
-            let mut mask: Vec<Option<(FaceMaterial, u8)>> = vec![None; sx * sz];
-            for z in 0..sz {
-                for x in 0..sx {
-                    let here = buf.get_local(x, y, z);
-                    if here.is_solid() {
-                        let gx = base_x + x as i32;
-                        let gz = base_z + z as i32;
-                        let neigh =
-                            is_occluder(buf, world, edits, neighbors, here, gx, (y as i32) - 1, gz);
-                        if !neigh {
-                            if let Some(fm) = face_material_for(here, 1) {
-                                let l = light.sample_face_local(x, y, z, 1);
-                                mask[z * sx + x] = Some((fm, l));
-                            }
-                        }
-                    }
+                let gx = base_x + x as i32;
+                let gy = y as i32;
+                let gz = base_z + z as i32;
+                let (nx, ny, nz) = match face {
+                    0 => (gx, gy + 1, gz),
+                    1 => (gx, gy - 1, gz),
+                    2 => (gx + 1, gy, gz),
+                    3 => (gx - 1, gy, gz),
+                    4 => (gx, gy, gz + 1),
+                    5 => (gx, gy, gz - 1),
+                    _ => unreachable!(),
+                };
+                if is_occluder(buf, world, edits, neighbors, here, nx, ny, nz) {
+                    return None;
                 }
-            }
-            greedy_rects(sx, sz, &mut mask, |x, z, w, h, codev| {
-                let fx = (base_x + x as i32) as f32;
-                let fz = (base_z + z as i32) as f32;
-                let fy = y as f32;
-                let u1 = w as f32;
-                let v1 = h as f32;
-                let mb = builds.entry(codev.0).or_default();
-                let lv = codev.1.max(VISUAL_LIGHT_MIN);
-                let rgba = [lv, lv, lv, 255];
-                mb.add_quad(
-                    Vector3::new(fx, fy, fz + v1),
-                    Vector3::new(fx + u1, fy, fz + v1),
-                    Vector3::new(fx + u1, fy, fz),
-                    Vector3::new(fx, fy, fz),
-                    Vector3::new(0.0, -1.0, 0.0),
-                    u1,
-                    v1,
-                    false,
-                    rgba,
-                );
-            });
-        }
-    }
-
-    // X planes
-    for x in 0..sx {
-        for &pos in &[false, true] {
-            let mut mask: Vec<Option<(FaceMaterial, u8)>> = vec![None; sz * sy];
-            for z in 0..sz {
-                for y in 0..sy {
-                    let here = buf.get_local(x, y, z);
-                    if here.is_solid() {
-                        let gx = base_x + x as i32;
-                        let gz = base_z + z as i32;
-                        let gy = y as i32;
-                        let neigh = if pos {
-                            is_occluder(buf, world, edits, neighbors, here, gx + 1, gy, gz)
-                        } else {
-                            is_occluder(buf, world, edits, neighbors, here, gx - 1, gy, gz)
-                        };
-                        if !neigh {
-                            if let Some(fm) = face_material_for(here, if pos { 2 } else { 3 }) {
-                                let l = light.sample_face_local(x, y, z, if pos { 2 } else { 3 });
-                                mask[y * sz + z] = Some((fm, l));
-                            }
-                        }
-                    }
-                }
-            }
-            greedy_rects(sz, sy, &mut mask, |z, y, w, h, codev| {
-                let fx = (base_x + x as i32) as f32 + if pos { 1.0 } else { 0.0 };
-                let fy = y as f32;
-                let fz = (base_z + z as i32) as f32;
-                let u1 = w as f32;
-                let v1 = h as f32;
-                let mb = builds.entry(codev.0).or_default();
-                let lv = codev.1.max(VISUAL_LIGHT_MIN);
-                let rgba = [lv, lv, lv, 255];
-                if !pos {
-                    mb.add_quad(
-                        Vector3::new(fx, fy + v1, fz),
-                        Vector3::new(fx, fy + v1, fz + u1),
-                        Vector3::new(fx, fy, fz + u1),
-                        Vector3::new(fx, fy, fz),
-                        Vector3::new(-1.0, 0.0, 0.0),
-                        u1,
-                        v1,
-                        false,
-                        rgba,
-                    );
+                if let Some(fm) = face_material_for(here, face) {
+                    let l = light.sample_face_local(x, y, z, face);
+                    Some((fm, l))
                 } else {
-                    mb.add_quad(
-                        Vector3::new(fx, fy + v1, fz + u1),
-                        Vector3::new(fx, fy + v1, fz),
-                        Vector3::new(fx, fy, fz),
-                        Vector3::new(fx, fy, fz + u1),
-                        Vector3::new(1.0, 0.0, 0.0),
-                        u1,
-                        v1,
-                        false,
-                        rgba,
-                    );
+                    None
                 }
-            });
-        }
-    }
-
-    // Z planes
-    for z in 0..sz {
-        for &pos in &[false, true] {
-            let mut mask: Vec<Option<(FaceMaterial, u8)>> = vec![None; sx * sy];
-            for x in 0..sx {
-                for y in 0..sy {
-                    let here = buf.get_local(x, y, z);
-                    if here.is_solid() {
-                        let gx = base_x + x as i32;
-                        let gz = base_z + z as i32;
-                        let gy = y as i32;
-                        let neigh = if pos {
-                            is_occluder(buf, world, edits, neighbors, here, gx, gy, gz + 1)
-                        } else {
-                            is_occluder(buf, world, edits, neighbors, here, gx, gy, gz - 1)
-                        };
-                        if !neigh {
-                            if let Some(fm) = face_material_for(here, if pos { 4 } else { 5 }) {
-                                let l = light.sample_face_local(x, y, z, if pos { 4 } else { 5 });
-                                mask[y * sx + x] = Some((fm, l));
-                            }
-                        }
-                    }
-                }
-            }
-            greedy_rects(sx, sy, &mut mask, |x, y, w, h, codev| {
-                let fx = (base_x + x as i32) as f32;
-                let fy = y as f32;
-                let fz = (base_z + z as i32) as f32 + if pos { 1.0 } else { 0.0 };
-                let u1 = w as f32;
-                let v1 = h as f32;
-                let mb = builds.entry(codev.0).or_default();
-                let lv = codev.1.max(VISUAL_LIGHT_MIN);
-                let rgba = [lv, lv, lv, 255];
-                if !pos {
-                    mb.add_quad(
-                        Vector3::new(fx, fy + v1, fz),
-                        Vector3::new(fx + u1, fy + v1, fz),
-                        Vector3::new(fx + u1, fy, fz),
-                        Vector3::new(fx, fy, fz),
-                        Vector3::new(0.0, 0.0, -1.0),
-                        u1,
-                        v1,
-                        false,
-                        rgba,
-                    );
-                } else {
-                    mb.add_quad(
-                        Vector3::new(fx + u1, fy + v1, fz),
-                        Vector3::new(fx, fy + v1, fz),
-                        Vector3::new(fx, fy, fz),
-                        Vector3::new(fx + u1, fy, fz),
-                        Vector3::new(0.0, 0.0, 1.0),
-                        u1,
-                        v1,
-                        false,
-                        rgba,
-                    );
-                }
-            });
-        }
-    }
-
-    let bbox = BoundingBox::new(
-        Vector3::new(base_x as f32, 0.0, base_z as f32),
-        Vector3::new(
-            base_x as f32 + sx as f32,
-            sy as f32,
-            base_z as f32 + sz as f32,
-        ),
-    );
-    // Instead of mutating the store directly, return the light borders
-    let light_borders = if lighting.is_some() {
-        Some(LightBorders::from_grid(&light))
-    } else {
-        None
-    };
-    Some((
+            },
+        );
+        let bbox = BoundingBox::new(
+            Vector3::new(base_x as f32, 0.0, base_z as f32),
+            Vector3::new(
+                base_x as f32 + sx as f32,
+                sy as f32,
+                base_z as f32 + sz as f32,
+            ),
+        );
+    let light_borders = Some(LightBorders::from_grid(&light));
+    return Some((
         ChunkMeshCPU {
             cx,
             cz,
@@ -572,7 +342,7 @@ pub fn build_chunk_greedy_cpu_buf(
             parts: builds,
         },
         light_borders,
-    ))
+    ));
 }
 
 pub fn upload_chunk_mesh(
@@ -649,334 +419,70 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8) -> ChunkMeshCPU {
     let sy = buf.sy;
     let sz = buf.sz;
 
-    use std::collections::HashMap;
-    let mut builds: HashMap<FaceMaterial, MeshBuild> = HashMap::new();
-
-    #[inline]
-    fn solid_local(buf: &ChunkBuf, x: i32, y: i32, z: i32) -> bool {
-        if x < 0 || y < 0 || z < 0 {
-            return false;
-        }
-        let (xu, yu, zu) = (x as usize, y as usize, z as usize);
-        if xu >= buf.sx || yu >= buf.sy || zu >= buf.sz {
-            return false;
-        }
-        buf.get_local(xu, yu, zu).is_solid()
-    }
-
-    #[inline]
-    fn face_light(face: usize, ambient: u8) -> u8 {
-        match face {
-            0 => ambient.saturating_add(40).min(255),
-            1 => ambient.saturating_sub(60),
-            _ => ambient,
-        }
-    }
-
-    for y in 0..sy {
-        // +Y faces
-        {
-            let mut mask: Vec<Option<(FaceMaterial, u8)>> = vec![None; sx * sz];
-            for z in 0..sz {
-                for x in 0..sx {
-                    let here = buf.get_local(x, y, z);
-                    if here.is_solid() {
-                        let neigh = solid_local(buf, x as i32, y as i32 + 1, z as i32);
-                        if !neigh {
-                            if let Some(fm) = face_material_for(here, 0) {
-                                let l = face_light(0, ambient);
-                                mask[z * sx + x] = Some((fm, l));
-                            }
-                        }
-                    }
-                }
+    // Unified path via meshing_core
+    {
+        #[inline]
+        fn solid_local(buf: &ChunkBuf, x: i32, y: i32, z: i32) -> bool {
+            if x < 0 || y < 0 || z < 0 {
+                return false;
             }
-            let mut used = vec![false; sx * sz];
-            for z in 0..sz {
-                for x in 0..sx {
-                    let code = mask[z * sx + x];
-                    if code.is_none() || used[z * sx + x] {
-                        continue;
-                    }
-                    let codev = code.unwrap();
-                    let mut w = 1;
-                    while x + w < sx && mask[z * sx + x + w] == code && !used[z * sx + x + w] {
-                        w += 1;
-                    }
-                    let mut h = 1;
-                    'expand: while z + h < sz {
-                        for i in 0..w {
-                            if mask[(z + h) * sx + (x + i)] != code || used[(z + h) * sx + (x + i)]
-                            {
-                                break 'expand;
-                            }
-                        }
-                        h += 1;
-                    }
-                    let fx = x as f32;
-                    let fz = z as f32;
-                    let fy = (y as f32) + 1.0;
-                    let u1 = w as f32;
-                    let v1 = h as f32;
-                    let mb = builds.entry(codev.0).or_default();
-                    let lv = codev.1;
-                    let rgba = [lv, lv, lv, 255];
-                    mb.add_quad(
-                        Vector3::new(fx, fy, fz),
-                        Vector3::new(fx + u1, fy, fz),
-                        Vector3::new(fx + u1, fy, fz + v1),
-                        Vector3::new(fx, fy, fz + v1),
-                        Vector3::new(0.0, 1.0, 0.0),
-                        u1,
-                        v1,
-                        false,
-                        rgba,
-                    );
-                    for zz in 0..h {
-                        for xx in 0..w {
-                            used[(z + zz) * sx + (x + xx)] = true;
-                        }
-                    }
-                }
+            let (xu, yu, zu) = (x as usize, y as usize, z as usize);
+            if xu >= buf.sx || yu >= buf.sy || zu >= buf.sz {
+                return false;
+            }
+            buf.get_local(xu, yu, zu).is_solid()
+        }
+
+        #[inline]
+        fn face_light(face: usize, ambient: u8) -> u8 {
+            match face {
+                0 => ambient.saturating_add(40).min(255),
+                1 => ambient.saturating_sub(60),
+                _ => ambient,
             }
         }
-        // -Y faces
-        {
-            let mut mask: Vec<Option<(FaceMaterial, u8)>> = vec![None; sx * sz];
-            for z in 0..sz {
-                for x in 0..sx {
-                    let here = buf.get_local(x, y, z);
-                    if here.is_solid() {
-                        let neigh = solid_local(buf, x as i32, y as i32 - 1, z as i32);
-                        if !neigh {
-                            if let Some(fm) = face_material_for(here, 1) {
-                                let l = face_light(1, ambient);
-                                mask[z * sx + x] = Some((fm, l));
-                            }
-                        }
-                    }
-                }
-            }
-            let mut used = vec![false; sx * sz];
-            for z in 0..sz {
-                for x in 0..sx {
-                    let code = mask[z * sx + x];
-                    if code.is_none() || used[z * sx + x] {
-                        continue;
-                    }
-                    let codev = code.unwrap();
-                    let mut w = 1;
-                    while x + w < sx && mask[z * sx + x + w] == code && !used[z * sx + x + w] {
-                        w += 1;
-                    }
-                    let mut h = 1;
-                    'expand: while z + h < sz {
-                        for i in 0..w {
-                            if mask[(z + h) * sx + (x + i)] != code || used[(z + h) * sx + (x + i)]
-                            {
-                                break 'expand;
-                            }
-                        }
-                        h += 1;
-                    }
-                    let fx = x as f32;
-                    let fz = z as f32;
-                    let fy = y as f32;
-                    let u1 = w as f32;
-                    let v1 = h as f32;
-                    let mb = builds.entry(codev.0).or_default();
-                    let lv = codev.1;
-                    let rgba = [lv, lv, lv, 255];
-                    mb.add_quad(
-                        Vector3::new(fx, fy, fz),
-                        Vector3::new(fx, fy, fz + v1),
-                        Vector3::new(fx + u1, fy, fz + v1),
-                        Vector3::new(fx + u1, fy, fz),
-                        Vector3::new(0.0, -1.0, 0.0),
-                        u1,
-                        v1,
-                        true,
-                        rgba,
-                    );
-                    for zz in 0..h {
-                        for xx in 0..w {
-                            used[(z + zz) * sx + (x + xx)] = true;
-                        }
-                    }
-                }
-            }
-        }
-    }
 
-    // +X faces
-    for x in 0..sx {
-        let mut mask: Vec<Option<(FaceMaterial, u8)>> = vec![None; sy * sz];
-        for z in 0..sz {
-            for y in 0..sy {
-                let here = buf.get_local(x, y, z);
-                if here.is_solid() {
-                    let neigh = solid_local(buf, x as i32 + 1, y as i32, z as i32);
-                    if !neigh {
-                        if let Some(fm) = face_material_for(here, 2) {
-                            let l = face_light(2, ambient);
-                            mask[y * sz + z] = Some((fm, l));
-                        }
-                    }
+        let flip_v = [false, true, false, true, false, true];
+        let builds = crate::meshing_core::build_mesh_core(
+            buf,
+            0,
+            0,
+            flip_v,
+            None,
+            |x, y, z, face, here| {
+                if !here.is_solid() {
+                    return None;
                 }
-            }
-        }
-        greedy_rects(sz, sy, &mut mask, |z, y, w, h, codev| {
-            let fx = (x as f32) + 1.0;
-            let fy = y as f32;
-            let fz = z as f32;
-            let u1 = w as f32;
-            let v1 = h as f32;
-            let mb = builds.entry(codev.0).or_default();
-            let lv = codev.1;
-            let rgba = [lv, lv, lv, 255];
-            mb.add_quad(
-                Vector3::new(fx, fy, fz),
-                Vector3::new(fx, fy + v1, fz),
-                Vector3::new(fx, fy + v1, fz + u1),
-                Vector3::new(fx, fy, fz + u1),
-                Vector3::new(1.0, 0.0, 0.0),
-                u1,
-                v1,
-                false,
-                rgba,
-            );
-        });
-    }
-
-    // -X faces
-    for x in 0..sx {
-        let mut mask: Vec<Option<(FaceMaterial, u8)>> = vec![None; sy * sz];
-        for z in 0..sz {
-            for y in 0..sy {
-                let here = buf.get_local(x, y, z);
-                if here.is_solid() {
-                    let neigh = solid_local(buf, x as i32 - 1, y as i32, z as i32);
-                    if !neigh {
-                        if let Some(fm) = face_material_for(here, 3) {
-                            let l = face_light(3, ambient);
-                            mask[y * sz + z] = Some((fm, l));
-                        }
-                    }
+                let (nx, ny, nz) = match face {
+                    0 => (x as i32, y as i32 + 1, z as i32),
+                    1 => (x as i32, y as i32 - 1, z as i32),
+                    2 => (x as i32 + 1, y as i32, z as i32),
+                    3 => (x as i32 - 1, y as i32, z as i32),
+                    4 => (x as i32, y as i32, z as i32 + 1),
+                    5 => (x as i32, y as i32, z as i32 - 1),
+                    _ => unreachable!(),
+                };
+                if solid_local(buf, nx, ny, nz) {
+                    return None;
                 }
-            }
-        }
-        greedy_rects(sz, sy, &mut mask, |z, y, w, h, codev| {
-            let fx = x as f32;
-            let fy = y as f32;
-            let fz = z as f32;
-            let u1 = w as f32;
-            let v1 = h as f32;
-            let mb = builds.entry(codev.0).or_default();
-            let lv = codev.1;
-            let rgba = [lv, lv, lv, 255];
-            mb.add_quad(
-                Vector3::new(fx, fy, fz),
-                Vector3::new(fx, fy, fz + u1),
-                Vector3::new(fx, fy + v1, fz + u1),
-                Vector3::new(fx, fy + v1, fz),
-                Vector3::new(-1.0, 0.0, 0.0),
-                u1,
-                v1,
-                true,
-                rgba,
-            );
-        });
-    }
-
-    // +Z faces
-    for z in 0..sz {
-        let mut mask: Vec<Option<(FaceMaterial, u8)>> = vec![None; sy * sx];
-        for x in 0..sx {
-            for y in 0..sy {
-                let here = buf.get_local(x, y, z);
-                if here.is_solid() {
-                    let neigh = solid_local(buf, x as i32, y as i32, z as i32 + 1);
-                    if !neigh {
-                        if let Some(fm) = face_material_for(here, 4) {
-                            let l = face_light(4, ambient);
-                            mask[y * sx + x] = Some((fm, l));
-                        }
-                    }
+                if let Some(fm) = face_material_for(here, face) {
+                    let l = face_light(face, ambient);
+                    Some((fm, l))
+                } else {
+                    None
                 }
-            }
-        }
-        greedy_rects(sx, sy, &mut mask, |x, y, w, h, codev| {
-            let fx = x as f32;
-            let fy = y as f32;
-            let fz = (z as f32) + 1.0;
-            let u1 = w as f32;
-            let v1 = h as f32;
-            let mb = builds.entry(codev.0).or_default();
-            let lv = codev.1;
-            let rgba = [lv, lv, lv, 255];
-            mb.add_quad(
-                Vector3::new(fx, fy, fz),
-                Vector3::new(fx + u1, fy, fz),
-                Vector3::new(fx + u1, fy + v1, fz),
-                Vector3::new(fx, fy + v1, fz),
-                Vector3::new(0.0, 0.0, 1.0),
-                u1,
-                v1,
-                false,
-                rgba,
-            );
-        });
-    }
-
-    // -Z faces
-    for z in 0..sz {
-        let mut mask: Vec<Option<(FaceMaterial, u8)>> = vec![None; sy * sx];
-        for x in 0..sx {
-            for y in 0..sy {
-                let here = buf.get_local(x, y, z);
-                if here.is_solid() {
-                    let neigh = solid_local(buf, x as i32, y as i32, z as i32 - 1);
-                    if !neigh {
-                        if let Some(fm) = face_material_for(here, 5) {
-                            let l = face_light(5, ambient);
-                            mask[y * sx + x] = Some((fm, l));
-                        }
-                    }
-                }
-            }
-        }
-        greedy_rects(sx, sy, &mut mask, |x, y, w, h, codev| {
-            let fx = x as f32;
-            let fy = y as f32;
-            let fz = z as f32;
-            let u1 = w as f32;
-            let v1 = h as f32;
-            let mb = builds.entry(codev.0).or_default();
-            let lv = codev.1;
-            let rgba = [lv, lv, lv, 255];
-            mb.add_quad(
-                Vector3::new(fx, fy, fz),
-                Vector3::new(fx, fy + v1, fz),
-                Vector3::new(fx + u1, fy + v1, fz),
-                Vector3::new(fx + u1, fy, fz),
-                Vector3::new(0.0, 0.0, -1.0),
-                u1,
-                v1,
-                true,
-                rgba,
-            );
-        });
-    }
-
-    let bbox = BoundingBox::new(
-        Vector3::new(0.0, 0.0, 0.0),
-        Vector3::new(sx as f32, sy as f32, sz as f32),
-    );
-    ChunkMeshCPU {
-        cx: 0,
-        cz: 0,
-        bbox,
-        parts: builds,
+            },
+        );
+        let bbox = BoundingBox::new(
+            Vector3::new(0.0, 0.0, 0.0),
+            Vector3::new(sx as f32, sy as f32, sz as f32),
+        );
+        return ChunkMeshCPU {
+            cx: 0,
+            cz: 0,
+            bbox,
+            parts: builds,
+        };
     }
 }
 

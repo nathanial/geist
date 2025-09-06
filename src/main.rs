@@ -6,6 +6,7 @@ mod event;
 mod gamestate;
 mod lighting;
 mod mesher;
+mod meshing_core;
 mod structure;
 mod player;
 mod raycast;
