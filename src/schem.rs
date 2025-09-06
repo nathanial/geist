@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 use std::fs;
 
-use crate::voxel::{Block, TerracottaColor, TreeSpecies};
+use crate::voxel::{Block, Dir4, MaterialKey, SlabHalf, TerracottaColor, TreeSpecies};
 
 // Map a Sponge palette key like "minecraft:oak_log[axis=y]" to our Block
 fn base_from_key(key: &str) -> &str { key.split('[').next().unwrap_or(key) }
@@ -19,6 +19,21 @@ fn axis_from_key(key: &str) -> Option<crate::voxel::Axis> {
                         "z" => Some(crate::voxel::Axis::Z),
                         _ => None,
                     };
+                }
+            }
+        }
+    }
+    None
+}
+
+fn state_value<'a>(key: &'a str, name: &str) -> Option<&'a str> {
+    if let Some(start) = key.find('[') {
+        if let Some(end) = key[start + 1..].find(']') {
+            let inner = &key[start + 1..start + 1 + end];
+            for part in inner.split(',') {
+                let part = part.trim();
+                if let Some(val) = part.strip_prefix(&format!("{}=", name)) {
+                    return Some(val);
                 }
             }
         }
@@ -143,10 +158,188 @@ fn map_palette_key_to_block_opt(key: &str) -> Option<Block> {
         "minecraft:red_terracotta" => Some(Block::Terracotta(TerracottaColor::Red)),
         "minecraft:black_terracotta" => Some(Block::Terracotta(TerracottaColor::Black)),
 
-        // Common transparent/decoration blocks -> approximate as Air to avoid overfilling
+        // Common transparent/decoration blocks -> treat as unsupported for now
         // Treat these as unsupported (None) rather than Air; we'll skip them in building if needed
         "minecraft:glass" | "minecraft:glass_pane" | "minecraft:torch" | "minecraft:lantern"
         | "minecraft:water" | "minecraft:lava" => None,
+
+        // --- Slabs (straight) ---
+        "minecraft:oak_slab" => {
+            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::Planks(TreeSpecies::Oak)), _ => SlabHalf::Bottom };
+            Some(Block::Slab { half, key: MaterialKey::Planks(TreeSpecies::Oak) })
+        }
+        "minecraft:spruce_slab" => {
+            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::Planks(TreeSpecies::Spruce)), _ => SlabHalf::Bottom };
+            Some(Block::Slab { half, key: MaterialKey::Planks(TreeSpecies::Spruce) })
+        }
+        "minecraft:birch_slab" => {
+            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::Planks(TreeSpecies::Birch)), _ => SlabHalf::Bottom };
+            Some(Block::Slab { half, key: MaterialKey::Planks(TreeSpecies::Birch) })
+        }
+        "minecraft:jungle_slab" => {
+            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::Planks(TreeSpecies::Jungle)), _ => SlabHalf::Bottom };
+            Some(Block::Slab { half, key: MaterialKey::Planks(TreeSpecies::Jungle) })
+        }
+        "minecraft:acacia_slab" => {
+            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::Planks(TreeSpecies::Acacia)), _ => SlabHalf::Bottom };
+            Some(Block::Slab { half, key: MaterialKey::Planks(TreeSpecies::Acacia) })
+        }
+        "minecraft:dark_oak_slab" => {
+            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::Planks(TreeSpecies::DarkOak)), _ => SlabHalf::Bottom };
+            Some(Block::Slab { half, key: MaterialKey::Planks(TreeSpecies::DarkOak) })
+        }
+        "minecraft:smooth_stone_slab" | "minecraft:stone_slab" => {
+            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::SmoothStone), _ => SlabHalf::Bottom };
+            Some(Block::Slab { half, key: MaterialKey::SmoothStone })
+        }
+        "minecraft:sandstone_slab" => {
+            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::Sandstone), _ => SlabHalf::Bottom };
+            Some(Block::Slab { half, key: MaterialKey::Sandstone })
+        }
+        "minecraft:red_sandstone_slab" => {
+            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::RedSandstone), _ => SlabHalf::Bottom };
+            Some(Block::Slab { half, key: MaterialKey::RedSandstone })
+        }
+        "minecraft:cobblestone_slab" => {
+            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::Cobblestone), _ => SlabHalf::Bottom };
+            Some(Block::Slab { half, key: MaterialKey::Cobblestone })
+        }
+        "minecraft:mossy_cobblestone_slab" => {
+            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::MossyCobblestone), _ => SlabHalf::Bottom };
+            Some(Block::Slab { half, key: MaterialKey::MossyCobblestone })
+        }
+        "minecraft:stone_brick_slab" => {
+            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::StoneBricks), _ => SlabHalf::Bottom };
+            Some(Block::Slab { half, key: MaterialKey::StoneBricks })
+        }
+        "minecraft:end_stone_brick_slab" => {
+            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::EndStoneBricks), _ => SlabHalf::Bottom };
+            Some(Block::Slab { half, key: MaterialKey::EndStoneBricks })
+        }
+        "minecraft:prismarine_slab" => {
+            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::PrismarineBricks), _ => SlabHalf::Bottom };
+            Some(Block::Slab { half, key: MaterialKey::PrismarineBricks })
+        }
+        "minecraft:granite_slab" => {
+            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::Granite), _ => SlabHalf::Bottom };
+            Some(Block::Slab { half, key: MaterialKey::Granite })
+        }
+        "minecraft:diorite_slab" => {
+            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::Diorite), _ => SlabHalf::Bottom };
+            Some(Block::Slab { half, key: MaterialKey::Diorite })
+        }
+        "minecraft:andesite_slab" => {
+            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::Andesite), _ => SlabHalf::Bottom };
+            Some(Block::Slab { half, key: MaterialKey::Andesite })
+        }
+        "minecraft:polished_andesite_slab" => {
+            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::PolishedAndesite), _ => SlabHalf::Bottom };
+            Some(Block::Slab { half, key: MaterialKey::PolishedAndesite })
+        }
+        "minecraft:polished_granite_slab" => {
+            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::PolishedGranite), _ => SlabHalf::Bottom };
+            Some(Block::Slab { half, key: MaterialKey::PolishedGranite })
+        }
+        "minecraft:polished_diorite_slab" => {
+            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::PolishedDiorite), _ => SlabHalf::Bottom };
+            Some(Block::Slab { half, key: MaterialKey::PolishedDiorite })
+        }
+        "minecraft:smooth_sandstone_slab" => {
+            let half = match state_value(key, "type") { Some("top") => SlabHalf::Top, Some("bottom") => SlabHalf::Bottom, Some("double") => return Some(Block::SmoothSandstone), _ => SlabHalf::Bottom };
+            Some(Block::Slab { half, key: MaterialKey::Sandstone })
+        }
+
+        // --- Stairs (straight) ---
+        "minecraft:oak_stairs" => {
+            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
+            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
+            Some(Block::Stairs { dir, half, key: MaterialKey::Planks(TreeSpecies::Oak) })
+        }
+        "minecraft:spruce_stairs" => {
+            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
+            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
+            Some(Block::Stairs { dir, half, key: MaterialKey::Planks(TreeSpecies::Spruce) })
+        }
+        "minecraft:birch_stairs" => {
+            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
+            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
+            Some(Block::Stairs { dir, half, key: MaterialKey::Planks(TreeSpecies::Birch) })
+        }
+        "minecraft:jungle_stairs" => {
+            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
+            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
+            Some(Block::Stairs { dir, half, key: MaterialKey::Planks(TreeSpecies::Jungle) })
+        }
+        "minecraft:acacia_stairs" => {
+            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
+            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
+            Some(Block::Stairs { dir, half, key: MaterialKey::Planks(TreeSpecies::Acacia) })
+        }
+        "minecraft:dark_oak_stairs" => {
+            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
+            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
+            Some(Block::Stairs { dir, half, key: MaterialKey::Planks(TreeSpecies::DarkOak) })
+        }
+        "minecraft:stone_stairs" => {
+            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
+            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
+            Some(Block::Stairs { dir, half, key: MaterialKey::SmoothStone })
+        }
+        "minecraft:cobblestone_stairs" => {
+            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
+            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
+            Some(Block::Stairs { dir, half, key: MaterialKey::Cobblestone })
+        }
+        "minecraft:mossy_cobblestone_stairs" => {
+            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
+            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
+            Some(Block::Stairs { dir, half, key: MaterialKey::MossyCobblestone })
+        }
+        "minecraft:stone_brick_stairs" => {
+            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
+            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
+            Some(Block::Stairs { dir, half, key: MaterialKey::StoneBricks })
+        }
+        "minecraft:quartz_stairs" => {
+            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
+            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
+            Some(Block::Stairs { dir, half, key: MaterialKey::QuartzBlock })
+        }
+        "minecraft:smooth_sandstone_stairs" | "minecraft:sandstone_stairs" => {
+            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
+            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
+            Some(Block::Stairs { dir, half, key: MaterialKey::Sandstone })
+        }
+        "minecraft:polished_andesite_stairs" => {
+            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
+            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
+            Some(Block::Stairs { dir, half, key: MaterialKey::PolishedAndesite })
+        }
+        "minecraft:polished_granite_stairs" => {
+            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
+            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
+            Some(Block::Stairs { dir, half, key: MaterialKey::PolishedGranite })
+        }
+        "minecraft:polished_diorite_stairs" => {
+            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
+            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
+            Some(Block::Stairs { dir, half, key: MaterialKey::PolishedDiorite })
+        }
+        "minecraft:granite_stairs" => {
+            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
+            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
+            Some(Block::Stairs { dir, half, key: MaterialKey::Granite })
+        }
+        "minecraft:diorite_stairs" => {
+            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
+            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
+            Some(Block::Stairs { dir, half, key: MaterialKey::Diorite })
+        }
+        "minecraft:andesite_stairs" => {
+            let dir = match state_value(key, "facing") { Some("north") => Dir4::North, Some("south") => Dir4::South, Some("west") => Dir4::West, Some("east") => Dir4::East, _ => Dir4::North };
+            let half = match state_value(key, "half") { Some("top") => SlabHalf::Top, _ => SlabHalf::Bottom };
+            Some(Block::Stairs { dir, half, key: MaterialKey::Andesite })
+        }
 
         _ => None,
     }

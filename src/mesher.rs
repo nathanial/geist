@@ -1,6 +1,6 @@
 use crate::chunkbuf::ChunkBuf;
 use crate::lighting::{LightBorders, LightGrid, LightingStore};
-use crate::voxel::{Axis, Block, TerracottaColor, TreeSpecies, World};
+use crate::voxel::{Axis, Block, Dir4, MaterialKey, SlabHalf, TerracottaColor, TreeSpecies, World};
 use raylib::core::math::BoundingBox;
 use raylib::prelude::*;
 use std::collections::HashMap as StdHashMap;
@@ -346,10 +346,200 @@ fn face_material_for(block: Block, face: usize) -> Option<FaceMaterial> {
             if face_axis == axis { Some(FaceMaterial::QuartzPillarTop) } else { Some(FaceMaterial::QuartzPillarSide) }
         }
         Block::Leaves(sp) => Some(FaceMaterial::Leaves(sp)),
+        // Special shapes handled in the special mesher pass
+        Block::Slab { .. } => None,
+        Block::Stairs { .. } => None,
         Block::TerracottaPlain => Some(FaceMaterial::TerracottaPlain),
         Block::Terracotta(c) => Some(FaceMaterial::Terracotta(c)),
         Block::Glowstone => Some(FaceMaterial::Glowstone),
         Block::Beacon => Some(FaceMaterial::Beacon),
+    }
+}
+
+#[inline]
+fn face_material_for_key(key: MaterialKey, face: usize) -> FaceMaterial {
+    match key {
+        MaterialKey::SmoothStone => FaceMaterial::SmoothStone,
+        MaterialKey::Sandstone => match face { 0 => FaceMaterial::SandstoneTop, 1 => FaceMaterial::SandstoneBottom, _ => FaceMaterial::SandstoneSide },
+        MaterialKey::RedSandstone => match face { 0 => FaceMaterial::RedSandstoneTop, 1 => FaceMaterial::RedSandstoneBottom, _ => FaceMaterial::RedSandstoneSide },
+        MaterialKey::Cobblestone => FaceMaterial::Cobblestone,
+        MaterialKey::MossyCobblestone => FaceMaterial::MossyCobblestone,
+        MaterialKey::StoneBricks => FaceMaterial::StoneBricks,
+        MaterialKey::MossyStoneBricks => FaceMaterial::MossyStoneBricks,
+        MaterialKey::QuartzBlock => match face { 0 | 1 => FaceMaterial::QuartzBlockTop, _ => FaceMaterial::QuartzBlockSide },
+        MaterialKey::Planks(sp) => FaceMaterial::Planks(sp),
+        MaterialKey::PrismarineBricks => FaceMaterial::PrismarineBricks,
+        MaterialKey::EndStone => FaceMaterial::EndStone,
+        MaterialKey::EndStoneBricks => FaceMaterial::EndStoneBricks,
+        MaterialKey::Granite => FaceMaterial::Granite,
+        MaterialKey::Diorite => FaceMaterial::Diorite,
+        MaterialKey::Andesite => FaceMaterial::Andesite,
+        MaterialKey::PolishedGranite => FaceMaterial::PolishedGranite,
+        MaterialKey::PolishedDiorite => FaceMaterial::PolishedDiorite,
+        MaterialKey::PolishedAndesite => FaceMaterial::PolishedAndesite,
+    }
+}
+
+#[inline]
+fn emit_box(
+    builds: &mut std::collections::HashMap<FaceMaterial, MeshBuild>,
+    buf: &ChunkBuf,
+    world: &World,
+    edits: Option<&StdHashMap<(i32, i32, i32), Block>>,
+    neighbors: NeighborsLoaded,
+    light: &LightGrid,
+    x: usize,
+    y: usize,
+    z: usize,
+    base_x: i32,
+    base_z: i32,
+    fm_for_face: &dyn Fn(usize) -> FaceMaterial,
+    min: Vector3,
+    max: Vector3,
+) {
+    // Faces: 0=+Y,1=-Y,2=+X,3=-X,4=+Z,5=-Z
+    let gx = base_x + x as i32;
+    let gy = y as i32;
+    let gz = base_z + z as i32;
+    let here = buf.get_local(x, y, z);
+    // +Y top
+    {
+        let nx = gx;
+        let ny = gy + 1;
+        let nz = gz;
+        if !is_occluder(buf, world, edits, neighbors, here, nx, ny, nz) {
+            let l = light.sample_face_local(x, y, z, 0);
+            let mut lv = l;
+            let rgba = [lv, lv, lv, 255];
+            let fm = fm_for_face(0);
+            let mb = builds.entry(fm).or_default();
+            mb.add_quad(
+                Vector3::new(min.x, max.y, min.z),
+                Vector3::new(max.x, max.y, min.z),
+                Vector3::new(max.x, max.y, max.z),
+                Vector3::new(min.x, max.y, max.z),
+                Vector3::new(0.0, 1.0, 0.0),
+                (max.x - min.x),
+                (max.z - min.z),
+                false,
+                rgba,
+            );
+        }
+    }
+    // -Y bottom
+    {
+        let nx = gx;
+        let ny = gy - 1;
+        let nz = gz;
+        if !is_occluder(buf, world, edits, neighbors, here, nx, ny, nz) {
+            let l = light.sample_face_local(x, y, z, 1);
+            let rgba = [l, l, l, 255];
+            let fm = fm_for_face(1);
+            let mb = builds.entry(fm).or_default();
+            mb.add_quad(
+                Vector3::new(min.x, min.y, max.z),
+                Vector3::new(max.x, min.y, max.z),
+                Vector3::new(max.x, min.y, min.z),
+                Vector3::new(min.x, min.y, min.z),
+                Vector3::new(0.0, -1.0, 0.0),
+                (max.x - min.x),
+                (max.z - min.z),
+                false,
+                rgba,
+            );
+        }
+    }
+    // +X face
+    {
+        let nx = gx + 1;
+        let ny = gy;
+        let nz = gz;
+        if !is_occluder(buf, world, edits, neighbors, here, nx, ny, nz) {
+            let l = light.sample_face_local(x, y, z, 2);
+            let rgba = [l, l, l, 255];
+            let fm = fm_for_face(2);
+            let mb = builds.entry(fm).or_default();
+            mb.add_quad(
+                Vector3::new(max.x, max.y, max.z),
+                Vector3::new(max.x, max.y, min.z),
+                Vector3::new(max.x, min.y, min.z),
+                Vector3::new(max.x, min.y, max.z),
+                Vector3::new(1.0, 0.0, 0.0),
+                (max.z - min.z),
+                (max.y - min.y),
+                false,
+                rgba,
+            );
+        }
+    }
+    // -X face
+    {
+        let nx = gx - 1;
+        let ny = gy;
+        let nz = gz;
+        if !is_occluder(buf, world, edits, neighbors, here, nx, ny, nz) {
+            let l = light.sample_face_local(x, y, z, 3);
+            let rgba = [l, l, l, 255];
+            let fm = fm_for_face(3);
+            let mb = builds.entry(fm).or_default();
+            mb.add_quad(
+                Vector3::new(min.x, max.y, min.z),
+                Vector3::new(min.x, max.y, max.z),
+                Vector3::new(min.x, min.y, max.z),
+                Vector3::new(min.x, min.y, min.z),
+                Vector3::new(-1.0, 0.0, 0.0),
+                (max.z - min.z),
+                (max.y - min.y),
+                false,
+                rgba,
+            );
+        }
+    }
+    // +Z face
+    {
+        let nx = gx;
+        let ny = gy;
+        let nz = gz + 1;
+        if !is_occluder(buf, world, edits, neighbors, here, nx, ny, nz) {
+            let l = light.sample_face_local(x, y, z, 4);
+            let rgba = [l, l, l, 255];
+            let fm = fm_for_face(4);
+            let mb = builds.entry(fm).or_default();
+            mb.add_quad(
+                Vector3::new(min.x, max.y, max.z),
+                Vector3::new(max.x, max.y, max.z),
+                Vector3::new(max.x, min.y, max.z),
+                Vector3::new(min.x, min.y, max.z),
+                Vector3::new(0.0, 0.0, 1.0),
+                (max.x - min.x),
+                (max.y - min.y),
+                false,
+                rgba,
+            );
+        }
+    }
+    // -Z face
+    {
+        let nx = gx;
+        let ny = gy;
+        let nz = gz - 1;
+        if !is_occluder(buf, world, edits, neighbors, here, nx, ny, nz) {
+            let l = light.sample_face_local(x, y, z, 5);
+            let rgba = [l, l, l, 255];
+            let fm = fm_for_face(5);
+            let mb = builds.entry(fm).or_default();
+            mb.add_quad(
+                Vector3::new(max.x, max.y, min.z),
+                Vector3::new(min.x, max.y, min.z),
+                Vector3::new(min.x, min.y, min.z),
+                Vector3::new(max.x, min.y, min.z),
+                Vector3::new(0.0, 0.0, -1.0),
+                (max.x - min.x),
+                (max.y - min.y),
+                false,
+                rgba,
+            );
+        }
     }
 }
 
@@ -454,7 +644,7 @@ pub fn build_chunk_greedy_cpu_buf(
         None => return None,
     };
         let flip_v = [false, false, false, false, false, false];
-        let builds = crate::meshing_core::build_mesh_core(
+        let mut builds = crate::meshing_core::build_mesh_core(
             buf,
             base_x,
             base_z,
@@ -487,6 +677,95 @@ pub fn build_chunk_greedy_cpu_buf(
                 }
             },
         );
+        // Special-shapes pass: mesh slabs and stairs
+        for z in 0..sz {
+            for y in 0..sy {
+                for x in 0..sx {
+                    match buf.get_local(x, y, z) {
+                        Block::Slab { half, key } => {
+                            let fx = base_x as f32 + x as f32;
+                            let fy = y as f32;
+                            let fz = base_z as f32 + z as f32;
+                            let (y0, y1) = match half { SlabHalf::Bottom => (fy, fy + 0.5), SlabHalf::Top => (fy + 0.5, fy + 1.0) };
+                            let min = Vector3::new(fx, y0, fz);
+                            let max = Vector3::new(fx + 1.0, y1, fz + 1.0);
+                            let keyc = key; // copy
+                            emit_box(
+                                &mut builds,
+                                buf,
+                                world,
+                                edits,
+                                neighbors,
+                                &light,
+                                x,
+                                y,
+                                z,
+                                base_x,
+                                base_z,
+                                &|face| face_material_for_key(keyc, face),
+                                min,
+                                max,
+                            );
+                        }
+                        Block::Stairs { dir, half, key } => {
+                            let fx = base_x as f32 + x as f32;
+                            let fy = y as f32;
+                            let fz = base_z as f32 + z as f32;
+                            // Big slab across half-height depending on half
+                            let (min_a, max_a) = match half {
+                                SlabHalf::Bottom => (Vector3::new(fx, fy, fz), Vector3::new(fx + 1.0, fy + 0.5, fz + 1.0)),
+                                SlabHalf::Top => (Vector3::new(fx, fy + 0.5, fz), Vector3::new(fx + 1.0, fy + 1.0, fz + 1.0)),
+                            };
+                            let keyc = key;
+                            emit_box(
+                                &mut builds,
+                                buf,
+                                world,
+                                edits,
+                                neighbors,
+                                &light,
+                                x,
+                                y,
+                                z,
+                                base_x,
+                                base_z,
+                                &|face| face_material_for_key(keyc, face),
+                                min_a,
+                                max_a,
+                            );
+                            // Secondary half-depth slab on the back half toward facing
+                            let (min_b, max_b) = match (dir, half) {
+                                (Dir4::North, SlabHalf::Bottom) => (Vector3::new(fx, fy + 0.5, fz), Vector3::new(fx + 1.0, fy + 1.0, fz + 0.5)),
+                                (Dir4::South, SlabHalf::Bottom) => (Vector3::new(fx, fy + 0.5, fz + 0.5), Vector3::new(fx + 1.0, fy + 1.0, fz + 1.0)),
+                                (Dir4::West, SlabHalf::Bottom) => (Vector3::new(fx, fy + 0.5, fz), Vector3::new(fx + 0.5, fy + 1.0, fz + 1.0)),
+                                (Dir4::East, SlabHalf::Bottom) => (Vector3::new(fx + 0.5, fy + 0.5, fz), Vector3::new(fx + 1.0, fy + 1.0, fz + 1.0)),
+                                (Dir4::North, SlabHalf::Top) => (Vector3::new(fx, fy, fz), Vector3::new(fx + 1.0, fy + 0.5, fz + 0.5)),
+                                (Dir4::South, SlabHalf::Top) => (Vector3::new(fx, fy, fz + 0.5), Vector3::new(fx + 1.0, fy + 0.5, fz + 1.0)),
+                                (Dir4::West, SlabHalf::Top) => (Vector3::new(fx, fy, fz), Vector3::new(fx + 0.5, fy + 0.5, fz + 1.0)),
+                                (Dir4::East, SlabHalf::Top) => (Vector3::new(fx + 0.5, fy, fz), Vector3::new(fx + 1.0, fy + 0.5, fz + 1.0)),
+                            };
+                            emit_box(
+                                &mut builds,
+                                buf,
+                                world,
+                                edits,
+                                neighbors,
+                                &light,
+                                x,
+                                y,
+                                z,
+                                base_x,
+                                base_z,
+                                &|face| face_material_for_key(keyc, face),
+                                min_b,
+                                max_b,
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
         let bbox = BoundingBox::new(
             Vector3::new(base_x as f32, 0.0, base_z as f32),
             Vector3::new(

@@ -72,6 +72,9 @@ pub enum Block {
     TerracottaPlain,
     Terracotta(TerracottaColor),
     QuartzPillar(Axis),
+    // Special shapes (non-cubic)
+    Slab { half: SlabHalf, key: MaterialKey },
+    Stairs { dir: Dir4, half: SlabHalf, key: MaterialKey },
     Glowstone,
     Beacon,
 }
@@ -111,6 +114,35 @@ pub enum WorldGenMode {
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum Axis { X, Y, Z }
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum SlabHalf { Bottom, Top }
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum Dir4 { North, South, West, East }
+
+// Material family for non-cubic shapes
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum MaterialKey {
+    SmoothStone,
+    Sandstone,
+    RedSandstone,
+    Cobblestone,
+    MossyCobblestone,
+    StoneBricks,
+    MossyStoneBricks,
+    QuartzBlock,
+    Planks(TreeSpecies),
+    PrismarineBricks,
+    EndStone,
+    EndStoneBricks,
+    Granite,
+    Diorite,
+    Andesite,
+    PolishedGranite,
+    PolishedDiorite,
+    PolishedAndesite,
+}
 
 impl World {
     pub fn new(
