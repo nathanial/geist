@@ -164,6 +164,51 @@ impl MeshBuild {
     }
 }
 
+// Generic greedy-rectangle sweep over a 2D mask. The mask is width*height laid out row-major.
+// For each maximal rectangle of identical Some(code), calls `emit(x, y, w, h, code)` once.
+#[inline]
+fn greedy_rects(
+    width: usize,
+    height: usize,
+    mask: &mut [Option<(FaceMaterial, u8)>],
+    mut emit: impl FnMut(usize, usize, usize, usize, (FaceMaterial, u8)),
+) {
+    let mut used = vec![false; width * height];
+    for y in 0..height {
+        for x in 0..width {
+            let idx = y * width + x;
+            let code = mask[idx];
+            if code.is_none() || used[idx] {
+                continue;
+            }
+            let mut w = 1;
+            while x + w < width
+                && mask[y * width + (x + w)] == code
+                && !used[y * width + (x + w)]
+            {
+                w += 1;
+            }
+            let mut h = 1;
+            'expand: while y + h < height {
+                for i in 0..w {
+                    let j = (y + h) * width + (x + i);
+                    if mask[j] != code || used[j] {
+                        break 'expand;
+                    }
+                }
+                h += 1;
+            }
+            // Safe to unwrap because we checked is_some above.
+            emit(x, y, w, h, code.unwrap());
+            for yy in 0..h {
+                for xx in 0..w {
+                    used[(y + yy) * width + (x + xx)] = true;
+                }
+            }
+        }
+    }
+}
+
 fn face_material_for(block: Block, face: usize) -> Option<FaceMaterial> {
     // face: 0=+Y(top), 1=-Y(bottom), 2=+X, 3=-X, 4=+Z, 5=-Z
     match block {
@@ -313,54 +358,27 @@ pub fn build_chunk_greedy_cpu_buf(
                     }
                 }
             }
-            let mut used = vec![false; sx * sz];
-            for z in 0..sz {
-                for x in 0..sx {
-                    let code = mask[z * sx + x];
-                    if code.is_none() || used[z * sx + x] {
-                        continue;
-                    }
-                    let codev = code.unwrap();
-                    let mut w = 1;
-                    while x + w < sx && mask[z * sx + x + w] == code && !used[z * sx + x + w] {
-                        w += 1;
-                    }
-                    let mut h = 1;
-                    'expand: while z + h < sz {
-                        for i in 0..w {
-                            if mask[(z + h) * sx + (x + i)] != code || used[(z + h) * sx + (x + i)]
-                            {
-                                break 'expand;
-                            }
-                        }
-                        h += 1;
-                    }
-                    let fx = (base_x + x as i32) as f32;
-                    let fz = (base_z + z as i32) as f32;
-                    let fy = (y as f32) + 1.0;
-                    let u1 = w as f32;
-                    let v1 = h as f32;
-                    let mb = builds.entry(codev.0).or_default();
-                    let lv = codev.1.max(VISUAL_LIGHT_MIN);
-                    let rgba = [lv, lv, lv, 255];
-                    mb.add_quad(
-                        Vector3::new(fx, fy, fz),
-                        Vector3::new(fx + u1, fy, fz),
-                        Vector3::new(fx + u1, fy, fz + v1),
-                        Vector3::new(fx, fy, fz + v1),
-                        Vector3::new(0.0, 1.0, 0.0),
-                        u1,
-                        v1,
-                        false,
-                        rgba,
-                    );
-                    for zz in 0..h {
-                        for xx in 0..w {
-                            used[(z + zz) * sx + (x + xx)] = true;
-                        }
-                    }
-                }
-            }
+            greedy_rects(sx, sz, &mut mask, |x, z, w, h, codev| {
+                let fx = (base_x + x as i32) as f32;
+                let fz = (base_z + z as i32) as f32;
+                let fy = (y as f32) + 1.0;
+                let u1 = w as f32;
+                let v1 = h as f32;
+                let mb = builds.entry(codev.0).or_default();
+                let lv = codev.1.max(VISUAL_LIGHT_MIN);
+                let rgba = [lv, lv, lv, 255];
+                mb.add_quad(
+                    Vector3::new(fx, fy, fz),
+                    Vector3::new(fx + u1, fy, fz),
+                    Vector3::new(fx + u1, fy, fz + v1),
+                    Vector3::new(fx, fy, fz + v1),
+                    Vector3::new(0.0, 1.0, 0.0),
+                    u1,
+                    v1,
+                    false,
+                    rgba,
+                );
+            });
         }
         // bottom faces
         {
@@ -382,54 +400,27 @@ pub fn build_chunk_greedy_cpu_buf(
                     }
                 }
             }
-            let mut used = vec![false; sx * sz];
-            for z in 0..sz {
-                for x in 0..sx {
-                    let code = mask[z * sx + x];
-                    if code.is_none() || used[z * sx + x] {
-                        continue;
-                    }
-                    let codev = code.unwrap();
-                    let mut w = 1;
-                    while x + w < sx && mask[z * sx + x + w] == code && !used[z * sx + x + w] {
-                        w += 1;
-                    }
-                    let mut h = 1;
-                    'expand: while z + h < sz {
-                        for i in 0..w {
-                            if mask[(z + h) * sx + (x + i)] != code || used[(z + h) * sx + (x + i)]
-                            {
-                                break 'expand;
-                            }
-                        }
-                        h += 1;
-                    }
-                    let fx = (base_x + x as i32) as f32;
-                    let fz = (base_z + z as i32) as f32;
-                    let fy = y as f32;
-                    let u1 = w as f32;
-                    let v1 = h as f32;
-                    let mb = builds.entry(codev.0).or_default();
-                    let lv = codev.1.max(VISUAL_LIGHT_MIN);
-                    let rgba = [lv, lv, lv, 255];
-                    mb.add_quad(
-                        Vector3::new(fx, fy, fz + v1),
-                        Vector3::new(fx + u1, fy, fz + v1),
-                        Vector3::new(fx + u1, fy, fz),
-                        Vector3::new(fx, fy, fz),
-                        Vector3::new(0.0, -1.0, 0.0),
-                        u1,
-                        v1,
-                        false,
-                        rgba,
-                    );
-                    for zz in 0..h {
-                        for xx in 0..w {
-                            used[(z + zz) * sx + (x + xx)] = true;
-                        }
-                    }
-                }
-            }
+            greedy_rects(sx, sz, &mut mask, |x, z, w, h, codev| {
+                let fx = (base_x + x as i32) as f32;
+                let fz = (base_z + z as i32) as f32;
+                let fy = y as f32;
+                let u1 = w as f32;
+                let v1 = h as f32;
+                let mb = builds.entry(codev.0).or_default();
+                let lv = codev.1.max(VISUAL_LIGHT_MIN);
+                let rgba = [lv, lv, lv, 255];
+                mb.add_quad(
+                    Vector3::new(fx, fy, fz + v1),
+                    Vector3::new(fx + u1, fy, fz + v1),
+                    Vector3::new(fx + u1, fy, fz),
+                    Vector3::new(fx, fy, fz),
+                    Vector3::new(0.0, -1.0, 0.0),
+                    u1,
+                    v1,
+                    false,
+                    rgba,
+                );
+            });
         }
     }
 
@@ -458,68 +449,41 @@ pub fn build_chunk_greedy_cpu_buf(
                     }
                 }
             }
-            let mut used = vec![false; sz * sy];
-            for y in 0..sy {
-                for z in 0..sz {
-                    let code = mask[y * sz + z];
-                    if code.is_none() || used[y * sz + z] {
-                        continue;
-                    }
-                    let codev = code.unwrap();
-                    let mut h = 1;
-                    while y + h < sy && mask[(y + h) * sz + z] == code && !used[(y + h) * sz + z] {
-                        h += 1;
-                    }
-                    let mut w = 1;
-                    'expand: while z + w < sz {
-                        for i in 0..h {
-                            if mask[(y + i) * sz + (z + w)] != code || used[(y + i) * sz + (z + w)]
-                            {
-                                break 'expand;
-                            }
-                        }
-                        w += 1;
-                    }
-                    let fx = (base_x + x as i32) as f32 + if pos { 1.0 } else { 0.0 };
-                    let fy = y as f32;
-                    let fz = (base_z + z as i32) as f32;
-                    let u1 = w as f32;
-                    let v1 = h as f32;
-                    let mb = builds.entry(codev.0).or_default();
-                    let lv = codev.1.max(VISUAL_LIGHT_MIN);
-                    let rgba = [lv, lv, lv, 255];
-                    if !pos {
-                        mb.add_quad(
-                            Vector3::new(fx, fy + v1, fz),
-                            Vector3::new(fx, fy + v1, fz + u1),
-                            Vector3::new(fx, fy, fz + u1),
-                            Vector3::new(fx, fy, fz),
-                            Vector3::new(-1.0, 0.0, 0.0),
-                            u1,
-                            v1,
-                            false,
-                            rgba,
-                        );
-                    } else {
-                        mb.add_quad(
-                            Vector3::new(fx, fy + v1, fz + u1),
-                            Vector3::new(fx, fy + v1, fz),
-                            Vector3::new(fx, fy, fz),
-                            Vector3::new(fx, fy, fz + u1),
-                            Vector3::new(1.0, 0.0, 0.0),
-                            u1,
-                            v1,
-                            false,
-                            rgba,
-                        );
-                    }
-                    for yy in 0..v1 as usize {
-                        for zz in 0..u1 as usize {
-                            used[(y + yy) * sz + (z + zz)] = true;
-                        }
-                    }
+            greedy_rects(sz, sy, &mut mask, |z, y, w, h, codev| {
+                let fx = (base_x + x as i32) as f32 + if pos { 1.0 } else { 0.0 };
+                let fy = y as f32;
+                let fz = (base_z + z as i32) as f32;
+                let u1 = w as f32;
+                let v1 = h as f32;
+                let mb = builds.entry(codev.0).or_default();
+                let lv = codev.1.max(VISUAL_LIGHT_MIN);
+                let rgba = [lv, lv, lv, 255];
+                if !pos {
+                    mb.add_quad(
+                        Vector3::new(fx, fy + v1, fz),
+                        Vector3::new(fx, fy + v1, fz + u1),
+                        Vector3::new(fx, fy, fz + u1),
+                        Vector3::new(fx, fy, fz),
+                        Vector3::new(-1.0, 0.0, 0.0),
+                        u1,
+                        v1,
+                        false,
+                        rgba,
+                    );
+                } else {
+                    mb.add_quad(
+                        Vector3::new(fx, fy + v1, fz + u1),
+                        Vector3::new(fx, fy + v1, fz),
+                        Vector3::new(fx, fy, fz),
+                        Vector3::new(fx, fy, fz + u1),
+                        Vector3::new(1.0, 0.0, 0.0),
+                        u1,
+                        v1,
+                        false,
+                        rgba,
+                    );
                 }
-            }
+            });
         }
     }
 
@@ -548,68 +512,41 @@ pub fn build_chunk_greedy_cpu_buf(
                     }
                 }
             }
-            let mut used = vec![false; sx * sy];
-            for y in 0..sy {
-                for x in 0..sx {
-                    let code = mask[y * sx + x];
-                    if code.is_none() || used[y * sx + x] {
-                        continue;
-                    }
-                    let codev = code.unwrap();
-                    let mut h = 1;
-                    while y + h < sy && mask[(y + h) * sx + x] == code && !used[(y + h) * sx + x] {
-                        h += 1;
-                    }
-                    let mut w = 1;
-                    'expand: while x + w < sx {
-                        for i in 0..h {
-                            if mask[(y + i) * sx + (x + w)] != code || used[(y + i) * sx + (x + w)]
-                            {
-                                break 'expand;
-                            }
-                        }
-                        w += 1;
-                    }
-                    let fx = (base_x + x as i32) as f32;
-                    let fy = y as f32;
-                    let fz = (base_z + z as i32) as f32 + if pos { 1.0 } else { 0.0 };
-                    let u1 = w as f32;
-                    let v1 = h as f32;
-                    let mb = builds.entry(codev.0).or_default();
-                    let lv = codev.1.max(VISUAL_LIGHT_MIN);
-                    let rgba = [lv, lv, lv, 255];
-                    if !pos {
-                        mb.add_quad(
-                            Vector3::new(fx, fy + v1, fz),
-                            Vector3::new(fx + u1, fy + v1, fz),
-                            Vector3::new(fx + u1, fy, fz),
-                            Vector3::new(fx, fy, fz),
-                            Vector3::new(0.0, 0.0, -1.0),
-                            u1,
-                            v1,
-                            false,
-                            rgba,
-                        );
-                    } else {
-                        mb.add_quad(
-                            Vector3::new(fx + u1, fy + v1, fz),
-                            Vector3::new(fx, fy + v1, fz),
-                            Vector3::new(fx, fy, fz),
-                            Vector3::new(fx + u1, fy, fz),
-                            Vector3::new(0.0, 0.0, 1.0),
-                            u1,
-                            v1,
-                            false,
-                            rgba,
-                        );
-                    }
-                    for yy in 0..v1 as usize {
-                        for xx in 0..u1 as usize {
-                            used[(y + yy) * sx + (x + xx)] = true;
-                        }
-                    }
+            greedy_rects(sx, sy, &mut mask, |x, y, w, h, codev| {
+                let fx = (base_x + x as i32) as f32;
+                let fy = y as f32;
+                let fz = (base_z + z as i32) as f32 + if pos { 1.0 } else { 0.0 };
+                let u1 = w as f32;
+                let v1 = h as f32;
+                let mb = builds.entry(codev.0).or_default();
+                let lv = codev.1.max(VISUAL_LIGHT_MIN);
+                let rgba = [lv, lv, lv, 255];
+                if !pos {
+                    mb.add_quad(
+                        Vector3::new(fx, fy + v1, fz),
+                        Vector3::new(fx + u1, fy + v1, fz),
+                        Vector3::new(fx + u1, fy, fz),
+                        Vector3::new(fx, fy, fz),
+                        Vector3::new(0.0, 0.0, -1.0),
+                        u1,
+                        v1,
+                        false,
+                        rgba,
+                    );
+                } else {
+                    mb.add_quad(
+                        Vector3::new(fx + u1, fy + v1, fz),
+                        Vector3::new(fx, fy + v1, fz),
+                        Vector3::new(fx, fy, fz),
+                        Vector3::new(fx + u1, fy, fz),
+                        Vector3::new(0.0, 0.0, 1.0),
+                        u1,
+                        v1,
+                        false,
+                        rgba,
+                    );
                 }
-            }
+            });
         }
     }
 
@@ -888,54 +825,27 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8) -> ChunkMeshCPU {
                 }
             }
         }
-        let mut used = vec![false; sy * sz];
-        for z in 0..sz {
-            for y in 0..sy {
-                let code = mask[y * sz + z];
-                if code.is_none() || used[y * sz + z] {
-                    continue;
-                }
-                let codev = code.unwrap();
-                let mut h = 1;
-                while y + h < sy && mask[(y + h) * sz + z] == code && !used[(y + h) * sz + z] {
-                    h += 1;
-                }
-                let mut w = 1;
-                'expand: while z + w < sz {
-                    for i in 0..h {
-                        if mask[(y + i) * sz + (z + w)] != code || used[(y + i) * sz + (z + w)]
-                        {
-                            break 'expand;
-                        }
-                    }
-                    w += 1;
-                }
-                let fx = (x as f32) + 1.0;
-                let fy = y as f32;
-                let fz = z as f32;
-                let u1 = w as f32;
-                let v1 = h as f32;
-                let mb = builds.entry(codev.0).or_default();
-                let lv = codev.1;
-                let rgba = [lv, lv, lv, 255];
-                mb.add_quad(
-                    Vector3::new(fx, fy, fz),
-                    Vector3::new(fx, fy + v1, fz),
-                    Vector3::new(fx, fy + v1, fz + u1),
-                    Vector3::new(fx, fy, fz + u1),
-                    Vector3::new(1.0, 0.0, 0.0),
-                    u1,
-                    v1,
-                    false,
-                    rgba,
-                );
-                for zz in 0..w {
-                    for yy in 0..h {
-                        used[(y + yy) * sz + (z + zz)] = true;
-                    }
-                }
-            }
-        }
+        greedy_rects(sz, sy, &mut mask, |z, y, w, h, codev| {
+            let fx = (x as f32) + 1.0;
+            let fy = y as f32;
+            let fz = z as f32;
+            let u1 = w as f32;
+            let v1 = h as f32;
+            let mb = builds.entry(codev.0).or_default();
+            let lv = codev.1;
+            let rgba = [lv, lv, lv, 255];
+            mb.add_quad(
+                Vector3::new(fx, fy, fz),
+                Vector3::new(fx, fy + v1, fz),
+                Vector3::new(fx, fy + v1, fz + u1),
+                Vector3::new(fx, fy, fz + u1),
+                Vector3::new(1.0, 0.0, 0.0),
+                u1,
+                v1,
+                false,
+                rgba,
+            );
+        });
     }
 
     // -X faces
@@ -955,54 +865,27 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8) -> ChunkMeshCPU {
                 }
             }
         }
-        let mut used = vec![false; sy * sz];
-        for z in 0..sz {
-            for y in 0..sy {
-                let code = mask[y * sz + z];
-                if code.is_none() || used[y * sz + z] {
-                    continue;
-                }
-                let codev = code.unwrap();
-                let mut h = 1;
-                while y + h < sy && mask[(y + h) * sz + z] == code && !used[(y + h) * sz + z] {
-                    h += 1;
-                }
-                let mut w = 1;
-                'expand: while z + w < sz {
-                    for i in 0..h {
-                        if mask[(y + i) * sz + (z + w)] != code || used[(y + i) * sz + (z + w)]
-                        {
-                            break 'expand;
-                        }
-                    }
-                    w += 1;
-                }
-                let fx = x as f32;
-                let fy = y as f32;
-                let fz = z as f32;
-                let u1 = w as f32;
-                let v1 = h as f32;
-                let mb = builds.entry(codev.0).or_default();
-                let lv = codev.1;
-                let rgba = [lv, lv, lv, 255];
-                mb.add_quad(
-                    Vector3::new(fx, fy, fz),
-                    Vector3::new(fx, fy, fz + u1),
-                    Vector3::new(fx, fy + v1, fz + u1),
-                    Vector3::new(fx, fy + v1, fz),
-                    Vector3::new(-1.0, 0.0, 0.0),
-                    u1,
-                    v1,
-                    true,
-                    rgba,
-                );
-                for zz in 0..w {
-                    for yy in 0..h {
-                        used[(y + yy) * sz + (z + zz)] = true;
-                    }
-                }
-            }
-        }
+        greedy_rects(sz, sy, &mut mask, |z, y, w, h, codev| {
+            let fx = x as f32;
+            let fy = y as f32;
+            let fz = z as f32;
+            let u1 = w as f32;
+            let v1 = h as f32;
+            let mb = builds.entry(codev.0).or_default();
+            let lv = codev.1;
+            let rgba = [lv, lv, lv, 255];
+            mb.add_quad(
+                Vector3::new(fx, fy, fz),
+                Vector3::new(fx, fy, fz + u1),
+                Vector3::new(fx, fy + v1, fz + u1),
+                Vector3::new(fx, fy + v1, fz),
+                Vector3::new(-1.0, 0.0, 0.0),
+                u1,
+                v1,
+                true,
+                rgba,
+            );
+        });
     }
 
     // +Z faces
@@ -1022,54 +905,27 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8) -> ChunkMeshCPU {
                 }
             }
         }
-        let mut used = vec![false; sy * sx];
-        for x in 0..sx {
-            for y in 0..sy {
-                let code = mask[y * sx + x];
-                if code.is_none() || used[y * sx + x] {
-                    continue;
-                }
-                let codev = code.unwrap();
-                let mut h = 1;
-                while y + h < sy && mask[(y + h) * sx + x] == code && !used[(y + h) * sx + x] {
-                    h += 1;
-                }
-                let mut w = 1;
-                'expand: while x + w < sx {
-                    for i in 0..h {
-                        if mask[(y + i) * sx + (x + w)] != code || used[(y + i) * sx + (x + w)]
-                        {
-                            break 'expand;
-                        }
-                    }
-                    w += 1;
-                }
-                let fx = x as f32;
-                let fy = y as f32;
-                let fz = (z as f32) + 1.0;
-                let u1 = w as f32;
-                let v1 = h as f32;
-                let mb = builds.entry(codev.0).or_default();
-                let lv = codev.1;
-                let rgba = [lv, lv, lv, 255];
-                mb.add_quad(
-                    Vector3::new(fx, fy, fz),
-                    Vector3::new(fx + u1, fy, fz),
-                    Vector3::new(fx + u1, fy + v1, fz),
-                    Vector3::new(fx, fy + v1, fz),
-                    Vector3::new(0.0, 0.0, 1.0),
-                    u1,
-                    v1,
-                    false,
-                    rgba,
-                );
-                for xx in 0..w {
-                    for yy in 0..h {
-                        used[(y + yy) * sx + (x + xx)] = true;
-                    }
-                }
-            }
-        }
+        greedy_rects(sx, sy, &mut mask, |x, y, w, h, codev| {
+            let fx = x as f32;
+            let fy = y as f32;
+            let fz = (z as f32) + 1.0;
+            let u1 = w as f32;
+            let v1 = h as f32;
+            let mb = builds.entry(codev.0).or_default();
+            let lv = codev.1;
+            let rgba = [lv, lv, lv, 255];
+            mb.add_quad(
+                Vector3::new(fx, fy, fz),
+                Vector3::new(fx + u1, fy, fz),
+                Vector3::new(fx + u1, fy + v1, fz),
+                Vector3::new(fx, fy + v1, fz),
+                Vector3::new(0.0, 0.0, 1.0),
+                u1,
+                v1,
+                false,
+                rgba,
+            );
+        });
     }
 
     // -Z faces
@@ -1089,54 +945,27 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8) -> ChunkMeshCPU {
                 }
             }
         }
-        let mut used = vec![false; sy * sx];
-        for x in 0..sx {
-            for y in 0..sy {
-                let code = mask[y * sx + x];
-                if code.is_none() || used[y * sx + x] {
-                    continue;
-                }
-                let codev = code.unwrap();
-                let mut h = 1;
-                while y + h < sy && mask[(y + h) * sx + x] == code && !used[(y + h) * sx + x] {
-                    h += 1;
-                }
-                let mut w = 1;
-                'expand: while x + w < sx {
-                    for i in 0..h {
-                        if mask[(y + i) * sx + (x + w)] != code || used[(y + i) * sx + (x + w)]
-                        {
-                            break 'expand;
-                        }
-                    }
-                    w += 1;
-                }
-                let fx = x as f32;
-                let fy = y as f32;
-                let fz = z as f32;
-                let u1 = w as f32;
-                let v1 = h as f32;
-                let mb = builds.entry(codev.0).or_default();
-                let lv = codev.1;
-                let rgba = [lv, lv, lv, 255];
-                mb.add_quad(
-                    Vector3::new(fx, fy, fz),
-                    Vector3::new(fx, fy + v1, fz),
-                    Vector3::new(fx + u1, fy + v1, fz),
-                    Vector3::new(fx + u1, fy, fz),
-                    Vector3::new(0.0, 0.0, -1.0),
-                    u1,
-                    v1,
-                    true,
-                    rgba,
-                );
-                for xx in 0..w {
-                    for yy in 0..h {
-                        used[(y + yy) * sx + (x + xx)] = true;
-                    }
-                }
-            }
-        }
+        greedy_rects(sx, sy, &mut mask, |x, y, w, h, codev| {
+            let fx = x as f32;
+            let fy = y as f32;
+            let fz = z as f32;
+            let u1 = w as f32;
+            let v1 = h as f32;
+            let mb = builds.entry(codev.0).or_default();
+            let lv = codev.1;
+            let rgba = [lv, lv, lv, 255];
+            mb.add_quad(
+                Vector3::new(fx, fy, fz),
+                Vector3::new(fx, fy + v1, fz),
+                Vector3::new(fx + u1, fy + v1, fz),
+                Vector3::new(fx + u1, fy, fz),
+                Vector3::new(0.0, 0.0, -1.0),
+                u1,
+                v1,
+                true,
+                rgba,
+            );
+        });
     }
 
     let bbox = BoundingBox::new(
