@@ -1,4 +1,6 @@
-use crate::voxel::{Block, World};
+use crate::blocks::Block;
+use crate::voxel::World;
+use crate::blocks::BlockRegistry;
 
 #[derive(Clone)]
 pub struct ChunkBuf {
@@ -57,7 +59,7 @@ impl ChunkBuf {
         let mut b = blocks;
         let expect = sx * sy * sz;
         if b.len() != expect {
-            b.resize(expect, Block::Air);
+            b.resize(expect, Block { id: 0, state: 0 });
         }
         ChunkBuf {
             cx,
@@ -70,12 +72,12 @@ impl ChunkBuf {
     }
 }
 
-pub fn generate_chunk_buffer(world: &World, cx: i32, cz: i32) -> ChunkBuf {
+pub fn generate_chunk_buffer(world: &World, cx: i32, cz: i32, reg: &BlockRegistry) -> ChunkBuf {
     let sx = world.chunk_size_x;
     let sy = world.chunk_size_y;
     let sz = world.chunk_size_z;
     let mut blocks = Vec::with_capacity(sx * sy * sz);
-    blocks.resize(sx * sy * sz, Block::Air);
+    blocks.resize(sx * sy * sz, Block { id: 0, state: 0 });
     let x0 = cx * sx as i32;
     let z0 = cz * sz as i32;
     for z in 0..sz {
@@ -84,7 +86,7 @@ pub fn generate_chunk_buffer(world: &World, cx: i32, cz: i32) -> ChunkBuf {
                 let wx = x0 + x as i32;
                 let wy = y as i32;
                 let wz = z0 + z as i32;
-                blocks[(y * sz + z) * sx + x] = world.block_at(wx, wy, wz);
+                blocks[(y * sz + z) * sx + x] = world.block_at_runtime(reg, wx, wy, wz);
             }
         }
     }

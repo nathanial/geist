@@ -4,7 +4,7 @@ use crate::chunkbuf::ChunkBuf;
 use crate::lighting::LightBorders;
 use crate::mesher::{ChunkMeshCPU, NeighborsLoaded};
 use crate::structure::StructureId;
-use crate::voxel::Block;
+use crate::blocks::Block;
 use raylib::prelude::Vector3;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

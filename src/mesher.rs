@@ -1,11 +1,12 @@
 use crate::chunkbuf::ChunkBuf;
 use crate::lighting::{LightBorders, LightGrid, LightingStore};
-use crate::voxel::{Block, Dir4, MaterialKey, SlabHalf, World};
+use crate::voxel::{Dir4, MaterialKey, SlabHalf, World};
+use crate::blocks as rt;
 use raylib::core::math::BoundingBox;
 use raylib::prelude::*;
 use std::collections::HashMap as StdHashMap;
 use std::collections::HashMap;
-use crate::blocks::{BlockRegistry, FaceRole, MaterialCatalog, MaterialId};
+use crate::blocks::{BlockRegistry, FaceRole, MaterialCatalog, MaterialId, Block};
 
 // Visual-only lighting floor to avoid pitch-black faces in darkness.
 // Does not affect logical light propagation.
@@ -82,43 +83,13 @@ fn unknown_material_id(reg: &BlockRegistry) -> MaterialId {
 
 #[inline]
 fn registry_material_for(block: Block, face: usize, reg: &BlockRegistry) -> Option<MaterialId> {
-    // Map legacy enum Block to registry block type name (seed set only)
-    let name_opt: Option<&'static str> = match block {
-        Block::Air => None,
-        Block::Stone => Some("stone"),
-        Block::Dirt => Some("dirt"),
-        Block::Grass => Some("grass"),
-        Block::Sand => Some("sand"),
-        Block::Snow => Some("snow"),
-        Block::Glowstone => Some("glowstone"),
-        Block::Beacon => Some("beacon"),
-        Block::Wood(crate::voxel::TreeSpecies::Oak) => Some("oak_log"),
-        Block::Wood(crate::voxel::TreeSpecies::Birch) => Some("birch_log"),
-        Block::Wood(crate::voxel::TreeSpecies::Spruce) => Some("spruce_log"),
-        Block::Wood(crate::voxel::TreeSpecies::Jungle) => Some("jungle_log"),
-        Block::Wood(crate::voxel::TreeSpecies::Acacia) => Some("acacia_log"),
-        Block::Wood(crate::voxel::TreeSpecies::DarkOak) => Some("oak_log"),
-        Block::Leaves(crate::voxel::TreeSpecies::Oak) => Some("oak_leaves"),
-        Block::Leaves(crate::voxel::TreeSpecies::Birch) => Some("birch_leaves"),
-        Block::Leaves(crate::voxel::TreeSpecies::Spruce) => Some("spruce_leaves"),
-        Block::Leaves(crate::voxel::TreeSpecies::Jungle) => Some("jungle_leaves"),
-        Block::Leaves(crate::voxel::TreeSpecies::Acacia) => Some("acacia_leaves"),
-        Block::Leaves(crate::voxel::TreeSpecies::DarkOak) => Some("oak_leaves"),
-        _ => None,
-    };
-    let name = match name_opt { Some(n) => n, None => return None };
-    let id = match reg.id_by_name(name) { Some(id) => id, None => return None };
-    let ty = match reg.get(id) { Some(t) => t, None => return None };
+    let ty = reg.get(block.id)?;
     let role = match face {
         0 => FaceRole::Top,
         1 => FaceRole::Bottom,
-        2 | 3 | 4 | 5 => {
-            // For logs, treat 2/3/4/5 as Side; leaves/cubes use Side as well
-            FaceRole::Side
-        }
         _ => FaceRole::Side,
     };
-    ty.materials.material_for(role, 0, ty)
+    ty.materials.material_for(role, block.state, ty)
 }
 
 #[inline]
@@ -205,6 +176,86 @@ fn material_key_prop_value(key: MaterialKey) -> &'static str {
         MaterialKey::PolishedDiorite => "polished_diorite",
         MaterialKey::PolishedAndesite => "polished_andesite",
     }
+}
+
+#[inline]
+fn is_solid_runtime(b: Block, reg: &BlockRegistry) -> bool {
+    reg.get(b.id).map(|ty| ty.is_solid(b.state)).unwrap_or(false)
+}
+
+#[inline]
+fn state_prop_value<'a>(ty: &'a crate::blocks::BlockType, prop: &str, state: rt::BlockState) -> Option<&'a str> {
+    // Derive bit offsets deterministically by sorting property names
+    let mut keys: Vec<&str> = ty.state_schema.keys().map(|s| s.as_str()).collect();
+    keys.sort_unstable();
+    let mut offset = 0u32;
+    for k in keys {
+        let vals = ty.state_schema.get(k).unwrap();
+        let bits = (32 - ((vals.len() as u32).saturating_sub(1)).leading_zeros()) as u32;
+        if k == prop {
+            let mask = if bits == 32 { u32::MAX } else { (1u32 << bits) - 1 };
+            let idx = ((state as u32) >> offset) & mask;
+            let ii = idx as usize;
+            return vals.get(ii).map(|s| s.as_str());
+        }
+        offset += bits;
+    }
+    None
+}
+
+#[inline]
+fn state_prop_is_value(ty: &crate::blocks::BlockType, prop: &str, state: rt::BlockState, expect: &str) -> bool {
+    state_prop_value(ty, prop, state) == Some(expect)
+}
+
+#[inline]
+fn is_top_half_shape(b: Block, reg: &BlockRegistry) -> bool {
+    if let Some(ty) = reg.get(b.id) {
+        match &ty.shape {
+            crate::blocks::Shape::Slab { half_from } | crate::blocks::Shape::Stairs { half_from, .. } => {
+                return state_prop_is_value(ty, half_from, b.state, "top");
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+#[inline]
+fn legacy_to_runtime_world(world: &World, reg: &BlockRegistry, x: i32, y: i32, z: i32) -> Block {
+    let lb = world.block_at(x, y, z);
+    // Map a subset of legacy kinds used in worldgen
+    let name_opt: Option<&'static str> = match lb {
+        crate::voxel::Block::Air => Some("air"),
+        crate::voxel::Block::Stone => Some("stone"),
+        crate::voxel::Block::Dirt => Some("dirt"),
+        crate::voxel::Block::Grass => Some("grass"),
+        crate::voxel::Block::Sand => Some("sand"),
+        crate::voxel::Block::Snow => Some("snow"),
+        crate::voxel::Block::Glowstone => Some("glowstone"),
+        crate::voxel::Block::Beacon => Some("beacon"),
+        crate::voxel::Block::Wood(sp) => match sp {
+            crate::voxel::TreeSpecies::Oak => Some("oak_log"),
+            crate::voxel::TreeSpecies::Birch => Some("birch_log"),
+            crate::voxel::TreeSpecies::Spruce => Some("spruce_log"),
+            crate::voxel::TreeSpecies::Jungle => Some("jungle_log"),
+            crate::voxel::TreeSpecies::Acacia => Some("acacia_log"),
+            crate::voxel::TreeSpecies::DarkOak => Some("dark_oak_log"),
+        },
+        crate::voxel::Block::Leaves(sp) => match sp {
+            crate::voxel::TreeSpecies::Oak => Some("oak_leaves"),
+            crate::voxel::TreeSpecies::Birch => Some("birch_leaves"),
+            crate::voxel::TreeSpecies::Spruce => Some("spruce_leaves"),
+            crate::voxel::TreeSpecies::Jungle => Some("jungle_leaves"),
+            crate::voxel::TreeSpecies::Acacia => Some("acacia_leaves"),
+            crate::voxel::TreeSpecies::DarkOak => Some("oak_leaves"),
+        },
+        _ => None,
+    };
+    let id = name_opt
+        .and_then(|n| reg.id_by_name(n))
+        .unwrap_or_else(|| reg.id_by_name("air").unwrap_or(0));
+    Block { id, state: 0 }
 }
 
 #[inline]
@@ -399,7 +450,7 @@ fn is_occluder(
     ny: i32,
     nz: i32,
 ) -> bool {
-    if !here.is_solid() {
+    if !is_solid_runtime(here, reg) {
         return false;
     }
     // Check inside this chunk first
@@ -415,7 +466,8 @@ fn is_occluder(
         let nb = buf.get_local(lx, ly, lz);
         return occludes_face(nb, face, reg);
     }
-    // Outside current chunk: only occlude if the corresponding neighbor chunk is loaded; otherwise treat as air
+    // Outside current chunk: only occlude if the corresponding neighbor chunk is loaded.
+    // Without cross-chunk access in worker, do not cull across seam to avoid holes.
     let x0 = buf.cx * buf.sx as i32;
     let z0 = buf.cz * buf.sz as i32;
     let x1 = x0 + buf.sx as i32;
@@ -438,75 +490,42 @@ fn is_occluder(
     let nb = if let Some(es) = edits {
         es.get(&(nx, ny, nz))
             .copied()
-            .unwrap_or_else(|| world.block_at(nx, ny, nz))
+            .unwrap_or_else(|| legacy_to_runtime_world(world, reg, nx, ny, nz))
     } else {
-        world.block_at(nx, ny, nz)
+        legacy_to_runtime_world(world, reg, nx, ny, nz)
     };
     occludes_face(nb, face, reg)
 }
 
 #[inline]
 fn occludes_face(nb: Block, face: usize, reg: &BlockRegistry) -> bool {
-    // Special-case legacy shapes until fully migrated
-    match nb {
-        Block::Slab { half, .. } => {
-            return match face {
-                0 => matches!(half, SlabHalf::Bottom), // neighbor above occludes only if bottom slab
-                1 => matches!(half, SlabHalf::Top),    // neighbor below occludes only if top slab
-                _ => true, // sides treated as full for greedy; partial handled separately
-            };
-        }
-        Block::Stairs { half, .. } => {
-            return match face {
-                0 => matches!(half, SlabHalf::Bottom),
-                1 => matches!(half, SlabHalf::Top),
-                _ => true,
-            };
-        }
-        Block::Air => return false,
-        _ => {}
-    }
-
-    // Registry-driven occlusion for cubes/logs/leaves and other runtime blocks
-    if let Some(name) = map_legacy_block_to_registry_name(nb) {
-        if let Some(id) = reg.id_by_name(name) {
-            if let Some(ty) = reg.get(id) {
-                // For now, treat any solid cube-like shape as a full occluder on all faces
-                // When non-cube shapes are added to registry, refine per-shape rules here.
-                return ty.is_solid(0);
+    // Slab/stairs: occlusion based on half
+    if let Some(ty) = reg.get(nb.id) {
+        match &ty.shape {
+            crate::blocks::Shape::Slab { half_from } => {
+                let is_top = state_prop_is_value(ty, half_from, nb.state, "top");
+                return match face {
+                    0 => !is_top, // above occluded by bottom slab
+                    1 => is_top,  // below occluded by top slab
+                    _ => true,
+                };
             }
+            crate::blocks::Shape::Stairs { half_from, .. } => {
+                let is_top = state_prop_is_value(ty, half_from, nb.state, "top");
+                return match face {
+                    0 => !is_top,
+                    1 => is_top,
+                    _ => true,
+                };
+            }
+            _ => {}
         }
+        return ty.is_solid(nb.state);
     }
-    // Fallback: legacy semantics
-    nb.is_solid()
+    false
 }
 
-#[inline]
-fn map_legacy_block_to_registry_name(b: Block) -> Option<&'static str> {
-    match b {
-        Block::Air => Some("air"),
-        Block::Stone => Some("stone"),
-        Block::Dirt => Some("dirt"),
-        Block::Grass => Some("grass"),
-        Block::Sand => Some("sand"),
-        Block::Snow => Some("snow"),
-        Block::Glowstone => Some("glowstone"),
-        Block::Beacon => Some("beacon"),
-        Block::Wood(crate::voxel::TreeSpecies::Oak) => Some("oak_log"),
-        Block::Wood(crate::voxel::TreeSpecies::Birch) => Some("birch_log"),
-        Block::Wood(crate::voxel::TreeSpecies::Spruce) => Some("spruce_log"),
-        Block::Wood(crate::voxel::TreeSpecies::Jungle) => Some("jungle_log"),
-        Block::Wood(crate::voxel::TreeSpecies::Acacia) => Some("acacia_log"),
-        Block::Wood(crate::voxel::TreeSpecies::DarkOak) => Some("dark_oak_log"),
-        Block::Leaves(crate::voxel::TreeSpecies::Oak) => Some("oak_leaves"),
-        Block::Leaves(crate::voxel::TreeSpecies::Birch) => Some("birch_leaves"),
-        Block::Leaves(crate::voxel::TreeSpecies::Spruce) => Some("spruce_leaves"),
-        Block::Leaves(crate::voxel::TreeSpecies::Jungle) => Some("jungle_leaves"),
-        Block::Leaves(crate::voxel::TreeSpecies::Acacia) => Some("acacia_leaves"),
-        Block::Leaves(crate::voxel::TreeSpecies::DarkOak) => Some("oak_leaves"),
-        _ => None,
-    }
-}
+// No legacy mapping helpers; all block resolution is via registry-backed runtime Block.
 
 pub struct ChunkRender {
     pub cx: i32,
@@ -551,7 +570,7 @@ pub fn build_chunk_greedy_cpu_buf(
         flip_v,
         Some(VISUAL_LIGHT_MIN),
         |x, y, z, face, here| {
-            if !here.is_solid() {
+            if !is_solid_runtime(here, reg) {
                 return None;
             }
             let gx = base_x + x as i32;
@@ -576,17 +595,15 @@ pub fn build_chunk_greedy_cpu_buf(
                     let lx = (nx - base_x) as usize;
                     let ly = ny as usize;
                     let lz = (nz - base_z) as usize;
-                    match buf.get_local(lx, ly, lz) {
-                        Block::Slab { half: SlabHalf::Top, .. } | Block::Stairs { half: SlabHalf::Top, .. } => {
-                            let l2 = light
-                                .sample_face_local(x, y, z, 2)
-                                .max(light.sample_face_local(x, y, z, 3))
-                                .max(light.sample_face_local(x, y, z, 4))
-                                .max(light.sample_face_local(x, y, z, 5));
-                            l = l.max(l2);
-                        }
-                        _ => {}
-                    }
+            let nb = buf.get_local(lx, ly, lz);
+            if is_top_half_shape(nb, reg) {
+                    let l2 = light
+                        .sample_face_local(x, y, z, 2)
+                        .max(light.sample_face_local(x, y, z, 3))
+                        .max(light.sample_face_local(x, y, z, 4))
+                        .max(light.sample_face_local(x, y, z, 5));
+                    l = l.max(l2);
+            }
                 }
             }
             let mid = registry_material_for_or_unknown(here, face, reg);
@@ -1370,7 +1387,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
     // Unified path via meshing_core
     {
         #[inline]
-        fn solid_local(buf: &ChunkBuf, x: i32, y: i32, z: i32) -> bool {
+        fn solid_local(buf: &ChunkBuf, x: i32, y: i32, z: i32, reg: &BlockRegistry) -> bool {
             if x < 0 || y < 0 || z < 0 {
                 return false;
             }
@@ -1378,7 +1395,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
             if xu >= buf.sx || yu >= buf.sy || zu >= buf.sz {
                 return false;
             }
-            buf.get_local(xu, yu, zu).is_solid()
+            reg.get(buf.get_local(xu, yu, zu).id).map(|ty| ty.is_solid(buf.get_local(xu, yu, zu).state)).unwrap_or(false)
         }
 
         #[inline]
@@ -1392,7 +1409,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
 
         let flip_v = [false, true, false, true, false, true];
         let builds = crate::meshing_core::build_mesh_core(buf, 0, 0, flip_v, None, |x, y, z, face, here| {
-                if !here.is_solid() {
+                if !is_solid_runtime(here, reg) {
                     return None;
                 }
                 let (nx, ny, nz) = match face {
@@ -1404,7 +1421,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                     5 => (x as i32, y as i32, z as i32 - 1),
                     _ => unreachable!(),
                 };
-                if solid_local(buf, nx, ny, nz) {
+                if solid_local(buf, nx, ny, nz, reg) {
                     return None;
                 }
                 let mid = registry_material_for_or_unknown(here, face, reg);

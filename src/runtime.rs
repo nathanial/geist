@@ -8,7 +8,7 @@ use crate::mesher::{self, ChunkMeshCPU, NeighborsLoaded};
 use crate::shaders;
 use crate::structure::StructureId;
 use crate::voxel::World;
-use crate::blocks::BlockRegistry;
+use crate::blocks::{BlockRegistry, Block};
 
 #[derive(Clone, Debug)]
 pub struct BuildJob {
@@ -17,8 +17,8 @@ pub struct BuildJob {
     pub neighbors: NeighborsLoaded,
     pub rev: u64,
     pub job_id: u64,
-    pub chunk_edits: Vec<((i32, i32, i32), crate::voxel::Block)>,
-    pub region_edits: Vec<((i32, i32, i32), crate::voxel::Block)>,
+    pub chunk_edits: Vec<((i32, i32, i32), Block)>,
+    pub region_edits: Vec<((i32, i32, i32), Block)>,
 }
 
 pub struct JobOut {
@@ -57,8 +57,8 @@ pub struct StructureBuildJob {
     pub sx: usize,
     pub sy: usize,
     pub sz: usize,
-    pub base_blocks: Vec<crate::voxel::Block>,
-    pub edits: Vec<((i32, i32, i32), crate::voxel::Block)>,
+    pub base_blocks: Vec<Block>,
+    pub edits: Vec<((i32, i32, i32), Block)>,
 }
 
 pub struct StructureJobOut {
@@ -100,7 +100,7 @@ impl Runtime {
             let reg = reg.clone();
             thread::spawn(move || {
                 while let Ok(job) = wrx.recv() {
-                    let mut buf = chunkbuf::generate_chunk_buffer(&w, job.cx, job.cz);
+                    let mut buf = chunkbuf::generate_chunk_buffer(&w, job.cx, job.cz, &reg);
                     // Apply persistent edits for this chunk before meshing
                     let base_x = job.cx * buf.sx as i32;
                     let base_z = job.cz * buf.sz as i32;
@@ -116,7 +116,7 @@ impl Runtime {
                             buf.blocks[idx] = b;
                         }
                     }
-                    let snap_map: std::collections::HashMap<(i32, i32, i32), crate::voxel::Block> =
+                    let snap_map: std::collections::HashMap<(i32, i32, i32), Block> =
                         job.region_edits.into_iter().collect();
                     if let Some((cpu, light_borders)) = mesher::build_chunk_greedy_cpu_buf(
                         &buf,

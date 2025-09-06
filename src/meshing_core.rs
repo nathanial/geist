@@ -58,7 +58,7 @@ pub fn build_mesh_core<K, F>(
 ) -> HashMap<K, MeshBuild>
 where
     K: Copy + Eq + Hash,
-    F: FnMut(usize, usize, usize, usize, crate::voxel::Block) -> Option<(K, u8)>,
+    F: FnMut(usize, usize, usize, usize, crate::blocks::Block) -> Option<(K, u8)>,
 {
     let sx = buf.sx;
     let sy = buf.sy;

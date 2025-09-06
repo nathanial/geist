@@ -6,7 +6,8 @@ use crate::edit::EditStore;
 use crate::lighting::LightingStore;
 use crate::player::Walker;
 use crate::structure::{Structure, StructureId};
-use crate::voxel::{Block, World};
+use crate::blocks::Block;
+use crate::voxel::World;
 
 pub struct ChunkEntry {
     pub buf: Option<ChunkBuf>,
@@ -75,7 +76,7 @@ impl GameState {
             walker,
             walk_mode: true,
             world,
-            place_type: Block::Stone,
+            place_type: Block { id: 0, state: 0 },
             show_grid: true,
             wireframe: false,
             show_chunk_bounds: false,

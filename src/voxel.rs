@@ -1,4 +1,5 @@
 use fastnoise_lite::{FastNoiseLite, NoiseType};
+use crate::blocks::{Block as RtBlock, BlockRegistry};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum TreeSpecies {
@@ -640,6 +641,44 @@ impl World {
         }
 
         base_block
+    }
+}
+
+impl World {
+    // Runtime block resolver using registry. Temporary until worldgen is fully data-driven.
+    pub fn block_at_runtime(&self, reg: &BlockRegistry, x: i32, y: i32, z: i32) -> RtBlock {
+        let b = self.block_at(x, y, z);
+        let name_opt: Option<&'static str> = match b {
+            Block::Air => Some("air"),
+            Block::Stone => Some("stone"),
+            Block::Dirt => Some("dirt"),
+            Block::Grass => Some("grass"),
+            Block::Sand => Some("sand"),
+            Block::Snow => Some("snow"),
+            Block::Glowstone => Some("glowstone"),
+            Block::Beacon => Some("beacon"),
+            Block::Wood(sp) => match sp {
+                TreeSpecies::Oak => Some("oak_log"),
+                TreeSpecies::Birch => Some("birch_log"),
+                TreeSpecies::Spruce => Some("spruce_log"),
+                TreeSpecies::Jungle => Some("jungle_log"),
+                TreeSpecies::Acacia => Some("acacia_log"),
+                TreeSpecies::DarkOak => Some("dark_oak_log"),
+            },
+            Block::Leaves(sp) => match sp {
+                TreeSpecies::Oak => Some("oak_leaves"),
+                TreeSpecies::Birch => Some("birch_leaves"),
+                TreeSpecies::Spruce => Some("spruce_leaves"),
+                TreeSpecies::Jungle => Some("jungle_leaves"),
+                TreeSpecies::Acacia => Some("acacia_leaves"),
+                TreeSpecies::DarkOak => Some("oak_leaves"),
+            },
+            _ => None,
+        };
+        let id = name_opt
+            .and_then(|n| reg.id_by_name(n))
+            .unwrap_or_else(|| reg.id_by_name("air").unwrap_or(0));
+        RtBlock { id, state: 0 }
     }
 }
 

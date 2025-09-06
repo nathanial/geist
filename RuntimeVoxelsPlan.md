@@ -157,7 +157,8 @@
 - DONE: Skylight propagation now consults registry `blocks_skylight`.
 - DONE: Shape-aware occlusion (registry-driven for cube-like blocks; legacy rules retained for slabs/stairs until registry shapes are added).
 - DONE: Block-light propagation flags via registry (`propagates_light`), applied in block and beacon BFS.
-- NEXT: Extend occlusion to slabs/stairs via registry shapes.
+- DONE: Slab/Stairs integrated as registry block types; mesher resolves their materials via registry property selectors.
+- NEXT: Finalize occlusion for slabs/stairs using registry state after runtime `Block` migration.
 - NEXT: Storage migration to runtime `Block` and worldgen/UI updates.
 - NEXT: Config-driven schematic translator and state packing.
 - NEXT: Tests for state packing and registry; docs/README updates.
@@ -165,8 +166,9 @@
 **Integration Notes (from code audit)**
 - Mesh grouping key: Replace all uses of `FaceMaterial` as a map key in `ChunkMeshCPU`/`ChunkRender` with `MaterialId` (or `RenderKey`). Update `meshing_core` and upload paths accordingly.
 - Shader selection: Use material/block metadata for shader choice. Add `render_tag` (e.g., `"leaves"`) to materials or allow a block-type override; update `app.rs` to assign the leaves shader based on this tag.
-- Lighting: `LightGrid::compute_with_borders_buf(buf, store, reg)` now accepts the registry and seeds skylight through blocks with `blocks_skylight=false` (e.g., leaves).
-- Occlusion by shape: Mesher now consults registry types to decide occlusion for cube-like blocks; slabs/stairs retain legacy rules until registry shapes are introduced. Implement final per-shape rules via `Shape` helpers once runtime blocks land.
+- Lighting: `LightGrid::compute_with_borders_buf(buf, store, reg)` now accepts the registry and seeds skylight through blocks with `blocks_skylight=false` (e.g., leaves). Block-light/beacon BFS uses `propagates_light`.
+- Slabs/Stairs: Defined as registry block types with `state_schema`; per-face materials selected via `by = "material"`. Mesher passes `{ material: <key> }` props and prefers registry material resolution with fallback.
+- Occlusion by shape: Mesher consults registry types for cube-like occlusion; slabs/stairs retain precise top/bottom occlusion using legacy state for now. After runtime `Block` migration, swap to registry state-driven occlusion via `Shape` helpers and remove legacy matches.
 - Light propagation flags: Skylight uses `blocks_skylight`; block-light uses `propagates_light`. BFS updated to honor these flags (current default allows only air).
 - Leaves collision: Keep leaves `solid=true` for collisions to match current behavior unless changed via config.
 - Material resolution: Implement a resolver that maps `(block, face, state)` to `MaterialId` (for cubes) and use per-shape emitters for non-cubes; both paths feed `MaterialId` to meshing/grouping.
@@ -204,8 +206,10 @@
 
 **Status Summary**
 - Done: Materials/blocks configs and loaders; MaterialCatalog; BlockRegistry; mesher grouping by `MaterialId` and texture upload; leaves shader via `render_tag`; sand/snow/logs/leaves added; FaceMaterial effectively removed; skylight uses registry.
-- In Progress: Shape-aware occlusion using registry `Shape` model; migrate occlusion helpers to resolve via block type instead of legacy enums.
-- Next: Block-light propagation flags; migrate storage to runtime `Block` end-to-end; config-driven schematic translator; state packing; hotbar from config.
+- Done: Shape-aware occlusion (cube-like via registry). Slabs/stairs use registry for materials and keep precise top/bottom occlusion until runtime `Block` lands.
+- Done: Block-light propagation flags via registry (`propagates_light`) wired into block and beacon BFS.
+- Done: Added `slab` and `stairs` block types with `state_schema` and per-face `by = "material"` maps; mesher passes `material` prop and prefers registry material resolution with fallback to catalog.
+- Next: Migrate storage to runtime `Block { id, state }` end-to-end; finalize shape-driven occlusion for slabs/stairs using registry state; config-driven schematic translator; state packing; hotbar from config.
 
 **Acceptance Criteria**
 - Visual parity: Grass/dirt/stone, sand, snow render as before; logs/leaves for oak/birch/spruce/jungle/acacia match current, leaves use leaves shader.
@@ -216,6 +220,7 @@
 **Testing Steps**
 - Run the app and inspect a few chunks for parity (grass tops/sides, sand at beaches, snow at peaks).
 - Place each hotkey block and verify textures: dirt, stone, sand, grass, snow, glowstone, beacon.
+- Place slabs and stairs of several materials; verify top/bottom/side textures and transitions (sandstone top/bottom/side, quartz top/side, planks, stone bricks, etc.).
 - Inspect trees: trunk materials top/side; leaves have correct shader effect and block skylight.
 - Toggle wireframe and verify greedy meshing (large stitched quads, minimal draw calls).
 - Optional: Add a temporary material+block to TOML (e.g., `granite`) and place via edit to confirm pipeline.

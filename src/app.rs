@@ -10,7 +10,8 @@ use crate::blocks::BlockRegistry;
 use crate::raycast;
 use crate::runtime::{BuildJob, JobOut, Runtime, StructureBuildJob};
 use crate::structure::{Pose, Structure, StructureId, rotate_yaw, rotate_yaw_inv};
-use crate::voxel::{Block, World};
+use crate::blocks::Block;
+use crate::voxel::World;
 
 pub struct App {
     pub gs: GameState,
@@ -104,7 +105,7 @@ impl App {
         };
         let cam = crate::camera::FlyCamera::new(spawn + Vector3::new(0.0, 5.0, 20.0));
 
-        let runtime = Runtime::new(&mut rl, thread, world.clone(), lighting.clone(), reg);
+        let runtime = Runtime::new(&mut rl, thread, world.clone(), lighting.clone(), reg.clone());
         let mut gs = GameState::new(world.clone(), edits, lighting.clone(), cam.position);
         let mut queue = EventQueue::new();
 
@@ -281,6 +282,11 @@ impl App {
                 rev: 1,
             });
         }
+        // Default place_type: stone
+        if let Some(id) = runtime.reg.id_by_name("stone") {
+            gs.place_type = Block { id, state: 0 };
+        }
+
         Self {
             gs,
             queue,
@@ -754,6 +760,7 @@ impl App {
                 let dir = self.cam.forward();
                 let sx = self.gs.world.chunk_size_x as i32;
                 let sz = self.gs.world.chunk_size_z as i32;
+                let reg = self.runtime.reg.clone();
                 let sampler = |wx: i32, wy: i32, wz: i32| -> Block {
                     if let Some(b) = self.gs.edits.get(wx, wy, wz) {
                         return b;
@@ -762,15 +769,16 @@ impl App {
                     let cz = wz.div_euclid(sz);
                     if let Some(cent) = self.gs.chunks.get(&(cx, cz)) {
                         if let Some(ref buf) = cent.buf {
-                            return buf.get_world(wx, wy, wz).unwrap_or(Block::Air);
+                            return buf.get_world(wx, wy, wz).unwrap_or(Block { id: reg.id_by_name("air").unwrap_or(0), state: 0 });
                         }
                     }
-                    self.gs.world.block_at(wx, wy, wz)
+                    // Outside loaded buffers: treat as air
+                    Block { id: reg.id_by_name("air").unwrap_or(0), state: 0 }
                 };
-                let world_hit =
-                    raycast::raycast_first_hit_with_face(org, dir, 8.0 * 32.0, |x, y, z| {
-                        sampler(x, y, z).is_solid()
-                    });
+                let world_hit = raycast::raycast_first_hit_with_face(org, dir, 8.0 * 32.0, |x, y, z| {
+                    let b = sampler(x, y, z);
+                    self.runtime.reg.get(b.id).map(|ty| ty.is_solid(b.state)).unwrap_or(false)
+                });
                 let mut struct_hit: Option<(StructureId, raycast::RayHit, f32)> = None;
                 for (id, st) in &self.gs.structures {
                     let local_org = rotate_yaw_inv(org - st.pose.pos, st.pose.yaw_deg);
@@ -784,9 +792,10 @@ impl App {
                             return false;
                         }
                         if let Some(b) = st.edits.get(lx, ly, lz) {
-                            return b.is_solid();
+                            return self.runtime.reg.get(b.id).map(|ty| ty.is_solid(b.state)).unwrap_or(false);
                         }
-                        st.blocks[st.idx(lxu, lyu, lzu)].is_solid()
+                        let b = st.blocks[st.idx(lxu, lyu, lzu)];
+                        self.runtime.reg.get(b.id).map(|ty| ty.is_solid(b.state)).unwrap_or(false)
                     };
                     if let Some(hit) = raycast::raycast_first_hit_with_face(
                         local_org,
@@ -1051,37 +1060,27 @@ impl App {
         if rl.is_key_pressed(KeyboardKey::KEY_C) {
             self.queue.emit_now(Event::FrustumCullingToggled);
         }
+        let id_of = |name: &str| self.runtime.reg.id_by_name(name).unwrap_or(0);
         if rl.is_key_pressed(KeyboardKey::KEY_ONE) {
-            self.queue
-                .emit_now(Event::PlaceTypeSelected { block: Block::Dirt });
+            self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("dirt"), state: 0 } });
         }
         if rl.is_key_pressed(KeyboardKey::KEY_TWO) {
-            self.queue.emit_now(Event::PlaceTypeSelected {
-                block: Block::Stone,
-            });
+            self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("stone"), state: 0 } });
         }
         if rl.is_key_pressed(KeyboardKey::KEY_THREE) {
-            self.queue
-                .emit_now(Event::PlaceTypeSelected { block: Block::Sand });
+            self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("sand"), state: 0 } });
         }
         if rl.is_key_pressed(KeyboardKey::KEY_FOUR) {
-            self.queue.emit_now(Event::PlaceTypeSelected {
-                block: Block::Grass,
-            });
+            self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("grass"), state: 0 } });
         }
         if rl.is_key_pressed(KeyboardKey::KEY_FIVE) {
-            self.queue
-                .emit_now(Event::PlaceTypeSelected { block: Block::Snow });
+            self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("snow"), state: 0 } });
         }
         if rl.is_key_pressed(KeyboardKey::KEY_SIX) {
-            self.queue.emit_now(Event::PlaceTypeSelected {
-                block: Block::Glowstone,
-            });
+            self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("glowstone"), state: 0 } });
         }
         if rl.is_key_pressed(KeyboardKey::KEY_SEVEN) {
-            self.queue.emit_now(Event::PlaceTypeSelected {
-                block: Block::Beacon,
-            });
+            self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("beacon"), state: 0 } });
         }
 
         // Structure speed controls
@@ -1310,7 +1309,10 @@ impl App {
                 }
                 self.gs.world.block_at(wx, wy, wz)
             };
-            let is_solid = |wx: i32, wy: i32, wz: i32| -> bool { sampler(wx, wy, wz).is_solid() };
+            let is_solid = |wx: i32, wy: i32, wz: i32| -> bool {
+    let b = sampler(wx, wy, wz);
+    self.runtime.reg.get(b.id).map(|ty| ty.is_solid(b.state)).unwrap_or(false)
+};
             if let Some(hit) = raycast::raycast_first_hit_with_face(org, dir, 5.0, is_solid) {
                 // Outline only the struck face of the solid block (bx,by,bz)
                 let (bx, by, bz) = (hit.bx, hit.by, hit.bz);
@@ -1529,12 +1531,12 @@ impl App {
             let (block_at_pos, block_solid) = if in_bounds {
                 // Check edits first
                 if let Some(b) = st.edits.get(lx, ly, lz) {
-                    (format!("{:?} (edit)", b), b.is_solid())
+                    (format!("id:{} state:{} (edit)", b.id, b.state), self.runtime.reg.get(b.id).map(|ty| ty.is_solid(b.state)).unwrap_or(false))
                 } else {
                     // Check base blocks
                     let idx = st.idx(lx as usize, ly as usize, lz as usize);
                     let b = st.blocks[idx];
-                    (format!("{:?}", b), b.is_solid())
+                    (format!("id:{} state:{}", b.id, b.state), self.runtime.reg.get(b.id).map(|ty| ty.is_solid(b.state)).unwrap_or(false))
                 }
             } else {
                 ("out of bounds".to_string(), false)
@@ -1575,11 +1577,11 @@ impl App {
                     && (lz as usize) < st.sz
                 {
                     if let Some(b) = st.edits.get(lx, by, lz) {
-                        (format!("{:?} (edit)", b), b.is_solid())
+                        (format!("id:{} state:{} (edit)", b.id, b.state), self.runtime.reg.get(b.id).map(|ty| ty.is_solid(b.state)).unwrap_or(false))
                     } else {
                         let idx = st.idx(lx as usize, by as usize, lz as usize);
                         let b = st.blocks[idx];
-                        (format!("{:?}", b), b.is_solid())
+                        (format!("id:{} state:{}", b.id, b.state), self.runtime.reg.get(b.id).map(|ty| ty.is_solid(b.state)).unwrap_or(false))
                     }
                 } else {
                     ("out of bounds".to_string(), false)

@@ -1,4 +1,4 @@
-use crate::voxel::Block;
+use crate::blocks::Block;
 use std::collections::HashMap;
 
 pub struct EditStore {

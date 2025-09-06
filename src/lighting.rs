@@ -1,5 +1,5 @@
 use crate::chunkbuf::ChunkBuf;
-use crate::voxel::Block;
+use crate::blocks::Block;
 use crate::blocks::BlockRegistry;
 use crate::voxel;
 use std::collections::HashMap;
@@ -109,10 +109,14 @@ impl LightGrid {
             for y in 0..sy {
                 for x in 0..sx {
                     let b = buf.get_local(x, y, z);
-                    let em = b.emission();
+                    let em = reg
+                        .get(b.id)
+                        .map(|ty| ty.light_emission(b.state))
+                        .unwrap_or(0);
                     if em > 0 {
                         let idx = lg.idx(x, y, z);
-                        if matches!(b, Block::Beacon) {
+                        let is_beacon = reg.id_by_name("beacon").map(|id| id == b.id).unwrap_or(false);
+                        if is_beacon {
                             lg.beacon_light[idx] = em;
                             lg.beacon_dir[idx] = 0; // source
                             // Initial beacon emission - direction 0 means it's the source
@@ -725,16 +729,9 @@ impl LightGrid {
 #[inline]
 fn skylight_transparent(b: Block, reg: &BlockRegistry) -> bool {
     match b {
-        Block::Air => true,
+        _ if b.id == reg.id_by_name("air").unwrap_or(0) => true,
         _ => {
-            if let Some(name) = map_legacy_block_to_registry_name(b) {
-                if let Some(id) = reg.id_by_name(name) {
-                    if let Some(ty) = reg.get(id) {
-                        return !ty.blocks_skylight(0);
-                    }
-                }
-            }
-            false
+            reg.get(b.id).map(|ty| !ty.blocks_skylight(b.state)).unwrap_or(false)
         }
     }
 }
@@ -766,23 +763,16 @@ fn map_legacy_block_to_registry_name(b: Block) -> Option<&'static str> {
     }
 }
 
-// Helper: determine if a legacy Block allows block-light propagation using the runtime registry.
-// Returns true for Air and any block that has `propagates_light=true` in registry.
+// Helper: determine if a block allows block-light propagation using the runtime registry.
+// Returns true for air and any block that has `propagates_light=true`.
 #[inline]
 fn block_light_passable(b: Block, reg: &BlockRegistry) -> bool {
-    match b {
-        Block::Air => true,
-        _ => {
-            if let Some(name) = map_legacy_block_to_registry_name(b) {
-                if let Some(id) = reg.id_by_name(name) {
-                    if let Some(ty) = reg.get(id) {
-                        return ty.propagates_light(0);
-                    }
-                }
-            }
-            false
-        }
+    if b.id == reg.id_by_name("air").unwrap_or(0) {
+        return true;
     }
+    reg.get(b.id)
+        .map(|ty| ty.propagates_light(b.state))
+        .unwrap_or(false)
 }
 
 #[derive(Clone)]
