@@ -10,6 +10,26 @@ pub enum TreeSpecies {
     DarkOak,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum TerracottaColor {
+    White,
+    Orange,
+    Magenta,
+    LightBlue,
+    Yellow,
+    Lime,
+    Pink,
+    Gray,
+    LightGray,
+    Cyan,
+    Purple,
+    Blue,
+    Brown,
+    Green,
+    Red,
+    Black,
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Block {
     Air,
@@ -43,9 +63,15 @@ pub enum Block {
     CoalBlock,
     PrismarineBricks,
     NetherBricks,
+    EndStone,
+    EndStoneBricks,
     Planks(TreeSpecies),
     Wood(TreeSpecies),
+    LogAxis(TreeSpecies, Axis),
     Leaves(TreeSpecies),
+    TerracottaPlain,
+    Terracotta(TerracottaColor),
+    QuartzPillar(Axis),
     Glowstone,
     Beacon,
 }
@@ -82,6 +108,9 @@ pub enum WorldGenMode {
     // An infinite flat slab of stone of given thickness from y=0 upwards
     Flat { thickness: i32 },
 }
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum Axis { X, Y, Z }
 
 impl World {
     pub fn new(

@@ -1,10 +1,30 @@
 use std::path::{Path, PathBuf};
 use std::fs;
 
-use crate::voxel::{Block, TreeSpecies};
+use crate::voxel::{Block, TerracottaColor, TreeSpecies};
 
 // Map a Sponge palette key like "minecraft:oak_log[axis=y]" to our Block
 fn base_from_key(key: &str) -> &str { key.split('[').next().unwrap_or(key) }
+
+fn axis_from_key(key: &str) -> Option<crate::voxel::Axis> {
+    if let Some(start) = key.find('[') {
+        if let Some(end) = key[start + 1..].find(']') {
+            let inner = &key[start + 1..start + 1 + end];
+            for part in inner.split(',') {
+                let part = part.trim();
+                if let Some(val) = part.strip_prefix("axis=") {
+                    return match val {
+                        "x" => Some(crate::voxel::Axis::X),
+                        "y" => Some(crate::voxel::Axis::Y),
+                        "z" => Some(crate::voxel::Axis::Z),
+                        _ => None,
+                    };
+                }
+            }
+        }
+    }
+    None
+}
 
 fn map_palette_key_to_block_opt(key: &str) -> Option<Block> {
     // Strip states suffix if present
@@ -42,11 +62,13 @@ fn map_palette_key_to_block_opt(key: &str) -> Option<Block> {
         "minecraft:cut_red_sandstone" => Some(Block::SmoothRedSandstone),
         "minecraft:quartz_block" => Some(Block::QuartzBlock),
         "minecraft:chiseled_quartz_block" => Some(Block::QuartzBlock),
-        "minecraft:quartz_pillar" => Some(Block::QuartzBlock),
+        "minecraft:quartz_pillar" => Some(Block::QuartzPillar(axis_from_key(key).unwrap_or(crate::voxel::Axis::Y))),
         "minecraft:lapis_block" => Some(Block::LapisBlock),
         "minecraft:coal_block" => Some(Block::CoalBlock),
         "minecraft:prismarine_bricks" => Some(Block::PrismarineBricks),
         "minecraft:nether_bricks" => Some(Block::NetherBricks),
+        "minecraft:end_stone" => Some(Block::EndStone),
+        "minecraft:end_stone_bricks" => Some(Block::EndStoneBricks),
 
         // Planks
         "minecraft:oak_planks" => Some(Block::Planks(TreeSpecies::Oak)),
@@ -64,7 +86,7 @@ fn map_palette_key_to_block_opt(key: &str) -> Option<Block> {
         "minecraft:bookshelf" => Some(Block::Bookshelf),
         "minecraft:chiseled_bookshelf" => Some(Block::Bookshelf),
 
-        // Logs with bark all around; approximate with logs
+        // Logs with bark all around; approximate with logs for now
         "minecraft:oak_wood" => Some(Block::Wood(TreeSpecies::Oak)),
         "minecraft:birch_wood" => Some(Block::Wood(TreeSpecies::Birch)),
         "minecraft:spruce_wood" => Some(Block::Wood(TreeSpecies::Spruce)),
@@ -86,13 +108,13 @@ fn map_palette_key_to_block_opt(key: &str) -> Option<Block> {
         // Other dirt-likes
         "minecraft:rooted_dirt" => Some(Block::Dirt),
 
-        // Logs
-        "minecraft:oak_log" => Some(Block::Wood(TreeSpecies::Oak)),
-        "minecraft:birch_log" => Some(Block::Wood(TreeSpecies::Birch)),
-        "minecraft:spruce_log" => Some(Block::Wood(TreeSpecies::Spruce)),
-        "minecraft:jungle_log" => Some(Block::Wood(TreeSpecies::Jungle)),
-        "minecraft:acacia_log" => Some(Block::Wood(TreeSpecies::Acacia)),
-        "minecraft:dark_oak_log" => Some(Block::Wood(TreeSpecies::DarkOak)),
+        // Logs with axis
+        "minecraft:oak_log" => Some(Block::LogAxis(TreeSpecies::Oak, axis_from_key(key).unwrap_or(crate::voxel::Axis::Y))),
+        "minecraft:birch_log" => Some(Block::LogAxis(TreeSpecies::Birch, axis_from_key(key).unwrap_or(crate::voxel::Axis::Y))),
+        "minecraft:spruce_log" => Some(Block::LogAxis(TreeSpecies::Spruce, axis_from_key(key).unwrap_or(crate::voxel::Axis::Y))),
+        "minecraft:jungle_log" => Some(Block::LogAxis(TreeSpecies::Jungle, axis_from_key(key).unwrap_or(crate::voxel::Axis::Y))),
+        "minecraft:acacia_log" => Some(Block::LogAxis(TreeSpecies::Acacia, axis_from_key(key).unwrap_or(crate::voxel::Axis::Y))),
+        "minecraft:dark_oak_log" => Some(Block::LogAxis(TreeSpecies::DarkOak, axis_from_key(key).unwrap_or(crate::voxel::Axis::Y))),
 
         // Leaves
         "minecraft:oak_leaves" => Some(Block::Leaves(TreeSpecies::Oak)),
@@ -101,6 +123,25 @@ fn map_palette_key_to_block_opt(key: &str) -> Option<Block> {
         "minecraft:jungle_leaves" => Some(Block::Leaves(TreeSpecies::Jungle)),
         "minecraft:acacia_leaves" => Some(Block::Leaves(TreeSpecies::Acacia)),
         "minecraft:dark_oak_leaves" => Some(Block::Leaves(TreeSpecies::DarkOak)),
+
+        // Terracotta (hardened clay)
+        "minecraft:terracotta" => Some(Block::TerracottaPlain),
+        "minecraft:white_terracotta" => Some(Block::Terracotta(TerracottaColor::White)),
+        "minecraft:orange_terracotta" => Some(Block::Terracotta(TerracottaColor::Orange)),
+        "minecraft:magenta_terracotta" => Some(Block::Terracotta(TerracottaColor::Magenta)),
+        "minecraft:light_blue_terracotta" => Some(Block::Terracotta(TerracottaColor::LightBlue)),
+        "minecraft:yellow_terracotta" => Some(Block::Terracotta(TerracottaColor::Yellow)),
+        "minecraft:lime_terracotta" => Some(Block::Terracotta(TerracottaColor::Lime)),
+        "minecraft:pink_terracotta" => Some(Block::Terracotta(TerracottaColor::Pink)),
+        "minecraft:gray_terracotta" => Some(Block::Terracotta(TerracottaColor::Gray)),
+        "minecraft:light_gray_terracotta" => Some(Block::Terracotta(TerracottaColor::LightGray)),
+        "minecraft:cyan_terracotta" => Some(Block::Terracotta(TerracottaColor::Cyan)),
+        "minecraft:purple_terracotta" => Some(Block::Terracotta(TerracottaColor::Purple)),
+        "minecraft:blue_terracotta" => Some(Block::Terracotta(TerracottaColor::Blue)),
+        "minecraft:brown_terracotta" => Some(Block::Terracotta(TerracottaColor::Brown)),
+        "minecraft:green_terracotta" => Some(Block::Terracotta(TerracottaColor::Green)),
+        "minecraft:red_terracotta" => Some(Block::Terracotta(TerracottaColor::Red)),
+        "minecraft:black_terracotta" => Some(Block::Terracotta(TerracottaColor::Black)),
 
         // Common transparent/decoration blocks -> approximate as Air to avoid overfilling
         // Treat these as unsupported (None) rather than Air; we'll skip them in building if needed
@@ -178,7 +219,7 @@ fn numeric_id_to_block(id: u16, data: u8) -> Block {
         }
         12 => Sand,
         13 => Gravel,
-        17 => { // Logs (ignore axis)
+        17 => { // Logs (include axis when available)
             let sp = match (data & 0x3) as u8 { // bottom 2 bits species in older versions
                 0 => Oak,
                 1 => Spruce,
@@ -186,7 +227,14 @@ fn numeric_id_to_block(id: u16, data: u8) -> Block {
                 3 => Jungle,
                 _ => Oak,
             };
-            Wood(sp)
+            let axis_bits = data & 0xC;
+            match axis_bits {
+                0x0 => LogAxis(sp, crate::voxel::Axis::Y),
+                0x4 => LogAxis(sp, crate::voxel::Axis::X),
+                0x8 => LogAxis(sp, crate::voxel::Axis::Z),
+                0xC => Wood(sp), // bark on all sides
+                _ => LogAxis(sp, crate::voxel::Axis::Y),
+            }
         }
         18 => { // Leaves (ignore decay flags)
             let sp = match (data & 0x3) as u8 {
@@ -217,9 +265,30 @@ fn numeric_id_to_block(id: u16, data: u8) -> Block {
         }
         112 => NetherBricks,
         155 => QuartzBlock,
-        159 => SmoothStone, // stained hardened clay -> approximate
+        159 => { // stained hardened clay (terracotta) colored variants
+            let c = match (data & 0x0F) as u8 {
+                0 => TerracottaColor::White,
+                1 => TerracottaColor::Orange,
+                2 => TerracottaColor::Magenta,
+                3 => TerracottaColor::LightBlue,
+                4 => TerracottaColor::Yellow,
+                5 => TerracottaColor::Lime,
+                6 => TerracottaColor::Pink,
+                7 => TerracottaColor::Gray,
+                8 => TerracottaColor::LightGray,
+                9 => TerracottaColor::Cyan,
+                10 => TerracottaColor::Purple,
+                11 => TerracottaColor::Blue,
+                12 => TerracottaColor::Brown,
+                13 => TerracottaColor::Green,
+                14 => TerracottaColor::Red,
+                15 => TerracottaColor::Black,
+                _ => TerracottaColor::White,
+            };
+            Terracotta(c)
+        }
         168 => PrismarineBricks, // approximate all variants
-        172 => SmoothStone,     // hardened clay -> approximate
+        172 => TerracottaPlain, // hardened clay (terracotta base)
         173 => CoalBlock,
         179 => { // Red sandstone
             match data as u8 {
@@ -227,6 +296,7 @@ fn numeric_id_to_block(id: u16, data: u8) -> Block {
                 _ => RedSandstone,
             }
         }
+        121 => EndStone, // end stone legacy id
         _ => Air,
     }
 }

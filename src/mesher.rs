@@ -1,6 +1,6 @@
 use crate::chunkbuf::ChunkBuf;
 use crate::lighting::{LightBorders, LightGrid, LightingStore};
-use crate::voxel::{Block, TreeSpecies, World};
+use crate::voxel::{Axis, Block, TerracottaColor, TreeSpecies, World};
 use raylib::core::math::BoundingBox;
 use raylib::prelude::*;
 use std::collections::HashMap as StdHashMap;
@@ -47,10 +47,16 @@ pub enum FaceMaterial {
     CoalBlock,
     PrismarineBricks,
     NetherBricks,
+    EndStone,
+    EndStoneBricks,
     Planks(TreeSpecies),
     WoodTop(TreeSpecies),
     WoodSide(TreeSpecies),
     Leaves(TreeSpecies),
+    TerracottaPlain,
+    Terracotta(TerracottaColor),
+    QuartzPillarTop,
+    QuartzPillarSide,
     Glowstone,
     Beacon,
 }
@@ -96,6 +102,11 @@ impl FaceMaterial {
             FaceMaterial::CoalBlock => vec!["assets/blocks/coal_block.png"],
             FaceMaterial::PrismarineBricks => vec!["assets/blocks/prismarine_bricks.png"],
             FaceMaterial::NetherBricks => vec!["assets/blocks/nether_brick.png"],
+            FaceMaterial::EndStone => vec!["assets/blocks/end_stone.png"],
+            // Temporary: use end_stone texture for bricks too until a brick texture is provided
+            FaceMaterial::EndStoneBricks => vec!["assets/blocks/end_stone.png"],
+            FaceMaterial::QuartzPillarTop => vec!["assets/blocks/quartz_block_lines_top.png"],
+            FaceMaterial::QuartzPillarSide => vec!["assets/blocks/quartz_block_lines.png"],
             FaceMaterial::Planks(sp) => match sp {
                 TreeSpecies::Oak => vec!["assets/blocks/planks_oak.png"],
                 TreeSpecies::Birch => vec!["assets/blocks/planks_birch.png"],
@@ -103,6 +114,25 @@ impl FaceMaterial {
                 TreeSpecies::Jungle => vec!["assets/blocks/planks_jungle.png"],
                 TreeSpecies::Acacia => vec!["assets/blocks/planks_acacia.png"],
                 TreeSpecies::DarkOak => vec!["assets/blocks/planks_big_oak.png"],
+            },
+            FaceMaterial::TerracottaPlain => vec!["assets/blocks/hardened_clay.png"],
+            FaceMaterial::Terracotta(color) => match color {
+                TerracottaColor::White => vec!["assets/blocks/hardened_clay_stained_white.png"],
+                TerracottaColor::Orange => vec!["assets/blocks/hardened_clay_stained_orange.png"],
+                TerracottaColor::Magenta => vec!["assets/blocks/hardened_clay_stained_magenta.png"],
+                TerracottaColor::LightBlue => vec!["assets/blocks/hardened_clay_stained_light_blue.png"],
+                TerracottaColor::Yellow => vec!["assets/blocks/hardened_clay_stained_yellow.png"],
+                TerracottaColor::Lime => vec!["assets/blocks/hardened_clay_stained_lime.png"],
+                TerracottaColor::Pink => vec!["assets/blocks/hardened_clay_stained_pink.png"],
+                TerracottaColor::Gray => vec!["assets/blocks/hardened_clay_stained_gray.png"],
+                TerracottaColor::LightGray => vec!["assets/blocks/hardened_clay_stained_silver.png"],
+                TerracottaColor::Cyan => vec!["assets/blocks/hardened_clay_stained_cyan.png"],
+                TerracottaColor::Purple => vec!["assets/blocks/hardened_clay_stained_purple.png"],
+                TerracottaColor::Blue => vec!["assets/blocks/hardened_clay_stained_blue.png"],
+                TerracottaColor::Brown => vec!["assets/blocks/hardened_clay_stained_brown.png"],
+                TerracottaColor::Green => vec!["assets/blocks/hardened_clay_stained_green.png"],
+                TerracottaColor::Red => vec!["assets/blocks/hardened_clay_stained_red.png"],
+                TerracottaColor::Black => vec!["assets/blocks/hardened_clay_stained_black.png"],
             },
             FaceMaterial::Glowstone => vec![
                 "assets/blocks/glowstone.png",
@@ -298,13 +328,26 @@ fn face_material_for(block: Block, face: usize) -> Option<FaceMaterial> {
         Block::CoalBlock => Some(FaceMaterial::CoalBlock),
         Block::PrismarineBricks => Some(FaceMaterial::PrismarineBricks),
         Block::NetherBricks => Some(FaceMaterial::NetherBricks),
+        Block::EndStone => Some(FaceMaterial::EndStone),
+        Block::EndStoneBricks => Some(FaceMaterial::EndStoneBricks),
         Block::Planks(sp) => Some(FaceMaterial::Planks(sp)),
         Block::Wood(sp) => match face {
             0 | 1 => Some(FaceMaterial::WoodTop(sp)),
             2 | 3 | 4 | 5 => Some(FaceMaterial::WoodSide(sp)),
             _ => None,
         },
+        Block::LogAxis(sp, axis) => {
+            // face: 0=+Y,1=-Y,2=+X,3=-X,4=+Z,5=-Z
+            let face_axis = match face { 0 | 1 => Axis::Y, 2 | 3 => Axis::X, 4 | 5 => Axis::Z, _ => Axis::Y };
+            if face_axis == axis { Some(FaceMaterial::WoodTop(sp)) } else { Some(FaceMaterial::WoodSide(sp)) }
+        }
+        Block::QuartzPillar(axis) => {
+            let face_axis = match face { 0 | 1 => Axis::Y, 2 | 3 => Axis::X, 4 | 5 => Axis::Z, _ => Axis::Y };
+            if face_axis == axis { Some(FaceMaterial::QuartzPillarTop) } else { Some(FaceMaterial::QuartzPillarSide) }
+        }
         Block::Leaves(sp) => Some(FaceMaterial::Leaves(sp)),
+        Block::TerracottaPlain => Some(FaceMaterial::TerracottaPlain),
+        Block::Terracotta(c) => Some(FaceMaterial::Terracotta(c)),
         Block::Glowstone => Some(FaceMaterial::Glowstone),
         Block::Beacon => Some(FaceMaterial::Beacon),
     }
