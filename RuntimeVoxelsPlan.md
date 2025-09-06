@@ -129,7 +129,7 @@
 - Texture/upload path: Upload path uses `MaterialCatalog` to resolve texture candidates and a `TextureCache` keyed by file path strings; first on-disk candidate wins.
 - Shader selection: `app.rs` assigns the leaves shader when the material’s `render_tag == "leaves"`; others get the fog shader.
 - Runtime wiring: `Runtime` now owns an `Arc<BlockRegistry>`; worker threads pass `&reg.materials` into meshing. The app passes the registry through.
-- Compatibility mapping: A temporary resolver maps legacy `FaceMaterial` to `MaterialId` via known material keys with texture-path fallback (keeps visuals stable while shape/material resolution is implemented).
+- Compatibility mapping: Removed. Mesher uses registry materials exclusively with an `unknown` fallback for unmapped cases.
 - Build status: Project compiles with the new meshing path; rendering should be unchanged for covered materials.
 
 **Remaining Work (Prioritized)**
@@ -151,6 +151,7 @@
 - DONE: Registry-driven material resolution in mesher; uses registry for cubes and falls back to `unknown` material when unmapped. Structure mesher also uses registry.
 - DONE: Expanded default pack to match current world visuals: added `sand`, `snow`, species logs (`oak/birch/spruce/jungle/acacia`), and leaves. Materials include `render_tag = "leaves"`.
 - DONE: Removed FaceMaterial usage from mesher; all grouping/selection uses `MaterialId` from the registry.
+- DONE: Legacy FaceMaterial enum and helpers compiled out behind `legacy_face_material` feature (not enabled by default).
 - NEXT: Shape-aware occlusion; then lighting propagation flags from registry.
 - NEXT: Storage migration to runtime `Block` and worldgen/UI updates.
 - NEXT: Config-driven schematic translator and state packing.

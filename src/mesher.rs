@@ -1,6 +1,6 @@
 use crate::chunkbuf::ChunkBuf;
 use crate::lighting::{LightBorders, LightGrid, LightingStore};
-use crate::voxel::{Axis, Block, Dir4, MaterialKey, SlabHalf, TerracottaColor, TreeSpecies, World};
+use crate::voxel::{Block, Dir4, MaterialKey, SlabHalf, World};
 use raylib::core::math::BoundingBox;
 use raylib::prelude::*;
 use std::collections::HashMap as StdHashMap;
@@ -11,6 +11,7 @@ use crate::blocks::{BlockRegistry, FaceRole, MaterialCatalog, MaterialId};
 // Does not affect logical light propagation.
 const VISUAL_LIGHT_MIN: u8 = 18; // ~7% brightness floor
 
+#[cfg(any())]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum FaceMaterial {
     Unknown,
@@ -63,6 +64,7 @@ pub enum FaceMaterial {
     Beacon,
 }
 
+#[cfg(any())]
 impl FaceMaterial {
     pub fn texture_candidates(&self) -> Vec<&'static str> {
         match self {
@@ -239,6 +241,7 @@ impl MeshBuild {
 // (greedy_rects moved to meshing_core)
 
 #[inline]
+#[cfg(any())]
 fn resolve_material_id(mats: &MaterialCatalog, fm: FaceMaterial) -> MaterialId {
     // Try fast lookup by key first if we have an obvious name mapping
     let try_key = |key: &str| -> Option<MaterialId> { mats.get_id(key) };
@@ -321,6 +324,7 @@ fn resolve_material_id(mats: &MaterialCatalog, fm: FaceMaterial) -> MaterialId {
     unknown
 }
 
+#[cfg(any())]
 fn face_material_for(block: Block, face: usize) -> Option<FaceMaterial> {
     // face: 0=+Y(top), 1=-Y(bottom), 2=+X, 3=-X, 4=+Z, 5=-Z
     match block {
@@ -532,6 +536,7 @@ fn material_id_for_key_and_face(reg: &BlockRegistry, key: MaterialKey, face: usi
 }
 
 #[inline]
+#[cfg(any())]
 fn face_material_for_key(key: MaterialKey, face: usize) -> FaceMaterial {
     match key {
         MaterialKey::SmoothStone => FaceMaterial::SmoothStone,
