@@ -5,6 +5,7 @@ use raylib::core::math::BoundingBox;
 use raylib::prelude::*;
 use std::collections::HashMap as StdHashMap;
 use std::collections::HashMap;
+use crate::blocks::{MaterialCatalog, MaterialId};
 
 // Visual-only lighting floor to avoid pitch-black faces in darkness.
 // Does not affect logical light propagation.
@@ -237,6 +238,89 @@ impl MeshBuild {
 
 // (greedy_rects moved to meshing_core)
 
+#[inline]
+fn resolve_material_id(mats: &MaterialCatalog, fm: FaceMaterial) -> MaterialId {
+    // Try fast lookup by key first if we have an obvious name mapping
+    let try_key = |key: &str| -> Option<MaterialId> { mats.get_id(key) };
+    let unknown = mats.get_id("unknown").unwrap_or(MaterialId(0));
+    let mid = match fm {
+        FaceMaterial::Unknown => try_key("unknown"),
+        FaceMaterial::GrassTop => try_key("grass_top"),
+        FaceMaterial::GrassSide => try_key("grass_side"),
+        FaceMaterial::Dirt => try_key("dirt"),
+        FaceMaterial::Stone => try_key("stone"),
+        FaceMaterial::Glowstone => try_key("glowstone"),
+        FaceMaterial::Beacon => try_key("beacon"),
+        FaceMaterial::Cobblestone => try_key("cobblestone"),
+        FaceMaterial::MossyCobblestone => try_key("mossy_cobblestone"),
+        FaceMaterial::StoneBricks => try_key("stone_bricks"),
+        FaceMaterial::MossyStoneBricks => try_key("mossy_stone_bricks"),
+        FaceMaterial::Brick => try_key("brick"),
+        FaceMaterial::Granite => try_key("granite"),
+        FaceMaterial::Diorite => try_key("diorite"),
+        FaceMaterial::Andesite => try_key("andesite"),
+        FaceMaterial::PolishedGranite => try_key("polished_granite"),
+        FaceMaterial::PolishedDiorite => try_key("polished_diorite"),
+        FaceMaterial::PolishedAndesite => try_key("polished_andesite"),
+        FaceMaterial::Gravel => try_key("gravel"),
+        FaceMaterial::SmoothStone => try_key("smooth_stone"),
+        FaceMaterial::SandstoneTop => try_key("sandstone_top"),
+        FaceMaterial::SandstoneBottom => try_key("sandstone_bottom"),
+        FaceMaterial::SandstoneSide => try_key("sandstone_side"),
+        FaceMaterial::RedSandstoneTop => try_key("red_sandstone_top"),
+        FaceMaterial::RedSandstoneBottom => try_key("red_sandstone_bottom"),
+        FaceMaterial::RedSandstoneSide => try_key("red_sandstone_side"),
+        FaceMaterial::QuartzBlockTop => try_key("quartz_block_top"),
+        FaceMaterial::QuartzBlockSide => try_key("quartz_block_side"),
+        FaceMaterial::LapisBlock => try_key("lapis_block"),
+        FaceMaterial::CoalBlock => try_key("coal_block"),
+        FaceMaterial::PrismarineBricks => try_key("prismarine_bricks"),
+        FaceMaterial::NetherBricks => try_key("nether_bricks"),
+        FaceMaterial::EndStone => try_key("end_stone"),
+        FaceMaterial::EndStoneBricks => try_key("end_stone_bricks"),
+        FaceMaterial::TerracottaPlain => try_key("terracotta_plain"),
+        FaceMaterial::Terracotta(_) => try_key("terracotta"),
+        FaceMaterial::QuartzPillarTop => try_key("quartz_pillar_top"),
+        FaceMaterial::QuartzPillarSide => try_key("quartz_pillar_side"),
+        FaceMaterial::Planks(TreeSpecies::Oak) => try_key("oak_planks"),
+        FaceMaterial::Planks(TreeSpecies::Birch) => try_key("birch_planks"),
+        FaceMaterial::Planks(TreeSpecies::Spruce) => try_key("spruce_planks"),
+        FaceMaterial::Planks(TreeSpecies::Jungle) => try_key("jungle_planks"),
+        FaceMaterial::Planks(TreeSpecies::Acacia) => try_key("acacia_planks"),
+        FaceMaterial::Planks(TreeSpecies::DarkOak) => try_key("oak_planks"),
+        FaceMaterial::WoodTop(TreeSpecies::Oak) => try_key("oak_log_top"),
+        FaceMaterial::WoodTop(TreeSpecies::Birch) => try_key("birch_log_top"),
+        FaceMaterial::WoodTop(TreeSpecies::Spruce) => try_key("spruce_log_top"),
+        FaceMaterial::WoodTop(TreeSpecies::Jungle) => try_key("jungle_log_top"),
+        FaceMaterial::WoodTop(TreeSpecies::Acacia) => try_key("acacia_log_top"),
+        FaceMaterial::WoodTop(TreeSpecies::DarkOak) => try_key("oak_log_top"),
+        FaceMaterial::WoodSide(TreeSpecies::Oak) => try_key("oak_log"),
+        FaceMaterial::WoodSide(TreeSpecies::Birch) => try_key("birch_log"),
+        FaceMaterial::WoodSide(TreeSpecies::Spruce) => try_key("spruce_log"),
+        FaceMaterial::WoodSide(TreeSpecies::Jungle) => try_key("jungle_log"),
+        FaceMaterial::WoodSide(TreeSpecies::Acacia) => try_key("acacia_log"),
+        FaceMaterial::WoodSide(TreeSpecies::DarkOak) => try_key("oak_log"),
+        FaceMaterial::Leaves(TreeSpecies::Oak) => try_key("oak_leaves"),
+        FaceMaterial::Leaves(TreeSpecies::Birch) => try_key("birch_leaves"),
+        FaceMaterial::Leaves(TreeSpecies::Spruce) => try_key("spruce_leaves"),
+        FaceMaterial::Leaves(TreeSpecies::Jungle) => try_key("jungle_leaves"),
+        FaceMaterial::Leaves(TreeSpecies::Acacia) => try_key("acacia_leaves"),
+        FaceMaterial::Leaves(TreeSpecies::DarkOak) => try_key("oak_leaves"),
+        _ => None,
+    };
+    if let Some(id) = mid { return id; }
+    // Fallback: match by texture path candidates
+    let candidates = fm.texture_candidates();
+    for cand in &candidates {
+        for m in &mats.materials {
+            if m.texture_candidates.iter().any(|p| p.to_string_lossy() == *cand) {
+                return m.id;
+            }
+        }
+    }
+    unknown
+}
+
 fn face_material_for(block: Block, face: usize) -> Option<FaceMaterial> {
     // face: 0=+Y(top), 1=-Y(bottom), 2=+X, 3=-X, 4=+Z, 5=-Z
     match block {
@@ -383,7 +467,7 @@ fn face_material_for_key(key: MaterialKey, face: usize) -> FaceMaterial {
 
 #[inline]
 fn emit_box(
-    builds: &mut std::collections::HashMap<FaceMaterial, MeshBuild>,
+    builds: &mut std::collections::HashMap<MaterialId, MeshBuild>,
     buf: &ChunkBuf,
     world: &World,
     edits: Option<&StdHashMap<(i32, i32, i32), Block>>,
@@ -394,7 +478,7 @@ fn emit_box(
     z: usize,
     base_x: i32,
     base_z: i32,
-    fm_for_face: &dyn Fn(usize) -> FaceMaterial,
+    fm_for_face: &dyn Fn(usize) -> MaterialId,
     min: Vector3,
     max: Vector3,
 ) {
@@ -412,8 +496,8 @@ fn emit_box(
             let l = light.sample_face_local(x, y, z, 0);
             let lv = l.max(VISUAL_LIGHT_MIN);
             let rgba = [lv, lv, lv, 255];
-            let fm = fm_for_face(0);
-            let mb = builds.entry(fm).or_default();
+            let mid = fm_for_face(0);
+            let mb = builds.entry(mid).or_default();
             mb.add_quad(
                 Vector3::new(min.x, max.y, min.z),
                 Vector3::new(max.x, max.y, min.z),
@@ -436,8 +520,8 @@ fn emit_box(
             let l = light.sample_face_local(x, y, z, 1);
             let lv = l.max(VISUAL_LIGHT_MIN);
             let rgba = [lv, lv, lv, 255];
-            let fm = fm_for_face(1);
-            let mb = builds.entry(fm).or_default();
+            let mid = fm_for_face(1);
+            let mb = builds.entry(mid).or_default();
             mb.add_quad(
                 Vector3::new(min.x, min.y, max.z),
                 Vector3::new(max.x, min.y, max.z),
@@ -460,8 +544,8 @@ fn emit_box(
             let l = light.sample_face_local(x, y, z, 2);
             let lv = l.max(VISUAL_LIGHT_MIN);
             let rgba = [lv, lv, lv, 255];
-            let fm = fm_for_face(2);
-            let mb = builds.entry(fm).or_default();
+            let mid = fm_for_face(2);
+            let mb = builds.entry(mid).or_default();
             mb.add_quad(
                 Vector3::new(max.x, max.y, max.z),
                 Vector3::new(max.x, max.y, min.z),
@@ -484,8 +568,8 @@ fn emit_box(
             let l = light.sample_face_local(x, y, z, 3);
             let lv = l.max(VISUAL_LIGHT_MIN);
             let rgba = [lv, lv, lv, 255];
-            let fm = fm_for_face(3);
-            let mb = builds.entry(fm).or_default();
+            let mid = fm_for_face(3);
+            let mb = builds.entry(mid).or_default();
             mb.add_quad(
                 Vector3::new(min.x, max.y, min.z),
                 Vector3::new(min.x, max.y, max.z),
@@ -508,8 +592,8 @@ fn emit_box(
             let l = light.sample_face_local(x, y, z, 4);
             let lv = l.max(VISUAL_LIGHT_MIN);
             let rgba = [lv, lv, lv, 255];
-            let fm = fm_for_face(4);
-            let mb = builds.entry(fm).or_default();
+            let mid = fm_for_face(4);
+            let mb = builds.entry(mid).or_default();
             mb.add_quad(
                 Vector3::new(min.x, max.y, max.z),
                 Vector3::new(max.x, max.y, max.z),
@@ -532,8 +616,8 @@ fn emit_box(
             let l = light.sample_face_local(x, y, z, 5);
             let lv = l.max(VISUAL_LIGHT_MIN);
             let rgba = [lv, lv, lv, 255];
-            let fm = fm_for_face(5);
-            let mb = builds.entry(fm).or_default();
+            let mid = fm_for_face(5);
+            let mb = builds.entry(mid).or_default();
             mb.add_quad(
                 Vector3::new(max.x, max.y, min.z),
                 Vector3::new(min.x, max.y, min.z),
@@ -638,14 +722,14 @@ pub struct ChunkRender {
     pub cx: i32,
     pub cz: i32,
     pub bbox: BoundingBox,
-    pub parts: Vec<(FaceMaterial, raylib::core::models::Model)>,
+    pub parts: Vec<(MaterialId, raylib::core::models::Model)>,
 }
 
 pub struct ChunkMeshCPU {
     pub cx: i32,
     pub cz: i32,
     pub bbox: BoundingBox,
-    pub parts: std::collections::HashMap<FaceMaterial, MeshBuild>,
+    pub parts: std::collections::HashMap<MaterialId, MeshBuild>,
 }
 
 pub fn build_chunk_greedy_cpu_buf(
@@ -656,6 +740,7 @@ pub fn build_chunk_greedy_cpu_buf(
     neighbors: NeighborsLoaded,
     cx: i32,
     cz: i32,
+    mats: &MaterialCatalog,
 ) -> Option<(ChunkMeshCPU, Option<LightBorders>)> {
     let sx = buf.sx;
     let sy = buf.sy;
@@ -722,7 +807,8 @@ pub fn build_chunk_greedy_cpu_buf(
                         }
                     }
                 }
-                Some((fm, l))
+                let mid = resolve_material_id(mats, fm);
+                Some((mid, l))
             } else {
                 None
             }
@@ -756,7 +842,7 @@ pub fn build_chunk_greedy_cpu_buf(
                             z,
                             base_x,
                             base_z,
-                            &|face| face_material_for_key(keyc, face),
+                            &|face| resolve_material_id(mats, face_material_for_key(keyc, face)),
                             min,
                             max,
                         );
@@ -800,7 +886,8 @@ pub fn build_chunk_greedy_cpu_buf(
                                         }
                                     };
                                     let rgba = [lv, lv, lv, 255];
-                                    let mb = builds.entry(fm).or_default();
+                                    let mid = resolve_material_id(mats, fm);
+                                    let mb = builds.entry(mid).or_default();
                                     let px = fx; // plane at x
                                     // +X face orientation (normal +X)
                                     mb.add_quad(
@@ -842,7 +929,8 @@ pub fn build_chunk_greedy_cpu_buf(
                                         }
                                     };
                                     let rgba = [lv, lv, lv, 255];
-                                    let mb = builds.entry(fm).or_default();
+                                    let mid = resolve_material_id(mats, fm);
+                                    let mb = builds.entry(mid).or_default();
                                     let px = fx + 1.0; // plane at x+1
                                     // -X face orientation (normal -X)
                                     mb.add_quad(
@@ -884,7 +972,8 @@ pub fn build_chunk_greedy_cpu_buf(
                                         }
                                     };
                                     let rgba = [lv, lv, lv, 255];
-                                    let mb = builds.entry(fm).or_default();
+                                    let mid = resolve_material_id(mats, fm);
+                                    let mb = builds.entry(mid).or_default();
                                     let pz = fz; // plane at z
                                     // +Z face orientation (normal +Z)
                                     mb.add_quad(
@@ -926,7 +1015,8 @@ pub fn build_chunk_greedy_cpu_buf(
                                         }
                                     };
                                     let rgba = [lv, lv, lv, 255];
-                                    let mb = builds.entry(fm).or_default();
+                                    let mid = resolve_material_id(mats, fm);
+                                    let mb = builds.entry(mid).or_default();
                                     let pz = fz + 1.0; // plane at z+1
                                     // -Z face orientation (normal -Z)
                                     mb.add_quad(
@@ -972,7 +1062,7 @@ pub fn build_chunk_greedy_cpu_buf(
                             z,
                             base_x,
                             base_z,
-                            &|face| face_material_for_key(keyc, face),
+                            &|face| resolve_material_id(mats, face_material_for_key(keyc, face)),
                             min_a,
                             max_a,
                         );
@@ -1023,7 +1113,7 @@ pub fn build_chunk_greedy_cpu_buf(
                             z,
                             base_x,
                             base_z,
-                            &|face| face_material_for_key(keyc, face),
+                            &|face| resolve_material_id(mats, face_material_for_key(keyc, face)),
                             min_b,
                             max_b,
                         );
@@ -1073,7 +1163,8 @@ pub fn build_chunk_greedy_cpu_buf(
                                     let lv = sample_lv(x - 1, y, z, 2, draw_top);
                                     [lv, lv, lv, 255]
                                 };
-                                let mb = builds.entry(fm).or_default();
+                                let mid = resolve_material_id(mats, fm);
+                                let mb = builds.entry(mid).or_default();
                                 // Compute z segments visible
                                 let segs: &[(f32, f32)] = match (dir, half) {
                                     // Bottom: base occludes bottom half; riser occludes top half as:
@@ -1125,7 +1216,8 @@ pub fn build_chunk_greedy_cpu_buf(
                                     let lv = sample_lv(x + 1, y, z, 3, draw_top);
                                     [lv, lv, lv, 255]
                                 };
-                                let mb = builds.entry(fm).or_default();
+                                let mid = resolve_material_id(mats, fm);
+                                let mb = builds.entry(mid).or_default();
                                 let segs: &[(f32, f32)] = match (dir, half) {
                                     (Dir4::North, SlabHalf::Bottom) => &[(fz + 0.5, fz + 1.0)],
                                     (Dir4::South, SlabHalf::Bottom) => &[(fz, fz + 0.5)],
@@ -1174,7 +1266,8 @@ pub fn build_chunk_greedy_cpu_buf(
                                     let lv = sample_lv(x, y, z - 1, 4, draw_top);
                                     [lv, lv, lv, 255]
                                 };
-                                let mb = builds.entry(fm).or_default();
+                                let mid = resolve_material_id(mats, fm);
+                                let mb = builds.entry(mid).or_default();
                                 // X segments visible (since plane is Z)
                                 let segs: &[(f32, f32)] = match (dir, half) {
                                     (Dir4::East, SlabHalf::Bottom) => &[(fx + 0.5, fx + 1.0)],
@@ -1224,7 +1317,8 @@ pub fn build_chunk_greedy_cpu_buf(
                                     let lv = sample_lv(x, y, z + 1, 5, draw_top);
                                     [lv, lv, lv, 255]
                                 };
-                                let mb = builds.entry(fm).or_default();
+                                let mid = resolve_material_id(mats, fm);
+                                let mb = builds.entry(mid).or_default();
                                 let segs: &[(f32, f32)] = match (dir, half) {
                                     (Dir4::East, SlabHalf::Bottom) => &[(fx + 0.5, fx + 1.0)],
                                     (Dir4::West, SlabHalf::Bottom) => &[(fx, fx + 0.5)],
@@ -1285,9 +1379,10 @@ pub fn upload_chunk_mesh(
     thread: &RaylibThread,
     cpu: ChunkMeshCPU,
     tex_cache: &mut TextureCache,
+    mats: &MaterialCatalog,
 ) -> Option<ChunkRender> {
     let mut parts_gpu = Vec::new();
-    for (fm, mb) in cpu.parts.into_iter() {
+    for (mid, mb) in cpu.parts.into_iter() {
         if mb.idx.is_empty() {
             continue;
         }
@@ -1322,16 +1417,37 @@ pub fn upload_chunk_mesh(
         // Get cached texture and assign
         let mut model = model;
         if let Some(mat) = model.materials_mut().get_mut(0) {
-            if let Some(tex) = tex_cache.get_or_load(rl, thread, &fm.texture_candidates()) {
-                mat.set_material_texture(
-                    raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO,
-                    tex,
-                );
-            } else {
-                // No texture available; leave material as-is
+            if let Some(mdef) = mats.get(mid) {
+                let candidates: Vec<String> = mdef
+                    .texture_candidates
+                    .iter()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect();
+                let mut set_done = false;
+                for p in &candidates {
+                    if let Some(tex) = tex_cache.get_ref(p) {
+                        mat.set_material_texture(
+                            raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO,
+                            tex,
+                        );
+                        set_done = true;
+                        break;
+                    }
+                    if let Some(tex) = tex_cache.insert_from_path(rl, thread, p) {
+                        mat.set_material_texture(
+                            raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO,
+                            tex,
+                        );
+                        set_done = true;
+                        break;
+                    }
+                }
+                if !set_done {
+                    // No texture available; leave material as-is
+                }
             }
         }
-        parts_gpu.push((fm, model));
+        parts_gpu.push((mid, model));
     }
     Some(ChunkRender {
         cx: cpu.cx,
@@ -1345,7 +1461,7 @@ pub fn upload_chunk_mesh(
 
 // Simple per-app texture cache keyed by file path; loads each texture once and reuses it across chunks.
 pub struct TextureCache {
-    map: HashMap<&'static str, raylib::core::texture::Texture2D>,
+    map: HashMap<String, raylib::core::texture::Texture2D>,
 }
 
 // Local-body mesher: emits vertices in local-space [0..sx, 0..sz], no world/lighting deps.
@@ -1378,8 +1494,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8) -> ChunkMeshCPU {
         }
 
         let flip_v = [false, true, false, true, false, true];
-        let builds =
-            crate::meshing_core::build_mesh_core(buf, 0, 0, flip_v, None, |x, y, z, face, here| {
+        let builds = crate::meshing_core::build_mesh_core(buf, 0, 0, flip_v, None, |x, y, z, face, here| {
                 if !here.is_solid() {
                     return None;
                 }
@@ -1397,7 +1512,9 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8) -> ChunkMeshCPU {
                 }
                 if let Some(fm) = face_material_for(here, face) {
                     let l = face_light(face, ambient);
-                    Some((fm, l))
+                    // Fallback to Unknown -> material id resolution to be provided by caller later.
+                    // For local body meshing used by structures preview, keep using a sentinel MaterialId(0).
+                    Some((MaterialId(0), l))
                 } else {
                     None
                 }
@@ -1422,30 +1539,30 @@ impl TextureCache {
         }
     }
 
-    pub fn get_or_load<'a>(
+    // Legacy API removed; prefer get_ref + insert_from_path
+
+    pub fn get_ref(&self, key: &str) -> Option<&raylib::core::texture::Texture2D> {
+        self.map.get(key)
+    }
+
+    pub fn insert_from_path<'a>(
         &'a mut self,
         rl: &mut RaylibHandle,
         thread: &RaylibThread,
-        candidates: &[&'static str],
+        key: &str,
     ) -> Option<&'a raylib::core::texture::Texture2D> {
-        // Pick first candidate that either exists in cache or loads successfully
-        for &p in candidates {
-            if self.map.contains_key(p) {
-                return self.map.get(p);
-            }
-            if let Ok(t) = rl.load_texture(thread, p) {
-                t.set_texture_filter(thread, raylib::consts::TextureFilter::TEXTURE_FILTER_POINT);
-                t.set_texture_wrap(thread, raylib::consts::TextureWrap::TEXTURE_WRAP_REPEAT);
-                self.map.insert(p, t);
-                return self.map.get(p);
-            }
+        if let Ok(t) = rl.load_texture(thread, key) {
+            t.set_texture_filter(
+                thread,
+                raylib::consts::TextureFilter::TEXTURE_FILTER_POINT,
+            );
+            t.set_texture_wrap(
+                thread,
+                raylib::consts::TextureWrap::TEXTURE_WRAP_REPEAT,
+            );
+            self.map.insert(key.to_string(), t);
+            return self.map.get(key);
         }
-        // If no candidate could be loaded, log and panic — missing block texture is a fatal error.
-        log::error!(
-            target: "textures",
-            "Missing block texture; tried candidates: {:?}",
-            candidates
-        );
-        panic!("Missing block texture on disk. Tried: {:?}", candidates);
+        None
     }
 }

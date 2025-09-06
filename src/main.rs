@@ -15,12 +15,14 @@ mod schem;
 mod shaders;
 mod structure;
 mod voxel;
+mod blocks;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use raylib::prelude::*;
 use std::path::PathBuf;
 use std::sync::Arc;
 use voxel::{World, WorldGenMode};
+use crate::blocks::BlockRegistry;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -226,6 +228,23 @@ fn run_app(run: RunArgs) {
     }
 
     rl.set_target_fps(60);
+
+    // Load runtime voxel registry (materials + block types) and keep it
+    let reg = std::sync::Arc::new(
+        BlockRegistry::load_from_paths(
+            "assets/voxels/materials.toml",
+            "assets/voxels/blocks.toml",
+        )
+        .unwrap_or_else(|e| {
+            log::warn!("Failed to load runtime voxel registry: {}", e);
+            BlockRegistry::new()
+        }),
+    );
+    log::info!(
+        "Loaded voxel registry: {} materials, {} blocks",
+        reg.materials.materials.len(),
+        reg.blocks.len()
+    );
     rl.disable_cursor();
     // World + stores (configurable via CLI)
     let chunk_size_x = run.chunk_size_x;
@@ -267,6 +286,7 @@ fn run_app(run: RunArgs) {
         world.clone(),
         lighting_store.clone(),
         edit_store,
+        reg.clone(),
     );
 
     while !rl.window_should_close() {

@@ -1,0 +1,5 @@
+# Placeholder for schematic mapping. Example structure:
+# [[rules]]
+# from = "minecraft:stone"
+# to = { name = "stone" }
+

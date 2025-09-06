@@ -1,0 +1,49 @@
+[[blocks]]
+name = "air"
+id = 0
+solid = false
+blocks_skylight = false
+emission = 0
+shape = "cube"
+materials = { all = "unknown" }
+
+[[blocks]]
+name = "stone"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "stone" }
+
+[[blocks]]
+name = "dirt"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "dirt" }
+
+[[blocks]]
+name = "grass"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { top = "grass_top", bottom = "dirt", side = "grass_side" }
+
+[[blocks]]
+name = "glowstone"
+solid = true
+blocks_skylight = true
+emission = 15
+shape = "cube"
+materials = { all = "glowstone" }
+
+[[blocks]]
+name = "beacon"
+solid = true
+blocks_skylight = true
+emission = 10
+shape = "cube"
+materials = { all = "beacon" }
+

@@ -1,0 +1,55 @@
+[materials]
+# Minimal seed set; extend to full parity over time.
+unknown = ["assets/blocks/unknown.png"]
+stone = ["assets/blocks/stone.png"]
+dirt = ["assets/blocks/dirt.png"]
+grass_top = ["assets/blocks/grass_top.png"]
+grass_side = ["assets/blocks/grass_side.png"]
+glowstone = ["assets/blocks/glowstone.png"]
+beacon = ["assets/blocks/beacon.png"]
+cobblestone = ["assets/blocks/cobblestone.png"]
+mossy_cobblestone = ["assets/blocks/cobblestone_mossy.png"]
+stone_bricks = ["assets/blocks/stone_brick.png", "assets/blocks/stone_bricks.png"]
+mossy_stone_bricks = ["assets/blocks/stone_bricks_mossy.png"]
+brick = ["assets/blocks/brick.png"]
+granite = ["assets/blocks/granite.png"]
+diorite = ["assets/blocks/diorite.png"]
+andesite = ["assets/blocks/andesite.png"]
+polished_granite = ["assets/blocks/polished_granite.png"]
+polished_diorite = ["assets/blocks/polished_diorite.png"]
+polished_andesite = ["assets/blocks/polished_andesite.png"]
+gravel = ["assets/blocks/gravel.png"]
+smooth_stone = ["assets/blocks/smooth_stone.png"]
+bookshelf = ["assets/blocks/bookshelf.png"]
+coarse_dirt = ["assets/blocks/coarse_dirt.png"]
+podzol_top = ["assets/blocks/podzol_top.png"]
+podzol_side = ["assets/blocks/podzol_side.png"]
+sandstone_top = ["assets/blocks/sandstone_top.png"]
+sandstone_bottom = ["assets/blocks/sandstone_bottom.png"]
+sandstone_side = ["assets/blocks/sandstone_normal.png", "assets/blocks/sandstone.png", "assets/blocks/sandstone_side.png"]
+red_sandstone_top = ["assets/blocks/red_sandstone_top.png"]
+red_sandstone_bottom = ["assets/blocks/red_sandstone_bottom.png"]
+red_sandstone_side = ["assets/blocks/red_sandstone_normal.png", "assets/blocks/red_sandstone_side.png"]
+quartz_block_top = ["assets/blocks/quartz_block_top.png"]
+quartz_block_side = ["assets/blocks/quartz_block_side.png"]
+lapis_block = ["assets/blocks/lapis_block.png"]
+coal_block = ["assets/blocks/coal_block.png"]
+prismarine_bricks = ["assets/blocks/prismarine_bricks.png"]
+nether_bricks = ["assets/blocks/nether_bricks.png"]
+
+# Wood family (render_tag can drive leaf shader later)
+oak_log = { paths = ["assets/blocks/log_oak.png"], render_tag = "log" }
+oak_log_top = { paths = ["assets/blocks/log_oak_top.png"], render_tag = "log" }
+oak_planks = ["assets/blocks/planks_oak.png"]
+oak_leaves = { paths = ["assets/blocks/leaves_oak.png"], render_tag = "leaves" }
+
+birch_log = { paths = ["assets/blocks/log_birch.png"], render_tag = "log" }
+birch_log_top = { paths = ["assets/blocks/log_birch_top.png"], render_tag = "log" }
+birch_planks = ["assets/blocks/planks_birch.png"]
+birch_leaves = { paths = ["assets/blocks/leaves_birch.png"], render_tag = "leaves" }
+
+spruce_log = { paths = ["assets/blocks/log_spruce.png"], render_tag = "log" }
+spruce_log_top = { paths = ["assets/blocks/log_spruce_top.png"], render_tag = "log" }
+spruce_planks = ["assets/blocks/planks_spruce.png"]
+spruce_leaves = { paths = ["assets/blocks/leaves_spruce.png"], render_tag = "leaves" }
+

@@ -6,6 +6,7 @@ use crate::event::{Event, EventEnvelope, EventQueue, RebuildCause};
 use crate::gamestate::{ChunkEntry, GameState};
 use crate::lighting::LightingStore;
 use crate::mesher::{NeighborsLoaded, upload_chunk_mesh};
+use crate::blocks::BlockRegistry;
 use crate::raycast;
 use crate::runtime::{BuildJob, JobOut, Runtime, StructureBuildJob};
 use crate::structure::{Pose, Structure, StructureId, rotate_yaw, rotate_yaw_inv};
@@ -85,6 +86,7 @@ impl App {
         world: std::sync::Arc<World>,
         lighting: std::sync::Arc<LightingStore>,
         edits: crate::edit::EditStore,
+        reg: std::sync::Arc<BlockRegistry>,
     ) -> Self {
         // Spawn: if flat world, start a few blocks above the slab; else near world top
         let spawn = if world.is_flat() {
@@ -102,7 +104,7 @@ impl App {
         };
         let cam = crate::camera::FlyCamera::new(spawn + Vector3::new(0.0, 5.0, 20.0));
 
-        let runtime = Runtime::new(&mut rl, thread, world.clone(), lighting.clone());
+        let runtime = Runtime::new(&mut rl, thread, world.clone(), lighting.clone(), reg);
         let mut gs = GameState::new(world.clone(), edits, lighting.clone(), cam.position);
         let mut queue = EventQueue::new();
 
@@ -602,33 +604,38 @@ impl App {
                 }
             }
             Event::StructureBuildCompleted { id, rev, cpu } => {
-                if let Some(mut cr) =
-                    upload_chunk_mesh(rl, thread, cpu, &mut self.runtime.tex_cache)
+                if let Some(mut cr) = upload_chunk_mesh(
+                    rl,
+                    thread,
+                    cpu,
+                    &mut self.runtime.tex_cache,
+                    &self.runtime.reg.materials,
+                )
                 {
-                    for (fm, model) in &mut cr.parts {
+                    for (mid, model) in &mut cr.parts {
                         if let Some(mat) = model.materials_mut().get_mut(0) {
-                            match fm {
-                                crate::mesher::FaceMaterial::Leaves(_) => {
-                                    if let Some(ref ls) = self.runtime.leaves_shader {
-                                        let dest = mat.shader_mut();
-                                        let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
-                                        let src_ptr: *const raylib::ffi::Shader =
-                                            ls.shader.as_ref();
-                                        unsafe {
-                                            std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1);
-                                        }
+                            let leaves = self
+                                .runtime
+                                .reg
+                                .materials
+                                .get(*mid)
+                                .and_then(|m| m.render_tag.as_deref())
+                                == Some("leaves");
+                            if leaves {
+                                if let Some(ref ls) = self.runtime.leaves_shader {
+                                    let dest = mat.shader_mut();
+                                    let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
+                                    let src_ptr: *const raylib::ffi::Shader = ls.shader.as_ref();
+                                    unsafe {
+                                        std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1);
                                     }
                                 }
-                                _ => {
-                                    if let Some(ref fs) = self.runtime.fog_shader {
-                                        let dest = mat.shader_mut();
-                                        let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
-                                        let src_ptr: *const raylib::ffi::Shader =
-                                            fs.shader.as_ref();
-                                        unsafe {
-                                            std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1);
-                                        }
-                                    }
+                            } else if let Some(ref fs) = self.runtime.fog_shader {
+                                let dest = mat.shader_mut();
+                                let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
+                                let src_ptr: *const raylib::ffi::Shader = fs.shader.as_ref();
+                                unsafe {
+                                    std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1);
                                 }
                             }
                         }
@@ -664,34 +671,39 @@ impl App {
                     return;
                 }
                 // Upload to GPU
-                if let Some(mut cr) =
-                    upload_chunk_mesh(rl, thread, cpu, &mut self.runtime.tex_cache)
+                if let Some(mut cr) = upload_chunk_mesh(
+                    rl,
+                    thread,
+                    cpu,
+                    &mut self.runtime.tex_cache,
+                    &self.runtime.reg.materials,
+                )
                 {
                     // Assign shaders
-                    for (fm, model) in &mut cr.parts {
+                    for (mid, model) in &mut cr.parts {
                         if let Some(mat) = model.materials_mut().get_mut(0) {
-                            match fm {
-                                crate::mesher::FaceMaterial::Leaves(_) => {
-                                    if let Some(ref ls) = self.runtime.leaves_shader {
-                                        let dest = mat.shader_mut();
-                                        let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
-                                        let src_ptr: *const raylib::ffi::Shader =
-                                            ls.shader.as_ref();
-                                        unsafe {
-                                            std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1);
-                                        }
+                            let leaves = self
+                                .runtime
+                                .reg
+                                .materials
+                                .get(*mid)
+                                .and_then(|m| m.render_tag.as_deref())
+                                == Some("leaves");
+                            if leaves {
+                                if let Some(ref ls) = self.runtime.leaves_shader {
+                                    let dest = mat.shader_mut();
+                                    let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
+                                    let src_ptr: *const raylib::ffi::Shader = ls.shader.as_ref();
+                                    unsafe {
+                                        std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1);
                                     }
                                 }
-                                _ => {
-                                    if let Some(ref fs) = self.runtime.fog_shader {
-                                        let dest = mat.shader_mut();
-                                        let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
-                                        let src_ptr: *const raylib::ffi::Shader =
-                                            fs.shader.as_ref();
-                                        unsafe {
-                                            std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1);
-                                        }
-                                    }
+                            } else if let Some(ref fs) = self.runtime.fog_shader {
+                                let dest = mat.shader_mut();
+                                let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
+                                let src_ptr: *const raylib::ffi::Shader = fs.shader.as_ref();
+                                unsafe {
+                                    std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1);
                                 }
                             }
                         }

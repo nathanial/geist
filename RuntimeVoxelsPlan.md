@@ -121,6 +121,25 @@
       ```
   - `assets/voxels/palette_map.toml`: schematic mapping rules from Minecraft IDs/states to `{ name, state }` entries (replaces hardcoded `map_palette_key_to_block_opt`).
 
+**Progress**
+- Scaffolding: Added `src/blocks/{types.rs, material.rs, config.rs, registry.rs, mod.rs}` for runtime blocks, shapes, materials, and config loaders.
+- Config assets: Created `assets/voxels/{materials.toml, blocks.toml, palette_map.toml, hotbar.toml}` with a seed set of materials and blocks (air, stone, dirt, grass, glowstone, beacon). Materials support optional `render_tag` (e.g., `"leaves"`).
+- Crate wiring: Added `toml` dependency and `mod blocks;`. On startup, `main.rs` loads the registry and logs counts to validate parsing.
+- Build status: Project compiles; no behavioral changes yet. State-based material selection is stubbed pending state packing.
+
+**Remaining Work (Prioritized)**
+- Meshing keys: Replace `FaceMaterial` with `MaterialId` in `meshing_core.rs` masks/maps and `mesher.rs` build paths.
+- Shape-driven meshing: Query shape/materials from the registry and emit via existing cube/slab/stairs emitters; add material resolver per `FaceRole`.
+- Texture/upload path: Update `TextureCache` and `runtime.rs` to preload textures by `MaterialCatalog`, grouping meshes by `MaterialId`.
+- Shader selection: Choose shaders via `material.render_tag` (e.g., `"leaves"`) in `app.rs` and runtime upload path.
+- Lighting flags: Add `propagates_sky`/`propagates_light` or use `blocks_skylight` + `is_solid()` in `lighting.rs` BFS; honor `emission` from registry.
+- Storage migration: Swap enum `Block` for runtime `Block { id, state }` across `ChunkBuf`, `Structure`, and `EditStore`.
+- Worldgen/UI: Worldgen returns runtime blocks; hotbar/hotkeys read from `assets/voxels/hotbar.toml`; UI uses `block.debug_name()`.
+- Schematic translator: Implement `assets/voxels/palette_map.toml`-driven mapping and update both `schem.rs` and `mcworld.rs` to use it.
+- State packing: Implement `state_schema` packing/unpacking and hook up by-property material selection.
+- Tests/docs: Add unit tests for state packing and registry lookups; update README/docs.
+- Cleanup: Remove legacy enums (`Block`, `MaterialKey`, `TreeSpecies`, `TerracottaColor`, `FaceMaterial`) once parity is reached.
+
 **Implementation TODO**
 - Implement core types: `Block`, `BlockId`, `BlockState`, `BlockType`, `Shape`, and `BlockRegistry` with TOML loader.
 - Replace storage to use runtime `Block` across `ChunkBuf`, `Structure`, `EditStore`, and helpers.

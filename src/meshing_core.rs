@@ -1,16 +1,17 @@
 use crate::chunkbuf::ChunkBuf;
-use crate::mesher::{FaceMaterial, MeshBuild};
+use crate::mesher::MeshBuild;
 use raylib::prelude::*;
 use std::collections::HashMap;
+use std::hash::Hash;
 
 // Generic greedy-rectangle sweep over a 2D mask. The mask is width*height laid out row-major.
 // For each maximal rectangle of identical Some(code), calls `emit(x, y, w, h, code)` once.
 #[inline]
-fn greedy_rects(
+fn greedy_rects<K: Copy + Eq + Hash>(
     width: usize,
     height: usize,
-    mask: &mut [Option<(FaceMaterial, u8)>],
-    mut emit: impl FnMut(usize, usize, usize, usize, (FaceMaterial, u8)),
+    mask: &mut [Option<(K, u8)>],
+    mut emit: impl FnMut(usize, usize, usize, usize, (K, u8)),
 ) {
     let mut used = vec![false; width * height];
     for y in 0..height {
@@ -47,25 +48,26 @@ fn greedy_rects(
 // Core greedy meshing builder used by both world and local meshers.
 // The `face_info` closure decides visibility and lighting per face; it must return None if the
 // face is not visible. `flip_v[face]` controls V flipping for that face (0..5).
-pub fn build_mesh_core<F>(
+pub fn build_mesh_core<K, F>(
     buf: &ChunkBuf,
     base_x: i32,
     base_z: i32,
     flip_v: [bool; 6],
     min_light: Option<u8>,
     mut face_info: F,
-) -> HashMap<FaceMaterial, MeshBuild>
+) -> HashMap<K, MeshBuild>
 where
-    F: FnMut(usize, usize, usize, usize, crate::voxel::Block) -> Option<(FaceMaterial, u8)>,
+    K: Copy + Eq + Hash,
+    F: FnMut(usize, usize, usize, usize, crate::voxel::Block) -> Option<(K, u8)>,
 {
     let sx = buf.sx;
     let sy = buf.sy;
     let sz = buf.sz;
-    let mut builds: HashMap<FaceMaterial, MeshBuild> = HashMap::new();
+    let mut builds: HashMap<K, MeshBuild> = HashMap::new();
 
     // +Y faces
     for y in 0..sy {
-        let mut mask: Vec<Option<(FaceMaterial, u8)>> = vec![None; sx * sz];
+        let mut mask: Vec<Option<(K, u8)>> = vec![None; sx * sz];
         for z in 0..sz {
             for x in 0..sx {
                 let here = buf.get_local(x, y, z);
@@ -102,7 +104,7 @@ where
 
     // -Y faces
     for y in 0..sy {
-        let mut mask: Vec<Option<(FaceMaterial, u8)>> = vec![None; sx * sz];
+        let mut mask: Vec<Option<(K, u8)>> = vec![None; sx * sz];
         for z in 0..sz {
             for x in 0..sx {
                 let here = buf.get_local(x, y, z);
@@ -140,7 +142,7 @@ where
     // X planes (±X faces)
     for x in 0..sx {
         for &pos in &[false, true] {
-            let mut mask: Vec<Option<(FaceMaterial, u8)>> = vec![None; sz * sy];
+            let mut mask: Vec<Option<(K, u8)>> = vec![None; sz * sy];
             for z in 0..sz {
                 for y in 0..sy {
                     let here = buf.get_local(x, y, z);
@@ -196,7 +198,7 @@ where
     // Z planes (±Z faces)
     for z in 0..sz {
         for &pos in &[false, true] {
-            let mut mask: Vec<Option<(FaceMaterial, u8)>> = vec![None; sx * sy];
+            let mut mask: Vec<Option<(K, u8)>> = vec![None; sx * sy];
             for x in 0..sx {
                 for y in 0..sy {
                     let here = buf.get_local(x, y, z);

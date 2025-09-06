@@ -8,6 +8,7 @@ use crate::mesher::{self, ChunkMeshCPU, NeighborsLoaded};
 use crate::shaders;
 use crate::structure::StructureId;
 use crate::voxel::World;
+use crate::blocks::BlockRegistry;
 
 #[derive(Clone, Debug)]
 pub struct BuildJob {
@@ -35,6 +36,7 @@ pub struct Runtime {
     pub leaves_shader: Option<shaders::LeavesShader>,
     pub fog_shader: Option<shaders::FogShader>,
     pub tex_cache: mesher::TextureCache,
+    pub reg: std::sync::Arc<BlockRegistry>,
     // GPU chunk models
     pub renders: HashMap<(i32, i32), mesher::ChunkRender>,
     pub structure_renders: HashMap<StructureId, mesher::ChunkRender>,
@@ -71,70 +73,12 @@ impl Runtime {
         thread: &raylib::prelude::RaylibThread,
         world: Arc<World>,
         lighting: Arc<crate::lighting::LightingStore>,
+        reg: std::sync::Arc<BlockRegistry>,
     ) -> Self {
         use std::sync::mpsc;
         let leaves_shader = shaders::LeavesShader::load(rl, thread);
         let fog_shader = shaders::FogShader::load(rl, thread);
         let mut tex_cache = mesher::TextureCache::new();
-        // Preload some common textures
-        use crate::mesher::FaceMaterial;
-        use crate::voxel::TreeSpecies;
-        let mut mats: Vec<FaceMaterial> = vec![
-            FaceMaterial::Unknown,
-            FaceMaterial::GrassTop,
-            FaceMaterial::GrassSide,
-            FaceMaterial::Dirt,
-            FaceMaterial::Stone,
-            FaceMaterial::Sand,
-            FaceMaterial::Snow,
-            FaceMaterial::Glowstone,
-            FaceMaterial::Beacon,
-            FaceMaterial::Cobblestone,
-            FaceMaterial::MossyCobblestone,
-            FaceMaterial::StoneBricks,
-            FaceMaterial::MossyStoneBricks,
-            FaceMaterial::Brick,
-            FaceMaterial::Granite,
-            FaceMaterial::Diorite,
-            FaceMaterial::Andesite,
-            FaceMaterial::PolishedGranite,
-            FaceMaterial::PolishedDiorite,
-            FaceMaterial::PolishedAndesite,
-            FaceMaterial::Gravel,
-            FaceMaterial::SmoothStone,
-            FaceMaterial::Bookshelf,
-            FaceMaterial::CoarseDirt,
-            FaceMaterial::PodzolTop,
-            FaceMaterial::PodzolSide,
-            FaceMaterial::SandstoneTop,
-            FaceMaterial::SandstoneBottom,
-            FaceMaterial::SandstoneSide,
-            FaceMaterial::RedSandstoneTop,
-            FaceMaterial::RedSandstoneBottom,
-            FaceMaterial::RedSandstoneSide,
-            FaceMaterial::QuartzBlockTop,
-            FaceMaterial::QuartzBlockSide,
-            FaceMaterial::LapisBlock,
-            FaceMaterial::CoalBlock,
-            FaceMaterial::PrismarineBricks,
-            FaceMaterial::NetherBricks,
-        ];
-        for sp in [
-            TreeSpecies::Oak,
-            TreeSpecies::Birch,
-            TreeSpecies::Spruce,
-            TreeSpecies::Jungle,
-            TreeSpecies::Acacia,
-            TreeSpecies::DarkOak,
-        ] {
-            mats.push(FaceMaterial::WoodTop(sp));
-            mats.push(FaceMaterial::WoodSide(sp));
-            mats.push(FaceMaterial::Leaves(sp));
-            mats.push(FaceMaterial::Planks(sp));
-        }
-        for fm in &mats {
-            let _ = tex_cache.get_or_load(rl, thread, &fm.texture_candidates());
-        }
 
         // Worker threads
         let (job_tx, job_rx) = mpsc::channel::<BuildJob>();
@@ -153,6 +97,7 @@ impl Runtime {
             let tx = res_tx.clone();
             let w = world.clone();
             let ls = lighting.clone();
+            let reg = reg.clone();
             thread::spawn(move || {
                 while let Ok(job) = wrx.recv() {
                     let mut buf = chunkbuf::generate_chunk_buffer(&w, job.cx, job.cz);
@@ -181,6 +126,7 @@ impl Runtime {
                         job.neighbors,
                         job.cx,
                         job.cz,
+                        &reg.materials,
                     ) {
                         let _ = tx.send(JobOut {
                             cpu,
@@ -246,6 +192,7 @@ impl Runtime {
             leaves_shader,
             fog_shader,
             tex_cache,
+            reg,
             renders: HashMap::new(),
             structure_renders: HashMap::new(),
             job_tx,
