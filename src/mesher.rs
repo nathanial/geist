@@ -183,6 +183,7 @@ fn emit_box(
     world: &World,
     edits: Option<&StdHashMap<(i32, i32, i32), Block>>,
     neighbors: NeighborsLoaded,
+    reg: &BlockRegistry,
     light: &LightGrid,
     x: usize,
     y: usize,
@@ -203,7 +204,7 @@ fn emit_box(
         let nx = gx;
         let ny = gy + 1;
         let nz = gz;
-        if !is_occluder(buf, world, edits, neighbors, here, 0, nx, ny, nz) {
+        if !is_occluder(buf, world, edits, neighbors, reg, here, 0, nx, ny, nz) {
             let l = light.sample_face_local(x, y, z, 0);
             let lv = l.max(VISUAL_LIGHT_MIN);
             let rgba = [lv, lv, lv, 255];
@@ -227,7 +228,7 @@ fn emit_box(
         let nx = gx;
         let ny = gy - 1;
         let nz = gz;
-        if !is_occluder(buf, world, edits, neighbors, here, 1, nx, ny, nz) {
+        if !is_occluder(buf, world, edits, neighbors, reg, here, 1, nx, ny, nz) {
             let l = light.sample_face_local(x, y, z, 1);
             let lv = l.max(VISUAL_LIGHT_MIN);
             let rgba = [lv, lv, lv, 255];
@@ -251,7 +252,7 @@ fn emit_box(
         let nx = gx + 1;
         let ny = gy;
         let nz = gz;
-        if !is_occluder(buf, world, edits, neighbors, here, 2, nx, ny, nz) {
+        if !is_occluder(buf, world, edits, neighbors, reg, here, 2, nx, ny, nz) {
             let l = light.sample_face_local(x, y, z, 2);
             let lv = l.max(VISUAL_LIGHT_MIN);
             let rgba = [lv, lv, lv, 255];
@@ -275,7 +276,7 @@ fn emit_box(
         let nx = gx - 1;
         let ny = gy;
         let nz = gz;
-        if !is_occluder(buf, world, edits, neighbors, here, 3, nx, ny, nz) {
+        if !is_occluder(buf, world, edits, neighbors, reg, here, 3, nx, ny, nz) {
             let l = light.sample_face_local(x, y, z, 3);
             let lv = l.max(VISUAL_LIGHT_MIN);
             let rgba = [lv, lv, lv, 255];
@@ -299,7 +300,7 @@ fn emit_box(
         let nx = gx;
         let ny = gy;
         let nz = gz + 1;
-        if !is_occluder(buf, world, edits, neighbors, here, 4, nx, ny, nz) {
+        if !is_occluder(buf, world, edits, neighbors, reg, here, 4, nx, ny, nz) {
             let l = light.sample_face_local(x, y, z, 4);
             let lv = l.max(VISUAL_LIGHT_MIN);
             let rgba = [lv, lv, lv, 255];
@@ -323,7 +324,7 @@ fn emit_box(
         let nx = gx;
         let ny = gy;
         let nz = gz - 1;
-        if !is_occluder(buf, world, edits, neighbors, here, 5, nx, ny, nz) {
+        if !is_occluder(buf, world, edits, neighbors, reg, here, 5, nx, ny, nz) {
             let l = light.sample_face_local(x, y, z, 5);
             let lv = l.max(VISUAL_LIGHT_MIN);
             let rgba = [lv, lv, lv, 255];
@@ -360,6 +361,7 @@ fn is_occluder(
     world: &World,
     edits: Option<&StdHashMap<(i32, i32, i32), Block>>,
     nmask: NeighborsLoaded,
+    reg: &BlockRegistry,
     here: Block,
     face: usize,
     nx: i32,
@@ -380,7 +382,7 @@ fn is_occluder(
         let ly = ny as usize;
         let lz = (nz - z0) as usize;
         let nb = buf.get_local(lx, ly, lz);
-        return occludes_face(nb, face);
+        return occludes_face(nb, face, reg);
     }
     // Outside current chunk: only occlude if the corresponding neighbor chunk is loaded; otherwise treat as air
     let x0 = buf.cx * buf.sx as i32;
@@ -409,23 +411,69 @@ fn is_occluder(
     } else {
         world.block_at(nx, ny, nz)
     };
-    occludes_face(nb, face)
+    occludes_face(nb, face, reg)
 }
 
 #[inline]
-fn occludes_face(nb: Block, face: usize) -> bool {
+fn occludes_face(nb: Block, face: usize, reg: &BlockRegistry) -> bool {
+    // Special-case legacy shapes until fully migrated
     match nb {
-        Block::Slab { half, .. } => match face {
-            0 => matches!(half, SlabHalf::Bottom), // neighbor above occludes only if bottom slab
-            1 => matches!(half, SlabHalf::Top),    // neighbor below occludes only if top slab
-            _ => nb.is_solid(), // sides treated as full for greedy; partial handled separately
-        },
-        Block::Stairs { half, .. } => match face {
-            0 => matches!(half, SlabHalf::Bottom),
-            1 => matches!(half, SlabHalf::Top),
-            _ => nb.is_solid(),
-        },
-        _ => nb.is_solid(),
+        Block::Slab { half, .. } => {
+            return match face {
+                0 => matches!(half, SlabHalf::Bottom), // neighbor above occludes only if bottom slab
+                1 => matches!(half, SlabHalf::Top),    // neighbor below occludes only if top slab
+                _ => true, // sides treated as full for greedy; partial handled separately
+            };
+        }
+        Block::Stairs { half, .. } => {
+            return match face {
+                0 => matches!(half, SlabHalf::Bottom),
+                1 => matches!(half, SlabHalf::Top),
+                _ => true,
+            };
+        }
+        Block::Air => return false,
+        _ => {}
+    }
+
+    // Registry-driven occlusion for cubes/logs/leaves and other runtime blocks
+    if let Some(name) = map_legacy_block_to_registry_name(nb) {
+        if let Some(id) = reg.id_by_name(name) {
+            if let Some(ty) = reg.get(id) {
+                // For now, treat any solid cube-like shape as a full occluder on all faces
+                // When non-cube shapes are added to registry, refine per-shape rules here.
+                return ty.is_solid(0);
+            }
+        }
+    }
+    // Fallback: legacy semantics
+    nb.is_solid()
+}
+
+#[inline]
+fn map_legacy_block_to_registry_name(b: Block) -> Option<&'static str> {
+    match b {
+        Block::Air => Some("air"),
+        Block::Stone => Some("stone"),
+        Block::Dirt => Some("dirt"),
+        Block::Grass => Some("grass"),
+        Block::Sand => Some("sand"),
+        Block::Snow => Some("snow"),
+        Block::Glowstone => Some("glowstone"),
+        Block::Beacon => Some("beacon"),
+        Block::Wood(crate::voxel::TreeSpecies::Oak) => Some("oak_log"),
+        Block::Wood(crate::voxel::TreeSpecies::Birch) => Some("birch_log"),
+        Block::Wood(crate::voxel::TreeSpecies::Spruce) => Some("spruce_log"),
+        Block::Wood(crate::voxel::TreeSpecies::Jungle) => Some("jungle_log"),
+        Block::Wood(crate::voxel::TreeSpecies::Acacia) => Some("acacia_log"),
+        Block::Wood(crate::voxel::TreeSpecies::DarkOak) => Some("dark_oak_log"),
+        Block::Leaves(crate::voxel::TreeSpecies::Oak) => Some("oak_leaves"),
+        Block::Leaves(crate::voxel::TreeSpecies::Birch) => Some("birch_leaves"),
+        Block::Leaves(crate::voxel::TreeSpecies::Spruce) => Some("spruce_leaves"),
+        Block::Leaves(crate::voxel::TreeSpecies::Jungle) => Some("jungle_leaves"),
+        Block::Leaves(crate::voxel::TreeSpecies::Acacia) => Some("acacia_leaves"),
+        Block::Leaves(crate::voxel::TreeSpecies::DarkOak) => Some("oak_leaves"),
+        _ => None,
     }
 }
 
@@ -487,7 +535,7 @@ pub fn build_chunk_greedy_cpu_buf(
                 5 => (gx, gy, gz - 1),
                 _ => unreachable!(),
             };
-            if is_occluder(buf, world, edits, neighbors, here, face, nx, ny, nz) {
+            if is_occluder(buf, world, edits, neighbors, reg, here, face, nx, ny, nz) {
                 return None;
             }
             // Resolve material via registry; fallback to unknown when unmapped
@@ -536,6 +584,7 @@ pub fn build_chunk_greedy_cpu_buf(
                             world,
                             edits,
                             neighbors,
+                            reg,
                             &light,
                             x,
                             y,
@@ -832,6 +881,7 @@ pub fn build_chunk_greedy_cpu_buf(
                             world,
                             edits,
                             neighbors,
+                            reg,
                             &light,
                             x,
                             y,
@@ -883,6 +933,7 @@ pub fn build_chunk_greedy_cpu_buf(
                             world,
                             edits,
                             neighbors,
+                            reg,
                             &light,
                             x,
                             y,

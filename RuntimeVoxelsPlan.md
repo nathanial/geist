@@ -154,7 +154,8 @@
 - DONE: Removed FaceMaterial usage from mesher; all grouping/selection uses `MaterialId` from the registry.
 - DONE: Legacy FaceMaterial usage removed from mesher; only referenced in docs.
 - DONE: Skylight propagation now consults registry `blocks_skylight`.
-- NEXT: Shape-aware occlusion using registry shapes; then block-light propagation flags.
+- DONE: Shape-aware occlusion (registry-driven for cube-like blocks; legacy rules retained for slabs/stairs until registry shapes are added).
+- NEXT: Extend occlusion to slabs/stairs via registry shapes; then block-light propagation flags.
 - NEXT: Storage migration to runtime `Block` and worldgen/UI updates.
 - NEXT: Config-driven schematic translator and state packing.
 - NEXT: Tests for state packing and registry; docs/README updates.
@@ -163,7 +164,7 @@
 - Mesh grouping key: Replace all uses of `FaceMaterial` as a map key in `ChunkMeshCPU`/`ChunkRender` with `MaterialId` (or `RenderKey`). Update `meshing_core` and upload paths accordingly.
 - Shader selection: Use material/block metadata for shader choice. Add `render_tag` (e.g., `"leaves"`) to materials or allow a block-type override; update `app.rs` to assign the leaves shader based on this tag.
 - Lighting: `LightGrid::compute_with_borders_buf(buf, store, reg)` now accepts the registry and seeds skylight through blocks with `blocks_skylight=false` (e.g., leaves).
-- Occlusion by shape: Replace `is_occluder/occludes_face` enum matches with shape-aware occlusion (e.g., slabs occlude top or bottom depending on half; stairs occlude top/bottom like slabs; sides full). Implement via `Shape` helpers.
+- Occlusion by shape: Mesher now consults registry types to decide occlusion for cube-like blocks; slabs/stairs retain legacy rules until registry shapes are introduced. Implement final per-shape rules via `Shape` helpers once runtime blocks land.
 - Light propagation flags: Add `propagates_sky` and `propagates_light` to block types; update skylight and block-light BFS to propagate through blocks with the appropriate flags (current parity: only air propagates both).
 - Leaves collision: Keep leaves `solid=true` for collisions to match current behavior unless changed via config.
 - Material resolution: Implement a resolver that maps `(block, face, state)` to `MaterialId` (for cubes) and use per-shape emitters for non-cubes; both paths feed `MaterialId` to meshing/grouping.
