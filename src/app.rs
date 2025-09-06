@@ -85,7 +85,26 @@ impl App {
         let runtime = Runtime::new(&mut rl, thread, world.clone(), lighting.clone());
         let mut gs = GameState::new(world.clone(), edits, lighting.clone(), cam.position);
         let mut queue = EventQueue::new();
-        // Bootstrap initial streaming based on camera
+
+        // Load a Sponge .schem into world edits at origin before streaming starts
+        {
+            use std::path::Path;
+            let schem_path = Path::new("schematics/anvilstead.schem");
+            if schem_path.exists() {
+                match crate::schem::load_sponge_schem_apply_edits(schem_path, (0, 0, 0), &mut gs.edits) {
+                    Ok((sx, sy, sz)) => {
+                        log::info!("Loaded schem {:?} as edits at origin ({}x{}x{})", schem_path, sx, sy, sz);
+                    }
+                    Err(e) => {
+                        log::warn!("Failed loading schem {:?}: {}", schem_path, e);
+                    }
+                }
+            } else {
+                log::info!("Schematic not found at {:?}; skipping.", schem_path);
+            }
+        }
+
+        // Bootstrap initial streaming based on camera (after edits are applied)
         let ccx = (cam.position.x / world.chunk_size_x as f32).floor() as i32;
         let ccz = (cam.position.z / world.chunk_size_z as f32).floor() as i32;
         queue.emit_now(Event::ViewCenterChanged { ccx, ccz });

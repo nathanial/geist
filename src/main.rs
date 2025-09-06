@@ -13,6 +13,7 @@ mod raycast;
 mod runtime;
 mod shaders;
 mod voxel;
+mod schem;
 
 use raylib::prelude::*;
 use std::sync::Arc;
