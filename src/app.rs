@@ -24,7 +24,9 @@ pub struct DebugStats {
     pub total_vertices: usize,
     pub total_triangles: usize,
     pub chunks_rendered: usize,
+    pub chunks_culled: usize,
     pub structures_rendered: usize,
+    pub structures_culled: usize,
     pub draw_calls: usize,
 }
 
@@ -870,6 +872,12 @@ impl App {
         // Reset debug stats for this frame
         self.debug_stats = DebugStats::default();
         
+        // Calculate frustum for culling
+        let screen_width = rl.get_screen_width() as f32;
+        let screen_height = rl.get_screen_height() as f32;
+        let aspect_ratio = screen_width / screen_height;
+        let frustum = self.cam.calculate_frustum(aspect_ratio, 0.1, 1000.0);
+        
         let camera3d = self.cam.to_camera3d();
         let mut d = rl.begin_drawing(thread);
         d.clear_background(Color::new(210, 221, 235, 255));
@@ -898,6 +906,12 @@ impl App {
             }
 
             for (_key, cr) in &self.runtime.renders {
+                // Check if chunk is within frustum
+                if !frustum.contains_bounding_box(&cr.bbox) {
+                    self.debug_stats.chunks_culled += 1;
+                    continue;
+                }
+                
                 self.debug_stats.chunks_rendered += 1;
                 for (_fm, model) in &cr.parts {
                     // Get mesh stats from the model
@@ -919,6 +933,18 @@ impl App {
             // Draw structures with transform (translation + yaw)
             for (id, cr) in &self.runtime.structure_renders {
                 if let Some(st) = self.gs.structures.get(id) {
+                    // Translate bounding box to structure position for frustum check
+                    let translated_bbox = raylib::core::math::BoundingBox {
+                        min: cr.bbox.min + st.pose.pos,
+                        max: cr.bbox.max + st.pose.pos,
+                    };
+                    
+                    // Check if structure is within frustum
+                    if !frustum.contains_bounding_box(&translated_bbox) {
+                        self.debug_stats.structures_culled += 1;
+                        continue;
+                    }
+                    
                     self.debug_stats.structures_rendered += 1;
                     for (_fm, model) in &cr.parts {
                         // Get mesh stats from the model
@@ -1020,12 +1046,14 @@ impl App {
         // Debug overlay (lower left)
         let fps = d.get_fps();
         let debug_text = format!(
-            "FPS: {}\nVertices: {}\nTriangles: {}\nChunks: {}\nStructures: {}\nDraw Calls: {}",
+            "FPS: {}\nVertices: {}\nTriangles: {}\nChunks: {} (culled: {})\nStructures: {} (culled: {})\nDraw Calls: {}",
             fps,
             self.debug_stats.total_vertices,
             self.debug_stats.total_triangles,
             self.debug_stats.chunks_rendered,
+            self.debug_stats.chunks_culled,
             self.debug_stats.structures_rendered,
+            self.debug_stats.structures_culled,
             self.debug_stats.draw_calls
         );
         let screen_height = d.get_screen_height();

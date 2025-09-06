@@ -1,5 +1,62 @@
 use raylib::prelude::*;
 
+#[derive(Clone, Copy, Debug)]
+pub struct Plane {
+    pub normal: Vector3,
+    pub distance: f32,
+}
+
+impl Plane {
+    pub fn new(normal: Vector3, point: Vector3) -> Self {
+        let normal = normal.normalized();
+        Self {
+            normal,
+            distance: -normal.dot(point),
+        }
+    }
+    
+    pub fn distance_to_point(&self, point: Vector3) -> f32 {
+        self.normal.dot(point) + self.distance
+    }
+}
+
+pub struct Frustum {
+    pub planes: [Plane; 6], // left, right, top, bottom, near, far
+}
+
+impl Frustum {
+    pub fn contains_bounding_box(&self, bbox: &raylib::core::math::BoundingBox) -> bool {
+        // Get the 8 corners of the bounding box
+        let corners = [
+            Vector3::new(bbox.min.x, bbox.min.y, bbox.min.z),
+            Vector3::new(bbox.max.x, bbox.min.y, bbox.min.z),
+            Vector3::new(bbox.min.x, bbox.max.y, bbox.min.z),
+            Vector3::new(bbox.max.x, bbox.max.y, bbox.min.z),
+            Vector3::new(bbox.min.x, bbox.min.y, bbox.max.z),
+            Vector3::new(bbox.max.x, bbox.min.y, bbox.max.z),
+            Vector3::new(bbox.min.x, bbox.max.y, bbox.max.z),
+            Vector3::new(bbox.max.x, bbox.max.y, bbox.max.z),
+        ];
+        
+        // Check each plane
+        for plane in &self.planes {
+            let mut all_outside = true;
+            for corner in &corners {
+                if plane.distance_to_point(*corner) >= 0.0 {
+                    all_outside = false;
+                    break;
+                }
+            }
+            // If all corners are outside this plane, the box is outside the frustum
+            if all_outside {
+                return false;
+            }
+        }
+        
+        true
+    }
+}
+
 pub struct FlyCamera {
     pub position: Vector3,
     pub yaw: f32,   // degrees
@@ -29,6 +86,55 @@ impl FlyCamera {
             Vector3::new(0.0, 1.0, 0.0),
             70.0,
         )
+    }
+    
+    pub fn calculate_frustum(&self, aspect_ratio: f32, near: f32, far: f32) -> Frustum {
+        let fov = 70.0_f32.to_radians();
+        let forward = self.forward();
+        let right = self.right();
+        let up = forward.cross(right);
+        
+        let half_v_side = far * (fov * 0.5).tan();
+        let half_h_side = half_v_side * aspect_ratio;
+        
+        let front_mult_far = forward * far;
+        let front_mult_near = forward * near;
+        
+        // Calculate frustum corners
+        let near_center = self.position + front_mult_near;
+        let far_center = self.position + front_mult_far;
+        
+        // Near plane
+        let near_plane = Plane::new(forward, near_center);
+        
+        // Far plane  
+        let far_plane = Plane::new(-forward, far_center);
+        
+        // Left plane
+        let left_normal = ((near_center - right * half_h_side * (near / far)) - self.position)
+            .cross(up)
+            .normalized();
+        let left_plane = Plane::new(left_normal, self.position);
+        
+        // Right plane
+        let right_normal = up.cross((near_center + right * half_h_side * (near / far)) - self.position)
+            .normalized();
+        let right_plane = Plane::new(right_normal, self.position);
+        
+        // Top plane
+        let top_normal = right.cross((near_center + up * half_v_side * (near / far)) - self.position)
+            .normalized();
+        let top_plane = Plane::new(top_normal, self.position);
+        
+        // Bottom plane
+        let bottom_normal = ((near_center - up * half_v_side * (near / far)) - self.position)
+            .cross(right)
+            .normalized();
+        let bottom_plane = Plane::new(bottom_normal, self.position);
+        
+        Frustum {
+            planes: [left_plane, right_plane, top_plane, bottom_plane, near_plane, far_plane],
+        }
     }
 
     pub fn forward(&self) -> Vector3 {
