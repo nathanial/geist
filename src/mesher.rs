@@ -1321,6 +1321,15 @@ impl TextureCache {
                 return self.map.get(p);
             }
         }
-        None
+        // If no candidate could be loaded, log and panic — missing block texture is a fatal error.
+        log::error!(
+            target: "textures",
+            "Missing block texture; tried candidates: {:?}",
+            candidates
+        );
+        panic!(
+            "Missing block texture on disk. Tried: {:?}",
+            candidates
+        );
     }
 }
