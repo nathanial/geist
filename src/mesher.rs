@@ -610,6 +610,7 @@ pub fn build_chunk_greedy_cpu_buf(
             Some((mid, l))
         },
     );
+    /*
     // Prepare registry types for special shapes if available
     let slab_ty = reg.id_by_name("slab").and_then(|id| reg.get(id));
     let stairs_ty = reg.id_by_name("stairs").and_then(|id| reg.get(id));
@@ -1255,6 +1256,7 @@ pub fn build_chunk_greedy_cpu_buf(
             }
         }
     }
+    */
     let bbox = BoundingBox::new(
         Vector3::new(base_x as f32, 0.0, base_z as f32),
         Vector3::new(

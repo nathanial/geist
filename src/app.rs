@@ -35,6 +35,7 @@ pub struct DebugStats {
 impl App {
     #[inline]
     fn structure_block_solid_at_local(
+        reg: &crate::blocks::BlockRegistry,
         st: &crate::structure::Structure,
         lx: i32,
         ly: i32,
@@ -48,9 +49,13 @@ impl App {
             return false;
         }
         if let Some(b) = st.edits.get(lx, ly, lz) {
-            return b.is_solid();
+            return reg
+                .get(b.id)
+                .map(|ty| ty.is_solid(b.state))
+                .unwrap_or(false);
         }
-        st.blocks[st.idx(lxu, lyu, lzu)].is_solid()
+        let b = st.blocks[st.idx(lxu, lyu, lzu)];
+        reg.get(b.id).map(|ty| ty.is_solid(b.state)).unwrap_or(false)
     }
 
     fn is_feet_on_structure(&self, st: &crate::structure::Structure, feet_world: Vector3) -> bool {
@@ -73,8 +78,8 @@ impl App {
             let ly = (local.y - 0.08).floor() as i32;
             let lz = local.z.floor() as i32;
             // Be robust to tiny clearance/step resolution by also checking one cell below
-            if Self::structure_block_solid_at_local(st, lx, ly, lz)
-                || Self::structure_block_solid_at_local(st, lx, ly - 1, lz)
+            if Self::structure_block_solid_at_local(&self.runtime.reg, st, lx, ly, lz)
+                || Self::structure_block_solid_at_local(&self.runtime.reg, st, lx, ly - 1, lz)
             {
                 return true;
             }
@@ -208,6 +213,7 @@ impl App {
                                     &p,
                                     (wx, wy, wz),
                                     &mut gs.edits,
+                                    &reg,
                                 ) {
                                     Ok((sx, sy, sz)) => {
                                         log::info!(
@@ -275,7 +281,7 @@ impl App {
                 pos: world_center + Vector3::new(0.0, 16.0, 40.0),
                 yaw_deg: 0.0,
             };
-            let st = Structure::new(castle_id, st_sx, st_sy, st_sz, pose);
+            let st = Structure::new(castle_id, st_sx, st_sy, st_sz, pose, &reg);
             gs.structures.insert(castle_id, st);
             queue.emit_now(Event::StructureBuildRequested {
                 id: castle_id,
@@ -398,6 +404,7 @@ impl App {
                             self.gs.ground_attach = None;
                         }
                     }
+                    let reg = &self.runtime.reg;
                     let sampler = |wx: i32, wy: i32, wz: i32| -> Block {
                         // Check dynamic structures first
                         for (_id, st) in &self.gs.structures {
@@ -417,13 +424,13 @@ impl App {
                                 && (lz as usize) < st.sz
                             {
                                 if let Some(b) = st.edits.get(lx, ly, lz) {
-                                    if b.is_solid() {
+                                    if reg.get(b.id).map(|t| t.is_solid(b.state)).unwrap_or(false) {
                                         return b;
                                     }
                                 }
                                 let idx = st.idx(lx as usize, ly as usize, lz as usize);
                                 let b = st.blocks[idx];
-                                if b.is_solid() {
+                                if reg.get(b.id).map(|t| t.is_solid(b.state)).unwrap_or(false) {
                                     return b;
                                 }
                             }
@@ -435,15 +442,16 @@ impl App {
                         let cz = wz.div_euclid(sz);
                         if let Some(cent) = self.gs.chunks.get(&(cx, cz)) {
                             if let Some(ref buf) = cent.buf {
-                                return buf.get_world(wx, wy, wz).unwrap_or(Block::Air);
+                                return buf.get_world(wx, wy, wz).unwrap_or(Block::AIR);
                             }
                         }
-                        self.gs.world.block_at(wx, wy, wz)
+                        self.gs.world.block_at_runtime(reg, wx, wy, wz)
                     };
                     self.gs.walker.update_with_sampler(
                         rl,
                         &sampler,
                         &self.gs.world,
+                        &self.runtime.reg,
                         (dt_ms as f32) / 1000.0,
                         yaw,
                         None, // No platform velocity needed - we handle movement via teleportation
@@ -865,7 +873,13 @@ impl App {
                         let wy = hit.by;
                         let wz = hit.bz;
                         let prev = sampler(wx, wy, wz);
-                        if prev.is_solid() {
+                        if self
+                            .runtime
+                            .reg
+                            .get(prev.id)
+                            .map(|t| t.is_solid(prev.state))
+                            .unwrap_or(false)
+                        {
                             self.queue.emit_now(Event::BlockRemoved { wx, wy, wz });
                         }
                     }
@@ -895,13 +909,19 @@ impl App {
             }
             Event::BlockPlaced { wx, wy, wz, block } => {
                 self.gs.edits.set(wx, wy, wz, block);
-                if block.emission() > 0 {
-                    let is_beacon = matches!(block, Block::Beacon);
+                let em = self
+                    .runtime
+                    .reg
+                    .get(block.id)
+                    .map(|t| t.light_emission(block.state))
+                    .unwrap_or(0);
+                if em > 0 {
+                    let is_beacon = self.runtime.reg.id_by_name("beacon") == Some(block.id);
                     self.queue.emit_now(Event::LightEmitterAdded {
                         wx,
                         wy,
                         wz,
-                        level: block.emission(),
+                        level: em,
                         is_beacon,
                     });
                 }
@@ -921,6 +941,7 @@ impl App {
                 // Determine previous block to update lighting
                 let sx = self.gs.world.chunk_size_x as i32;
                 let sz = self.gs.world.chunk_size_z as i32;
+                let reg = &self.runtime.reg;
                 let sampler = |wx: i32, wy: i32, wz: i32| -> Block {
                     if let Some(b) = self.gs.edits.get(wx, wy, wz) {
                         return b;
@@ -929,17 +950,23 @@ impl App {
                     let cz = wz.div_euclid(sz);
                     if let Some(cent) = self.gs.chunks.get(&(cx, cz)) {
                         if let Some(ref buf) = cent.buf {
-                            return buf.get_world(wx, wy, wz).unwrap_or(Block::Air);
+                            return buf.get_world(wx, wy, wz).unwrap_or(Block::AIR);
                         }
                     }
-                    self.gs.world.block_at(wx, wy, wz)
+                    self.gs.world.block_at_runtime(reg, wx, wy, wz)
                 };
                 let prev = sampler(wx, wy, wz);
-                if prev.emission() > 0 {
+                let prev_em = self
+                    .runtime
+                    .reg
+                    .get(prev.id)
+                    .map(|t| t.light_emission(prev.state))
+                    .unwrap_or(0);
+                if prev_em > 0 {
                     self.queue
                         .emit_now(Event::LightEmitterRemoved { wx, wy, wz });
                 }
-                self.gs.edits.set(wx, wy, wz, Block::Air);
+                self.gs.edits.set(wx, wy, wz, Block::AIR);
                 let _ = self.gs.edits.bump_region_around(wx, wz);
                 for (cx, cz) in self.gs.edits.get_affected_chunks(wx, wz) {
                     if self.runtime.renders.contains_key(&(cx, cz)) {
@@ -1304,10 +1331,10 @@ impl App {
                 let cz = wz.div_euclid(sz);
                 if let Some(cent) = self.gs.chunks.get(&(cx, cz)) {
                     if let Some(ref buf) = cent.buf {
-                        return buf.get_world(wx, wy, wz).unwrap_or(Block::Air);
+                        return buf.get_world(wx, wy, wz).unwrap_or(Block::AIR);
                     }
                 }
-                self.gs.world.block_at(wx, wy, wz)
+                self.gs.world.block_at_runtime(&self.runtime.reg, wx, wy, wz)
             };
             let is_solid = |wx: i32, wy: i32, wz: i32| -> bool {
     let b = sampler(wx, wy, wz);

@@ -85,7 +85,7 @@ impl Structure {
         if lxu >= self.sx || lyu >= self.sy || lzu >= self.sz {
             return;
         }
-        self.edits.set(lx, ly, lz, Block::Air);
+        self.edits.set(lx, ly, lz, Block::AIR);
         self.bump_rev();
     }
 

@@ -1,6 +1,7 @@
 use raylib::prelude::*;
 
-use crate::voxel::{Block, World};
+use crate::blocks::{Block, BlockRegistry};
+use crate::voxel::World;
 
 #[derive(Debug)]
 pub struct Walker {
@@ -39,16 +40,11 @@ impl Walker {
     }
 
     #[inline]
-    fn is_solid_for_collision(b: Block) -> bool {
-        match b {
-            Block::Air => false,
-            // Treat leaves as solid for walking/collisions
-            Block::Leaves(_) => true,
-            _ => true,
-        }
+    fn is_solid_for_collision(reg: &BlockRegistry, b: Block) -> bool {
+        reg.get(b.id).map(|t| t.is_solid(b.state)).unwrap_or(false)
     }
 
-    fn aabb_collides_with<F>(&self, sample: &F, pos: Vector3) -> bool
+    fn aabb_collides_with<F>(&self, reg: &BlockRegistry, sample: &F, pos: Vector3) -> bool
     where
         F: Fn(i32, i32, i32) -> Block,
     {
@@ -65,7 +61,7 @@ impl Walker {
             for z in min_z..=max_z {
                 for x in min_x..=max_x {
                     let b = sample(x, y, z);
-                    if Self::is_solid_for_collision(b) {
+                    if Self::is_solid_for_collision(reg, b) {
                         return true;
                     }
                 }
@@ -74,7 +70,7 @@ impl Walker {
         false
     }
 
-    fn move_axis<F>(&mut self, sample: &F, axis: usize, amt: f32) -> f32
+    fn move_axis<F>(&mut self, reg: &BlockRegistry, sample: &F, axis: usize, amt: f32) -> f32
     where
         F: Fn(i32, i32, i32) -> Block,
     {
@@ -97,7 +93,7 @@ impl Walker {
                 1 => p.y += s,
                 _ => p.z += s,
             };
-            if self.aabb_collides_with(sample, p) {
+            if self.aabb_collides_with(reg, sample, p) {
                 break; // collision
             } else {
                 self.pos = p;
@@ -113,6 +109,7 @@ impl Walker {
         rl: &mut raylib::RaylibHandle,
         sample: &F,
         _world: &World,
+        reg: &BlockRegistry,
         dt: f32,
         yaw: f32,
         platform_velocity: Option<Vector3>,
@@ -158,7 +155,7 @@ impl Walker {
         // Ground check: test a slightly larger offset down for stability
         let mut below = self.pos;
         below.y -= 0.10;
-        self.on_ground = self.aabb_collides_with(sample, below);
+        self.on_ground = self.aabb_collides_with(reg, sample, below);
         if self.on_ground {
             // Reset vertical velocity and allow jump
             if self.vel.y < 0.0 {
@@ -179,15 +176,15 @@ impl Walker {
         let dy = (self.vel.y + platform_vel.y) * dt;
         let moved_y = if dy > 0.0 {
             // Ascending (jump/climb): move up first, then horizontal
-            let my = self.move_axis(sample, 1, dy);
-            self.move_axis(sample, 0, dx);
-            self.move_axis(sample, 2, dz);
+            let my = self.move_axis(reg, sample, 1, dy);
+            self.move_axis(reg, sample, 0, dx);
+            self.move_axis(reg, sample, 2, dz);
             my
         } else {
             // Descending / grounded: hug terrain by doing horizontal first
-            self.move_axis(sample, 0, dx);
-            self.move_axis(sample, 2, dz);
-            self.move_axis(sample, 1, dy)
+            self.move_axis(reg, sample, 0, dx);
+            self.move_axis(reg, sample, 2, dz);
+            self.move_axis(reg, sample, 1, dy)
         };
         // Land
         if dy < 0.0 && moved_y.abs() < dy.abs() * 0.5 {

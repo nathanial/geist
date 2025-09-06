@@ -39,7 +39,7 @@ impl ChunkBuf {
             return None;
         }
         if wy < 0 || wy >= self.sy as i32 {
-            return Some(Block::Air);
+            return Some(Block::AIR);
         }
         let x0 = self.cx * self.sx as i32;
         let z0 = self.cz * self.sz as i32;

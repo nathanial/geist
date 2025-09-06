@@ -737,31 +737,7 @@ fn skylight_transparent(b: Block, reg: &BlockRegistry) -> bool {
 }
 
 #[inline]
-fn map_legacy_block_to_registry_name(b: Block) -> Option<&'static str> {
-    match b {
-        Block::Air => Some("air"),
-        Block::Stone => Some("stone"),
-        Block::Dirt => Some("dirt"),
-        Block::Grass => Some("grass"),
-        Block::Sand => Some("sand"),
-        Block::Snow => Some("snow"),
-        Block::Glowstone => Some("glowstone"),
-        Block::Beacon => Some("beacon"),
-        Block::Wood(voxel::TreeSpecies::Oak) => Some("oak_log"),
-        Block::Wood(voxel::TreeSpecies::Birch) => Some("birch_log"),
-        Block::Wood(voxel::TreeSpecies::Spruce) => Some("spruce_log"),
-        Block::Wood(voxel::TreeSpecies::Jungle) => Some("jungle_log"),
-        Block::Wood(voxel::TreeSpecies::Acacia) => Some("acacia_log"),
-        Block::Wood(voxel::TreeSpecies::DarkOak) => Some("dark_oak_log"),
-        Block::Leaves(voxel::TreeSpecies::Oak) => Some("oak_leaves"),
-        Block::Leaves(voxel::TreeSpecies::Birch) => Some("birch_leaves"),
-        Block::Leaves(voxel::TreeSpecies::Spruce) => Some("spruce_leaves"),
-        Block::Leaves(voxel::TreeSpecies::Jungle) => Some("jungle_leaves"),
-        Block::Leaves(voxel::TreeSpecies::Acacia) => Some("acacia_leaves"),
-        Block::Leaves(voxel::TreeSpecies::DarkOak) => Some("oak_leaves"),
-        _ => None,
-    }
-}
+// (legacy palette mapping removed)
 
 // Helper: determine if a block allows block-light propagation using the runtime registry.
 // Returns true for air and any block that has `propagates_light=true`.

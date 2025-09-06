@@ -200,11 +200,37 @@
 - New assets: `assets/voxels/{blocks.toml,materials.toml,palette_map.toml,hotbar.toml}`.
 
 **Status Summary**
-- Done: Materials/blocks configs and loaders; MaterialCatalog; BlockRegistry; mesher grouping by `MaterialId` and texture upload; leaves shader via `render_tag`; sand/snow/logs/leaves added; FaceMaterial effectively removed; skylight uses registry.
-- Done: Shape-aware occlusion (cube-like via registry). Slabs/stairs use registry for materials and keep precise top/bottom occlusion until runtime `Block` lands.
-- Done: Block-light propagation flags via registry (`propagates_light`) wired into block and beacon BFS.
-- Done: Added `slab` and `stairs` block types with `state_schema` and per-face `by = "material"` maps; mesher passes `material` prop and prefers registry material resolution with fallback to catalog.
-- Next: Migrate storage to runtime `Block { id, state }` end-to-end; finalize shape-driven occlusion for slabs/stairs using registry state; config-driven schematic translator; state packing; hotbar from config.
+- DONE: Config assets and loaders in `assets/voxels/*` (materials, blocks, palette_map, hotbar). Materials support `render_tag` (e.g., "leaves"). Air has `propagates_light = true`.
+- DONE: `MaterialCatalog`, `BlockRegistry`, `BlockType` with flags (`solid`, `blocks_skylight`, `propagates_light`, `emission`), `Shape`, and `CompiledMaterials` with by-property selectors.
+- DONE: Meshing groups by `MaterialId` end-to-end; upload path resolves textures via `MaterialCatalog`. `FaceMaterial` removed from pipeline.
+- DONE: Lighting uses registry: `LightGrid::compute_with_borders_buf(buf, store, reg)` seeds skylight via `blocks_skylight` and propagates block/beacon light via `propagates_light`.
+- DONE: Added `slab` and `stairs` to registry with `shape` + `state_schema` and per-face `by = "material"` maps.
+- DONE: Storage migration started and largely complete: `ChunkBuf` holds runtime `Block { id, state }`; world/worker generates buffers via `generate_chunk_buffer(world, cx, cz, reg)`; structure meshes built from runtime blocks; events/edits pass runtime blocks.
+- DONE: Shape-aware occlusion for cube-like blocks via registry; slab/stairs top/bottom occlusion via registry state.
+- PARTIAL: Special-shape meshing (slabs/stairs) resolves materials via registry when provided a `material` property, but code still references legacy `MaterialKey` to derive that property value.
+- PARTIAL: App/UI still references legacy `Block` API for `is_solid` and constants; hotbar not yet driven by `assets/voxels/hotbar.toml`.
+
+**Build Breakages (To Fix Next)**
+- Mesher special-shape blocks: `match buf.get_local(..)` still matches legacy `Block::Slab`/`Block::Stairs`, but runtime `Block` is a struct. Convert shape meshing to be registry/state driven and remove legacy matches.
+- Neighbor “restore faces” logic for slabs/stairs relies on legacy kinds. Rework using `reg.get(id).shape` and state props (half/facing) or simplify/remove initially.
+- App/Structure: uses `Block::Air` and `Block::is_solid()` from legacy API. Replace with runtime `Block` plus `reg.id_by_name("air")` and `reg.get(b.id).map(|t| t.is_solid(b.state))` helpers.
+- Remaining references to `MaterialKey`, `TreeSpecies`, `Dir4`, etc., in mesher and elsewhere must be removed. Use `state_schema` properties (`material`, `facing`, etc.) instead.
+
+**API Changes (Implemented)**
+- `lighting::LightGrid::compute_with_borders_buf(buf, store, reg)` now requires `&BlockRegistry` and uses `blocks_skylight`/`propagates_light`. Beacon propagation tracks direction and attenuates accordingly.
+- `mesher::build_chunk_greedy_cpu_buf(buf, lighting, world, edits, neighbors, cx, cz, reg)` resolves materials via registry and returns `MaterialId`-keyed parts; cross-chunk occlusion disabled to avoid seams without neighbor access.
+- `mesher::build_voxel_body_cpu_buf(buf, ambient, reg)` builds local-space meshes using registry for solidity and materials.
+- `ChunkBuf` stores runtime `Block { id, state }`; `generate_chunk_buffer(world, cx, cz, reg)` uses a temporary `World::block_at_runtime(reg, x,y,z)` bridge.
+- `Runtime` workers own `Arc<BlockRegistry>` and pass it through meshing and texture upload paths.
+
+**Immediate Tasks**
+- Replace legacy special-shape matches: Use `reg.get(b.id).map(|t| &t.shape)` and state props (`half`, `facing`) to drive slab/stairs emitters; delete all `Block::Slab/Stairs` matches.
+- Remove `MaterialKey`: For shapes, derive `material` directly from `BlockState` using registry `state_schema`; drop helper that maps `MaterialKey` → string; remove all legacy enums.
+- Implement state packing/unpacking: Centralize bit packing in registry (property order, masks). Update `CompiledMaterials::material_for` to resolve `By { by, map }` using `BlockState` without an ad-hoc props map.
+- App/UI migration: Replace `Block::is_solid()` calls with registry checks; drive hotbar from `assets/voxels/hotbar.toml`; default place block via `reg.id_by_name("stone")`.
+- Worldgen migration: Emit runtime blocks directly (name → id + state) and remove `World::block_at_runtime` bridge.
+- Schematic translator: Implement `assets/voxels/palette_map.toml`-driven runtime mapping in `schem.rs` and `mcworld.rs`; remove hardcoded palette mappings.
+- Finalize stairs occlusion: Add directional occlusion rules based on `facing` for lateral faces, still avoiding cross‑chunk culling.
 
 **Acceptance Criteria**
 - Visual parity: Grass/dirt/stone, sand, snow render as before; logs/leaves for oak/birch/spruce/jungle/acacia match current, leaves use leaves shader.

@@ -2,6 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::voxel::{Block, Dir4, MaterialKey, SlabHalf, TerracottaColor, TreeSpecies};
+use crate::blocks::{Block as RtBlock, BlockRegistry};
 
 // Map a Sponge palette key like "minecraft:oak_log[axis=y]" to our Block
 fn base_from_key(key: &str) -> &str {
@@ -932,10 +933,73 @@ fn numeric_id_to_block(id: u16, data: u8) -> Block {
     }
 }
 
+fn legacy_to_runtime(reg: &BlockRegistry, b: Block) -> RtBlock {
+    // Map a subset of legacy kinds to runtime registry blocks by name.
+    // Unknowns map to stone for now.
+    let name_opt: Option<&'static str> = match b {
+        Block::Air => Some("air"),
+        Block::Stone => Some("stone"),
+        Block::Dirt => Some("dirt"),
+        Block::Grass => Some("grass"),
+        Block::Sand => Some("sand"),
+        Block::Snow => Some("snow"),
+        Block::Glowstone => Some("glowstone"),
+        Block::Beacon => Some("beacon"),
+        Block::Wood(sp) => match sp {
+            TreeSpecies::Oak => Some("oak_log"),
+            TreeSpecies::Birch => Some("birch_log"),
+            TreeSpecies::Spruce => Some("spruce_log"),
+            TreeSpecies::Jungle => Some("jungle_log"),
+            TreeSpecies::Acacia => Some("acacia_log"),
+            TreeSpecies::DarkOak => Some("dark_oak_log"),
+        },
+        Block::Leaves(sp) => match sp {
+            TreeSpecies::Oak => Some("oak_leaves"),
+            TreeSpecies::Birch => Some("birch_leaves"),
+            TreeSpecies::Spruce => Some("spruce_leaves"),
+            TreeSpecies::Jungle => Some("jungle_leaves"),
+            TreeSpecies::Acacia => Some("acacia_leaves"),
+            TreeSpecies::DarkOak => Some("oak_leaves"),
+        },
+        Block::Cobblestone => Some("cobblestone"),
+        Block::MossyCobblestone => Some("mossy_cobblestone"),
+        Block::StoneBricks => Some("stone_bricks"),
+        Block::MossyStoneBricks => Some("mossy_stone_bricks"),
+        Block::Brick => Some("brick"),
+        Block::Granite => Some("granite"),
+        Block::Diorite => Some("diorite"),
+        Block::Andesite => Some("andesite"),
+        Block::PolishedGranite => Some("polished_granite"),
+        Block::PolishedDiorite => Some("polished_diorite"),
+        Block::PolishedAndesite => Some("polished_andesite"),
+        Block::Gravel => Some("gravel"),
+        Block::SmoothStone => Some("smooth_stone"),
+        Block::Sandstone | Block::SmoothSandstone => Some("sandstone"),
+        Block::RedSandstone | Block::SmoothRedSandstone => Some("red_sandstone"),
+        Block::QuartzBlock | Block::QuartzPillar(_) => Some("quartz_block"),
+        Block::LapisBlock => Some("lapis_block"),
+        Block::CoalBlock => Some("coal_block"),
+        Block::PrismarineBricks => Some("prismarine_bricks"),
+        Block::NetherBricks => Some("nether_bricks"),
+        Block::EndStone => Some("end_stone"),
+        Block::EndStoneBricks => Some("end_stone_bricks"),
+        Block::TerracottaPlain | Block::Terracotta(_) => Some("stone"),
+        // Special shapes and unknowns: approximate to base cube
+        Block::Planks(_) => Some("oak_planks"),
+        Block::LogAxis(_, _) | Block::Slab { .. } | Block::Stairs { .. } | Block::Unknown => Some("stone"),
+        _ => Some("stone"),
+    };
+    let id = name_opt
+        .and_then(|n| reg.id_by_name(n))
+        .unwrap_or_else(|| reg.id_by_name("stone").unwrap_or(0));
+    RtBlock { id, state: 0 }
+}
+
 pub fn load_mcedit_schematic_apply_edits(
     path: &Path,
     origin: (i32, i32, i32),
     edits: &mut crate::edit::EditStore,
+    reg: &BlockRegistry,
 ) -> Result<(usize, usize, usize), String> {
     let nbt = nbt_schematic_from_file(path)?;
     let w = nbt.Width as i32;
@@ -992,7 +1056,10 @@ pub fn load_mcedit_schematic_apply_edits(
                     if matches!(b, Block::Unknown) {
                         unsupported.insert(id);
                     }
-                    edits.set(ox + x, oy + y, oz + z, b);
+                    let rt = legacy_to_runtime(reg, b);
+                    if rt.id != reg.id_by_name("air").unwrap_or(0) {
+                        edits.set(ox + x, oy + y, oz + z, rt);
+                    }
                 }
             }
         }
@@ -1011,22 +1078,23 @@ pub fn load_any_schematic_apply_edits(
     path: &Path,
     origin: (i32, i32, i32),
     edits: &mut crate::edit::EditStore,
+    reg: &BlockRegistry,
 ) -> Result<(usize, usize, usize), String> {
     let ext = path
         .extension()
         .and_then(|e| Some(e.to_string_lossy().to_lowercase()))
         .unwrap_or_default();
     if ext == "schem" {
-        load_sponge_schem_apply_edits(path, origin, edits)
+        load_sponge_schem_apply_edits(path, origin, edits, reg)
     } else if ext == "schematic" {
-        match load_mcedit_schematic_apply_edits(path, origin, edits) {
+        match load_mcedit_schematic_apply_edits(path, origin, edits, reg) {
             Ok(s) => Ok(s),
             Err(e) => {
                 // As a last resort, try mc_schem parser if available
                 match mc_schem::Schematic::from_file(
                     path.to_str().ok_or_else(|| "invalid path".to_string())?,
                 ) {
-                    Ok(_s) => load_sponge_schem_apply_edits(path, origin, edits),
+                    Ok(_s) => load_sponge_schem_apply_edits(path, origin, edits, reg),
                     Err(_) => Err(e),
                 }
             }
@@ -1040,6 +1108,7 @@ pub fn load_sponge_schem_apply_edits(
     path: &Path,
     origin: (i32, i32, i32),
     edits: &mut crate::edit::EditStore,
+    reg: &BlockRegistry,
 ) -> Result<(usize, usize, usize), String> {
     // Load via mc_schem high-level API
     let (schem, _meta) =
@@ -1063,7 +1132,10 @@ pub fn load_sponge_schem_apply_edits(
                     let wx = ox + x;
                     let wy = oy + y;
                     let wz = oz + z;
-                    edits.set(wx, wy, wz, mapped);
+                    let rt = legacy_to_runtime(reg, mapped);
+                    if rt.id != reg.id_by_name("air").unwrap_or(0) {
+                        edits.set(wx, wy, wz, rt);
+                    }
                 }
             }
         }
