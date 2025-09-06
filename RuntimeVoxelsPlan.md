@@ -207,14 +207,22 @@
 - DONE: Added `slab` and `stairs` to registry with `shape` + `state_schema` and per-face `by = "material"` maps.
 - DONE: Storage migration started and largely complete: `ChunkBuf` holds runtime `Block { id, state }`; world/worker generates buffers via `generate_chunk_buffer(world, cx, cz, reg)`; structure meshes built from runtime blocks; events/edits pass runtime blocks.
 - DONE: Shape-aware occlusion for cube-like blocks via registry; slab/stairs top/bottom occlusion via registry state.
-- PARTIAL: Special-shape meshing (slabs/stairs) resolves materials via registry when provided a `material` property, but code still references legacy `MaterialKey` to derive that property value.
-- PARTIAL: App/UI still references legacy `Block` API for `is_solid` and constants; hotbar not yet driven by `assets/voxels/hotbar.toml`.
+- DONE: Compile errors resolved. Removed legacy enum matches from active meshing path; App/Player/Structure now use registry for solidity/emission and `Block::AIR` constant.
+- PARTIAL: Special-shape meshing (slabs/stairs) temporarily disabled in mesher pending registry-state emitters (no legacy shims retained).
+- PARTIAL: Schematic loader now maps legacy palette output to runtime via registry bridge; full `palette_map.toml` translator still pending.
+- PARTIAL: App hotbar still hardcoded; not yet driven by `assets/voxels/hotbar.toml`.
 
-**Build Breakages (To Fix Next)**
-- Mesher special-shape blocks: `match buf.get_local(..)` still matches legacy `Block::Slab`/`Block::Stairs`, but runtime `Block` is a struct. Convert shape meshing to be registry/state driven and remove legacy matches.
-- Neighbor “restore faces” logic for slabs/stairs relies on legacy kinds. Rework using `reg.get(id).shape` and state props (half/facing) or simplify/remove initially.
-- App/Structure: uses `Block::Air` and `Block::is_solid()` from legacy API. Replace with runtime `Block` plus `reg.id_by_name("air")` and `reg.get(b.id).map(|t| t.is_solid(b.state))` helpers.
-- Remaining references to `MaterialKey`, `TreeSpecies`, `Dir4`, etc., in mesher and elsewhere must be removed. Use `state_schema` properties (`material`, `facing`, etc.) instead.
+**Build Status / Recent Fixes**
+- RESOLVED: Removed legacy special-shape matches from mesher; compile green.
+- RESOLVED: App/Player/Structure migrated to registry (`is_solid`, `emission`); `Block::AIR` used consistently.
+- RESOLVED: Removed unused legacy lighting palette helper.
+
+**Remaining Work (No Shims)**
+- Reintroduce slab/stairs meshing using registry state: decode `half`/`facing` from `BlockState` and emit shape geometry; resolve face materials via `CompiledMaterials::By { by, map }`.
+- Remove `MaterialKey` and remaining legacy enums (`TreeSpecies`, `Dir4`, etc.) from code; rely solely on registry state and names.
+- Implement state packing/unpacking in registry to support by-property material selection without ad-hoc maps.
+- Implement config-driven schematic translator using `assets/voxels/palette_map.toml`; drop legacy `map_palette_*` functions.
+- Drive hotbar from `assets/voxels/hotbar.toml` and expose block debug names via registry.
 
 **API Changes (Implemented)**
 - `lighting::LightGrid::compute_with_borders_buf(buf, store, reg)` now requires `&BlockRegistry` and uses `blocks_skylight`/`propagates_light`. Beacon propagation tracks direction and attenuates accordingly.
@@ -222,15 +230,17 @@
 - `mesher::build_voxel_body_cpu_buf(buf, ambient, reg)` builds local-space meshes using registry for solidity and materials.
 - `ChunkBuf` stores runtime `Block { id, state }`; `generate_chunk_buffer(world, cx, cz, reg)` uses a temporary `World::block_at_runtime(reg, x,y,z)` bridge.
 - `Runtime` workers own `Arc<BlockRegistry>` and pass it through meshing and texture upload paths.
+- `Walker::update_with_sampler(...)` now receives `&BlockRegistry` to evaluate collisions via registry `is_solid`.
+- `Structure::new(..., reg: &BlockRegistry)` requires registry for initial block IDs.
+- `schem::{load_any_schematic_apply_edits, load_sponge_*, load_mcedit_*}` now require `&BlockRegistry` and emit runtime blocks.
 
 **Immediate Tasks**
-- Replace legacy special-shape matches: Use `reg.get(b.id).map(|t| &t.shape)` and state props (`half`, `facing`) to drive slab/stairs emitters; delete all `Block::Slab/Stairs` matches.
-- Remove `MaterialKey`: For shapes, derive `material` directly from `BlockState` using registry `state_schema`; drop helper that maps `MaterialKey` → string; remove all legacy enums.
-- Implement state packing/unpacking: Centralize bit packing in registry (property order, masks). Update `CompiledMaterials::material_for` to resolve `By { by, map }` using `BlockState` without an ad-hoc props map.
-- App/UI migration: Replace `Block::is_solid()` calls with registry checks; drive hotbar from `assets/voxels/hotbar.toml`; default place block via `reg.id_by_name("stone")`.
-- Worldgen migration: Emit runtime blocks directly (name → id + state) and remove `World::block_at_runtime` bridge.
-- Schematic translator: Implement `assets/voxels/palette_map.toml`-driven runtime mapping in `schem.rs` and `mcworld.rs`; remove hardcoded palette mappings.
-- Finalize stairs occlusion: Add directional occlusion rules based on `facing` for lateral faces, still avoiding cross‑chunk culling.
+- Slab/stairs emitters: implement registry-state driven emitters and re-enable special-shape meshing.
+- State packing: centralize bit packing; update `CompiledMaterials::material_for` to use `BlockState` for `By { by, map }`.
+- Remove remaining legacy enums (`MaterialKey`, `TreeSpecies`, `Dir4`, etc.).
+- Schematic translator: implement `palette_map.toml` mapping; remove hardcoded palette handling.
+- Hotbar/UI: drive from config; use registry names for labels.
+- Worldgen: emit runtime blocks directly; remove temporary bridge.
 
 **Acceptance Criteria**
 - Visual parity: Grass/dirt/stone, sand, snow render as before; logs/leaves for oak/birch/spruce/jungle/acacia match current, leaves use leaves shader.
