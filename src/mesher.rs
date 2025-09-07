@@ -119,42 +119,7 @@ fn is_top_half_shape(b: Block, reg: &BlockRegistry) -> bool {
     false
 }
 
-#[inline]
-fn legacy_to_runtime_world(world: &World, reg: &BlockRegistry, x: i32, y: i32, z: i32) -> Block {
-    let lb = world.block_at(x, y, z);
-    // Map a subset of legacy kinds used in worldgen
-    let name_opt: Option<&'static str> = match lb {
-        crate::voxel::Block::Air => Some("air"),
-        crate::voxel::Block::Stone => Some("stone"),
-        crate::voxel::Block::Dirt => Some("dirt"),
-        crate::voxel::Block::Grass => Some("grass"),
-        crate::voxel::Block::Sand => Some("sand"),
-        crate::voxel::Block::Snow => Some("snow"),
-        crate::voxel::Block::Glowstone => Some("glowstone"),
-        crate::voxel::Block::Beacon => Some("beacon"),
-        crate::voxel::Block::Wood(sp) => match sp {
-            crate::voxel::TreeSpecies::Oak => Some("oak_log"),
-            crate::voxel::TreeSpecies::Birch => Some("birch_log"),
-            crate::voxel::TreeSpecies::Spruce => Some("spruce_log"),
-            crate::voxel::TreeSpecies::Jungle => Some("jungle_log"),
-            crate::voxel::TreeSpecies::Acacia => Some("acacia_log"),
-            crate::voxel::TreeSpecies::DarkOak => Some("dark_oak_log"),
-        },
-        crate::voxel::Block::Leaves(sp) => match sp {
-            crate::voxel::TreeSpecies::Oak => Some("oak_leaves"),
-            crate::voxel::TreeSpecies::Birch => Some("birch_leaves"),
-            crate::voxel::TreeSpecies::Spruce => Some("spruce_leaves"),
-            crate::voxel::TreeSpecies::Jungle => Some("jungle_leaves"),
-            crate::voxel::TreeSpecies::Acacia => Some("acacia_leaves"),
-            crate::voxel::TreeSpecies::DarkOak => Some("oak_leaves"),
-        },
-        _ => None,
-    };
-    let id = name_opt
-        .and_then(|n| reg.id_by_name(n))
-        .unwrap_or_else(|| reg.id_by_name("air").unwrap_or(0));
-    Block { id, state: 0 }
-}
+// Legacy world mapping removed; mesher queries runtime worldgen directly when needed.
 
 #[inline]
 fn emit_box(
@@ -388,9 +353,9 @@ fn is_occluder(
     let nb = if let Some(es) = edits {
         es.get(&(nx, ny, nz))
             .copied()
-            .unwrap_or_else(|| legacy_to_runtime_world(world, reg, nx, ny, nz))
+            .unwrap_or_else(|| world.block_at_runtime(reg, nx, ny, nz))
     } else {
-        legacy_to_runtime_world(world, reg, nx, ny, nz)
+        world.block_at_runtime(reg, nx, ny, nz)
     };
     occludes_face(nb, face, reg)
 }

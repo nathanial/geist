@@ -155,7 +155,7 @@
 - DONE: Block-light propagation flags via registry (`propagates_light`), applied in block and beacon BFS.
 - DONE: Slab/Stairs integrated as registry block types; mesher resolves their materials via registry property selectors.
 - DONE: Core storage migration to runtime `Block` for chunks, meshing, lighting, edits, events, and structures; app hotkeys/raycast updated.
-- NEXT: Worldgen emits runtime blocks from registry (remove temporary resolver); finalize occlusion for slabs/stairs using registry state; config-driven schematic translator and state packing; drive hotbar from config; tests/docs updates.
+ - DONE: Worldgen emits runtime blocks from registry (removed temporary resolver use in mesher and chunk gen). Occlusion remains registry-driven for cubes and special shapes.
 
 **Integration Notes (from code audit)**
 - Mesh grouping key: Replace all uses of `FaceMaterial` as a map key in `ChunkMeshCPU`/`ChunkRender` with `MaterialId` (or `RenderKey`). Update `meshing_core` and upload paths accordingly.
@@ -221,8 +221,7 @@
 - RESOLVED: Added `BlockType::state_prop_value/state_prop_is_value` and updated mesher occlusion helpers to use them.
 
 **Remaining Work (No Shims)**
-- Remove `MaterialKey` and remaining legacy enums (`TreeSpecies`, `Dir4`, etc.) from code; rely solely on registry state and names. Worldgen migration will enable full deletion of legacy `src/voxel.rs` enums and bridges.
-- Delete dead legacy schematic functions in `src/schem.rs` (`numeric_id_to_block`, `legacy_to_runtime`, etc.) after confirming no regressions.
+- Delete legacy enums and code: `MaterialKey`, `TreeSpecies`, `Dir4`, `SlabHalf`, `Axis`, and the `voxel::Block` enum, plus old `World::block_at`. Remove any remaining helpers gated by `cfg(any())` in `schem.rs` and clean warnings.
 - Expand `palette_map.toml` for any missing blocks encountered; current coverage includes: core cubes, planks, logs/leaves, slabs, stairs.
 
 **API Changes (Implemented)**
@@ -236,8 +235,7 @@
 - `schem::{load_any_schematic_apply_edits, load_sponge_*, load_mcedit_*}` now require `&BlockRegistry` and emit runtime blocks.
 
 **Immediate Tasks**
-- Worldgen: emit runtime blocks directly; remove temporary resolver/bridges.
-- Remove dead code and address warnings after legacy cleanup.
+- Remove dead legacy code and address warnings.
 
 **Recent Config Changes**
 - Added cube block defs: cobblestone, mossy_cobblestone, stone_bricks, mossy_stone_bricks, brick, granite, diorite, andesite, polished_{granite,diorite,andesite}, gravel, smooth_stone, sandstone, red_sandstone, quartz_block, lapis_block, coal_block, prismarine_bricks, nether_bricks, end_stone, end_stone_bricks, bookshelf, coarse_dirt, podzol, and planks for all wood species.
