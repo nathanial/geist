@@ -4,9 +4,9 @@ mode = "normal"
 thickness = 1
 
 [height]
-frequency = 0.02
-min_y_ratio = 0.15
-max_y_ratio = 0.70
+frequency = 0.015
+min_y_ratio = 0.30
+max_y_ratio = 0.50
 
 [surface]
 snow_threshold = 0.62
