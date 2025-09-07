@@ -255,6 +255,8 @@ pub struct BiomeDef {
     #[serde(default)] pub moisture_max: Option<f32>,
     #[serde(default)] pub top_block: Option<String>,
     #[serde(default)] pub species_weights: std::collections::HashMap<String, f32>,
+    #[serde(default)] pub tree_density: Option<f32>,
+    #[serde(default)] pub leaf_tint: Option<[f32; 3]>,
 }
 
 #[derive(Clone, Debug)]
@@ -273,6 +275,8 @@ pub struct BiomeDefParam {
     pub moisture_max: f32,
     pub top_block: Option<String>,
     pub species_weights: std::collections::HashMap<String, f32>,
+    pub tree_density: Option<f32>,
+    pub leaf_tint: Option<[f32; 3]>,
 }
 
 impl BiomesParams {
@@ -288,6 +292,8 @@ impl BiomesParams {
                 moisture_max: b.moisture_max.unwrap_or(1.0),
                 top_block: b.top_block.clone(),
                 species_weights: b.species_weights.clone(),
+                tree_density: b.tree_density,
+                leaf_tint: b.leaf_tint,
             })
             .collect();
         Self {

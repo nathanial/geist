@@ -396,7 +396,22 @@ impl World {
         }
 
         // Tree placement
-        let TREE_PROB: f32 = ctx.params.tree_probability;
+        let tree_prob_for = |wx: i32, wz: i32| -> f32 {
+            if let Some(ref b) = ctx.params.biomes {
+                if let (Some(tn), Some(mn)) = (&ctx.temp2d, &ctx.moist2d) {
+                    let tt = ((tn.get_noise_2d(wx as f32, wz as f32) + 1.0) * 0.5).clamp(0.0, 1.0);
+                    let mm = ((mn.get_noise_2d(wx as f32, wz as f32) + 1.0) * 0.5).clamp(0.0, 1.0);
+                    for def in &b.defs {
+                        if tt >= def.temp_min && tt < def.temp_max && mm >= def.moisture_min && mm < def.moisture_max {
+                            if let Some(d) = def.tree_density { return d.max(0.0).min(1.0); }
+                            break;
+                        }
+                    }
+                }
+            }
+            ctx.params.tree_probability
+        };
+        let TREE_PROB: f32 = tree_prob_for(x, z);
         let TRUNK_MIN: i32 = ctx.params.trunk_min;
         let TRUNK_MAX: i32 = ctx.params.trunk_max;
         let LEAF_R: i32 = ctx.params.leaf_radius;
@@ -523,4 +538,25 @@ impl World {
             *guard = params;
         }
     }
+
+    pub fn biome_at(&self, wx: i32, wz: i32) -> Option<crate::worldgen::BiomeDefParam> {
+        use fastnoise_lite::{FastNoiseLite, NoiseType};
+        let gp = self.gen_params.read().ok()?.clone();
+        let b = gp.biomes.as_ref()?;
+        let mut t = FastNoiseLite::with_seed((self.seed as i32) ^ 0x1203_5F31);
+        t.set_noise_type(Some(NoiseType::OpenSimplex2));
+        t.set_frequency(Some(b.temp_freq));
+        let mut m = FastNoiseLite::with_seed(((self.seed as u32) ^ 0x92E3_A1B2u32) as i32);
+        m.set_noise_type(Some(NoiseType::OpenSimplex2));
+        m.set_frequency(Some(b.moisture_freq));
+        let tt = ((t.get_noise_2d(wx as f32, wz as f32) + 1.0) * 0.5).clamp(0.0, 1.0);
+        let mm = ((m.get_noise_2d(wx as f32, wz as f32) + 1.0) * 0.5).clamp(0.0, 1.0);
+        for def in &b.defs {
+            if tt >= def.temp_min && tt < def.temp_max && mm >= def.moisture_min && mm < def.moisture_max {
+                return Some(def.clone());
+            }
+        }
+        None
+    }
+
 }

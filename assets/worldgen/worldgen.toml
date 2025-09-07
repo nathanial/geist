@@ -35,15 +35,16 @@ warp = { octaves = 3, persistence = 0.6,  lacunarity = 2.0, scale = 220.0 }
 [biomes]
 enable = true
 [biomes.temp]
-frequency = 0.01
+frequency = 0.02
 [biomes.moisture]
-frequency = 0.01
+frequency = 0.02
 
 [[biomes.biomes]]
 name = "tundra"
 temp_max = 0.28
 moisture_min = 0.35
 top_block = "snow"
+leaf_tint = [0.80, 0.90, 0.95]
   [biomes.biomes.species_weights]
   spruce = 1.0
 
@@ -52,6 +53,8 @@ name = "taiga"
 temp_max = 0.40
 moisture_min = 0.45
 top_block = "grass"
+tree_density = 0.35
+leaf_tint = [0.15, 0.45, 0.35]
   [biomes.biomes.species_weights]
   spruce = 0.9
   birch = 0.1
@@ -63,6 +66,8 @@ temp_max = 0.70
 moisture_min = 0.30
 moisture_max = 0.70
 top_block = "grass"
+tree_density = 0.25
+leaf_tint = [0.35, 0.65, 0.25]
   [biomes.biomes.species_weights]
   oak = 0.7
   birch = 0.3
@@ -72,6 +77,8 @@ name = "savanna"
 temp_min = 0.70
 moisture_max = 0.45
 top_block = "grass"
+tree_density = 0.15
+leaf_tint = [0.90, 0.80, 0.25]
   [biomes.biomes.species_weights]
   acacia = 1.0
 
@@ -80,33 +87,58 @@ name = "jungle"
 temp_min = 0.75
 moisture_min = 0.60
 top_block = "grass"
+tree_density = 0.80
+leaf_tint = [0.10, 0.80, 0.20]
   [biomes.biomes.species_weights]
   jungle = 1.0
 
 [[biomes.biomes]]
 name = "desert"
+tree_density = 0.0
 temp_min = 0.70
 moisture_max = 0.30
 top_block = "sand"
   [biomes.biomes.species_weights]
   oak = 0.0
+  acacia = 0.0
+  birch = 0.0
+  spruce = 0.0
+  jungle = 0.0
 
 
 [[biomes.biomes]]
+name = "badlands"
+temp_min = 0.75
+moisture_max = 0.25
+top_block = "red_sandstone"
+tree_density = 0.0
+  [biomes.biomes.species_weights]
+  oak = 0.0
+  acacia = 0.0
+  birch = 0.0
+  spruce = 0.0
+  jungle = 0.0
+
+[[biomes.biomes]]
 name = "alpine"
+
 temp_max = 0.18
 moisture_max = 0.35
 top_block = "snow"
+leaf_tint = [0.65, 0.85, 0.90]
   [biomes.biomes.species_weights]
   spruce = 1.0
 
 [[biomes.biomes]]
 name = "temperate_rainforest"
+
 temp_min = 0.45
 temp_max = 0.65
 moisture_min = 0.85
 moisture_max = 1.0
 top_block = "grass"
+tree_density = 0.70
+leaf_tint = [0.00, 0.55, 0.25]
   [biomes.biomes.species_weights]
   spruce = 0.7
   birch = 0.2
@@ -114,43 +146,82 @@ top_block = "grass"
 
 [[biomes.biomes]]
 name = "marsh"
+
 temp_min = 0.30
 temp_max = 0.60
 moisture_min = 0.85
 moisture_max = 1.0
 top_block = "grass"
+tree_density = 0.35
+leaf_tint = [0.45, 0.70, 0.40]
   [biomes.biomes.species_weights]
   oak = 1.0
 
 [[biomes.biomes]]
 name = "shrubland"
+
 temp_min = 0.60
 temp_max = 0.70
 moisture_max = 0.30
 top_block = "grass"
+tree_density = 0.10
+leaf_tint = [0.75, 0.70, 0.35]
   [biomes.biomes.species_weights]
   acacia = 0.6
   oak = 0.4
 
 [[biomes.biomes]]
 name = "steppe"
+
 temp_min = 0.40
 temp_max = 0.60
 moisture_max = 0.25
 top_block = "grass"
+tree_density = 0.05
+leaf_tint = [0.75, 0.65, 0.30]
   [biomes.biomes.species_weights]
   oak = 1.0
 
 [[biomes.biomes]]
 name = "mediterranean"
+
 temp_min = 0.70
 temp_max = 0.75
 moisture_min = 0.45
 moisture_max = 0.55
 top_block = "grass"
+tree_density = 0.25
+leaf_tint = [0.60, 0.70, 0.30]
   [biomes.biomes.species_weights]
   oak = 0.8
   birch = 0.2
+
+
+[[biomes.biomes]]
+name = "autumn_forest"
+temp_min = 0.55
+temp_max = 0.65
+moisture_min = 0.40
+moisture_max = 0.55
+top_block = "grass"
+tree_density = 0.60
+leaf_tint = [1.00, 0.45, 0.10]
+  [biomes.biomes.species_weights]
+  oak = 0.6
+  birch = 0.4
+
+[[biomes.biomes]]
+name = "bloom_vale"
+temp_min = 0.45
+temp_max = 0.55
+moisture_min = 0.70
+moisture_max = 0.85
+top_block = "grass"
+tree_density = 0.40
+leaf_tint = [0.95, 0.55, 0.85]
+  [biomes.biomes.species_weights]
+  oak = 0.7
+  birch = 0.3
 
 [[features]]
 name = "glowstone_sprinkle"

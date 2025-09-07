@@ -395,6 +395,7 @@ pub struct ChunkRender {
     pub cz: i32,
     pub bbox: BoundingBox,
     pub parts: Vec<(MaterialId, raylib::core::models::Model)>,
+    pub leaf_tint: Option<[f32; 3]>,
 }
 
 pub struct ChunkMeshCPU {
@@ -1461,6 +1462,7 @@ pub fn upload_chunk_mesh(
         cz: cpu.cz,
         bbox: cpu.bbox,
         parts: parts_gpu,
+        leaf_tint: None,
     })
 }
 

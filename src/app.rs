@@ -1341,6 +1341,19 @@ impl App {
                 }
 
                 self.debug_stats.chunks_rendered += 1;
+                // Set biome-based leaf palette per chunk if available
+                if let Some(ref mut ls) = self.runtime.leaves_shader {
+                    if let Some(t) = cr.leaf_tint {
+                        let p0 = t;
+                        let p1 = [t[0] * 0.85, t[1] * 0.85, t[2] * 0.85];
+                        let p2 = [t[0] * 0.7, t[1] * 0.7, t[2] * 0.7];
+                        let p3 = [t[0] * 0.5, t[1] * 0.5, t[2] * 0.5];
+                        ls.set_autumn_palette(p0, p1, p2, p3, 1.0);
+                    } else {
+                        // Default greenish palette
+                        ls.set_autumn_palette([0.32, 0.55, 0.25], [0.28, 0.48, 0.22], [0.20, 0.40, 0.18], [0.12, 0.28, 0.10], 1.0);
+                    }
+                }
                 for (_fm, model) in &cr.parts {
                     // Get mesh stats from the model
                     unsafe {
