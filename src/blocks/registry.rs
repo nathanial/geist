@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fs;
 use std::path::Path;
 
-use super::config::{BlockDef, BlocksConfig, MaterialSelector, MaterialsDef, PropertyFrom, ShapeConfig, ShapeDetailed};
+use super::config::{BlocksConfig, MaterialSelector, MaterialsDef, ShapeConfig, ShapeDetailed};
 use super::material::MaterialCatalog;
 use super::types::{Block, BlockId, BlockState, FaceRole, MaterialId, Shape};
 
@@ -111,7 +111,6 @@ impl BlockRegistry {
                 Some(id) => id,
                 None => reg.blocks.len() as u16,
             };
-            let name = def.name.clone();
             let solid = def.solid.unwrap_or(true);
             let blocks_skylight = def.blocks_skylight.unwrap_or(solid);
             let propagates_light = def.propagates_light.unwrap_or(false);

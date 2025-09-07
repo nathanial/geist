@@ -159,6 +159,98 @@ to = { name = "coarse_dirt" }
 from = "minecraft:podzol"
 to = { name = "podzol" }
 
+# Bark logs (wood) -> map to logs
+[[rules]]
+from = "minecraft:oak_wood"
+to = { name = "oak_log" }
+
+[[rules]]
+from = "minecraft:birch_wood"
+to = { name = "birch_log" }
+
+[[rules]]
+from = "minecraft:spruce_wood"
+to = { name = "spruce_log" }
+
+[[rules]]
+from = "minecraft:jungle_wood"
+to = { name = "jungle_log" }
+
+[[rules]]
+from = "minecraft:acacia_wood"
+to = { name = "acacia_log" }
+
+[[rules]]
+from = "minecraft:dark_oak_wood"
+to = { name = "dark_oak_log" }
+
+# Ores: approximate as stone for now
+[[rules]]
+from = "minecraft:coal_ore"
+to = { name = "stone" }
+
+[[rules]]
+from = "minecraft:iron_ore"
+to = { name = "stone" }
+
+[[rules]]
+from = "minecraft:gold_ore"
+to = { name = "stone" }
+
+[[rules]]
+from = "minecraft:copper_ore"
+to = { name = "stone" }
+
+[[rules]]
+from = "minecraft:redstone_ore"
+to = { name = "stone" }
+
+[[rules]]
+from = "minecraft:lapis_ore"
+to = { name = "stone" }
+
+[[rules]]
+from = "minecraft:diamond_ore"
+to = { name = "stone" }
+
+[[rules]]
+from = "minecraft:emerald_ore"
+to = { name = "stone" }
+
+[[rules]]
+from = "minecraft:nether_quartz_ore"
+to = { name = "stone" }
+
+# Soils/variants
+[[rules]]
+from = "minecraft:rooted_dirt"
+to = { name = "dirt" }
+
+# Skip/air-mapped (reduce unsupported noise)
+[[rules]]
+from = "minecraft:glass"
+to = { name = "air" }
+
+[[rules]]
+from = "minecraft:glass_pane"
+to = { name = "air" }
+
+[[rules]]
+from = "minecraft:torch"
+to = { name = "air" }
+
+[[rules]]
+from = "minecraft:lantern"
+to = { name = "air" }
+
+[[rules]]
+from = "minecraft:water"
+to = { name = "air" }
+
+[[rules]]
+from = "minecraft:lava"
+to = { name = "air" }
+
 # Logs/leaves
 [[rules]]
 from = "minecraft:oak_log"

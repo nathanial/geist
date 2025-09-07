@@ -2,15 +2,8 @@
 - Replace hardcoded voxel enums in `src/voxel.rs` with a runtime-configurable system driven by a `BlockType` interface and a registry. Enable defining blocks via config (textures, shapes, properties, states) rather than baking them into code.
 
 **Current State (Findings)**
-- **Enums baked-in:** `Block`, `MaterialKey`, `TreeSpecies`, `TerracottaColor`, plus utility enums `Axis`, `SlabHalf`, `Dir4` in `src/voxel.rs`.
-- **Usage surfaces:**
-  - **Meshing:** `src/mesher.rs` matches on `Block` to pick face textures and to emit special geometry for `Slab` and `Stairs`.
-  - **Lighting:** `src/lighting.rs` calls `Block::emission()` and treats non-`Air` as skylight blockers.
-  - **Worldgen:** `World::block_at` in `src/voxel.rs` returns `Block` variants for terrain/caves/trees.
-  - **Schematic import:** `src/schem.rs` maps Minecraft palette keys and legacy IDs to `Block` variants (lots of hardcoded mappings).
-  - **Gameplay/UI:** `src/app.rs` hotkeys select hardcoded blocks; `GameState.place_type: Block`; `EditStore` persists `Block` edits; player collision special-cases `Leaves`.
-  - **Storage:** `ChunkBuf.blocks: Vec<Block>` holds voxels; `Structure` holds `Vec<Block>`.
-- **Textures:** `FaceMaterial` in `mesher.rs` maps to concrete asset filepaths in `assets/blocks/*.png`.
+- All legacy enums and hardcoded mappings have been removed from the active code path.
+- Worldgen, meshing, lighting, storage, schematics, and UI are fully driven by the runtime registry and TOML configs.
 
 **Design Goals**
 - **Runtime types:** Define blocks and their properties in config (TOML/JSON), not code.
@@ -212,7 +205,7 @@
 - DONE: Special-shape meshing: slabs and stairs implemented via registry-state emitters, including neighbor face restoration; materials resolved via registry.
  - DONE: App hotbar driven by `assets/voxels/hotbar.toml` (fallback to legacy keys when empty/invalid).
  - DONE: Config-driven palette translator: loads `assets/voxels/palette_map.toml` and maps Sponge palette keys to runtime blocks; integrated into both `.schem` and `.schematic` import (unified path). Initial rule set expanded for core cubes, planks, logs/leaves, and slabs/stairs (with state merge).
- - DONE: Removed hardcoded schematic mappings from the active code path. Numeric `.schematic` NBT loader is no longer used; both extensions use palette-based translator.
+ - DONE: Excised legacy schematic code (hardcoded maps and numeric NBT) from the repo; config path is the only path.
 
 **Build Status / Recent Fixes**
 - RESOLVED: Removed legacy special-shape matches from mesher; compile green.
@@ -221,21 +214,21 @@
 - RESOLVED: Added `BlockType::state_prop_value/state_prop_is_value` and updated mesher occlusion helpers to use them.
 
 **Remaining Work (No Shims)**
-- Delete legacy enums and code: `MaterialKey`, `TreeSpecies`, `Dir4`, `SlabHalf`, `Axis`, and the `voxel::Block` enum, plus old `World::block_at`. Remove any remaining helpers gated by `cfg(any())` in `schem.rs` and clean warnings.
 - Expand `palette_map.toml` for any missing blocks encountered; current coverage includes: core cubes, planks, logs/leaves, slabs, stairs.
+- Optional: prune minor warnings (unused variables, extra parentheses) and add small unit tests for state packing.
 
 **API Changes (Implemented)**
 - `lighting::LightGrid::compute_with_borders_buf(buf, store, reg)` now requires `&BlockRegistry` and uses `blocks_skylight`/`propagates_light`. Beacon propagation tracks direction and attenuates accordingly.
 - `mesher::build_chunk_greedy_cpu_buf(buf, lighting, world, edits, neighbors, cx, cz, reg)` resolves materials via registry and returns `MaterialId`-keyed parts; cross-chunk occlusion disabled to avoid seams without neighbor access.
 - `mesher::build_voxel_body_cpu_buf(buf, ambient, reg)` builds local-space meshes using registry for solidity and materials.
-- `ChunkBuf` stores runtime `Block { id, state }`; `generate_chunk_buffer(world, cx, cz, reg)` uses a temporary `World::block_at_runtime(reg, x,y,z)` bridge.
+- `ChunkBuf` stores runtime `Block { id, state }`; chunk buffers are filled via `World::block_at_runtime(reg, x,y,z)`.
 - `Runtime` workers own `Arc<BlockRegistry>` and pass it through meshing and texture upload paths.
 - `Walker::update_with_sampler(...)` now receives `&BlockRegistry` to evaluate collisions via registry `is_solid`.
 - `Structure::new(..., reg: &BlockRegistry)` requires registry for initial block IDs.
 - `schem::{load_any_schematic_apply_edits, load_sponge_*, load_mcedit_*}` now require `&BlockRegistry` and emit runtime blocks.
 
 **Immediate Tasks**
-- Remove dead legacy code and address warnings.
+- Address minor warnings; continue expanding config coverage as needed.
 
 **Recent Config Changes**
 - Added cube block defs: cobblestone, mossy_cobblestone, stone_bricks, mossy_stone_bricks, brick, granite, diorite, andesite, polished_{granite,diorite,andesite}, gravel, smooth_stone, sandstone, red_sandstone, quartz_block, lapis_block, coal_block, prismarine_bricks, nether_bricks, end_stone, end_stone_bricks, bookshelf, coarse_dirt, podzol, and planks for all wood species.

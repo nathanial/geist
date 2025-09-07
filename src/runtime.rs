@@ -78,7 +78,7 @@ impl Runtime {
         use std::sync::mpsc;
         let leaves_shader = shaders::LeavesShader::load(rl, thread);
         let fog_shader = shaders::FogShader::load(rl, thread);
-        let mut tex_cache = mesher::TextureCache::new();
+        let tex_cache = mesher::TextureCache::new();
 
         // Worker threads
         let (job_tx, job_rx) = mpsc::channel::<BuildJob>();

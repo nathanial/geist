@@ -170,7 +170,7 @@ impl World {
                     let h = hash3(cx, cy, cz, salt);
                     (h & 0x00FF_FFFF) as f32 / 16_777_216.0
                 };
-                let worley3_f1_norm = |x: f32, y: f32, z: f32, cell: f32, seed: u32| -> f32 {
+                let worley3_f1_norm = |x: f32, y: f32, z: f32, cell: f32| -> f32 {
                     let cell = if cell <= 0.0001 { 1.0 } else { cell };
                     let px = x / cell;
                     let py = y / cell;
@@ -218,7 +218,7 @@ impl World {
                 if depth > 1.0 { depth = 1.0; }
                 let eps = EPS_BASE + EPS_ADD * depth;
                 let carve_tn = tn.abs() < eps;
-                let wn = worley3_f1_norm(xp, yp, zp, ROOM_CELL, ((self.seed as u32) ^ 2100u32).wrapping_add(1337));
+                let wn = worley3_f1_norm(xp, yp, zp, ROOM_CELL);
                 let room_thr = ROOM_THR_BASE + ROOM_THR_ADD * depth;
                 let carve_rm = wn < room_thr;
 
@@ -246,7 +246,7 @@ impl World {
                         if n_depth < 0.0 { n_depth = 0.0; }
                         if n_depth > 1.0 { n_depth = 1.0; }
                         let eps_n = EPS_BASE + EPS_ADD * n_depth;
-                        let wn_n = worley3_f1_norm(nxp, nyp, nzp, ROOM_CELL, ((self.seed as u32) ^ 2100u32).wrapping_add(1337));
+                        let wn_n = worley3_f1_norm(nxp, nyp, nzp, ROOM_CELL);
                         let room_thr_n = ROOM_THR_BASE + ROOM_THR_ADD * n_depth;
                         let neighbor_carved_air = (nsoil > SOIL_MIN && wyn > MIN_Y) && (tn_n.abs() < eps_n || wn_n < room_thr_n);
                         if !neighbor_carved_air { near_solid = true; break; }

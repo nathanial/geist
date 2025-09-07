@@ -99,7 +99,7 @@ impl FlyCamera {
         let near_height = 2.0 * near * tan_half_fov;
         let near_width = near_height * aspect_ratio;
         let far_height = 2.0 * far * tan_half_fov;
-        let far_width = far_height * aspect_ratio;
+        let _far_width = far_height * aspect_ratio;
 
         // Calculate frustum corner points
         let nc = self.position + forward * near; // near center
