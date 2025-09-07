@@ -1,7 +1,6 @@
 use crate::chunkbuf::ChunkBuf;
 use crate::blocks::Block;
 use crate::blocks::BlockRegistry;
-use crate::voxel;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
