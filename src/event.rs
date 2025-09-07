@@ -225,4 +225,49 @@ impl EventQueue {
         }
         self.now = self.now.wrapping_add(1);
     }
+
+    // Debug helpers: count queued events by kind across all future ticks (including current)
+    pub fn queued_counts(
+        &self,
+    ) -> (usize, std::collections::BTreeMap<&'static str, usize>) {
+        let mut total: usize = 0;
+        let mut by: std::collections::BTreeMap<&'static str, usize> = Default::default();
+        for (_tick, q) in &self.by_tick {
+            for env in q {
+                total += 1;
+                let label: &'static str = match &env.kind {
+                    Event::Tick => "Tick",
+                    Event::WalkModeToggled => "WalkModeToggled",
+                    Event::GridToggled => "GridToggled",
+                    Event::WireframeToggled => "WireframeToggled",
+                    Event::ChunkBoundsToggled => "ChunkBoundsToggled",
+                    Event::FrustumCullingToggled => "FrustumCullingToggled",
+                    Event::BiomeLabelToggled => "BiomeLabelToggled",
+                    Event::PlaceTypeSelected { .. } => "PlaceTypeSelected",
+                    Event::MovementRequested { .. } => "MovementRequested",
+                    Event::RaycastEditRequested { .. } => "RaycastEditRequested",
+                    Event::BlockPlaced { .. } => "BlockPlaced",
+                    Event::BlockRemoved { .. } => "BlockRemoved",
+                    Event::ViewCenterChanged { .. } => "ViewCenterChanged",
+                    Event::EnsureChunkLoaded { .. } => "EnsureChunkLoaded",
+                    Event::EnsureChunkUnloaded { .. } => "EnsureChunkUnloaded",
+                    Event::ChunkRebuildRequested { .. } => "ChunkRebuildRequested",
+                    Event::BuildChunkJobRequested { .. } => "BuildChunkJobRequested",
+                    Event::BuildChunkJobCompleted { .. } => "BuildChunkJobCompleted",
+                    Event::StructureBuildRequested { .. } => "StructureBuildRequested",
+                    Event::StructureBuildCompleted { .. } => "StructureBuildCompleted",
+                    Event::StructurePoseUpdated { .. } => "StructurePoseUpdated",
+                    Event::StructureBlockPlaced { .. } => "StructureBlockPlaced",
+                    Event::StructureBlockRemoved { .. } => "StructureBlockRemoved",
+                    Event::PlayerAttachedToStructure { .. } => "PlayerAttachedToStructure",
+                    Event::PlayerDetachedFromStructure { .. } => "PlayerDetachedFromStructure",
+                    Event::LightEmitterAdded { .. } => "LightEmitterAdded",
+                    Event::LightEmitterRemoved { .. } => "LightEmitterRemoved",
+                    Event::LightBordersUpdated { .. } => "LightBordersUpdated",
+                };
+                *by.entry(label).or_insert(0) += 1;
+            }
+        }
+        (total, by)
+    }
 }

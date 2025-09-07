@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use raylib::prelude::*;
 
@@ -24,6 +24,9 @@ pub struct App {
     pub cam: crate::camera::FlyCamera,
     pub debug_stats: DebugStats,
     hotbar: Vec<Block>,
+    // Session-wide processed event stats
+    evt_processed_total: usize,
+    evt_processed_by: HashMap<String, usize>,
 }
 
 #[derive(Default)]
@@ -35,6 +38,11 @@ pub struct DebugStats {
     pub structures_rendered: usize,
     pub structures_culled: usize,
     pub draw_calls: usize,
+    // Event debug
+    pub queued_events_total: usize,
+    pub queued_events_by: Vec<(String, usize)>,
+    pub processed_events_total: usize,
+    pub processed_events_by: Vec<(String, usize)>,
 }
 
 impl App {
@@ -341,6 +349,8 @@ impl App {
             cam,
             debug_stats: DebugStats::default(),
             hotbar,
+            evt_processed_total: 0,
+            evt_processed_by: HashMap::new(),
         }
     }
 
@@ -1295,10 +1305,56 @@ impl App {
             });
         }
 
+        // Snapshot queued events before processing (for debug overlay)
+        {
+            let (total, by) = self.queue.queued_counts();
+            self.debug_stats.queued_events_total = total;
+            // Sort for stable presentation
+            let mut pairs: Vec<(String, usize)> = by.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+            pairs.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+            self.debug_stats.queued_events_by = pairs;
+        }
+
         // Process events scheduled for this tick with a budget
         let mut processed = 0usize;
         let max_events = 20_000usize;
+        let label_of = |ev: &Event| -> &'static str {
+            match ev {
+                Event::Tick => "Tick",
+                Event::WalkModeToggled => "WalkModeToggled",
+                Event::GridToggled => "GridToggled",
+                Event::WireframeToggled => "WireframeToggled",
+                Event::ChunkBoundsToggled => "ChunkBoundsToggled",
+                Event::FrustumCullingToggled => "FrustumCullingToggled",
+                Event::BiomeLabelToggled => "BiomeLabelToggled",
+                Event::PlaceTypeSelected { .. } => "PlaceTypeSelected",
+                Event::MovementRequested { .. } => "MovementRequested",
+                Event::RaycastEditRequested { .. } => "RaycastEditRequested",
+                Event::BlockPlaced { .. } => "BlockPlaced",
+                Event::BlockRemoved { .. } => "BlockRemoved",
+                Event::ViewCenterChanged { .. } => "ViewCenterChanged",
+                Event::EnsureChunkLoaded { .. } => "EnsureChunkLoaded",
+                Event::EnsureChunkUnloaded { .. } => "EnsureChunkUnloaded",
+                Event::ChunkRebuildRequested { .. } => "ChunkRebuildRequested",
+                Event::BuildChunkJobRequested { .. } => "BuildChunkJobRequested",
+                Event::BuildChunkJobCompleted { .. } => "BuildChunkJobCompleted",
+                Event::StructureBuildRequested { .. } => "StructureBuildRequested",
+                Event::StructureBuildCompleted { .. } => "StructureBuildCompleted",
+                Event::StructurePoseUpdated { .. } => "StructurePoseUpdated",
+                Event::StructureBlockPlaced { .. } => "StructureBlockPlaced",
+                Event::StructureBlockRemoved { .. } => "StructureBlockRemoved",
+                Event::PlayerAttachedToStructure { .. } => "PlayerAttachedToStructure",
+                Event::PlayerDetachedFromStructure { .. } => "PlayerDetachedFromStructure",
+                Event::LightEmitterAdded { .. } => "LightEmitterAdded",
+                Event::LightEmitterRemoved { .. } => "LightEmitterRemoved",
+                Event::LightBordersUpdated { .. } => "LightBordersUpdated",
+            }
+        };
         while let Some(env) = self.queue.pop_ready() {
+            // Tally processed stats (session-wide)
+            let label = label_of(&env.kind).to_string();
+            self.evt_processed_total = self.evt_processed_total.saturating_add(1);
+            *self.evt_processed_by.entry(label).or_insert(0) += 1;
             self.handle_event(rl, thread, env);
             processed += 1;
             if processed >= max_events {
@@ -1527,11 +1583,54 @@ impl App {
                 text_lines += 1;
             }
         }
+        // (moved event stats to right-side overlay)
         let screen_height = d.get_screen_height();
         let line_height = 22; // Approximate height per line with font size 20
         let y_pos = screen_height - (text_lines * line_height) - 10; // 10px margin from bottom
         d.draw_text(&debug_text, 10, y_pos, 20, Color::WHITE);
         d.draw_text(&debug_text, 11, y_pos + 1, 20, Color::BLACK); // Shadow for readability
+
+        // Right-side event overlay
+        let mut right_text = format!("Queued Events: {}", self.debug_stats.queued_events_total);
+        if self.debug_stats.queued_events_total > 0 {
+            let max_show = 10usize;
+            let shown = self.debug_stats.queued_events_by.len().min(max_show);
+            for (k, v) in self.debug_stats.queued_events_by.iter().take(shown) {
+                right_text.push_str(&format!("\n  {}: {}", k, v));
+            }
+            if self.debug_stats.queued_events_by.len() > shown { right_text.push_str("\n  …"); }
+        }
+        right_text.push_str(&format!("\nProcessed Events (session): {}", self.evt_processed_total));
+        if self.evt_processed_total > 0 {
+            let max_show = 10usize;
+            // Build a sorted list by count desc
+            let mut pairs: Vec<(&str, usize)> = self
+                .evt_processed_by
+                .iter()
+                .map(|(k, v)| (k.as_str(), *v))
+                .collect();
+            pairs.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+            let shown = pairs.len().min(max_show);
+            for (k, v) in pairs.into_iter().take(shown) {
+                right_text.push_str(&format!("\n  {}: {}", k, v));
+            }
+            if self.evt_processed_by.len() > shown { right_text.push_str("\n  …"); }
+        }
+        let screen_width = d.get_screen_width();
+        let font_size = 20;
+        // compute width by longest line
+        let mut max_w = 0;
+        for line in right_text.split('\n') {
+            let w = d.measure_text(line, font_size);
+            if w > max_w { max_w = w; }
+        }
+        let margin = 10;
+        let rx = screen_width - max_w - margin;
+        // Align bottom similar to left overlay
+        let lines = right_text.split('\n').count();
+        let ry = screen_height - (lines as i32 * line_height) - 10;
+        d.draw_text(&right_text, rx, ry, font_size, Color::WHITE);
+        d.draw_text(&right_text, rx + 1, ry + 1, font_size, Color::BLACK);
 
         // HUD
         let hud_mode = if self.gs.walk_mode { "Walk" } else { "Fly" };
