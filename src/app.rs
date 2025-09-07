@@ -597,11 +597,10 @@ impl App {
                         });
                     }
                 }
-                // Cancel pending for far chunks
-                self.gs.pending.retain(|k| desired.contains(k));
+                // No explicit inflight cancellation for far chunks; allow in-flight jobs to complete.
                 // Load new ones
                 for key in desired {
-                    if !self.runtime.renders.contains_key(&key) && !self.gs.pending.contains(&key) {
+                    if !self.runtime.renders.contains_key(&key) && !self.gs.inflight_rev.contains_key(&key) {
                         self.queue.emit_now(Event::EnsureChunkLoaded {
                             cx: key.0,
                             cz: key.1,
@@ -613,13 +612,13 @@ impl App {
                 self.runtime.renders.remove(&(cx, cz));
                 self.gs.chunks.remove(&(cx, cz));
                 self.gs.loaded.remove(&(cx, cz));
-                self.gs.pending.remove(&(cx, cz));
+                self.gs.inflight_rev.remove(&(cx, cz));
                 // Also drop any persisted lighting state for this chunk to prevent growth
                 self.gs.lighting.clear_chunk(cx, cz);
             }
             Event::EnsureChunkLoaded { cx, cz } => {
                 if self.runtime.renders.contains_key(&(cx, cz))
-                    || self.gs.pending.contains(&(cx, cz))
+                    || self.gs.inflight_rev.contains_key(&(cx, cz))
                 {
                     return;
                 }
@@ -633,7 +632,6 @@ impl App {
                     rev,
                     job_id,
                 });
-                self.gs.pending.insert((cx, cz));
                 // Track newest inflight rev
                 self.gs.inflight_rev.insert((cx, cz), rev);
             }
@@ -664,6 +662,7 @@ impl App {
                     region_edits,
                     prev_buf,
                 });
+                // inflight_rev was set by the emitter (EnsureChunkLoaded/ChunkRebuildRequested) or requeue branch.
             }
             Event::StructureBuildRequested { id, rev } => {
                 if let Some(st) = self.gs.structures.get(&id) {
@@ -751,8 +750,7 @@ impl App {
                             rev: cur_rev,
                             job_id,
                         });
-                        // Keep pending set; ensure inflight_rev reflects latest
-                        self.gs.pending.insert((cx, cz));
+                        // Ensure inflight_rev reflects latest
                         self.gs.inflight_rev.insert((cx, cz), cur_rev);
                     }
                     return;
@@ -816,7 +814,6 @@ impl App {
                     },
                 );
                 self.gs.loaded.insert((cx, cz));
-                self.gs.pending.remove(&(cx, cz));
                 self.gs.inflight_rev.remove(&(cx, cz));
                 self.gs.edits.mark_built(cx, cz, rev);
 
@@ -830,7 +827,7 @@ impl App {
             }
             Event::ChunkRebuildRequested { cx, cz, cause: _ } => {
                 if !self.runtime.renders.contains_key(&(cx, cz))
-                    || self.gs.pending.contains(&(cx, cz))
+                    || self.gs.inflight_rev.contains_key(&(cx, cz))
                 {
                     return;
                 }
@@ -844,7 +841,6 @@ impl App {
                     rev,
                     job_id,
                 });
-                self.gs.pending.insert((cx, cz));
                 self.gs.inflight_rev.insert((cx, cz), rev);
             }
             Event::RaycastEditRequested { place, block } => {
@@ -1104,10 +1100,10 @@ impl App {
                 });
             }
             Event::LightBordersUpdated { cx, cz } => {
-                // Neighbor rebuilds in response to border changes, if loaded and not pending
+                // Neighbor rebuilds in response to border changes, if loaded and not already inflight
                 for (nx, nz) in [(cx - 1, cz), (cx + 1, cz), (cx, cz - 1), (cx, cz + 1)] {
                     if self.runtime.renders.contains_key(&(nx, nz))
-                        && !self.gs.pending.contains(&(nx, nz))
+                        && !self.gs.inflight_rev.contains_key(&(nx, nz))
                     {
                         self.queue.emit_now(Event::ChunkRebuildRequested {
                             cx: nx,
