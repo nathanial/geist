@@ -807,7 +807,28 @@ fn runtime_from_palette_key(reg: &BlockRegistry, key: &str) -> Option<RtBlock> {
         }
     }
     let rule = cand?;
-    let b = reg.make_block_by_name(&rule.to.name, Some(&rule.to.state))?;
+    // Start with rule-provided state
+    let mut state = rule.to.state.clone();
+    // Supplement state from palette key attributes when relevant
+    if rule.to.name == "slab" {
+        if let Some(t) = state_value(key, "type").or_else(|| state_value(key, "half")) {
+            state.entry("half".to_string()).or_insert_with(|| match t {
+                "top" => "top".to_string(),
+                _ => "bottom".to_string(), // treat double/others as bottom for now
+            });
+        }
+    } else if rule.to.name == "stairs" {
+        if let Some(h) = state_value(key, "half") {
+            state.entry("half".to_string()).or_insert_with(|| match h {
+                "top" => "top".to_string(),
+                _ => "bottom".to_string(),
+            });
+        }
+        if let Some(f) = state_value(key, "facing") {
+            state.entry("facing".to_string()).or_insert_with(|| f.to_string());
+        }
+    }
+    let b = reg.make_block_by_name(&rule.to.name, Some(&state))?;
     Some(b)
 }
 

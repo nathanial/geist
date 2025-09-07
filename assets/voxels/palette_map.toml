@@ -70,3 +70,153 @@ to = { name = "jungle_leaves" }
 [[rules]]
 from = "minecraft:acacia_leaves"
 to = { name = "acacia_leaves" }
+
+# --- Slabs ---
+[[rules]]
+from = "minecraft:oak_slab"
+to = { name = "slab", state = { material = "planks_oak" } }
+
+[[rules]]
+from = "minecraft:birch_slab"
+to = { name = "slab", state = { material = "planks_birch" } }
+
+[[rules]]
+from = "minecraft:spruce_slab"
+to = { name = "slab", state = { material = "planks_spruce" } }
+
+[[rules]]
+from = "minecraft:jungle_slab"
+to = { name = "slab", state = { material = "planks_jungle" } }
+
+[[rules]]
+from = "minecraft:acacia_slab"
+to = { name = "slab", state = { material = "planks_acacia" } }
+
+[[rules]]
+from = "minecraft:dark_oak_slab"
+to = { name = "slab", state = { material = "planks_dark_oak" } }
+
+[[rules]]
+from = "minecraft:smooth_stone_slab"
+to = { name = "slab", state = { material = "smooth_stone" } }
+
+[[rules]]
+from = "minecraft:stone_slab"
+to = { name = "slab", state = { material = "smooth_stone" } }
+
+[[rules]]
+from = "minecraft:sandstone_slab"
+to = { name = "slab", state = { material = "sandstone" } }
+
+[[rules]]
+from = "minecraft:red_sandstone_slab"
+to = { name = "slab", state = { material = "red_sandstone" } }
+
+[[rules]]
+from = "minecraft:cobblestone_slab"
+to = { name = "slab", state = { material = "cobblestone" } }
+
+[[rules]]
+from = "minecraft:mossy_cobblestone_slab"
+to = { name = "slab", state = { material = "mossy_cobblestone" } }
+
+[[rules]]
+from = "minecraft:stone_brick_slab"
+to = { name = "slab", state = { material = "stone_bricks" } }
+
+[[rules]]
+from = "minecraft:end_stone_brick_slab"
+to = { name = "slab", state = { material = "end_stone_bricks" } }
+
+[[rules]]
+from = "minecraft:end_stone_slab"
+to = { name = "slab", state = { material = "end_stone" } }
+
+[[rules]]
+from = "minecraft:prismarine_brick_slab"
+to = { name = "slab", state = { material = "prismarine_bricks" } }
+
+[[rules]]
+from = "minecraft:granite_slab"
+to = { name = "slab", state = { material = "granite" } }
+
+[[rules]]
+from = "minecraft:diorite_slab"
+to = { name = "slab", state = { material = "diorite" } }
+
+[[rules]]
+from = "minecraft:andesite_slab"
+to = { name = "slab", state = { material = "andesite" } }
+
+[[rules]]
+from = "minecraft:polished_granite_slab"
+to = { name = "slab", state = { material = "polished_granite" } }
+
+[[rules]]
+from = "minecraft:polished_diorite_slab"
+to = { name = "slab", state = { material = "polished_diorite" } }
+
+[[rules]]
+from = "minecraft:polished_andesite_slab"
+to = { name = "slab", state = { material = "polished_andesite" } }
+
+[[rules]]
+from = "minecraft:quartz_slab"
+to = { name = "slab", state = { material = "quartz_block" } }
+
+# --- Stairs ---
+[[rules]]
+from = "minecraft:oak_stairs"
+to = { name = "stairs", state = { material = "planks_oak" } }
+
+[[rules]]
+from = "minecraft:birch_stairs"
+to = { name = "stairs", state = { material = "planks_birch" } }
+
+[[rules]]
+from = "minecraft:spruce_stairs"
+to = { name = "stairs", state = { material = "planks_spruce" } }
+
+[[rules]]
+from = "minecraft:jungle_stairs"
+to = { name = "stairs", state = { material = "planks_jungle" } }
+
+[[rules]]
+from = "minecraft:acacia_stairs"
+to = { name = "stairs", state = { material = "planks_acacia" } }
+
+[[rules]]
+from = "minecraft:dark_oak_stairs"
+to = { name = "stairs", state = { material = "planks_dark_oak" } }
+
+[[rules]]
+from = "minecraft:stone_stairs"
+to = { name = "stairs", state = { material = "smooth_stone" } }
+
+[[rules]]
+from = "minecraft:cobblestone_stairs"
+to = { name = "stairs", state = { material = "cobblestone" } }
+
+[[rules]]
+from = "minecraft:mossy_cobblestone_stairs"
+to = { name = "stairs", state = { material = "mossy_cobblestone" } }
+
+[[rules]]
+from = "minecraft:stone_brick_stairs"
+to = { name = "stairs", state = { material = "stone_bricks" } }
+
+[[rules]]
+from = "minecraft:quartz_stairs"
+to = { name = "stairs", state = { material = "quartz_block" } }
+
+[[rules]]
+from = "minecraft:sandstone_stairs"
+to = { name = "stairs", state = { material = "sandstone" } }
+
+[[rules]]
+from = "minecraft:smooth_sandstone_stairs"
+to = { name = "stairs", state = { material = "sandstone" } }
+
+[[rules]]
+from = "minecraft:red_sandstone_stairs"
+to = { name = "stairs", state = { material = "red_sandstone" } }
