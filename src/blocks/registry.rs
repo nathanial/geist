@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fs;
 use std::path::Path;
 
-use super::config::{BlocksConfig, MaterialSelector, MaterialsDef, ShapeConfig, ShapeDetailed};
+use super::config::{BlocksConfig, MaterialSelector, MaterialsDef, ShapeConfig, ShapeDetailed, LightProfile, SourceDirs};
 use super::material::MaterialCatalog;
 use super::types::{Block, BlockId, BlockState, FaceRole, MaterialId, Shape};
 
@@ -15,6 +15,7 @@ pub struct BlockType {
     pub blocks_skylight: bool,
     pub propagates_light: bool,
     pub emission: u8,
+    pub light: CompiledLight,
     pub shape: Shape,
     pub materials: CompiledMaterials,
     pub state_schema: HashMap<String, Vec<String>>, // property name -> allowed values
@@ -117,6 +118,11 @@ impl BlockRegistry {
 
     pub fn from_configs(materials: MaterialCatalog, cfg: BlocksConfig) -> Result<Self, Box<dyn Error>> {
         let mut reg = BlockRegistry { materials, blocks: Vec::new(), by_name: HashMap::new() };
+        let profiles: HashMap<String, LightProfile> = cfg
+            .lighting
+            .as_ref()
+            .map(|l| l.profiles.clone())
+            .unwrap_or_default();
         for def in cfg.blocks.into_iter() {
             let id = match def.id {
                 Some(id) => id,
@@ -126,6 +132,14 @@ impl BlockRegistry {
             let blocks_skylight = def.blocks_skylight.unwrap_or(solid);
             let propagates_light = def.propagates_light.unwrap_or(false);
             let emission = def.emission.unwrap_or(0);
+            // Resolve lighting behavior: inline spec > profile reference > default omni(atten=32)
+            let light: CompiledLight = match def.light.or_else(|| def.light_profile.as_ref().and_then(|n| profiles.get(n).cloned())) {
+                Some(LightProfile::Omni { attenuation, max_range }) =>
+                    CompiledLight::Omni { attenuation, max_range },
+                Some(LightProfile::Beam { straight_cost, turn_cost, vertical_cost, source_dirs, max_range }) =>
+                    CompiledLight::Beam { straight_cost, turn_cost, vertical_cost, source_dirs, max_range },
+                None => CompiledLight::Omni { attenuation: 32, max_range: None },
+            };
             let shape = compile_shape(def.shape);
             let mats = compile_materials(&reg.materials, def.materials);
             let state_schema = def.state_schema.unwrap_or_default();
@@ -138,6 +152,7 @@ impl BlockRegistry {
                 blocks_skylight,
                 propagates_light,
                 emission,
+                light,
                 shape,
                 materials: mats,
                 state_schema,
@@ -152,6 +167,7 @@ impl BlockRegistry {
                     blocks_skylight: false,
                     propagates_light: false,
                     emission: 0,
+                    light: CompiledLight::Omni { attenuation: 32, max_range: None },
                     shape: Shape::None,
                     materials: CompiledMaterials::default(),
                     state_schema: HashMap::new(),
@@ -164,6 +180,12 @@ impl BlockRegistry {
         }
         Ok(reg)
     }
+}
+
+#[derive(Clone, Debug)]
+pub enum CompiledLight {
+    Omni { attenuation: u8, max_range: Option<u16> },
+    Beam { straight_cost: u8, turn_cost: u8, vertical_cost: u8, source_dirs: SourceDirs, max_range: Option<u16> },
 }
 
 fn compile_shape(shape: Option<ShapeConfig>) -> Shape {
@@ -241,6 +263,25 @@ impl BlockType {
     pub fn propagates_light(&self, _state: BlockState) -> bool { self.propagates_light }
     pub fn light_emission(&self, _state: BlockState) -> u8 { self.emission }
     pub fn debug_name(&self) -> &str { &self.name }
+
+    pub fn light_is_beam(&self) -> bool {
+        matches!(self.light, CompiledLight::Beam { .. })
+    }
+
+    pub fn omni_attenuation(&self) -> u8 {
+        match self.light {
+            CompiledLight::Omni { attenuation, .. } => attenuation,
+            _ => 32,
+        }
+    }
+
+    pub fn beam_params(&self) -> (u8, u8, u8, SourceDirs) {
+        match self.light {
+            CompiledLight::Beam { straight_cost, turn_cost, vertical_cost, source_dirs, .. } =>
+                (straight_cost, turn_cost, vertical_cost, source_dirs),
+            _ => (1, 32, 32, SourceDirs::Horizontal),
+        }
+    }
 
     // Decode a named property from the block state using the declared state_schema.
     // Bit packing order is stable and derived by sorting property names ascending,

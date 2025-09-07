@@ -944,7 +944,12 @@ impl App {
                     .map(|t| t.light_emission(block.state))
                     .unwrap_or(0);
                 if em > 0 {
-                    let is_beacon = self.runtime.reg.id_by_name("beacon") == Some(block.id);
+                    let is_beacon = self
+                        .runtime
+                        .reg
+                        .get(block.id)
+                        .map(|t| t.light_is_beam())
+                        .unwrap_or(false);
                     self.queue.emit_now(Event::LightEmitterAdded {
                         wx,
                         wy,

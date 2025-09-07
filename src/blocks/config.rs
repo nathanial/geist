@@ -5,6 +5,8 @@ use serde::Deserialize;
 #[derive(Deserialize, Debug)]
 pub struct BlocksConfig {
     pub blocks: Vec<BlockDef>,
+    #[serde(default)]
+    pub lighting: Option<LightingConfig>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -20,6 +22,12 @@ pub struct BlockDef {
     pub propagates_light: Option<bool>,
     #[serde(default)]
     pub emission: Option<u8>,
+
+    // Optional lighting behavior configuration
+    #[serde(default)]
+    pub light_profile: Option<String>,
+    #[serde(default)]
+    pub light: Option<LightProfile>,
 
     #[serde(default)]
     pub shape: Option<ShapeConfig>,
@@ -74,3 +82,40 @@ pub enum MaterialSelector {
     Key(String),
     By { by: String, #[serde(default)] map: HashMap<String, String> },
 }
+
+// Top-level lighting config with reusable profiles
+#[derive(Deserialize, Debug, Clone, Default)]
+pub struct LightingConfig {
+    #[serde(default)]
+    pub profiles: HashMap<String, LightProfile>,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+#[serde(tag = "mode", rename_all = "lowercase")]
+pub enum LightProfile {
+    Omni {
+        #[serde(default = "default_omni_atten")] attenuation: u8,
+        #[serde(default)] max_range: Option<u16>,
+    },
+    Beam {
+        #[serde(default = "default_beam_straight")] straight_cost: u8,
+        #[serde(default = "default_beam_turn")] turn_cost: u8,
+        #[serde(default = "default_beam_vertical")] vertical_cost: u8,
+        #[serde(default = "default_source_dirs")] source_dirs: SourceDirs,
+        #[serde(default)] max_range: Option<u16>,
+    },
+}
+
+#[derive(Deserialize, Debug, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum SourceDirs {
+    Horizontal,
+    Vertical,
+    Any,
+}
+
+fn default_omni_atten() -> u8 { 32 }
+fn default_beam_straight() -> u8 { 1 }
+fn default_beam_turn() -> u8 { 32 }
+fn default_beam_vertical() -> u8 { 32 }
+fn default_source_dirs() -> SourceDirs { SourceDirs::Horizontal }

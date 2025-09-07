@@ -99,30 +99,30 @@ impl LightGrid {
                 }
             }
         }
-        // Emitters from blocks in this chunk - track beacon sources separately
-        let mut q = VecDeque::new();
-        // Beacon queue tracks: (x, y, z, level, direction)
-        // Direction: 0=source, 1=+X, 2=-X, 3=+Z, 4=-Z, 5=non-cardinal
-        let mut q_beacon: VecDeque<(usize, usize, usize, u8, u8)> = VecDeque::new();
+        // Emitters from blocks in this chunk - track separately by mode
+        // q (omni): (x, y, z, level, attenuation)
+        let mut q: VecDeque<(usize, usize, usize, u8, u8)> = VecDeque::new();
+        // q_beacon (beam): (x, y, z, level, direction, straight_cost, turn_cost, vertical_cost)
+        // direction: 0=source, 1=+X, 2=-X, 3=+Z, 4=-Z, 5=non-cardinal
+        let mut q_beacon: VecDeque<(usize, usize, usize, u8, u8, u8, u8, u8)> = VecDeque::new();
         for z in 0..sz {
             for y in 0..sy {
                 for x in 0..sx {
                     let b = buf.get_local(x, y, z);
-                    let em = reg
-                        .get(b.id)
-                        .map(|ty| ty.light_emission(b.state))
-                        .unwrap_or(0);
-                    if em > 0 {
-                        let idx = lg.idx(x, y, z);
-                        let is_beacon = reg.id_by_name("beacon").map(|id| id == b.id).unwrap_or(false);
-                        if is_beacon {
-                            lg.beacon_light[idx] = em;
-                            lg.beacon_dir[idx] = 0; // source
-                            // Initial beacon emission - direction 0 means it's the source
-                            q_beacon.push_back((x, y, z, em, 0));
-                        } else {
-                            lg.block_light[idx] = em;
-                            q.push_back((x, y, z, em));
+                    if let Some(ty) = reg.get(b.id) {
+                        let em = ty.light_emission(b.state);
+                        if em > 0 {
+                            let idx = lg.idx(x, y, z);
+                            if ty.light_is_beam() {
+                                lg.beacon_light[idx] = em;
+                                lg.beacon_dir[idx] = 0; // source
+                                let (sc, tc, vc, _sd) = ty.beam_params();
+                                q_beacon.push_back((x, y, z, em, 0, sc, tc, vc));
+                            } else {
+                                lg.block_light[idx] = em;
+                                let att = ty.omni_attenuation();
+                                q.push_back((x, y, z, em, att));
+                            }
                         }
                     }
                 }
@@ -136,12 +136,24 @@ impl LightGrid {
                     if lg.beacon_light[idx] < level {
                         lg.beacon_light[idx] = level;
                         lg.beacon_dir[idx] = 0; // source
-                        q_beacon.push_back((x, y, z, level, 0)); // 0 = source
+                        // Use beam params from the block at this cell if available, else defaults
+                        let b = buf.get_local(x, y, z);
+                        let (sc, tc, vc) = reg
+                            .get(b.id)
+                            .map(|ty| {
+                                let (sc, tc, vc, _sd) = ty.beam_params();
+                                (sc, tc, vc)
+                            })
+                            .unwrap_or((1, 32, 32));
+                        q_beacon.push_back((x, y, z, level, 0, sc, tc, vc));
                     }
                 } else {
                     if lg.block_light[idx] < level {
                         lg.block_light[idx] = level;
-                        q.push_back((x, y, z, level));
+                        // Pull attenuation from the block type if present, else default
+                        let b = buf.get_local(x, y, z);
+                        let att = reg.get(b.id).map(|ty| ty.omni_attenuation()).unwrap_or(32);
+                        q.push_back((x, y, z, level, att));
                     }
                 }
             }
@@ -164,7 +176,7 @@ impl LightGrid {
         lg.nb_xp_bcn_dir = nb.bcn_dir_xp.clone();
         lg.nb_zn_bcn_dir = nb.bcn_dir_zn.clone();
         lg.nb_zp_bcn_dir = nb.bcn_dir_zp.clone();
-        // Process neighbor light with appropriate attenuation
+        // Process neighbor light with appropriate attenuation (use default for omni across borders)
         let atten: i32 = 32;
         // Regular block light from neighbors
         if let Some(ref plane) = nb.xn {
@@ -176,7 +188,7 @@ impl LightGrid {
                         let idx = lg.idx(0, y, z);
                         if lg.block_light[idx] < v8 {
                             lg.block_light[idx] = v8;
-                            q.push_back((0, y, z, v8));
+                            q.push_back((0, y, z, v8, 32));
                         }
                     }
                 }
@@ -192,7 +204,7 @@ impl LightGrid {
                         let idx = lg.idx(xx, y, z);
                         if lg.block_light[idx] < v8 {
                             lg.block_light[idx] = v8;
-                            q.push_back((xx, y, z, v8));
+                            q.push_back((xx, y, z, v8, 32));
                         }
                     }
                 }
@@ -207,7 +219,7 @@ impl LightGrid {
                         let idx = lg.idx(x, y, 0);
                         if lg.block_light[idx] < v8 {
                             lg.block_light[idx] = v8;
-                            q.push_back((x, y, 0, v8));
+                            q.push_back((x, y, 0, v8, 32));
                         }
                     }
                 }
@@ -223,13 +235,13 @@ impl LightGrid {
                         let idx = lg.idx(x, y, zz);
                         if lg.block_light[idx] < v8 {
                             lg.block_light[idx] = v8;
-                            q.push_back((x, y, zz, v8));
+                            q.push_back((x, y, zz, v8, 32));
                         }
                     }
                 }
             }
         }
-        // Beacon light from neighbors: Use explicit direction planes (no threshold heuristic)
+        // Beacon light from neighbors: Use explicit direction planes; apply default costs
         if let Some(ref plane) = nb.bcn_xn {
             for z in 0..sz {
                 for y in 0..sy {
@@ -239,10 +251,7 @@ impl LightGrid {
                         .as_ref()
                         .and_then(|p| p.get(y * sz + z).cloned())
                         .unwrap_or(5);
-                    let atten = match dir {
-                        1 | 2 | 3 | 4 => 1,
-                        _ => 32,
-                    };
+                    let atten = match dir { 1 | 2 | 3 | 4 => 1, _ => 32 };
                     let v = orig_v as i32 - atten;
                     if v > 0 {
                         let v8 = v as u8;
@@ -250,7 +259,7 @@ impl LightGrid {
                         if lg.beacon_light[idx] < v8 {
                             lg.beacon_light[idx] = v8;
                             lg.beacon_dir[idx] = dir;
-                            q_beacon.push_back((0, y, z, v8, dir));
+                            q_beacon.push_back((0, y, z, v8, dir, 1, 32, 32));
                         }
                     }
                 }
@@ -265,10 +274,7 @@ impl LightGrid {
                         .as_ref()
                         .and_then(|p| p.get(y * sz + z).cloned())
                         .unwrap_or(5);
-                    let atten = match dir {
-                        1 | 2 | 3 | 4 => 1,
-                        _ => 32,
-                    };
+                    let atten = match dir { 1 | 2 | 3 | 4 => 1, _ => 32 };
                     let v = orig_v as i32 - atten;
                     if v > 0 {
                         let v8 = v as u8;
@@ -277,7 +283,7 @@ impl LightGrid {
                         if lg.beacon_light[idx] < v8 {
                             lg.beacon_light[idx] = v8;
                             lg.beacon_dir[idx] = dir;
-                            q_beacon.push_back((xx, y, z, v8, dir));
+                            q_beacon.push_back((xx, y, z, v8, dir, 1, 32, 32));
                         }
                     }
                 }
@@ -292,10 +298,7 @@ impl LightGrid {
                         .as_ref()
                         .and_then(|p| p.get(y * sx + x).cloned())
                         .unwrap_or(5);
-                    let atten = match dir {
-                        1 | 2 | 3 | 4 => 1,
-                        _ => 32,
-                    };
+                    let atten = match dir { 1 | 2 | 3 | 4 => 1, _ => 32 };
                     let v = orig_v as i32 - atten;
                     if v > 0 {
                         let v8 = v as u8;
@@ -303,7 +306,7 @@ impl LightGrid {
                         if lg.beacon_light[idx] < v8 {
                             lg.beacon_light[idx] = v8;
                             lg.beacon_dir[idx] = dir;
-                            q_beacon.push_back((x, y, 0, v8, dir));
+                            q_beacon.push_back((x, y, 0, v8, dir, 1, 32, 32));
                         }
                     }
                 }
@@ -318,10 +321,7 @@ impl LightGrid {
                         .as_ref()
                         .and_then(|p| p.get(y * sx + x).cloned())
                         .unwrap_or(5);
-                    let atten = match dir {
-                        1 | 2 | 3 | 4 => 1,
-                        _ => 32,
-                    };
+                    let atten = match dir { 1 | 2 | 3 | 4 => 1, _ => 32 };
                     let v = orig_v as i32 - atten;
                     if v > 0 {
                         let v8 = v as u8;
@@ -330,7 +330,7 @@ impl LightGrid {
                         if lg.beacon_light[idx] < v8 {
                             lg.beacon_light[idx] = v8;
                             lg.beacon_dir[idx] = dir;
-                            q_beacon.push_back((x, y, zz, v8, dir));
+                            q_beacon.push_back((x, y, zz, v8, dir, 1, 32, 32));
                         }
                     }
                 }
@@ -440,8 +440,9 @@ impl LightGrid {
         }
         // Block-light BFS within chunk (registry-controlled passability)
         // Normal lights with standard attenuation
-        while let Some((x, y, z, v)) = q.pop_front() {
+        while let Some((x, y, z, v, attu)) = q.pop_front() {
             let vcur = v as i32;
+            let atten = attu as i32;
             if vcur <= atten {
                 continue;
             }
@@ -474,7 +475,7 @@ impl LightGrid {
                     let idn = lg.idx(nxi, nyi, nzi);
                     if lg.block_light[idn] < vnext {
                         lg.block_light[idn] = vnext;
-                        q.push_back((nxi, nyi, nzi, vnext));
+                        q.push_back((nxi, nyi, nzi, vnext, attu));
                     }
                 }
             }
@@ -482,7 +483,7 @@ impl LightGrid {
         // Beacon lights with directional attenuation
         // Cardinal directions (N/S/E/W): attenuation of 1
         // Diagonals and vertical: attenuation of 32
-        while let Some((x, y, z, v, dir)) = q_beacon.pop_front() {
+        while let Some((x, y, z, v, dir, scost, tcost, vcost)) = q_beacon.pop_front() {
             let neigh = [
                 (1, 0, 0),
                 (-1, 0, 0),
@@ -507,49 +508,26 @@ impl LightGrid {
 
                 // Determine direction and attenuation
                 let (new_dir, atten) = match dir {
-                    0 => {
-                        // Source: can start cardinal in any horizontal direction
-                        match (dx, dy, dz) {
-                            (1, 0, 0) => (1, 1),  // Start +X cardinal
-                            (-1, 0, 0) => (2, 1), // Start -X cardinal
-                            (0, 0, 1) => (3, 1),  // Start +Z cardinal
-                            (0, 0, -1) => (4, 1), // Start -Z cardinal
-                            _ => (5, 32),         // Vertical is non-cardinal
-                        }
-                    }
+                    0 => match (dx, dy, dz) {
+                        (1, 0, 0) => (1, scost as i32),
+                        (-1, 0, 0) => (2, scost as i32),
+                        (0, 0, 1) => (3, scost as i32),
+                        (0, 0, -1) => (4, scost as i32),
+                        _ => (5, vcost as i32),
+                    },
                     1 => {
-                        // Moving +X: can only continue +X for cardinal
-                        if *dx == 1 && *dy == 0 && *dz == 0 {
-                            (1, 1)
-                        } else {
-                            (5, 32)
-                        }
+                        if *dx == 1 && *dy == 0 && *dz == 0 { (1, scost as i32) } else { (5, tcost as i32) }
                     }
                     2 => {
-                        // Moving -X: can only continue -X for cardinal
-                        if *dx == -1 && *dy == 0 && *dz == 0 {
-                            (2, 1)
-                        } else {
-                            (5, 32)
-                        }
+                        if *dx == -1 && *dy == 0 && *dz == 0 { (2, scost as i32) } else { (5, tcost as i32) }
                     }
                     3 => {
-                        // Moving +Z: can only continue +Z for cardinal
-                        if *dx == 0 && *dy == 0 && *dz == 1 {
-                            (3, 1)
-                        } else {
-                            (5, 32)
-                        }
+                        if *dx == 0 && *dy == 0 && *dz == 1 { (3, scost as i32) } else { (5, tcost as i32) }
                     }
                     4 => {
-                        // Moving -Z: can only continue -Z for cardinal
-                        if *dx == 0 && *dy == 0 && *dz == -1 {
-                            (4, 1)
-                        } else {
-                            (5, 32)
-                        }
+                        if *dx == 0 && *dy == 0 && *dz == -1 { (4, scost as i32) } else { (5, tcost as i32) }
                     }
-                    _ => (5, 32), // Non-cardinal always uses high attenuation
+                    _ => (5, tcost as i32),
                 };
 
                 let vcur = v as i32;
@@ -566,7 +544,7 @@ impl LightGrid {
                     if lg.beacon_light[idn] < vnext {
                         lg.beacon_light[idn] = vnext;
                         lg.beacon_dir[idn] = new_dir;
-                        q_beacon.push_back((nxi, nyi, nzi, vnext, new_dir));
+                        q_beacon.push_back((nxi, nyi, nzi, vnext, new_dir, scost, tcost, vcost));
                     }
                 }
             }
