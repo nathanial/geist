@@ -20,6 +20,8 @@ pub struct BuildJob {
     pub job_id: u64,
     pub chunk_edits: Vec<((i32, i32, i32), Block)>,
     pub region_edits: Vec<((i32, i32, i32), Block)>,
+    // Optional previous buffer to reuse instead of regenerating from worldgen
+    pub prev_buf: Option<chunkbuf::ChunkBuf>,
 }
 
 pub struct JobOut {
@@ -162,7 +164,12 @@ impl Runtime {
             let reg = reg.clone();
             thread::spawn(move || {
                 while let Ok(job) = wrx.recv() {
-                    let mut buf = chunkbuf::generate_chunk_buffer(&w, job.cx, job.cz, &reg);
+                    // Start from previous buffer when provided; else regenerate from worldgen
+                    let mut buf = if let Some(prev) = job.prev_buf {
+                        prev
+                    } else {
+                        chunkbuf::generate_chunk_buffer(&w, job.cx, job.cz, &reg)
+                    };
                     // Apply persistent edits for this chunk before meshing
                     let base_x = job.cx * buf.sx as i32;
                     let base_z = job.cz * buf.sz as i32;

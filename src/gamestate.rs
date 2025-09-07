@@ -24,6 +24,8 @@ pub struct GameState {
     pub loaded: HashSet<(i32, i32)>,
     pub pending: HashSet<(i32, i32)>,
     pub chunks: HashMap<(i32, i32), ChunkEntry>,
+    // Track newest rev sent to workers per chunk to avoid redundant requeues
+    pub inflight_rev: HashMap<(i32, i32), u64>,
 
     // Edits + lighting (authoritative overlays)
     pub edits: EditStore,
@@ -72,6 +74,7 @@ impl GameState {
             loaded: HashSet::new(),
             pending: HashSet::new(),
             chunks: HashMap::new(),
+            inflight_rev: HashMap::new(),
             edits,
             lighting,
             walker,

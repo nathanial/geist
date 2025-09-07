@@ -2,7 +2,7 @@ use crate::blocks::Block;
 use crate::voxel::World;
 use crate::blocks::BlockRegistry;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ChunkBuf {
     pub cx: i32,
     pub cz: i32,

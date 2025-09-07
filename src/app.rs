@@ -634,6 +634,8 @@ impl App {
                     job_id,
                 });
                 self.gs.pending.insert((cx, cz));
+                // Track newest inflight rev
+                self.gs.inflight_rev.insert((cx, cz), rev);
             }
             Event::BuildChunkJobRequested {
                 cx,
@@ -645,6 +647,13 @@ impl App {
                 // Prepare edit snapshots for workers (pure)
                 let chunk_edits = self.gs.edits.snapshot_for_chunk(cx, cz);
                 let region_edits = self.gs.edits.snapshot_for_region(cx, cz, 1);
+                // Try to reuse previous buffer if present (and not invalidated)
+                let prev_buf = self
+                    .gs
+                    .chunks
+                    .get(&(cx, cz))
+                    .and_then(|c| c.buf.as_ref())
+                    .cloned();
                 self.runtime.submit_build_job(BuildJob {
                     cx,
                     cz,
@@ -653,6 +662,7 @@ impl App {
                     job_id,
                     chunk_edits,
                     region_edits,
+                    prev_buf,
                 });
             }
             Event::StructureBuildRequested { id, rev } => {
@@ -724,16 +734,26 @@ impl App {
                 // Drop if stale
                 let cur_rev = self.gs.edits.get_rev(cx, cz);
                 if rev < cur_rev {
-                    // Re-enqueue latest
-                    let neighbors = self.neighbor_mask(cx, cz);
-                    let job_id = Self::job_hash(cx, cz, cur_rev, neighbors);
-                    self.queue.emit_now(Event::BuildChunkJobRequested {
-                        cx,
-                        cz,
-                        neighbors,
-                        rev: cur_rev,
-                        job_id,
-                    });
+                    // Only re-enqueue if there isn't already a newer inflight job and not pending
+                    let inflight = self
+                        .gs
+                        .inflight_rev
+                        .get(&(cx, cz))
+                        .copied()
+                        .unwrap_or(0);
+                    if !self.gs.pending.contains(&(cx, cz)) && inflight < cur_rev {
+                        let neighbors = self.neighbor_mask(cx, cz);
+                        let job_id = Self::job_hash(cx, cz, cur_rev, neighbors);
+                        self.queue.emit_now(Event::BuildChunkJobRequested {
+                            cx,
+                            cz,
+                            neighbors,
+                            rev: cur_rev,
+                            job_id,
+                        });
+                        self.gs.pending.insert((cx, cz));
+                        self.gs.inflight_rev.insert((cx, cz), cur_rev);
+                    }
                     return;
                 }
                 // Upload to GPU
@@ -796,6 +816,7 @@ impl App {
                 );
                 self.gs.loaded.insert((cx, cz));
                 self.gs.pending.remove(&(cx, cz));
+                self.gs.inflight_rev.remove(&(cx, cz));
                 self.gs.edits.mark_built(cx, cz, rev);
 
                 // Update light borders in main thread; if changed, emit a dedicated event
@@ -823,6 +844,7 @@ impl App {
                     job_id,
                 });
                 self.gs.pending.insert((cx, cz));
+                self.gs.inflight_rev.insert((cx, cz), rev);
             }
             Event::RaycastEditRequested { place, block } => {
                 // Perform world + structure raycast and emit edit events
@@ -1135,13 +1157,23 @@ impl App {
     }
 
     pub fn step(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread, dt: f32) {
-        // Handle worldgen hot-reload auto-rebuild
-        if self.runtime.rebuild_on_worldgen && self.runtime.take_worldgen_dirty() {
+        // Handle worldgen hot-reload
+        // Always invalidate previous CPU buffers on change; optionally schedule rebuilds
+        if self.runtime.take_worldgen_dirty() {
             let keys: Vec<(i32,i32)> = self.runtime.renders.keys().cloned().collect();
             for (cx, cz) in keys.iter().copied() {
-                self.queue.emit_now(Event::ChunkRebuildRequested { cx, cz, cause: RebuildCause::StreamLoad });
+                if let Some(ent) = self.gs.chunks.get_mut(&(cx, cz)) {
+                    ent.buf = None; // prevent reuse across worldgen param changes
+                }
             }
-            log::info!("Scheduled rebuild of {} loaded chunks due to worldgen change", keys.len());
+            if self.runtime.rebuild_on_worldgen {
+                for (cx, cz) in keys.iter().copied() {
+                    self.queue.emit_now(Event::ChunkRebuildRequested { cx, cz, cause: RebuildCause::StreamLoad });
+                }
+                log::info!("Scheduled rebuild of {} loaded chunks due to worldgen change", keys.len());
+            } else {
+                log::info!("Worldgen changed; invalidated {} chunk buffers (rebuild on demand)", keys.len());
+            }
         }
         // Input handling → emit events
         if rl.is_key_pressed(KeyboardKey::KEY_V) {
@@ -1941,7 +1973,7 @@ impl App {
                     neighbors.neg_z,
                     neighbors.pos_z,
                 ];
-                log::info!(target: "events", "[tick {}] BuildChunkJobRequested ({}, {}) rev={} nmask={:?} job_id={:#x}",
+                log::debug!(target: "events", "[tick {}] BuildChunkJobRequested ({}, {}) rev={} nmask={:?} job_id={:#x}",
                     tick, cx, cz, rev, mask, job_id);
             }
             E::BuildChunkJobCompleted {
@@ -1951,7 +1983,7 @@ impl App {
                 job_id,
                 ..
             } => {
-                log::info!(target: "events", "[tick {}] BuildChunkJobCompleted ({}, {}) rev={} job_id={:#x}",
+                log::debug!(target: "events", "[tick {}] BuildChunkJobCompleted ({}, {}) rev={} job_id={:#x}",
                     tick, cx, cz, rev, job_id);
             }
             E::StructureBuildRequested { id, rev } => {
