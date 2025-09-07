@@ -52,7 +52,7 @@ enum Command {
     },
 }
 
-#[derive(Args, Debug, Default)]
+#[derive(Args, Debug)]
 struct RunArgs {
     /// World generation preset
     #[arg(long, value_enum, default_value_t = WorldKind::Normal)]
@@ -82,6 +82,21 @@ struct RunArgs {
     /// Chunk size along Z
     #[arg(long, default_value_t = 32)]
     chunk_size_z: usize,
+}
+
+impl Default for RunArgs {
+    fn default() -> Self {
+        Self {
+            world: WorldKind::Normal,
+            flat_thickness: None,
+            seed: 1337,
+            chunks_x: 4,
+            chunks_z: 4,
+            chunk_size_x: 32,
+            chunk_size_y: 48,
+            chunk_size_z: 32,
+        }
+    }
 }
 
 #[derive(Clone, Debug, ValueEnum)]
