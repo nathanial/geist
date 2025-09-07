@@ -1,0 +1,48 @@
+mode = "normal"
+
+[flat]
+thickness = 1
+
+[height]
+frequency = 0.02
+min_y_ratio = 0.15
+max_y_ratio = 0.70
+
+[surface]
+snow_threshold = 0.62
+sand_threshold = 0.20
+topsoil_thickness = 3
+top = { high = "snow", low = "sand", mid = "grass" }
+subsoil = { near_surface = "dirt", deep = "stone" }
+
+[carvers]
+enable = true
+y_scale = 1.6
+eps_base = 0.04
+eps_add = 0.08
+warp_xy = 5.0
+warp_y = 2.5
+room_cell = 120.0
+room_thr_base = 0.12
+room_thr_add = 0.12
+soil_min = 3.5
+min_y = 2.0
+glow_prob = 0.0009
+tunnel = { octaves = 4, persistence = 0.55, lacunarity = 2.0, scale = 140.0 }
+warp = { octaves = 3, persistence = 0.6,  lacunarity = 2.0, scale = 220.0 }
+
+[trees]
+probability = 0.02
+trunk_min = 4
+trunk_max = 6
+leaf_radius = 2
+
+[[features]]
+name = "glowstone_sprinkle"
+# Roughly mirror the built-in cave sprinkle, but via rules
+[features.when]
+near_solid = true
+below_height_offset = 2
+chance = 0.0009
+[features.place]
+block = "glowstone"

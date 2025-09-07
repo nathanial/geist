@@ -39,6 +39,11 @@ pub struct Runtime {
     pub tex_cache: mesher::TextureCache,
     pub reg: std::sync::Arc<BlockRegistry>,
     tex_event_rx: mpsc::Receiver<String>,
+    worldgen_event_rx: mpsc::Receiver<()>,
+    world_config_path: String,
+    pub world: Arc<World>,
+    pub rebuild_on_worldgen: bool,
+    worldgen_dirty: bool,
     // GPU chunk models
     pub renders: HashMap<(i32, i32), mesher::ChunkRender>,
     pub structure_renders: HashMap<StructureId, mesher::ChunkRender>,
@@ -77,6 +82,9 @@ impl Runtime {
         lighting: Arc<crate::lighting::LightingStore>,
         reg: std::sync::Arc<BlockRegistry>,
         watch_textures: bool,
+        watch_worldgen: bool,
+        world_config_path: String,
+        rebuild_on_worldgen: bool,
     ) -> Self {
         use std::sync::mpsc;
         let leaves_shader = shaders::LeavesShader::load(rl, thread);
@@ -108,6 +116,29 @@ impl Runtime {
                 let _ = watcher.watch(std::path::Path::new("assets/blocks"), RecursiveMode::Recursive);
                 // Keep thread alive
                 loop { std::thread::sleep(std::time::Duration::from_secs(3600)); }
+            });
+        }
+
+        // File watcher for worldgen config
+        let (wg_tx, wg_rx) = mpsc::channel::<()>();
+        if watch_worldgen {
+            let tx = wg_tx.clone();
+            let path = world_config_path.clone();
+            std::thread::spawn(move || {
+                use notify::{RecursiveMode, Watcher, EventKind};
+                if let Ok(mut watcher) = notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+                    if let Ok(event) = res {
+                        match event.kind {
+                            EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_) | EventKind::Any => {
+                                let _ = tx.send(());
+                            }
+                            _ => {}
+                        }
+                    }
+                }) {
+                    let _ = watcher.watch(std::path::Path::new(&path), RecursiveMode::NonRecursive);
+                    loop { std::thread::sleep(std::time::Duration::from_secs(3600)); }
+                }
             });
         }
 
@@ -226,6 +257,11 @@ impl Runtime {
             tex_cache,
             reg,
             tex_event_rx: tex_rx,
+            worldgen_event_rx: wg_rx,
+            world_config_path,
+            world: world.clone(),
+            rebuild_on_worldgen,
+            worldgen_dirty: false,
             renders: HashMap::new(),
             structure_renders: HashMap::new(),
             job_tx,
@@ -400,5 +436,34 @@ impl Runtime {
                 log::info!("Rebound {} on {} material(s)", p, n);
             }
         }
+    }
+
+    pub fn process_worldgen_file_events(&mut self) {
+        let mut changed = false;
+        for _ in self.worldgen_event_rx.try_iter() { changed = true; }
+        if !changed { return; }
+        let path = std::path::Path::new(&self.world_config_path);
+        if !path.exists() {
+            log::warn!("worldgen config missing: {}", self.world_config_path);
+            return;
+        }
+        match crate::worldgen::load_params_from_path(path) {
+            Ok(params) => {
+                self.world.update_worldgen_params(params);
+                log::info!("worldgen config reloaded from {}", self.world_config_path);
+                log::info!("Existing chunks unchanged; new gen uses updated params");
+                self.worldgen_dirty = true;
+            }
+            Err(e) => {
+                log::warn!("worldgen config reload failed ({}): {}", self.world_config_path, e);
+            }
+        }
+    }
+
+    pub fn take_worldgen_dirty(&mut self) -> bool {
+        if self.worldgen_dirty {
+            self.worldgen_dirty = false;
+            true
+        } else { false }
     }
 }

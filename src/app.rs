@@ -120,6 +120,9 @@ impl App {
         edits: crate::edit::EditStore,
         reg: std::sync::Arc<BlockRegistry>,
         watch_textures: bool,
+        watch_worldgen: bool,
+        world_config_path: String,
+        rebuild_on_worldgen: bool,
     ) -> Self {
         // Spawn: if flat world, start a few blocks above the slab; else near world top
         let spawn = if world.is_flat() {
@@ -137,7 +140,17 @@ impl App {
         };
         let cam = crate::camera::FlyCamera::new(spawn + Vector3::new(0.0, 5.0, 20.0));
 
-        let runtime = Runtime::new(&mut rl, thread, world.clone(), lighting.clone(), reg.clone(), watch_textures);
+        let runtime = Runtime::new(
+            &mut rl,
+            thread,
+            world.clone(),
+            lighting.clone(),
+            reg.clone(),
+            watch_textures,
+            watch_worldgen,
+            world_config_path,
+            rebuild_on_worldgen,
+        );
         let mut gs = GameState::new(world.clone(), edits, lighting.clone(), cam.position);
         let mut queue = EventQueue::new();
         let hotbar = Self::load_hotbar(&reg);
@@ -1099,6 +1112,14 @@ impl App {
     }
 
     pub fn step(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread, dt: f32) {
+        // Handle worldgen hot-reload auto-rebuild
+        if self.runtime.rebuild_on_worldgen && self.runtime.take_worldgen_dirty() {
+            let keys: Vec<(i32,i32)> = self.runtime.renders.keys().cloned().collect();
+            for (cx, cz) in keys.iter().copied() {
+                self.queue.emit_now(Event::ChunkRebuildRequested { cx, cz, cause: RebuildCause::StreamLoad });
+            }
+            log::info!("Scheduled rebuild of {} loaded chunks due to worldgen change", keys.len());
+        }
         // Input handling → emit events
         if rl.is_key_pressed(KeyboardKey::KEY_V) {
             self.queue.emit_now(Event::WalkModeToggled);

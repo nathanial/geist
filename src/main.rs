@@ -16,6 +16,7 @@ mod shaders;
 mod structure;
 mod voxel;
 mod blocks;
+mod worldgen;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use raylib::prelude::*;
@@ -87,6 +88,18 @@ struct RunArgs {
     #[arg(long, default_value_t = true)]
     watch_textures: bool,
 
+    /// Worldgen config path (TOML)
+    #[arg(long, value_name = "PATH", default_value = "assets/worldgen/worldgen.toml")]
+    world_config: String,
+
+    /// Watch worldgen config for changes and hot-reload params
+    #[arg(long, default_value_t = true)]
+    watch_worldgen: bool,
+
+    /// Rebuild loaded chunks automatically when worldgen config changes
+    #[arg(long, default_value_t = true)]
+    rebuild_on_worldgen_change: bool,
+
 }
 
 impl Default for RunArgs {
@@ -101,6 +114,9 @@ impl Default for RunArgs {
             chunk_size_y: 256,
             chunk_size_z: 32,
             watch_textures: true,
+            world_config: "assets/worldgen/worldgen.toml".to_string(),
+            watch_worldgen: true,
+            rebuild_on_worldgen_change: true,
         }
     }
 }
@@ -290,6 +306,23 @@ fn run_app(run: RunArgs) {
         world_seed,
         world_mode,
     ));
+    // Initial worldgen params load (optional)
+    {
+        let cfg_path = std::path::Path::new(&run.world_config);
+        if cfg_path.exists() {
+            match crate::worldgen::load_params_from_path(cfg_path) {
+                Ok(params) => {
+                    world.update_worldgen_params(params);
+                    log::info!("Loaded worldgen config from {}", run.world_config);
+                }
+                Err(e) => {
+                    log::warn!("worldgen config load failed ({}): {}", run.world_config, e);
+                }
+            }
+        } else {
+            log::info!("worldgen config not found at {}; using defaults", run.world_config);
+        }
+    }
     let lighting_store = Arc::new(lighting::LightingStore::new(
         chunk_size_x,
         chunk_size_y,
@@ -309,12 +342,17 @@ fn run_app(run: RunArgs) {
         edit_store,
         reg.clone(),
         run.watch_textures,
+        run.watch_worldgen,
+        run.world_config.clone(),
+        run.rebuild_on_worldgen_change,
     );
 
     while !rl.window_should_close() {
         let dt = rl.get_frame_time();
         // Hot-reload textures modified under assets/blocks
         app.runtime.process_texture_file_events(&mut rl, &thread);
+        // Hot-reload worldgen params when config changes
+        app.runtime.process_worldgen_file_events();
         app.step(&mut rl, &thread, dt);
         app.render(&mut rl, &thread);
     }
