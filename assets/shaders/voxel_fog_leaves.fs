@@ -9,6 +9,8 @@ uniform vec3 fogColor;
 uniform float fogStart;
 uniform float fogEnd;
 uniform vec3 cameraPos;
+// Cutout threshold: discard fully transparent texels to avoid depth holes
+uniform float alphaCutoff;
 // Autumn palette uniforms
 uniform vec3 palette0; // low -> high stops across grayscale
 uniform vec3 palette1;
@@ -32,6 +34,8 @@ vec3 gradientMap(float t){
 
 void main(){
   vec4 tex = texture(texture0, fragTexCoord);
+  // Alpha cutout: prevent transparent pixels from writing depth
+  if (tex.a < alphaCutoff) discard;
   // Grayscale intensity from the leaves texture
   float g = dot(tex.rgb, vec3(0.299, 0.587, 0.114));
   vec3 autumn = gradientMap(g);
