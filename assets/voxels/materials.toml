@@ -45,25 +45,25 @@ end_stone_bricks = ["assets/blocks/end_stone_bricks.png"]
 oak_log = { paths = ["assets/blocks/log_oak.png"], render_tag = "log" }
 oak_log_top = { paths = ["assets/blocks/log_oak_top.png"], render_tag = "log" }
 oak_planks = ["assets/blocks/planks_oak.png"]
-oak_leaves = { paths = ["assets/blocks/leaves_oak.png"], render_tag = "leaves" }
+oak_leaves = { paths = ["assets/blocks/leaves_oak_opaque.png"], render_tag = "leaves" }
 
 birch_log = { paths = ["assets/blocks/log_birch.png"], render_tag = "log" }
 birch_log_top = { paths = ["assets/blocks/log_birch_top.png"], render_tag = "log" }
 birch_planks = ["assets/blocks/planks_birch.png"]
-birch_leaves = { paths = ["assets/blocks/leaves_birch.png"], render_tag = "leaves" }
+birch_leaves = { paths = ["assets/blocks/leaves_birch_opaque.png"], render_tag = "leaves" }
 
 spruce_log = { paths = ["assets/blocks/log_spruce.png"], render_tag = "log" }
 spruce_log_top = { paths = ["assets/blocks/log_spruce_top.png"], render_tag = "log" }
 spruce_planks = ["assets/blocks/planks_spruce.png"]
-spruce_leaves = { paths = ["assets/blocks/leaves_spruce.png"], render_tag = "leaves" }
+spruce_leaves = { paths = ["assets/blocks/leaves_spruce_opaque.png"], render_tag = "leaves" }
 
 # Additional wood species used by worldgen
 jungle_log = { paths = ["assets/blocks/log_jungle.png"], render_tag = "log" }
 jungle_log_top = { paths = ["assets/blocks/log_jungle_top.png"], render_tag = "log" }
 jungle_planks = ["assets/blocks/planks_jungle.png"]
-jungle_leaves = { paths = ["assets/blocks/leaves_jungle.png"], render_tag = "leaves" }
+jungle_leaves = { paths = ["assets/blocks/leaves_jungle_opaque.png"], render_tag = "leaves" }
 
 acacia_log = { paths = ["assets/blocks/log_acacia.png"], render_tag = "log" }
 acacia_log_top = { paths = ["assets/blocks/log_acacia_top.png"], render_tag = "log" }
 acacia_planks = ["assets/blocks/planks_acacia.png"]
-acacia_leaves = { paths = ["assets/blocks/leaves_acacia.png"], render_tag = "leaves" }
+acacia_leaves = { paths = ["assets/blocks/leaves_acacia_opaque.png"], render_tag = "leaves" }
