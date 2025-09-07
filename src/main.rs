@@ -82,6 +82,7 @@ struct RunArgs {
     /// Chunk size along Z
     #[arg(long, default_value_t = 32)]
     chunk_size_z: usize,
+
 }
 
 impl Default for RunArgs {

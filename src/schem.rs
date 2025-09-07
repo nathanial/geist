@@ -28,13 +28,13 @@ fn state_value<'a>(key: &'a str, name: &str) -> Option<&'a str> {
 
 // --- Config-driven palette translator to runtime blocks ---
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 struct PaletteMapConfig { rules: Vec<PaletteRule> }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 struct PaletteRule { from: String, to: ToDef }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 struct ToDef { name: String, #[serde(default)] state: std::collections::HashMap<String, String> }
 
 fn load_palette_map() -> Option<PaletteMapConfig> {
@@ -43,32 +43,24 @@ fn load_palette_map() -> Option<PaletteMapConfig> {
     toml::from_str::<PaletteMapConfig>(&s).ok()
 }
 
-fn runtime_from_palette_key(reg: &BlockRegistry, key: &str) -> Option<RtBlock> {
-    let cfg = load_palette_map()?;
+fn runtime_from_palette_key_with_lut(
+    reg: &BlockRegistry,
+    key: &str,
+    lut: &std::collections::HashMap<String, ToDef>,
+) -> Option<RtBlock> {
     let base = base_from_key(key);
-    // Prefer exact key match, then base id match
-    let mut cand = None;
-    for r in &cfg.rules {
-        if r.from == key {
-            cand = Some(r);
-            break;
-        }
-        if r.from == base {
-            cand = Some(r);
-        }
-    }
-    let rule = cand?;
+    let to = lut.get(key).or_else(|| lut.get(base))?;
     // Start with rule-provided state
-    let mut state = rule.to.state.clone();
+    let mut state = to.state.clone();
     // Supplement state from palette key attributes when relevant
-    if rule.to.name == "slab" {
+    if to.name == "slab" {
         if let Some(t) = state_value(key, "type").or_else(|| state_value(key, "half")) {
             state.entry("half".to_string()).or_insert_with(|| match t {
                 "top" => "top".to_string(),
                 _ => "bottom".to_string(), // treat double/others as bottom for now
             });
         }
-    } else if rule.to.name == "stairs" {
+    } else if to.name == "stairs" {
         if let Some(h) = state_value(key, "half") {
             state.entry("half".to_string()).or_insert_with(|| match h {
                 "top" => "top".to_string(),
@@ -79,8 +71,7 @@ fn runtime_from_palette_key(reg: &BlockRegistry, key: &str) -> Option<RtBlock> {
             state.entry("facing".to_string()).or_insert_with(|| f.to_string());
         }
     }
-    let b = reg.make_block_by_name(&rule.to.name, Some(&state))?;
-    Some(b)
+    reg.make_block_by_name(&to.name, Some(&state))
 }
 
 
@@ -118,6 +109,16 @@ pub fn load_sponge_schem_apply_edits(
     let (sx, sy, sz) = (shape[0] as usize, shape[1] as usize, shape[2] as usize);
     let (ox, oy, oz) = origin;
 
+    // Build a fast lookup table for palette mapping to avoid re-parsing TOML per block
+    let lut: std::collections::HashMap<String, ToDef> = if let Some(cfg) = load_palette_map() {
+        cfg.rules
+            .into_iter()
+            .map(|r| (r.from, r.to))
+            .collect()
+    } else {
+        std::collections::HashMap::new()
+    };
+
     for x in 0..shape[0] {
         for y in 0..shape[1] {
             for z in 0..shape[2] {
@@ -127,7 +128,11 @@ pub fn load_sponge_schem_apply_edits(
                     }
                     let key = b.full_id(); // like "minecraft:oak_log[axis=y]"
                     // Config-driven translator only; skip if no rule is present
-                    let maybe_rt = runtime_from_palette_key(reg, &key);
+                    let maybe_rt = if lut.is_empty() {
+                        None
+                    } else {
+                        runtime_from_palette_key_with_lut(reg, &key, &lut)
+                    };
                     let wx = ox + x;
                     let wy = oy + y;
                     let wz = oz + z;

@@ -56,9 +56,42 @@ impl World {
 }
 
 
+// Optional reusable noise context for batch generation to avoid re-allocating per voxel
+pub struct GenCtx {
+    pub terrain: FastNoiseLite,
+    pub warp: FastNoiseLite,
+    pub tunnel: FastNoiseLite,
+}
+
 impl World {
+    pub fn make_gen_ctx(&self) -> GenCtx {
+        let mut terrain = FastNoiseLite::with_seed(self.seed);
+        terrain.set_noise_type(Some(NoiseType::OpenSimplex2));
+        terrain.set_frequency(Some(0.02));
+        let mut warp = FastNoiseLite::with_seed((self.seed as i32 ^ 991_73) as i32);
+        warp.set_noise_type(Some(NoiseType::OpenSimplex2));
+        warp.set_frequency(Some(0.012));
+        let mut tunnel = FastNoiseLite::with_seed((self.seed as i32 ^ 41_337) as i32);
+        tunnel.set_noise_type(Some(NoiseType::OpenSimplex2));
+        tunnel.set_frequency(Some(0.017));
+        GenCtx { terrain, warp, tunnel }
+    }
+
     // Runtime worldgen: generate blocks directly via registry (no legacy enums)
     pub fn block_at_runtime(&self, reg: &BlockRegistry, x: i32, y: i32, z: i32) -> RtBlock {
+        // Fallback wrapper for occasional sampling; batch paths should use block_at_runtime_with
+        let mut ctx = self.make_gen_ctx();
+        self.block_at_runtime_with(reg, &mut ctx, x, y, z)
+    }
+
+    pub fn block_at_runtime_with(
+        &self,
+        reg: &BlockRegistry,
+        ctx: &mut GenCtx,
+        x: i32,
+        y: i32,
+        z: i32,
+    ) -> RtBlock {
         // Out-of-bounds in Y -> air
         if y < 0 || y >= self.chunk_size_y as i32 {
             let id = reg.id_by_name("air").unwrap_or(0);
@@ -71,12 +104,9 @@ impl World {
             return RtBlock { id, state: 0 };
         }
 
-        // Base terrain sampling
-        let mut noise = FastNoiseLite::with_seed(self.seed);
-        noise.set_noise_type(Some(NoiseType::OpenSimplex2));
-        noise.set_frequency(Some(0.02));
+        // Base terrain sampling using reusable noise
         let height_for = |wx: i32, wz: i32| {
-            let h = noise.get_noise_2d(wx as f32, wz as f32);
+            let h = ctx.terrain.get_noise_2d(wx as f32, wz as f32);
             let min_h = (self.chunk_size_y as f32 * 0.15) as i32;
             let max_h = (self.chunk_size_y as f32 * 0.7) as i32;
             let hh = ((h + 1.0) * 0.5 * (max_h - min_h) as f32) as i32 + min_h;
@@ -120,13 +150,6 @@ impl World {
             let wy = y as f32;
             let soil = h - wy;
             if soil > SOIL_MIN && wy > MIN_Y {
-                let mut n_warp = FastNoiseLite::with_seed((self.seed as i32 ^ 991_73) as i32);
-                n_warp.set_noise_type(Some(NoiseType::OpenSimplex2));
-                n_warp.set_frequency(Some(0.012));
-                let mut n_tun = FastNoiseLite::with_seed((self.seed as i32 ^ 41_337) as i32);
-                n_tun.set_noise_type(Some(NoiseType::OpenSimplex2));
-                n_tun.set_frequency(Some(0.017));
-
                 let fractal3 = |n: &FastNoiseLite,
                                 x: f32,
                                 y: f32,
@@ -205,14 +228,14 @@ impl World {
                 let wx = x as f32;
                 let wy = y as f32;
                 let wz = z as f32;
-                let wxw = fractal3(&n_warp, wx, wy, wz, 3, 0.6, 2.0, 220.0);
-                let wyw = fractal3(&n_warp, wx + 133.7, wy + 71.3, wz - 19.1, 3, 0.6, 2.0, 220.0);
-                let wzw = fractal3(&n_warp, wx - 54.2,  wy + 29.7, wz + 88.8, 3, 0.6, 2.0, 220.0);
+                let wxw = fractal3(&ctx.warp, wx, wy, wz, 3, 0.6, 2.0, 220.0);
+                let wyw = fractal3(&ctx.warp, wx + 133.7, wy + 71.3, wz - 19.1, 3, 0.6, 2.0, 220.0);
+                let wzw = fractal3(&ctx.warp, wx - 54.2,  wy + 29.7, wz + 88.8, 3, 0.6, 2.0, 220.0);
                 let xp = wx + wxw * WARP_XY;
                 let yp = wy + wyw * WARP_Y;
                 let zp = wz + wzw * WARP_XY;
 
-                let tn = fractal3(&n_tun, xp, yp * Y_SCALE, zp, 4, 0.55, 2.0, 140.0);
+                let tn = fractal3(&ctx.tunnel, xp, yp * Y_SCALE, zp, 4, 0.55, 2.0, 140.0);
                 let mut depth = soil / (self.chunk_size_y as f32);
                 if depth < 0.0 { depth = 0.0; }
                 if depth > 1.0 { depth = 1.0; }
@@ -234,13 +257,13 @@ impl World {
                         let wxn = nx as f32;
                         let wyn = ny as f32;
                         let wzn = nz as f32;
-                        let wxw_n = fractal3(&n_warp, wxn, wyn, wzn, 3, 0.6, 2.0, 220.0);
-                        let wyw_n = fractal3(&n_warp, wxn + 133.7, wyn + 71.3, wzn - 19.1, 3, 0.6, 2.0, 220.0);
-                        let wzw_n = fractal3(&n_warp, wxn - 54.2,  wyn + 29.7, wzn + 88.8, 3, 0.6, 2.0, 220.0);
+                        let wxw_n = fractal3(&ctx.warp, wxn, wyn, wzn, 3, 0.6, 2.0, 220.0);
+                        let wyw_n = fractal3(&ctx.warp, wxn + 133.7, wyn + 71.3, wzn - 19.1, 3, 0.6, 2.0, 220.0);
+                        let wzw_n = fractal3(&ctx.warp, wxn - 54.2,  wyn + 29.7, wzn + 88.8, 3, 0.6, 2.0, 220.0);
                         let nxp = wxn + wxw_n * WARP_XY;
                         let nyp = wyn + wyw_n * WARP_Y;
                         let nzp = wzn + wzw_n * WARP_XY;
-                        let tn_n = fractal3(&n_tun, nxp, nyp * Y_SCALE, nzp, 4, 0.55, 2.0, 140.0);
+                        let tn_n = fractal3(&ctx.tunnel, nxp, nyp * Y_SCALE, nzp, 4, 0.55, 2.0, 140.0);
                         let nsoil = nh as f32 - wyn;
                         let mut n_depth = nsoil / (self.chunk_size_y as f32);
                         if n_depth < 0.0 { n_depth = 0.0; }

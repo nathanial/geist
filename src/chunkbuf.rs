@@ -80,13 +80,15 @@ pub fn generate_chunk_buffer(world: &World, cx: i32, cz: i32, reg: &BlockRegistr
     blocks.resize(sx * sy * sz, Block { id: 0, state: 0 });
     let x0 = cx * sx as i32;
     let z0 = cz * sz as i32;
+    // Use reusable worldgen context per chunk to avoid heavy per-voxel allocations
+    let mut ctx = world.make_gen_ctx();
     for z in 0..sz {
         for y in 0..sy {
             for x in 0..sx {
                 let wx = x0 + x as i32;
                 let wy = y as i32;
                 let wz = z0 + z as i32;
-                blocks[(y * sz + z) * sx + x] = world.block_at_runtime(reg, wx, wy, wz);
+                blocks[(y * sz + z) * sx + x] = world.block_at_runtime_with(reg, &mut ctx, wx, wy, wz);
             }
         }
     }

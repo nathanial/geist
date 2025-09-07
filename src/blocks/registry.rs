@@ -18,6 +18,17 @@ pub struct BlockType {
     pub shape: Shape,
     pub materials: CompiledMaterials,
     pub state_schema: HashMap<String, Vec<String>>, // property name -> allowed values
+    // Precomputed, sorted layout for fast state packing/unpacking
+    pub state_fields: Vec<StateField>,
+    pub prop_index: HashMap<String, usize>,
+}
+
+#[derive(Clone, Debug)]
+pub struct StateField {
+    pub name: String,
+    pub values: Vec<String>,
+    pub bits: u32,
+    pub offset: u32,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -118,8 +129,21 @@ impl BlockRegistry {
             let shape = compile_shape(def.shape);
             let mats = compile_materials(&reg.materials, def.materials);
             let state_schema = def.state_schema.unwrap_or_default();
+            let (state_fields, prop_index) = compute_state_layout(&state_schema);
 
-            let ty = BlockType { id, name: def.name, solid, blocks_skylight, propagates_light, emission, shape, materials: mats, state_schema };
+            let ty = BlockType {
+                id,
+                name: def.name,
+                solid,
+                blocks_skylight,
+                propagates_light,
+                emission,
+                shape,
+                materials: mats,
+                state_schema,
+                state_fields,
+                prop_index,
+            };
             if reg.blocks.len() <= id as usize {
                 reg.blocks.resize(id as usize + 1, BlockType {
                     id,
@@ -131,6 +155,8 @@ impl BlockRegistry {
                     shape: Shape::None,
                     materials: CompiledMaterials::default(),
                     state_schema: HashMap::new(),
+                    state_fields: Vec::new(),
+                    prop_index: HashMap::new(),
                 });
             }
             reg.blocks[id as usize] = ty.clone();
@@ -186,6 +212,28 @@ fn compile_materials(matcat: &MaterialCatalog, mats: Option<MaterialsDef>) -> Co
     out
 }
 
+fn compute_state_layout(schema: &HashMap<String, Vec<String>>) -> (Vec<StateField>, HashMap<String, usize>) {
+    if schema.is_empty() {
+        return (Vec::new(), HashMap::new());
+    }
+    let mut keys: Vec<&str> = schema.keys().map(|s| s.as_str()).collect();
+    keys.sort_unstable();
+    let mut fields: Vec<StateField> = Vec::with_capacity(keys.len());
+    let mut offset: u32 = 0;
+    for k in keys {
+        let vals = schema.get(k).cloned().unwrap_or_default();
+        let vlen = vals.len() as u32;
+        let bits: u32 = if vlen <= 1 { 0 } else { 32 - (vlen - 1).leading_zeros() };
+        fields.push(StateField { name: k.to_string(), values: vals, bits, offset });
+        offset = offset.saturating_add(bits);
+    }
+    let mut index: HashMap<String, usize> = HashMap::with_capacity(fields.len());
+    for (i, f) in fields.iter().enumerate() {
+        index.insert(f.name.clone(), i);
+    }
+    (fields, index)
+}
+
 // Convenience helpers that mirror the future Block API; these delegate to BlockType
 impl BlockType {
     pub fn is_solid(&self, _state: BlockState) -> bool { self.solid }
@@ -198,28 +246,17 @@ impl BlockType {
     // Bit packing order is stable and derived by sorting property names ascending,
     // assigning each field just enough bits to encode its allowed values (ceil(log2(len))).
     pub fn state_prop_value<'a>(&'a self, state: BlockState, prop: &str) -> Option<&'a str> {
-        if self.state_schema.is_empty() {
+        if self.state_fields.is_empty() {
             return None;
         }
-        let mut keys: Vec<&str> = self.state_schema.keys().map(|s| s.as_str()).collect();
-        keys.sort_unstable();
-        let mut offset: u32 = 0;
-        for k in keys {
-            let vals = self.state_schema.get(k).unwrap();
-            let vlen = vals.len() as u32;
-            let bits: u32 = if vlen <= 1 { 0 } else { 32 - (vlen - 1).leading_zeros() };
-            if k == prop {
-                if bits == 0 {
-                    // Single value field
-                    return vals.get(0).map(|s| s.as_str());
-                }
-                let mask: u32 = if bits >= 32 { u32::MAX } else { (1u32 << bits) - 1 };
-                let idx: usize = (((state as u32) >> offset) & mask) as usize;
-                return vals.get(idx).map(|s| s.as_str());
-            }
-            offset += bits;
+        let &i = self.prop_index.get(prop)?;
+        let f = &self.state_fields[i];
+        if f.bits == 0 {
+            return f.values.get(0).map(|s| s.as_str());
         }
-        None
+        let mask: u32 = if f.bits >= 32 { u32::MAX } else { (1u32 << f.bits) - 1 };
+        let idx: usize = (((state as u32) >> f.offset) & mask) as usize;
+        f.values.get(idx).map(|s| s.as_str())
     }
 
     pub fn state_prop_is_value(&self, state: BlockState, prop: &str, expect: &str) -> bool {
@@ -229,25 +266,17 @@ impl BlockType {
     // Pack a set of named property values into a BlockState according to this type's state_schema.
     // Unknown properties or values default to 0. Packing order matches decoding (sorted keys).
     pub fn pack_state(&self, props: &std::collections::HashMap<String, String>) -> BlockState {
-        if self.state_schema.is_empty() {
+        if self.state_fields.is_empty() {
             return 0;
         }
-        let mut keys: Vec<&str> = self.state_schema.keys().map(|s| s.as_str()).collect();
-        keys.sort_unstable();
-        let mut off: u32 = 0;
         let mut acc: u32 = 0;
-        for k in keys {
-            let vals = self.state_schema.get(k).unwrap();
-            let vlen = vals.len() as u32;
-            let bits: u32 = if vlen <= 1 { 0 } else { 32 - (vlen - 1).leading_zeros() };
-            if bits > 0 {
-                let sel_idx: u32 = match props.get(k) {
-                    Some(val) => vals.iter().position(|s| s == val).unwrap_or(0) as u32,
-                    None => 0,
-                };
-                acc |= (sel_idx & ((1u32 << bits) - 1)) << off;
-            }
-            off += bits;
+        for f in &self.state_fields {
+            if f.bits == 0 { continue; }
+            let sel_idx: u32 = match props.get(&f.name) {
+                Some(val) => f.values.iter().position(|s| s == val).unwrap_or(0) as u32,
+                None => 0,
+            };
+            acc |= (sel_idx & ((1u32 << f.bits) - 1)) << f.offset;
         }
         acc as BlockState
     }
