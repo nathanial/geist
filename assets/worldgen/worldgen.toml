@@ -5,8 +5,8 @@ thickness = 1
 
 [height]
 frequency = 0.015
-min_y_ratio = 0.30
-max_y_ratio = 0.50
+min_y_ratio = 0.20
+max_y_ratio = 0.25
 
 [surface]
 snow_threshold = 0.62
@@ -31,11 +31,65 @@ glow_prob = 0.0009
 tunnel = { octaves = 4, persistence = 0.55, lacunarity = 2.0, scale = 140.0 }
 warp = { octaves = 3, persistence = 0.6,  lacunarity = 2.0, scale = 220.0 }
 
-[trees]
-probability = 0.02
-trunk_min = 4
-trunk_max = 6
-leaf_radius = 2
+# Biomes: optional column-level selection that can override top surface and tree species weights
+[biomes]
+enable = true
+[biomes.temp]
+frequency = 0.01
+[biomes.moisture]
+frequency = 0.01
+
+[[biomes.biomes]]
+name = "tundra"
+temp_max = 0.28
+moisture_min = 0.35
+top_block = "snow"
+  [biomes.biomes.species_weights]
+  spruce = 1.0
+
+[[biomes.biomes]]
+name = "taiga"
+temp_max = 0.40
+moisture_min = 0.45
+top_block = "grass"
+  [biomes.biomes.species_weights]
+  spruce = 0.9
+  birch = 0.1
+
+[[biomes.biomes]]
+name = "plains"
+temp_min = 0.30
+temp_max = 0.70
+moisture_min = 0.30
+moisture_max = 0.70
+top_block = "grass"
+  [biomes.biomes.species_weights]
+  oak = 0.7
+  birch = 0.3
+
+[[biomes.biomes]]
+name = "savanna"
+temp_min = 0.70
+moisture_max = 0.45
+top_block = "grass"
+  [biomes.biomes.species_weights]
+  acacia = 1.0
+
+[[biomes.biomes]]
+name = "jungle"
+temp_min = 0.75
+moisture_min = 0.60
+top_block = "grass"
+  [biomes.biomes.species_weights]
+  jungle = 1.0
+
+[[biomes.biomes]]
+name = "desert"
+temp_min = 0.70
+moisture_max = 0.30
+top_block = "sand"
+  [biomes.biomes.species_weights]
+  oak = 0.0
 
 [[features]]
 name = "glowstone_sprinkle"

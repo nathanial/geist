@@ -66,6 +66,8 @@ pub struct GenCtx {
     pub warp: FastNoiseLite,
     pub tunnel: FastNoiseLite,
     pub params: WorldGenParams,
+    pub temp2d: Option<FastNoiseLite>,
+    pub moist2d: Option<FastNoiseLite>,
 }
 
 impl World {
@@ -80,7 +82,16 @@ impl World {
         let mut tunnel = FastNoiseLite::with_seed((self.seed as i32 ^ 41_337) as i32);
         tunnel.set_noise_type(Some(NoiseType::OpenSimplex2));
         tunnel.set_frequency(Some(0.017));
-        GenCtx { terrain, warp, tunnel, params }
+        let (temp2d, moist2d) = if let Some(ref b) = params.biomes {
+            let mut t = FastNoiseLite::with_seed((self.seed as i32) ^ 0x1203_5F31);
+            t.set_noise_type(Some(NoiseType::OpenSimplex2));
+            t.set_frequency(Some(b.temp_freq));
+            let mut m = FastNoiseLite::with_seed(((self.seed as u32) ^ 0x92E3_A1B2u32) as i32);
+            m.set_noise_type(Some(NoiseType::OpenSimplex2));
+            m.set_frequency(Some(b.moisture_freq));
+            (Some(t), Some(m))
+        } else { (None, None) };
+        GenCtx { terrain, warp, tunnel, params, temp2d, moist2d }
     }
 
     // Runtime worldgen: generate blocks directly via registry (no legacy enums)
@@ -120,17 +131,42 @@ impl World {
         };
         let height = height_for(x, z);
 
+        // Biomes: climate + helper closures
+        let climate_for = |wx: i32, wz: i32| -> Option<(f32, f32)> {
+            match (&ctx.temp2d, &ctx.moist2d) {
+                (Some(t), Some(m)) => {
+                    let tt = ((t.get_noise_2d(wx as f32, wz as f32) + 1.0) * 0.5).clamp(0.0, 1.0);
+                    let mm = ((m.get_noise_2d(wx as f32, wz as f32) + 1.0) * 0.5).clamp(0.0, 1.0);
+                    Some((tt, mm))
+                }
+                _ => None,
+            }
+        };
+        let biome_for = |wx: i32, wz: i32| -> Option<&crate::worldgen::BiomeDefParam> {
+            if ctx.params.biomes.is_none() { return None; }
+            let (t, m) = climate_for(wx, wz)?;
+            let b = ctx.params.biomes.as_ref().unwrap();
+            for def in &b.defs {
+                if t >= def.temp_min && t < def.temp_max && m >= def.moisture_min && m < def.moisture_max {
+                    return Some(def);
+                }
+            }
+            None
+        };
+        let top_block_for_column = |wx: i32, wz: i32, hh: i32| -> &str {
+            if hh as f32 >= self.chunk_size_y as f32 * ctx.params.snow_threshold { return &ctx.params.top_high; }
+            if hh as f32 <= self.chunk_size_y as f32 * ctx.params.sand_threshold { return &ctx.params.top_low; }
+            if let Some(def) = biome_for(wx, wz) {
+                if let Some(ref tb) = def.top_block { return tb.as_str(); }
+            }
+            &ctx.params.top_mid
+        };
+
         // Choose surface/underground base block name
         let mut base: &str = if y >= height {
             "air"
         } else if y == height - 1 {
-            if height as f32 >= self.chunk_size_y as f32 * ctx.params.snow_threshold {
-                &ctx.params.top_high
-            } else if height as f32 <= self.chunk_size_y as f32 * ctx.params.sand_threshold {
-                &ctx.params.top_low
-            } else {
-                &ctx.params.top_mid
-            }
+            top_block_for_column(x, z, height)
         } else if y + ctx.params.topsoil_thickness >= height {
             &ctx.params.sub_near
         } else {
@@ -379,8 +415,33 @@ impl World {
             let h = hash2(ix, iz, ((self.seed as u32) ^ salt).wrapping_add(0x9E37_79B9));
             ((h & 0x00FF_FFFF) as f32) / 16_777_216.0
         };
-        // species selection via simple climate fields
+        // species selection via biome weights or pseudo-climate fallback
         let pick_species = |tx: i32, tz: i32| -> &'static str {
+            if let Some(def) = biome_for(tx, tz) {
+                if !def.species_weights.is_empty() {
+                    let mut total = 0.0_f32;
+                    for (_k, w) in &def.species_weights { total += *w; }
+                    if total > 0.0 {
+                        let r = rand01(tx, tz, 0xA11CE) * total;
+                        let mut acc = 0.0_f32;
+                        for (k, w) in &def.species_weights {
+                            acc += *w;
+                            if r <= acc {
+                                let ks = k.as_str();
+                                return match ks {
+                                    "oak" => "oak",
+                                    "birch" => "birch",
+                                    "spruce" => "spruce",
+                                    "jungle" => "jungle",
+                                    "acacia" => "acacia",
+                                    "dark_oak" => "dark_oak",
+                                    _ => "oak",
+                                };
+                            }
+                        }
+                    }
+                }
+            }
             let t = rand01(tx, tz, 0xBEEF01);
             let m = rand01(tx, tz, 0xC0FFEE);
             if t < 0.22 && m > 0.65 { return "spruce"; }
@@ -391,13 +452,7 @@ impl World {
         };
         let trunk_at = |tx: i32, tz: i32| -> Option<(i32, i32, &'static str)> {
             let surf = height_for(tx, tz) - 1;
-            let surf_block = if surf as f32 >= self.chunk_size_y as f32 * 0.62 {
-                "snow"
-            } else if surf as f32 <= self.chunk_size_y as f32 * 0.2 {
-                "sand"
-            } else {
-                "grass"
-            };
+            let surf_block = top_block_for_column(tx, tz, surf + 1);
             if surf_block != "grass" { return None; }
             if rand01(tx, tz, 0xA53F9) >= TREE_PROB { return None; }
             let span = (TRUNK_MAX - TRUNK_MIN).max(0) as u32;

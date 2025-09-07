@@ -42,9 +42,13 @@
   - Evaluated after carvers and before tree overlay; preserves performance via simple branch checks and lazy near_solid evaluation.
   - Sample included in `assets/worldgen/worldgen.toml` to sprinkle glowstone.
 
-**Phase 3: Biome Layering (Optional)**
-- Compute temperature and moisture surfaces from configurable noises; map to biomes via thresholds.
-- Allow per-biome overrides for surface materials, carvers, and tree settings.
+**Phase 3: Biome Layering (Implemented)**
+- Adds `[biomes]` with 2D climate noises (`temp`, `moisture`) and `[[biomes.biomes]]` definitions using rectangular ranges over `[0,1] × [0,1]`.
+- Per-biome:
+  - `top_block`: overrides surface block for that column when not in snow/sand extremes.
+  - `species_weights`: weighted selection among `oak|birch|spruce|jungle|acacia|dark_oak` for tree species.
+- Snow/sand still win when height crosses `surface.snow_threshold`/`sand_threshold`.
+- Evaluated once per column; tree placement uses the same top selection (trees only spawn on `grass`).
 
 **Example worldgen.toml (baseline mirroring current defaults)**
 ```

@@ -9,6 +9,7 @@ pub struct WorldGenConfig {
     #[serde(default)] pub carvers: Carvers,
     #[serde(default)] pub trees: Trees,
     #[serde(default)] pub features: Vec<FeatureRule>,
+    #[serde(default)] pub biomes: Biomes,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -137,6 +138,7 @@ pub struct WorldGenParams {
     pub trunk_max: i32,
     pub leaf_radius: i32,
     pub features: Vec<FeatureRule>,
+    pub biomes: Option<BiomesParams>,
 }
 
 impl WorldGenParams {
@@ -173,6 +175,7 @@ impl WorldGenParams {
             trunk_max: cfg.trees.trunk_max,
             leaf_radius: cfg.trees.leaf_radius,
             features: cfg.features.clone(),
+            biomes: if cfg.biomes.enable { Some(BiomesParams::from(&cfg.biomes)) } else { None },
         }
     }
 }
@@ -193,6 +196,7 @@ impl Default for WorldGenConfig {
             carvers: Carvers::default(),
             trees: Trees::default(),
             features: Vec::new(),
+            biomes: Biomes::default(),
         }
     }
 }
@@ -225,4 +229,71 @@ pub struct FeatureRule {
     #[serde(default)] pub name: Option<String>,
     #[serde(default)] pub when: FeatureWhen,
     pub place: FeaturePlace,
+}
+
+// --- Biomes (Phase 3) ---
+
+#[derive(Clone, Debug, Deserialize, Default)]
+pub struct Biomes {
+    #[serde(default)] pub enable: bool,
+    #[serde(default)] pub temp: Climate2D,
+    #[serde(default)] pub moisture: Climate2D,
+    #[serde(default)] pub biomes: Vec<BiomeDef>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct Climate2D { #[serde(default = "default_climate_freq")] pub frequency: f32 }
+fn default_climate_freq() -> f32 { 0.01 }
+impl Default for Climate2D { fn default() -> Self { Self { frequency: default_climate_freq() } } }
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct BiomeDef {
+    pub name: String,
+    #[serde(default)] pub temp_min: Option<f32>,
+    #[serde(default)] pub temp_max: Option<f32>,
+    #[serde(default)] pub moisture_min: Option<f32>,
+    #[serde(default)] pub moisture_max: Option<f32>,
+    #[serde(default)] pub top_block: Option<String>,
+    #[serde(default)] pub species_weights: std::collections::HashMap<String, f32>,
+}
+
+#[derive(Clone, Debug)]
+pub struct BiomesParams {
+    pub temp_freq: f32,
+    pub moisture_freq: f32,
+    pub defs: Vec<BiomeDefParam>,
+}
+
+#[derive(Clone, Debug)]
+pub struct BiomeDefParam {
+    pub name: String,
+    pub temp_min: f32,
+    pub temp_max: f32,
+    pub moisture_min: f32,
+    pub moisture_max: f32,
+    pub top_block: Option<String>,
+    pub species_weights: std::collections::HashMap<String, f32>,
+}
+
+impl BiomesParams {
+    pub fn from(cfg: &Biomes) -> Self {
+        let defs = cfg
+            .biomes
+            .iter()
+            .map(|b| BiomeDefParam {
+                name: b.name.clone(),
+                temp_min: b.temp_min.unwrap_or(0.0),
+                temp_max: b.temp_max.unwrap_or(1.0),
+                moisture_min: b.moisture_min.unwrap_or(0.0),
+                moisture_max: b.moisture_max.unwrap_or(1.0),
+                top_block: b.top_block.clone(),
+                species_weights: b.species_weights.clone(),
+            })
+            .collect();
+        Self {
+            temp_freq: cfg.temp.frequency,
+            moisture_freq: cfg.moisture.frequency,
+            defs,
+        }
+    }
 }
