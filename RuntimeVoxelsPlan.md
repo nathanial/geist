@@ -210,8 +210,9 @@
 - DONE: Compile errors resolved. Removed legacy enum matches from active meshing path; App/Player/Structure now use registry for solidity/emission and `Block::AIR` constant.
 - DONE: State packing/unpacking implemented on `BlockType`; `CompiledMaterials::material_for` now resolves `by = { by, map }` using `BlockState`.
 - PARTIAL: Special-shape meshing (slabs/stairs) temporarily disabled in mesher pending registry-state emitters (no legacy shims retained).
+ - PARTIAL: Special-shape meshing: slabs implemented via registry-state emitters including neighbor face restoration; stairs pending.
 - PARTIAL: Schematic loader now maps legacy palette output to runtime via registry bridge; full `palette_map.toml` translator still pending.
-- PARTIAL: App hotbar still hardcoded; not yet driven by `assets/voxels/hotbar.toml`.
+- DONE: App hotbar driven by `assets/voxels/hotbar.toml` (fallback to legacy keys when empty/invalid).
 
 **Build Status / Recent Fixes**
 - RESOLVED: Removed legacy special-shape matches from mesher; compile green.
@@ -220,7 +221,7 @@
 - RESOLVED: Added `BlockType::state_prop_value/state_prop_is_value` and updated mesher occlusion helpers to use them.
 
 **Remaining Work (No Shims)**
-- Reintroduce slab/stairs meshing using registry state: decode `half`/`facing` from `BlockState` and emit shape geometry; resolve face materials via `CompiledMaterials::By { by, map }`.
+- Reintroduce stairs meshing using registry state: decode `half`/`facing` from `BlockState`, emit two-box geometry, and restore neighbor faces; resolve materials via `CompiledMaterials::By { by, map }`.
 - Remove `MaterialKey` and remaining legacy enums (`TreeSpecies`, `Dir4`, etc.) from code; rely solely on registry state and names.
  
 - Implement config-driven schematic translator using `assets/voxels/palette_map.toml`; drop legacy `map_palette_*` functions.
@@ -237,11 +238,10 @@
 - `schem::{load_any_schematic_apply_edits, load_sponge_*, load_mcedit_*}` now require `&BlockRegistry` and emit runtime blocks.
 
 **Immediate Tasks**
-- Slab/stairs emitters: implement registry-state driven emitters and re-enable special-shape meshing.
+- Stairs emitter: implement registry-state driven emitter and re-enable special-shape meshing for stairs.
  
 - Remove remaining legacy enums (`MaterialKey`, `TreeSpecies`, `Dir4`, etc.).
 - Schematic translator: implement `palette_map.toml` mapping; remove hardcoded palette handling.
-- Hotbar/UI: drive from config; use registry names for labels.
 - Worldgen: emit runtime blocks directly; remove temporary bridge.
 
 **Acceptance Criteria**

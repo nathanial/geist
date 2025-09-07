@@ -12,6 +12,10 @@ use crate::runtime::{BuildJob, JobOut, Runtime, StructureBuildJob};
 use crate::structure::{Pose, Structure, StructureId, rotate_yaw, rotate_yaw_inv};
 use crate::blocks::Block;
 use crate::voxel::World;
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct HotbarConfig { items: Vec<String> }
 
 pub struct App {
     pub gs: GameState,
@@ -19,6 +23,7 @@ pub struct App {
     pub runtime: Runtime,
     pub cam: crate::camera::FlyCamera,
     pub debug_stats: DebugStats,
+    hotbar: Vec<Block>,
 }
 
 #[derive(Default)]
@@ -33,6 +38,27 @@ pub struct DebugStats {
 }
 
 impl App {
+    fn load_hotbar(reg: &BlockRegistry) -> Vec<Block> {
+        let path = std::path::Path::new("assets/voxels/hotbar.toml");
+        if !path.exists() { return Vec::new(); }
+        match std::fs::read_to_string(path) {
+            Ok(s) => {
+                match toml::from_str::<HotbarConfig>(&s) {
+                    Ok(cfg) => cfg.items.into_iter().filter_map(|name| {
+                        reg.id_by_name(&name).map(|id| Block { id, state: 0 })
+                    }).collect(),
+                    Err(e) => {
+                        log::warn!("hotbar.toml parse error: {}", e);
+                        Vec::new()
+                    }
+                }
+            }
+            Err(e) => {
+                log::warn!("hotbar.toml read error: {}", e);
+                Vec::new()
+            }
+        }
+    }
     #[inline]
     fn structure_block_solid_at_local(
         reg: &crate::blocks::BlockRegistry,
@@ -113,6 +139,7 @@ impl App {
         let runtime = Runtime::new(&mut rl, thread, world.clone(), lighting.clone(), reg.clone());
         let mut gs = GameState::new(world.clone(), edits, lighting.clone(), cam.position);
         let mut queue = EventQueue::new();
+        let hotbar = Self::load_hotbar(&reg);
 
         // Discover and load all .schem files in 'schematics/', laying them out based on size.
         // In flat worlds, place on top of slab (y=1 if thickness>0, else y=0). In normal worlds, use y=0.
@@ -299,6 +326,7 @@ impl App {
             runtime,
             cam,
             debug_stats: DebugStats::default(),
+            hotbar,
         }
     }
 
@@ -1087,27 +1115,47 @@ impl App {
         if rl.is_key_pressed(KeyboardKey::KEY_C) {
             self.queue.emit_now(Event::FrustumCullingToggled);
         }
-        let id_of = |name: &str| self.runtime.reg.id_by_name(name).unwrap_or(0);
-        if rl.is_key_pressed(KeyboardKey::KEY_ONE) {
-            self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("dirt"), state: 0 } });
-        }
-        if rl.is_key_pressed(KeyboardKey::KEY_TWO) {
-            self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("stone"), state: 0 } });
-        }
-        if rl.is_key_pressed(KeyboardKey::KEY_THREE) {
-            self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("sand"), state: 0 } });
-        }
-        if rl.is_key_pressed(KeyboardKey::KEY_FOUR) {
-            self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("grass"), state: 0 } });
-        }
-        if rl.is_key_pressed(KeyboardKey::KEY_FIVE) {
-            self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("snow"), state: 0 } });
-        }
-        if rl.is_key_pressed(KeyboardKey::KEY_SIX) {
-            self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("glowstone"), state: 0 } });
-        }
-        if rl.is_key_pressed(KeyboardKey::KEY_SEVEN) {
-            self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("beacon"), state: 0 } });
+        // Hotbar selection: if config present, use it; else fallback to legacy mapping
+        if !self.hotbar.is_empty() {
+            let keys = [
+                KeyboardKey::KEY_ONE,
+                KeyboardKey::KEY_TWO,
+                KeyboardKey::KEY_THREE,
+                KeyboardKey::KEY_FOUR,
+                KeyboardKey::KEY_FIVE,
+                KeyboardKey::KEY_SIX,
+                KeyboardKey::KEY_SEVEN,
+                KeyboardKey::KEY_EIGHT,
+                KeyboardKey::KEY_NINE,
+            ];
+            for (i, key) in keys.iter().enumerate() {
+                if i < self.hotbar.len() && rl.is_key_pressed(*key) {
+                    self.queue.emit_now(Event::PlaceTypeSelected { block: self.hotbar[i] });
+                }
+            }
+        } else {
+            let id_of = |name: &str| self.runtime.reg.id_by_name(name).unwrap_or(0);
+            if rl.is_key_pressed(KeyboardKey::KEY_ONE) {
+                self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("dirt"), state: 0 } });
+            }
+            if rl.is_key_pressed(KeyboardKey::KEY_TWO) {
+                self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("stone"), state: 0 } });
+            }
+            if rl.is_key_pressed(KeyboardKey::KEY_THREE) {
+                self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("sand"), state: 0 } });
+            }
+            if rl.is_key_pressed(KeyboardKey::KEY_FOUR) {
+                self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("grass"), state: 0 } });
+            }
+            if rl.is_key_pressed(KeyboardKey::KEY_FIVE) {
+                self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("snow"), state: 0 } });
+            }
+            if rl.is_key_pressed(KeyboardKey::KEY_SIX) {
+                self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("glowstone"), state: 0 } });
+            }
+            if rl.is_key_pressed(KeyboardKey::KEY_SEVEN) {
+                self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("beacon"), state: 0 } });
+            }
         }
 
         // Structure speed controls

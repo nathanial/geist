@@ -1,3 +1,9 @@
-# Placeholder hotbar configuration. Example:
-# items = ["stone", "dirt", "grass", "glowstone", "beacon"]
-
+items = [
+  "dirt",
+  "stone",
+  "sand",
+  "grass",
+  "snow",
+  "glowstone",
+  "beacon"
+]
