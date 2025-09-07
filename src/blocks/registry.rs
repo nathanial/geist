@@ -226,4 +226,46 @@ impl BlockType {
     pub fn state_prop_is_value(&self, state: BlockState, prop: &str, expect: &str) -> bool {
         self.state_prop_value(state, prop) == Some(expect)
     }
+
+    // Pack a set of named property values into a BlockState according to this type's state_schema.
+    // Unknown properties or values default to 0. Packing order matches decoding (sorted keys).
+    pub fn pack_state(&self, props: &std::collections::HashMap<String, String>) -> BlockState {
+        if self.state_schema.is_empty() {
+            return 0;
+        }
+        let mut keys: Vec<&str> = self.state_schema.keys().map(|s| s.as_str()).collect();
+        keys.sort_unstable();
+        let mut off: u32 = 0;
+        let mut acc: u32 = 0;
+        for k in keys {
+            let vals = self.state_schema.get(k).unwrap();
+            let vlen = vals.len() as u32;
+            let bits: u32 = if vlen <= 1 { 0 } else { 32 - (vlen - 1).leading_zeros() };
+            if bits > 0 {
+                let sel_idx: u32 = match props.get(k) {
+                    Some(val) => vals.iter().position(|s| s == val).unwrap_or(0) as u32,
+                    None => 0,
+                };
+                acc |= (sel_idx & ((1u32 << bits) - 1)) << off;
+            }
+            off += bits;
+        }
+        acc as BlockState
+    }
+}
+
+impl BlockRegistry {
+    pub fn make_block_by_name(
+        &self,
+        name: &str,
+        props: Option<&std::collections::HashMap<String, String>>,
+    ) -> Option<Block> {
+        let id = self.id_by_name(name)?;
+        let state = if let Some(p) = props {
+            self.get(id).map(|ty| ty.pack_state(p)).unwrap_or(0)
+        } else {
+            0
+        };
+        Some(Block { id, state })
+    }
 }

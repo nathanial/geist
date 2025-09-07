@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use serde::Deserialize;
 
 use crate::voxel::{Block, Dir4, MaterialKey, SlabHalf, TerracottaColor, TreeSpecies};
 use crate::blocks::{Block as RtBlock, BlockRegistry};
@@ -774,6 +775,42 @@ fn map_palette_key_to_block_opt(key: &str) -> Option<Block> {
     }
 }
 
+// --- Config-driven palette translator to runtime blocks ---
+
+#[derive(Deserialize, Debug)]
+struct PaletteMapConfig { rules: Vec<PaletteRule> }
+
+#[derive(Deserialize, Debug)]
+struct PaletteRule { from: String, to: ToDef }
+
+#[derive(Deserialize, Debug)]
+struct ToDef { name: String, #[serde(default)] state: std::collections::HashMap<String, String> }
+
+fn load_palette_map() -> Option<PaletteMapConfig> {
+    let path = std::path::Path::new("assets/voxels/palette_map.toml");
+    let s = fs::read_to_string(path).ok()?;
+    toml::from_str::<PaletteMapConfig>(&s).ok()
+}
+
+fn runtime_from_palette_key(reg: &BlockRegistry, key: &str) -> Option<RtBlock> {
+    let cfg = load_palette_map()?;
+    let base = base_from_key(key);
+    // Prefer exact key match, then base id match
+    let mut cand = None;
+    for r in &cfg.rules {
+        if r.from == key {
+            cand = Some(r);
+            break;
+        }
+        if r.from == base {
+            cand = Some(r);
+        }
+    }
+    let rule = cand?;
+    let b = reg.make_block_by_name(&rule.to.name, Some(&rule.to.state))?;
+    Some(b)
+}
+
 fn map_palette_key_to_block(key: &str) -> Block {
     // Fallback to a visible placeholder to preserve structure layout
     map_palette_key_to_block_opt(key).unwrap_or(Block::Unknown)
@@ -1128,11 +1165,12 @@ pub fn load_sponge_schem_apply_edits(
                         continue;
                     }
                     let key = b.full_id(); // like "minecraft:oak_log[axis=y]"
-                    let mapped = map_palette_key_to_block(&key);
+                    // Prefer config-driven translator; fallback to legacy mapping
+                    let rt = runtime_from_palette_key(reg, &key)
+                        .unwrap_or_else(|| legacy_to_runtime(reg, map_palette_key_to_block(&key)));
                     let wx = ox + x;
                     let wy = oy + y;
                     let wz = oz + z;
-                    let rt = legacy_to_runtime(reg, mapped);
                     if rt.id != reg.id_by_name("air").unwrap_or(0) {
                         edits.set(wx, wy, wz, rt);
                     }

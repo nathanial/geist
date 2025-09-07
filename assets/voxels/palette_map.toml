@@ -1,5 +1,72 @@
-# Placeholder for schematic mapping. Example structure:
-# [[rules]]
-# from = "minecraft:stone"
-# to = { name = "stone" }
+[[rules]]
+from = "minecraft:stone"
+to = { name = "stone" }
 
+[[rules]]
+from = "minecraft:dirt"
+to = { name = "dirt" }
+
+[[rules]]
+from = "minecraft:grass_block"
+to = { name = "grass" }
+
+[[rules]]
+from = "minecraft:sand"
+to = { name = "sand" }
+
+[[rules]]
+from = "minecraft:snow_block"
+to = { name = "snow" }
+
+[[rules]]
+from = "minecraft:glowstone"
+to = { name = "glowstone" }
+
+[[rules]]
+from = "minecraft:beacon"
+to = { name = "beacon" }
+
+# Logs/leaves
+[[rules]]
+from = "minecraft:oak_log"
+to = { name = "oak_log" }
+
+[[rules]]
+from = "minecraft:birch_log"
+to = { name = "birch_log" }
+
+[[rules]]
+from = "minecraft:spruce_log"
+to = { name = "spruce_log" }
+
+[[rules]]
+from = "minecraft:jungle_log"
+to = { name = "jungle_log" }
+
+[[rules]]
+from = "minecraft:acacia_log"
+to = { name = "acacia_log" }
+
+[[rules]]
+from = "minecraft:dark_oak_log"
+to = { name = "dark_oak_log" }
+
+[[rules]]
+from = "minecraft:oak_leaves"
+to = { name = "oak_leaves" }
+
+[[rules]]
+from = "minecraft:birch_leaves"
+to = { name = "birch_leaves" }
+
+[[rules]]
+from = "minecraft:spruce_leaves"
+to = { name = "spruce_leaves" }
+
+[[rules]]
+from = "minecraft:jungle_leaves"
+to = { name = "jungle_leaves" }
+
+[[rules]]
+from = "minecraft:acacia_leaves"
+to = { name = "acacia_leaves" }
