@@ -39,6 +39,7 @@ pub struct GameState {
     pub wireframe: bool,
     pub show_chunk_bounds: bool,
     pub frustum_culling_enabled: bool,
+    pub show_biome_label: bool,
 
     // Dynamic voxel bodies (e.g., flying castle)
     pub structures: HashMap<StructureId, Structure>,
@@ -81,6 +82,7 @@ impl GameState {
             wireframe: false,
             show_chunk_bounds: false,
             frustum_culling_enabled: true,
+            show_biome_label: true,
             structures: HashMap::new(),
             ground_attach: None,
             structure_speed: 9.6,

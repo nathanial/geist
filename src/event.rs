@@ -24,6 +24,7 @@ pub enum Event {
     WireframeToggled,
     ChunkBoundsToggled,
     FrustumCullingToggled,
+    BiomeLabelToggled,
     PlaceTypeSelected {
         block: Block,
     },

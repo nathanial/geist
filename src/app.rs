@@ -1115,6 +1115,9 @@ impl App {
             Event::FrustumCullingToggled => {
                 self.gs.frustum_culling_enabled = !self.gs.frustum_culling_enabled;
             }
+            Event::BiomeLabelToggled => {
+                self.gs.show_biome_label = !self.gs.show_biome_label;
+            }
             Event::PlaceTypeSelected { block } => {
                 self.gs.place_type = block;
             }
@@ -1151,6 +1154,9 @@ impl App {
         }
         if rl.is_key_pressed(KeyboardKey::KEY_C) {
             self.queue.emit_now(Event::FrustumCullingToggled);
+        }
+        if rl.is_key_pressed(KeyboardKey::KEY_H) {
+            self.queue.emit_now(Event::BiomeLabelToggled);
         }
         // Hotbar selection: if config present, use it; else fallback to legacy mapping
         if !self.hotbar.is_empty() {
@@ -1501,7 +1507,7 @@ impl App {
 
         // Debug overlay (lower left)
         let fps = d.get_fps();
-        let debug_text = format!(
+        let mut debug_text = format!(
             "FPS: {}\nVertices: {}\nTriangles: {}\nChunks: {} (culled: {})\nStructures: {} (culled: {})\nDraw Calls: {}",
             fps,
             self.debug_stats.total_vertices,
@@ -1512,8 +1518,16 @@ impl App {
             self.debug_stats.structures_culled,
             self.debug_stats.draw_calls
         );
+        let mut text_lines = 6; // Base number of lines in debug text
+        if self.gs.show_biome_label {
+            let wx = self.cam.position.x.floor() as i32;
+            let wz = self.cam.position.z.floor() as i32;
+            if let Some(biome) = self.gs.world.biome_at(wx, wz) {
+                debug_text.push_str(&format!("\nBiome: {}", biome.name));
+                text_lines += 1;
+            }
+        }
         let screen_height = d.get_screen_height();
-        let text_lines = 6; // Number of lines in debug text
         let line_height = 22; // Approximate height per line with font size 20
         let y_pos = screen_height - (text_lines * line_height) - 10; // 10px margin from bottom
         d.draw_text(&debug_text, 10, y_pos, 20, Color::WHITE);
@@ -1522,7 +1536,7 @@ impl App {
         // HUD
         let hud_mode = if self.gs.walk_mode { "Walk" } else { "Fly" };
         let hud = format!(
-            "{}: Tab capture, WASD{} move{}, V toggle mode, F wireframe, G grid, B bounds, C culling, L add light, K remove light | Place: {:?} (1-7) | Castle v={:.1} (-/= adjust, 0 stop)",
+            "{}: Tab capture, WASD{} move{}, V toggle mode, F wireframe, G grid, B bounds, C culling, H biome label, L add light, K remove light | Place: {:?} (1-7) | Castle v={:.1} (-/= adjust, 0 stop)",
             hud_mode,
             if self.gs.walk_mode { "" } else { "+QE" },
             if self.gs.walk_mode {
@@ -1535,6 +1549,8 @@ impl App {
         );
         d.draw_text(&hud, 12, 12, 18, Color::DARKGRAY);
         d.draw_fps(12, 36);
+
+        // Biome label moved to debug overlay above
 
         // Debug overlay for attachment status
         let mut debug_y = 60;
@@ -1776,6 +1792,9 @@ impl App {
             }
             E::FrustumCullingToggled => {
                 log::info!(target: "events", "[tick {}] FrustumCullingToggled", tick);
+            }
+            E::BiomeLabelToggled => {
+                log::info!(target: "events", "[tick {}] BiomeLabelToggled", tick);
             }
             E::PlaceTypeSelected { block } => {
                 log::info!(target: "events", "[tick {}] PlaceTypeSelected block={:?}", tick, block);
