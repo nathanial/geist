@@ -1186,14 +1186,15 @@ pub fn load_sponge_schem_apply_edits(
                         continue;
                     }
                     let key = b.full_id(); // like "minecraft:oak_log[axis=y]"
-                    // Prefer config-driven translator; fallback to legacy mapping
-                    let rt = runtime_from_palette_key(reg, &key)
-                        .unwrap_or_else(|| legacy_to_runtime(reg, map_palette_key_to_block(&key)));
+                    // Config-driven translator only; skip if no rule is present
+                    let maybe_rt = runtime_from_palette_key(reg, &key);
                     let wx = ox + x;
                     let wy = oy + y;
                     let wz = oz + z;
-                    if rt.id != reg.id_by_name("air").unwrap_or(0) {
-                        edits.set(wx, wy, wz, rt);
+                    if let Some(rt) = maybe_rt {
+                        if rt.id != reg.id_by_name("air").unwrap_or(0) {
+                            edits.set(wx, wy, wz, rt);
+                        }
                     }
                 }
             }
@@ -1208,6 +1209,11 @@ pub fn find_unsupported_blocks_in_file(path: &Path) -> Result<Vec<String>, Strin
         mc_schem::Schematic::from_file(path.to_str().ok_or_else(|| "invalid path".to_string())?)
             .map_err(|e| format!("parse schem: {e}"))?;
 
+    // Build a set of supported ids from palette_map.toml
+    let rules = load_palette_map()
+        .map(|cfg| cfg.rules.into_iter().map(|r| r.from).collect::<std::collections::HashSet<String>>())
+        .unwrap_or_default();
+
     // Use full palette across all regions
     let (palette, _lut) = schem.full_palette();
     let mut unsupported: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
@@ -1216,9 +1222,9 @@ pub fn find_unsupported_blocks_in_file(path: &Path) -> Result<Vec<String>, Strin
             continue;
         }
         let id = blk.full_id();
-        if map_palette_key_to_block_opt(&id).is_none() {
-            // Record only the base id without attributes to reduce duplicates
-            unsupported.insert(base_from_key(&id).to_string());
+        let base = base_from_key(&id);
+        if !(rules.contains(&id) || rules.contains(base)) {
+            unsupported.insert(base.to_string());
         }
     }
     Ok(unsupported.into_iter().collect())

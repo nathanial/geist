@@ -212,7 +212,7 @@
 - DONE: Special-shape meshing: slabs and stairs implemented via registry-state emitters, including neighbor face restoration; materials resolved via registry.
 - PARTIAL: Schematic loader now maps legacy palette output to runtime via registry bridge; full `palette_map.toml` translator still pending.
 - DONE: App hotbar driven by `assets/voxels/hotbar.toml` (fallback to legacy keys when empty/invalid).
-- DONE: Config-driven palette translator: loads `assets/voxels/palette_map.toml` and maps Sponge palette keys to runtime blocks; integrated into Sponge `.schem` import with fallback to legacy mapping. Initial rule set added for core blocks and wood logs/leaves.
+ - DONE: Config-driven palette translator: loads `assets/voxels/palette_map.toml` and maps Sponge palette keys to runtime blocks; integrated into Sponge `.schem` import (no legacy fallback). Initial rule set added for core blocks, slabs/stairs (with state merge), and wood logs/leaves.
 
 **Build Status / Recent Fixes**
 - RESOLVED: Removed legacy special-shape matches from mesher; compile green.
@@ -223,7 +223,7 @@
 **Remaining Work (No Shims)**
 - Remove `MaterialKey` and remaining legacy enums (`TreeSpecies`, `Dir4`, etc.) from code; rely solely on registry state and names.
  
-- Phase out legacy schematic maps by expanding `palette_map.toml` coverage, then remove hardcoded `map_palette_*` functions.
+ - Phase out legacy schematic maps by expanding `palette_map.toml` coverage; hardcoded `map_palette_*` no longer used in Sponge path and scheduled for deletion.
 - Drive hotbar from `assets/voxels/hotbar.toml` and expose block debug names via registry.
 
 **API Changes (Implemented)**
