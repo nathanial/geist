@@ -91,6 +91,67 @@ top_block = "sand"
   [biomes.biomes.species_weights]
   oak = 0.0
 
+
+[[biomes.biomes]]
+name = "alpine"
+temp_max = 0.18
+moisture_max = 0.35
+top_block = "snow"
+  [biomes.biomes.species_weights]
+  spruce = 1.0
+
+[[biomes.biomes]]
+name = "temperate_rainforest"
+temp_min = 0.45
+temp_max = 0.65
+moisture_min = 0.85
+moisture_max = 1.0
+top_block = "grass"
+  [biomes.biomes.species_weights]
+  spruce = 0.7
+  birch = 0.2
+  oak = 0.1
+
+[[biomes.biomes]]
+name = "marsh"
+temp_min = 0.30
+temp_max = 0.60
+moisture_min = 0.85
+moisture_max = 1.0
+top_block = "grass"
+  [biomes.biomes.species_weights]
+  oak = 1.0
+
+[[biomes.biomes]]
+name = "shrubland"
+temp_min = 0.60
+temp_max = 0.70
+moisture_max = 0.30
+top_block = "grass"
+  [biomes.biomes.species_weights]
+  acacia = 0.6
+  oak = 0.4
+
+[[biomes.biomes]]
+name = "steppe"
+temp_min = 0.40
+temp_max = 0.60
+moisture_max = 0.25
+top_block = "grass"
+  [biomes.biomes.species_weights]
+  oak = 1.0
+
+[[biomes.biomes]]
+name = "mediterranean"
+temp_min = 0.70
+temp_max = 0.75
+moisture_min = 0.45
+moisture_max = 0.55
+top_block = "grass"
+  [biomes.biomes.species_weights]
+  oak = 0.8
+  birch = 0.2
+
 [[features]]
 name = "glowstone_sprinkle"
 # Roughly mirror the built-in cave sprinkle, but via rules
