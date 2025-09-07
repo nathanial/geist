@@ -279,6 +279,10 @@ impl Runtime {
         if changed.is_empty() {
             return;
         }
+        log::info!("Texture changes detected: {} file(s)", changed.len());
+        for p in &changed {
+            log::debug!(" - {}", p);
+        }
         // Helper to choose material path like upload path
         let choose_path = |mid: crate::blocks::MaterialId| -> Option<String> {
             self.reg.materials.get(mid).and_then(|mdef| {
@@ -311,8 +315,12 @@ impl Runtime {
                     raylib::consts::TextureWrap::TEXTURE_WRAP_REPEAT,
                 );
                 self.tex_cache.replace_loaded(path.clone(), tex);
+                log::debug!("reloaded texture {}", path);
+            } else {
+                log::warn!("failed to reload texture {}", path);
             }
         }
+        let mut rebound: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
         // Rebind textures on existing chunk renders
         for (_k, cr) in self.renders.iter_mut() {
             for (mid, model) in cr.parts.iter_mut() {
@@ -327,6 +335,7 @@ impl Runtime {
                             raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO,
                             tex,
                         );
+                        *rebound.entry(path.clone()).or_insert(0) += 1;
                     } else if let Ok(t) = rl.load_texture(thread, &path) {
                         t.set_texture_filter(
                             thread,
@@ -342,6 +351,7 @@ impl Runtime {
                                 raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO,
                                 tex,
                             );
+                            *rebound.entry(path.clone()).or_insert(0) += 1;
                         }
                     }
                 }
@@ -361,6 +371,7 @@ impl Runtime {
                             raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO,
                             tex,
                         );
+                        *rebound.entry(path.clone()).or_insert(0) += 1;
                     } else if let Ok(t) = rl.load_texture(thread, &path) {
                         t.set_texture_filter(
                             thread,
@@ -376,9 +387,17 @@ impl Runtime {
                                 raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO,
                                 tex,
                             );
+                            *rebound.entry(path.clone()).or_insert(0) += 1;
                         }
                     }
                 }
+            }
+        }
+        if rebound.is_empty() {
+            log::info!("Texture reload complete; no active models referenced changed textures");
+        } else {
+            for (p, n) in rebound {
+                log::info!("Rebound {} on {} material(s)", p, n);
             }
         }
     }
