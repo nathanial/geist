@@ -52,7 +52,7 @@ materials = { all = "snow" }
 name = "glowstone"
 solid = true
 blocks_skylight = true
-emission = 15
+emission = 255
 shape = "cube"
 materials = { all = "glowstone" }
 
@@ -60,7 +60,9 @@ materials = { all = "glowstone" }
 name = "beacon"
 solid = true
 blocks_skylight = true
-emission = 10
+# Beacon light is directional and attenuates slowly along cardinal paths.
+# Set a strong source so it travels across chunks meaningfully.
+emission = 200
 shape = "cube"
 materials = { all = "beacon" }
 
