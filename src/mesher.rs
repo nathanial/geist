@@ -1419,8 +1419,13 @@ pub fn upload_chunk_mesh(
                     .cloned()
                     .or_else(|| candidates.first().cloned());
                 if let Some(path) = chosen {
+                    // Canonicalize path to create a stable cache key that matches watcher events
+                    let key = std::fs::canonicalize(&path)
+                        .ok()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or(path);
                     use std::collections::hash_map::Entry;
-                    match tex_cache.map.entry(path.clone()) {
+                    match tex_cache.map.entry(key.clone()) {
                         Entry::Occupied(e) => {
                             let tex = e.into_mut();
                             mat.set_material_texture(
@@ -1429,7 +1434,7 @@ pub fn upload_chunk_mesh(
                             );
                         }
                         Entry::Vacant(v) => {
-                            if let Ok(t) = rl.load_texture(thread, &path) {
+                            if let Ok(t) = rl.load_texture(thread, &key) {
                                 t.set_texture_filter(
                                     thread,
                                     raylib::consts::TextureFilter::TEXTURE_FILTER_POINT,
@@ -1561,6 +1566,14 @@ impl TextureCache {
             return self.map.get(key);
         }
         None
+    }
+
+    pub fn replace_loaded(
+        &mut self,
+        key: String,
+        tex: raylib::core::texture::Texture2D,
+    ) {
+        self.map.insert(key, tex);
     }
 
     // Note: higher-level helpers operate on a single chosen path to avoid borrow issues

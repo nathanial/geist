@@ -119,6 +119,7 @@ impl App {
         lighting: std::sync::Arc<LightingStore>,
         edits: crate::edit::EditStore,
         reg: std::sync::Arc<BlockRegistry>,
+        watch_textures: bool,
     ) -> Self {
         // Spawn: if flat world, start a few blocks above the slab; else near world top
         let spawn = if world.is_flat() {
@@ -136,7 +137,7 @@ impl App {
         };
         let cam = crate::camera::FlyCamera::new(spawn + Vector3::new(0.0, 5.0, 20.0));
 
-        let runtime = Runtime::new(&mut rl, thread, world.clone(), lighting.clone(), reg.clone());
+        let runtime = Runtime::new(&mut rl, thread, world.clone(), lighting.clone(), reg.clone(), watch_textures);
         let mut gs = GameState::new(world.clone(), edits, lighting.clone(), cam.position);
         let mut queue = EventQueue::new();
         let hotbar = Self::load_hotbar(&reg);

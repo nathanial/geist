@@ -83,6 +83,10 @@ struct RunArgs {
     #[arg(long, default_value_t = 32)]
     chunk_size_z: usize,
 
+    /// Watch assets/blocks for changes and hot-reload textures
+    #[arg(long, default_value_t = true)]
+    watch_textures: bool,
+
 }
 
 impl Default for RunArgs {
@@ -96,6 +100,7 @@ impl Default for RunArgs {
             chunk_size_x: 32,
             chunk_size_y: 256,
             chunk_size_z: 32,
+            watch_textures: true,
         }
     }
 }
@@ -303,10 +308,13 @@ fn run_app(run: RunArgs) {
         lighting_store.clone(),
         edit_store,
         reg.clone(),
+        run.watch_textures,
     );
 
     while !rl.window_should_close() {
         let dt = rl.get_frame_time();
+        // Hot-reload textures modified under assets/blocks
+        app.runtime.process_texture_file_events(&mut rl, &thread);
         app.step(&mut rl, &thread, dt);
         app.render(&mut rl, &thread);
     }
