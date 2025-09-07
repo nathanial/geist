@@ -794,8 +794,248 @@ pub fn build_chunk_greedy_cpu_buf(
                             }
                         }
                         }
-                        crate::blocks::Shape::Stairs { .. } => {
-                            // TODO: Re-enable stairs meshing using registry state (facing + half)
+                        crate::blocks::Shape::Stairs { facing_from, half_from } => {
+                            let fx = base_x as f32 + x as f32;
+                            let fy = y as f32;
+                            let fz = base_z as f32 + z as f32;
+                            let is_top = ty.state_prop_is_value(b.state, half_from, "top");
+                            let facing = ty.state_prop_value(b.state, facing_from).unwrap_or("north");
+                            // Big half-height slab depending on half
+                            let (min_a, max_a) = if is_top {
+                                (Vector3::new(fx, fy + 0.5, fz), Vector3::new(fx + 1.0, fy + 1.0, fz + 1.0))
+                            } else {
+                                (Vector3::new(fx, fy, fz), Vector3::new(fx + 1.0, fy + 0.5, fz + 1.0))
+                            };
+                            let face_material = |face: usize| {
+                                let role = match face {
+                                    0 => FaceRole::Top,
+                                    1 => FaceRole::Bottom,
+                                    _ => FaceRole::Side,
+                                };
+                                ty.materials
+                                    .material_for(role, b.state, ty)
+                                    .unwrap_or_else(|| unknown_material_id(reg))
+                            };
+                            emit_box(
+                                &mut builds,
+                                buf,
+                                world,
+                                edits,
+                                neighbors,
+                                reg,
+                                &light,
+                                x,
+                                y,
+                                z,
+                                base_x,
+                                base_z,
+                                &face_material,
+                                min_a,
+                                max_a,
+                            );
+                            // Secondary half-depth/width slab toward facing
+                            let (min_b, max_b) = match (facing, is_top) {
+                                ("north", false) => (Vector3::new(fx, fy + 0.5, fz), Vector3::new(fx + 1.0, fy + 1.0, fz + 0.5)),
+                                ("south", false) => (Vector3::new(fx, fy + 0.5, fz + 0.5), Vector3::new(fx + 1.0, fy + 1.0, fz + 1.0)),
+                                ("west", false) => (Vector3::new(fx, fy + 0.5, fz), Vector3::new(fx + 0.5, fy + 1.0, fz + 1.0)),
+                                ("east", false) => (Vector3::new(fx + 0.5, fy + 0.5, fz), Vector3::new(fx + 1.0, fy + 1.0, fz + 1.0)),
+                                ("north", true) => (Vector3::new(fx, fy, fz), Vector3::new(fx + 1.0, fy + 0.5, fz + 0.5)),
+                                ("south", true) => (Vector3::new(fx, fy, fz + 0.5), Vector3::new(fx + 1.0, fy + 0.5, fz + 1.0)),
+                                ("west", true) => (Vector3::new(fx, fy, fz), Vector3::new(fx + 0.5, fy + 0.5, fz + 1.0)),
+                                ("east", true) => (Vector3::new(fx + 0.5, fy, fz), Vector3::new(fx + 1.0, fy + 0.5, fz + 1.0)),
+                                _ => (Vector3::new(fx, fy, fz), Vector3::new(fx, fy, fz)),
+                            };
+                            if max_b.x > min_b.x || max_b.y > min_b.y || max_b.z > min_b.z {
+                                emit_box(
+                                    &mut builds,
+                                    buf,
+                                    world,
+                                    edits,
+                                    neighbors,
+                                    reg,
+                                    &light,
+                                    x,
+                                    y,
+                                    z,
+                                    base_x,
+                                    base_z,
+                                    &face_material,
+                                    min_b,
+                                    max_b,
+                                );
+                            }
+
+                            // Neighbor face restoration for full-cube neighbors occluded by stair shape
+                            let draw_top = !is_top; // visible portion of neighbor face is opposite half
+                            let y0 = if draw_top { fy + 0.5 } else { fy };
+                            let y1 = if draw_top { fy + 1.0 } else { fy + 0.5 };
+                            #[inline]
+                            fn sample_lv(light: &LightGrid, x: usize, y: usize, z: usize, face: usize, draw_top_half: bool, sy: usize) -> u8 {
+                                let l0 = light.sample_face_local(x, y, z, face);
+                                let ladd = if draw_top_half {
+                                    if y + 1 < sy { light.sample_face_local(x, y + 1, z, face) } else { l0 }
+                                } else {
+                                    if y > 0 { light.sample_face_local(x, y - 1, z, face) } else { l0 }
+                                };
+                                l0.max(ladd).max(VISUAL_LIGHT_MIN)
+                            }
+                            let is_full_cube = |nb: Block| -> bool {
+                                reg.get(nb.id)
+                                    .map(|t| matches!(t.shape, crate::blocks::Shape::Cube | crate::blocks::Shape::AxisCube { .. }))
+                                    .unwrap_or(false)
+                            };
+                            // West neighbor (+X face on neighbor)
+                            if x > 0 {
+                                let nb = buf.get_local(x - 1, y, z);
+                                if is_full_cube(nb) {
+                                    let rgba = {
+                                        let lv = sample_lv(&light, x - 1, y, z, 2, draw_top, sy);
+                                        [lv, lv, lv, 255]
+                                    };
+                                    let mid = registry_material_for_or_unknown(nb, 2, reg);
+                                    let mb = builds.entry(mid).or_default();
+                                    let px = fx;
+                                    let segs: &[(f32, f32)] = match (facing, is_top) {
+                                        ("north", false) => &[(fz + 0.5, fz + 1.0)],
+                                        ("south", false) => &[(fz, fz + 0.5)],
+                                        ("west", false) => &[],
+                                        ("east", false) => &[(fz, fz + 1.0)],
+                                        ("north", true) => &[(fz + 0.5, fz + 1.0)],
+                                        ("south", true) => &[(fz, fz + 0.5)],
+                                        ("west", true) => &[],
+                                        ("east", true) => &[(fz, fz + 1.0)],
+                                        _ => &[],
+                                    };
+                                    for &(z0, z1) in segs.iter() {
+                                        if z1 <= z0 { continue; }
+                                        mb.add_quad(
+                                            Vector3::new(px, y1, z1),
+                                            Vector3::new(px, y1, z0),
+                                            Vector3::new(px, y0, z0),
+                                            Vector3::new(px, y0, z1),
+                                            Vector3::new(1.0, 0.0, 0.0),
+                                            z1 - z0,
+                                            y1 - y0,
+                                            false,
+                                            rgba,
+                                        );
+                                    }
+                                }
+                            }
+                            // East neighbor (-X face on neighbor)
+                            if x + 1 < sx {
+                                let nb = buf.get_local(x + 1, y, z);
+                                if is_full_cube(nb) {
+                                    let rgba = {
+                                        let lv = sample_lv(&light, x + 1, y, z, 3, draw_top, sy);
+                                        [lv, lv, lv, 255]
+                                    };
+                                    let mid = registry_material_for_or_unknown(nb, 3, reg);
+                                    let mb = builds.entry(mid).or_default();
+                                    let px = fx + 1.0;
+                                    let segs: &[(f32, f32)] = match (facing, is_top) {
+                                        ("north", false) => &[(fz + 0.5, fz + 1.0)],
+                                        ("south", false) => &[(fz, fz + 0.5)],
+                                        ("west", false) => &[(fz, fz + 1.0)],
+                                        ("east", false) => &[],
+                                        ("north", true) => &[(fz + 0.5, fz + 1.0)],
+                                        ("south", true) => &[(fz, fz + 0.5)],
+                                        ("west", true) => &[(fz, fz + 1.0)],
+                                        ("east", true) => &[],
+                                        _ => &[],
+                                    };
+                                    for &(z0, z1) in segs.iter() {
+                                        if z1 <= z0 { continue; }
+                                        mb.add_quad(
+                                            Vector3::new(px, y1, z0),
+                                            Vector3::new(px, y1, z1),
+                                            Vector3::new(px, y0, z1),
+                                            Vector3::new(px, y0, z0),
+                                            Vector3::new(-1.0, 0.0, 0.0),
+                                            z1 - z0,
+                                            y1 - y0,
+                                            false,
+                                            rgba,
+                                        );
+                                    }
+                                }
+                            }
+                            // North neighbor (+Z face on neighbor)
+                            if z > 0 {
+                                let nb = buf.get_local(x, y, z - 1);
+                                if is_full_cube(nb) {
+                                    let rgba = {
+                                        let lv = sample_lv(&light, x, y, z - 1, 4, draw_top, sy);
+                                        [lv, lv, lv, 255]
+                                    };
+                                    let mid = registry_material_for_or_unknown(nb, 4, reg);
+                                    let mb = builds.entry(mid).or_default();
+                                    let pz = fz;
+                                    let segs: &[(f32, f32)] = match (facing, is_top) {
+                                        ("east", false) => &[(fx + 0.5, fx + 1.0)],
+                                        ("west", false) => &[(fx, fx + 0.5)],
+                                        ("north", false) => &[(fx, fx + 1.0)],
+                                        ("south", false) => &[],
+                                        ("east", true) => &[(fx + 0.5, fx + 1.0)],
+                                        ("west", true) => &[(fx, fx + 0.5)],
+                                        ("north", true) => &[(fx, fx + 1.0)],
+                                        ("south", true) => &[],
+                                        _ => &[],
+                                    };
+                                    for &(x0f, x1f) in segs.iter() {
+                                        if x1f <= x0f { continue; }
+                                        mb.add_quad(
+                                            Vector3::new(x1f, y1, pz),
+                                            Vector3::new(x0f, y1, pz),
+                                            Vector3::new(x0f, y0, pz),
+                                            Vector3::new(x1f, y0, pz),
+                                            Vector3::new(0.0, 0.0, 1.0),
+                                            x1f - x0f,
+                                            y1 - y0,
+                                            false,
+                                            rgba,
+                                        );
+                                    }
+                                }
+                            }
+                            // South neighbor (-Z face on neighbor)
+                            if z + 1 < sz {
+                                let nb = buf.get_local(x, y, z + 1);
+                                if is_full_cube(nb) {
+                                    let rgba = {
+                                        let lv = sample_lv(&light, x, y, z + 1, 5, draw_top, sy);
+                                        [lv, lv, lv, 255]
+                                    };
+                                    let mid = registry_material_for_or_unknown(nb, 5, reg);
+                                    let mb = builds.entry(mid).or_default();
+                                    let pz = fz + 1.0;
+                                    let segs: &[(f32, f32)] = match (facing, is_top) {
+                                        ("east", false) => &[(fx + 0.5, fx + 1.0)],
+                                        ("west", false) => &[(fx, fx + 0.5)],
+                                        ("north", false) => &[],
+                                        ("south", false) => &[(fx, fx + 1.0)],
+                                        ("east", true) => &[(fx + 0.5, fx + 1.0)],
+                                        ("west", true) => &[(fx, fx + 0.5)],
+                                        ("north", true) => &[],
+                                        ("south", true) => &[(fx, fx + 1.0)],
+                                        _ => &[],
+                                    };
+                                    for &(x0f, x1f) in segs.iter() {
+                                        if x1f <= x0f { continue; }
+                                        mb.add_quad(
+                                            Vector3::new(x0f, y1, pz),
+                                            Vector3::new(x1f, y1, pz),
+                                            Vector3::new(x1f, y0, pz),
+                                            Vector3::new(x0f, y0, pz),
+                                            Vector3::new(0.0, 0.0, -1.0),
+                                            x1f - x0f,
+                                            y1 - y0,
+                                            false,
+                                            rgba,
+                                        );
+                                    }
+                                }
+                            }
                         }
                         _ => {}
                     }
