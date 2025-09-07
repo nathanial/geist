@@ -77,7 +77,7 @@ struct RunArgs {
     #[arg(long, default_value_t = 32)]
     chunk_size_x: usize,
     /// Chunk size along Y
-    #[arg(long, default_value_t = 48)]
+    #[arg(long, default_value_t = 256)]
     chunk_size_y: usize,
     /// Chunk size along Z
     #[arg(long, default_value_t = 32)]
@@ -94,7 +94,7 @@ impl Default for RunArgs {
             chunks_x: 4,
             chunks_z: 4,
             chunk_size_x: 32,
-            chunk_size_y: 48,
+            chunk_size_y: 256,
             chunk_size_z: 32,
         }
     }

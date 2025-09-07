@@ -96,6 +96,7 @@ pub struct BlockRegistry {
     pub materials: MaterialCatalog,
     pub blocks: Vec<BlockType>,
     pub by_name: HashMap<String, BlockId>,
+    pub unknown_block_id: Option<BlockId>,
 }
 
 impl BlockRegistry {
@@ -117,7 +118,8 @@ impl BlockRegistry {
     }
 
     pub fn from_configs(materials: MaterialCatalog, cfg: BlocksConfig) -> Result<Self, Box<dyn Error>> {
-        let mut reg = BlockRegistry { materials, blocks: Vec::new(), by_name: HashMap::new() };
+        let mut reg = BlockRegistry { materials, blocks: Vec::new(), by_name: HashMap::new(), unknown_block_id: None };
+        let unknown_name = cfg.unknown_block.clone();
         let profiles: HashMap<String, LightProfile> = cfg
             .lighting
             .as_ref()
@@ -177,6 +179,10 @@ impl BlockRegistry {
             }
             reg.blocks[id as usize] = ty.clone();
             reg.by_name.insert(ty.name.clone(), id);
+        }
+        // Resolve unknown/fallback block id if configured
+        if let Some(name) = unknown_name {
+            reg.unknown_block_id = reg.id_by_name(&name);
         }
         Ok(reg)
     }
@@ -324,6 +330,16 @@ impl BlockType {
 }
 
 impl BlockRegistry {
+    pub fn unknown_block_id_or_panic(&self) -> BlockId {
+        if let Some(id) = self.unknown_block_id.or_else(|| self.id_by_name("unknown")) {
+            id
+        } else {
+            panic!(
+                "Unknown block fallback not configured. Set `unknown_block = \"<name>\"` in blocks.toml and define that block."
+            );
+        }
+    }
+
     pub fn make_block_by_name(
         &self,
         name: &str,

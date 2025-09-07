@@ -7,6 +7,11 @@ pub struct BlocksConfig {
     pub blocks: Vec<BlockDef>,
     #[serde(default)]
     pub lighting: Option<LightingConfig>,
+    // Optional name of a block to use as the default unknown/fallback block
+    // when a requested block is unavailable. If absent or not found, fallbacks
+    // will use `air`.
+    #[serde(default)]
+    pub unknown_block: Option<String>,
 }
 
 #[derive(Deserialize, Debug, Clone)]

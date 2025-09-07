@@ -136,10 +136,10 @@ pub fn load_sponge_schem_apply_edits(
                     let wx = ox + x;
                     let wy = oy + y;
                     let wz = oz + z;
-                    if let Some(rt) = maybe_rt {
-                        if rt.id != reg.id_by_name("air").unwrap_or(0) {
-                            edits.set(wx, wy, wz, rt);
-                        }
+                    // Fallback to configured unknown block when unmapped; panic if not configured
+                    let rt = maybe_rt.unwrap_or_else(|| RtBlock { id: reg.unknown_block_id_or_panic(), state: 0 });
+                    if rt.id != reg.id_by_name("air").unwrap_or(0) {
+                        edits.set(wx, wy, wz, rt);
                     }
                 }
             }

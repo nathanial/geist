@@ -1,3 +1,6 @@
+# Default fallback block for unknown IDs from schematics
+unknown_block = "unknown"
+
 # Lighting behavior profiles (data-driven light modes)
 [lighting.profiles.beam_cardinal]
 mode = "beam"
@@ -12,6 +15,14 @@ id = 0
 solid = false
 blocks_skylight = false
 propagates_light = true
+emission = 0
+shape = "cube"
+materials = { all = "unknown" }
+
+[[blocks]]
+name = "unknown"
+solid = true
+blocks_skylight = true
 emission = 0
 shape = "cube"
 materials = { all = "unknown" }
