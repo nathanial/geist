@@ -64,6 +64,182 @@ emission = 10
 shape = "cube"
 materials = { all = "beacon" }
 
+# Common cubes (config-driven; replacing hardcoded enums)
+[[blocks]]
+name = "cobblestone"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "cobblestone" }
+
+[[blocks]]
+name = "mossy_cobblestone"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "mossy_cobblestone" }
+
+[[blocks]]
+name = "stone_bricks"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "stone_bricks" }
+
+[[blocks]]
+name = "mossy_stone_bricks"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "mossy_stone_bricks" }
+
+[[blocks]]
+name = "brick"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "brick" }
+
+[[blocks]]
+name = "granite"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "granite" }
+
+[[blocks]]
+name = "diorite"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "diorite" }
+
+[[blocks]]
+name = "andesite"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "andesite" }
+
+[[blocks]]
+name = "polished_granite"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "polished_granite" }
+
+[[blocks]]
+name = "polished_diorite"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "polished_diorite" }
+
+[[blocks]]
+name = "polished_andesite"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "polished_andesite" }
+
+[[blocks]]
+name = "gravel"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "gravel" }
+
+[[blocks]]
+name = "smooth_stone"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "smooth_stone" }
+
+[[blocks]]
+name = "sandstone"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { top = "sandstone_top", bottom = "sandstone_bottom", side = "sandstone_side" }
+
+[[blocks]]
+name = "red_sandstone"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { top = "red_sandstone_top", bottom = "red_sandstone_bottom", side = "red_sandstone_side" }
+
+[[blocks]]
+name = "quartz_block"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { top = "quartz_block_top", bottom = "quartz_block_top", side = "quartz_block_side" }
+
+[[blocks]]
+name = "lapis_block"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "lapis_block" }
+
+[[blocks]]
+name = "coal_block"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "coal_block" }
+
+[[blocks]]
+name = "prismarine_bricks"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "prismarine_bricks" }
+
+[[blocks]]
+name = "nether_bricks"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "nether_bricks" }
+
+[[blocks]]
+name = "end_stone"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "end_stone" }
+
+[[blocks]]
+name = "end_stone_bricks"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "end_stone_bricks" }
+
+[[blocks]]
+name = "bookshelf"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "bookshelf" }
+
+[[blocks]]
+name = "coarse_dirt"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "coarse_dirt" }
+
+[[blocks]]
+name = "podzol"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { top = "podzol_top", bottom = "dirt", side = "podzol_side" }
+
 # Slab (generic): half + material
 [[blocks]]
 name = "slab"
@@ -272,3 +448,46 @@ blocks_skylight = false
 emission = 0
 shape = "cube"
 materials = { all = "acacia_leaves" }
+
+# Planks as simple cubes
+[[blocks]]
+name = "oak_planks"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "oak_planks" }
+
+[[blocks]]
+name = "birch_planks"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "birch_planks" }
+
+[[blocks]]
+name = "spruce_planks"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "spruce_planks" }
+
+[[blocks]]
+name = "jungle_planks"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "jungle_planks" }
+
+[[blocks]]
+name = "acacia_planks"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "acacia_planks" }
+
+[[blocks]]
+name = "dark_oak_planks"
+solid = true
+blocks_skylight = true
+shape = "cube"
+materials = { all = "oak_planks" }

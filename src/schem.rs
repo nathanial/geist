@@ -2,7 +2,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
-use crate::voxel::{Block, Dir4, MaterialKey, SlabHalf, TerracottaColor, TreeSpecies};
 use crate::blocks::{Block as RtBlock, BlockRegistry};
 
 // Map a Sponge palette key like "minecraft:oak_log[axis=y]" to our Block
@@ -10,25 +9,7 @@ fn base_from_key(key: &str) -> &str {
     key.split('[').next().unwrap_or(key)
 }
 
-fn axis_from_key(key: &str) -> Option<crate::voxel::Axis> {
-    if let Some(start) = key.find('[') {
-        if let Some(end) = key[start + 1..].find(']') {
-            let inner = &key[start + 1..start + 1 + end];
-            for part in inner.split(',') {
-                let part = part.trim();
-                if let Some(val) = part.strip_prefix("axis=") {
-                    return match val {
-                        "x" => Some(crate::voxel::Axis::X),
-                        "y" => Some(crate::voxel::Axis::Y),
-                        "z" => Some(crate::voxel::Axis::Z),
-                        _ => None,
-                    };
-                }
-            }
-        }
-    }
-    None
-}
+// axis_from_key removed with legacy enum mappings; axis is handled via registry state where needed
 
 fn state_value<'a>(key: &'a str, name: &str) -> Option<&'a str> {
     if let Some(start) = key.find('[') {
@@ -45,6 +26,11 @@ fn state_value<'a>(key: &'a str, name: &str) -> Option<&'a str> {
     None
 }
 
+// Stub legacy translator to satisfy references while we migrate fully to config.
+#[allow(dead_code)]
+fn map_palette_key_to_block_opt(_key: &str) -> Option<crate::voxel::Block> { None }
+
+#[cfg(any())]
 fn map_palette_key_to_block_opt(key: &str) -> Option<Block> {
     // Strip states suffix if present
     let base = base_from_key(key);
@@ -832,12 +818,14 @@ fn runtime_from_palette_key(reg: &BlockRegistry, key: &str) -> Option<RtBlock> {
     Some(b)
 }
 
+#[cfg(any())]
 fn map_palette_key_to_block(key: &str) -> Block {
     // Fallback to a visible placeholder to preserve structure layout
     map_palette_key_to_block_opt(key).unwrap_or(Block::Unknown)
 }
 
 // Fallback: MCEdit/old WorldEdit .schematic loader via NBT (fastnbt + optional gzip)
+#[cfg(any())]
 #[derive(Debug, serde::Deserialize)]
 struct MCSchematicNBT {
     Width: i16,
@@ -855,6 +843,7 @@ struct MCSchematicNBT {
     WEOffsetZ: i32,
 }
 
+#[cfg(any())]
 fn nbt_schematic_from_file(path: &Path) -> Result<MCSchematicNBT, String> {
     use std::io::Read;
     let mut f = std::fs::File::open(path).map_err(|e| format!("open {:?}: {}", path, e))?;
@@ -879,6 +868,7 @@ fn nbt_schematic_from_file(path: &Path) -> Result<MCSchematicNBT, String> {
     }
 }
 
+#[cfg(any())]
 fn numeric_id_to_block(id: u16, data: u8) -> Block {
     use crate::voxel::{Block::*, TreeSpecies::*};
     match id {
@@ -991,6 +981,7 @@ fn numeric_id_to_block(id: u16, data: u8) -> Block {
     }
 }
 
+#[cfg(any())]
 fn legacy_to_runtime(reg: &BlockRegistry, b: Block) -> RtBlock {
     // Map a subset of legacy kinds to runtime registry blocks by name.
     // Unknowns map to stone for now.
@@ -1053,6 +1044,7 @@ fn legacy_to_runtime(reg: &BlockRegistry, b: Block) -> RtBlock {
     RtBlock { id, state: 0 }
 }
 
+#[cfg(any())]
 pub fn load_mcedit_schematic_apply_edits(
     path: &Path,
     origin: (i32, i32, i32),
@@ -1142,21 +1134,9 @@ pub fn load_any_schematic_apply_edits(
         .extension()
         .and_then(|e| Some(e.to_string_lossy().to_lowercase()))
         .unwrap_or_default();
-    if ext == "schem" {
+    if ext == "schem" || ext == "schematic" {
+        // Unified config-driven path using mc_schem palette keys + palette_map.toml
         load_sponge_schem_apply_edits(path, origin, edits, reg)
-    } else if ext == "schematic" {
-        match load_mcedit_schematic_apply_edits(path, origin, edits, reg) {
-            Ok(s) => Ok(s),
-            Err(e) => {
-                // As a last resort, try mc_schem parser if available
-                match mc_schem::Schematic::from_file(
-                    path.to_str().ok_or_else(|| "invalid path".to_string())?,
-                ) {
-                    Ok(_s) => load_sponge_schem_apply_edits(path, origin, edits, reg),
-                    Err(_) => Err(e),
-                }
-            }
-        }
     } else {
         Err(format!("unsupported schematic extension: {:?}", path))
     }
@@ -1283,16 +1263,24 @@ pub fn list_schematics_with_size(dir: &Path) -> Result<Vec<SchematicEntry>, Stri
                         Err(e) => return Err(format!("parse schem {:?}: {}", p, e)),
                     }
                 } else if ext_s.eq_ignore_ascii_case("schematic") {
-                    // Fallback to NBT to get sizes even if mc_schem cannot parse due to missing tags
-                    let nbt = nbt_schematic_from_file(&p)?;
-                    out.push(SchematicEntry {
-                        path: p,
-                        size: (nbt.Width as i32, nbt.Height as i32, nbt.Length as i32),
-                    });
+                    // Try mc_schem for legacy .schematic as well; if it fails, skip sizing
+                    match mc_schem::Schematic::from_file(
+                        p.to_str().ok_or_else(|| "invalid path".to_string())?,
+                    ) {
+                        Ok((schem, _meta)) => {
+                            let shape = schem.shape();
+                            out.push(SchematicEntry {
+                                path: p,
+                                size: (shape[0] as i32, shape[1] as i32, shape[2] as i32),
+                            });
+                        }
+                        Err(e) => {
+                            log::warn!("parse schem {:?}: {}", p, e);
+                        }
+                    }
                 }
             }
         }
     }
     Ok(out)
 }
-use fastnbt::from_bytes;

@@ -26,6 +26,139 @@ to = { name = "glowstone" }
 from = "minecraft:beacon"
 to = { name = "beacon" }
 
+# Common cubes
+[[rules]]
+from = "minecraft:cobblestone"
+to = { name = "cobblestone" }
+
+[[rules]]
+from = "minecraft:mossy_cobblestone"
+to = { name = "mossy_cobblestone" }
+
+[[rules]]
+from = "minecraft:stone_bricks"
+to = { name = "stone_bricks" }
+
+[[rules]]
+from = "minecraft:chiseled_stone_bricks"
+to = { name = "stone_bricks" }
+
+[[rules]]
+from = "minecraft:mossy_stone_bricks"
+to = { name = "mossy_stone_bricks" }
+
+[[rules]]
+from = "minecraft:bricks"
+to = { name = "brick" }
+
+[[rules]]
+from = "minecraft:granite"
+to = { name = "granite" }
+
+[[rules]]
+from = "minecraft:diorite"
+to = { name = "diorite" }
+
+[[rules]]
+from = "minecraft:andesite"
+to = { name = "andesite" }
+
+[[rules]]
+from = "minecraft:polished_granite"
+to = { name = "polished_granite" }
+
+[[rules]]
+from = "minecraft:polished_diorite"
+to = { name = "polished_diorite" }
+
+[[rules]]
+from = "minecraft:polished_andesite"
+to = { name = "polished_andesite" }
+
+[[rules]]
+from = "minecraft:gravel"
+to = { name = "gravel" }
+
+[[rules]]
+from = "minecraft:smooth_stone"
+to = { name = "smooth_stone" }
+
+[[rules]]
+from = "minecraft:sandstone"
+to = { name = "sandstone" }
+
+[[rules]]
+from = "minecraft:cut_sandstone"
+to = { name = "sandstone" }
+
+[[rules]]
+from = "minecraft:smooth_sandstone"
+to = { name = "sandstone" }
+
+[[rules]]
+from = "minecraft:red_sandstone"
+to = { name = "red_sandstone" }
+
+[[rules]]
+from = "minecraft:cut_red_sandstone"
+to = { name = "red_sandstone" }
+
+[[rules]]
+from = "minecraft:smooth_red_sandstone"
+to = { name = "red_sandstone" }
+
+[[rules]]
+from = "minecraft:quartz_block"
+to = { name = "quartz_block" }
+
+[[rules]]
+from = "minecraft:chiseled_quartz_block"
+to = { name = "quartz_block" }
+
+[[rules]]
+from = "minecraft:quartz_pillar"
+to = { name = "quartz_block" }
+
+[[rules]]
+from = "minecraft:lapis_block"
+to = { name = "lapis_block" }
+
+[[rules]]
+from = "minecraft:coal_block"
+to = { name = "coal_block" }
+
+[[rules]]
+from = "minecraft:prismarine_bricks"
+to = { name = "prismarine_bricks" }
+
+[[rules]]
+from = "minecraft:nether_bricks"
+to = { name = "nether_bricks" }
+
+[[rules]]
+from = "minecraft:end_stone"
+to = { name = "end_stone" }
+
+[[rules]]
+from = "minecraft:end_stone_bricks"
+to = { name = "end_stone_bricks" }
+
+[[rules]]
+from = "minecraft:bookshelf"
+to = { name = "bookshelf" }
+
+[[rules]]
+from = "minecraft:chiseled_bookshelf"
+to = { name = "bookshelf" }
+
+[[rules]]
+from = "minecraft:coarse_dirt"
+to = { name = "coarse_dirt" }
+
+[[rules]]
+from = "minecraft:podzol"
+to = { name = "podzol" }
+
 # Logs/leaves
 [[rules]]
 from = "minecraft:oak_log"
@@ -72,6 +205,30 @@ from = "minecraft:acacia_leaves"
 to = { name = "acacia_leaves" }
 
 # --- Slabs ---
+[[rules]]
+from = "minecraft:oak_planks"
+to = { name = "oak_planks" }
+
+[[rules]]
+from = "minecraft:birch_planks"
+to = { name = "birch_planks" }
+
+[[rules]]
+from = "minecraft:spruce_planks"
+to = { name = "spruce_planks" }
+
+[[rules]]
+from = "minecraft:jungle_planks"
+to = { name = "jungle_planks" }
+
+[[rules]]
+from = "minecraft:acacia_planks"
+to = { name = "acacia_planks" }
+
+[[rules]]
+from = "minecraft:dark_oak_planks"
+to = { name = "dark_oak_planks" }
+
 [[rules]]
 from = "minecraft:oak_slab"
 to = { name = "slab", state = { material = "planks_oak" } }

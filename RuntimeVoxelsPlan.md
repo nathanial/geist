@@ -210,9 +210,9 @@
 - DONE: Compile errors resolved. Removed legacy enum matches from active meshing path; App/Player/Structure now use registry for solidity/emission and `Block::AIR` constant.
 - DONE: State packing/unpacking implemented on `BlockType`; `CompiledMaterials::material_for` now resolves `by = { by, map }` using `BlockState`.
 - DONE: Special-shape meshing: slabs and stairs implemented via registry-state emitters, including neighbor face restoration; materials resolved via registry.
-- PARTIAL: Schematic loader now maps legacy palette output to runtime via registry bridge; full `palette_map.toml` translator still pending.
-- DONE: App hotbar driven by `assets/voxels/hotbar.toml` (fallback to legacy keys when empty/invalid).
- - DONE: Config-driven palette translator: loads `assets/voxels/palette_map.toml` and maps Sponge palette keys to runtime blocks; integrated into Sponge `.schem` import (no legacy fallback). Initial rule set added for core blocks, slabs/stairs (with state merge), and wood logs/leaves.
+ - DONE: App hotbar driven by `assets/voxels/hotbar.toml` (fallback to legacy keys when empty/invalid).
+ - DONE: Config-driven palette translator: loads `assets/voxels/palette_map.toml` and maps Sponge palette keys to runtime blocks; integrated into both `.schem` and `.schematic` import (unified path). Initial rule set expanded for core cubes, planks, logs/leaves, and slabs/stairs (with state merge).
+ - DONE: Removed hardcoded schematic mappings from the active code path. Numeric `.schematic` NBT loader is no longer used; both extensions use palette-based translator.
 
 **Build Status / Recent Fixes**
 - RESOLVED: Removed legacy special-shape matches from mesher; compile green.
@@ -221,10 +221,9 @@
 - RESOLVED: Added `BlockType::state_prop_value/state_prop_is_value` and updated mesher occlusion helpers to use them.
 
 **Remaining Work (No Shims)**
-- Remove `MaterialKey` and remaining legacy enums (`TreeSpecies`, `Dir4`, etc.) from code; rely solely on registry state and names.
- 
- - Phase out legacy schematic maps by expanding `palette_map.toml` coverage; hardcoded `map_palette_*` no longer used in Sponge path and scheduled for deletion.
-- Drive hotbar from `assets/voxels/hotbar.toml` and expose block debug names via registry.
+- Remove `MaterialKey` and remaining legacy enums (`TreeSpecies`, `Dir4`, etc.) from code; rely solely on registry state and names. Worldgen migration will enable full deletion of legacy `src/voxel.rs` enums and bridges.
+- Delete dead legacy schematic functions in `src/schem.rs` (`numeric_id_to_block`, `legacy_to_runtime`, etc.) after confirming no regressions.
+- Expand `palette_map.toml` for any missing blocks encountered; current coverage includes: core cubes, planks, logs/leaves, slabs, stairs.
 
 **API Changes (Implemented)**
 - `lighting::LightGrid::compute_with_borders_buf(buf, store, reg)` now requires `&BlockRegistry` and uses `blocks_skylight`/`propagates_light`. Beacon propagation tracks direction and attenuates accordingly.
@@ -237,11 +236,13 @@
 - `schem::{load_any_schematic_apply_edits, load_sponge_*, load_mcedit_*}` now require `&BlockRegistry` and emit runtime blocks.
 
 **Immediate Tasks**
- 
- 
-- Remove remaining legacy enums (`MaterialKey`, `TreeSpecies`, `Dir4`, etc.).
- - Schematic translator: expand rule coverage; remove hardcoded palette handling once parity is reached.
-- Worldgen: emit runtime blocks directly; remove temporary bridge.
+- Worldgen: emit runtime blocks directly; remove temporary resolver/bridges.
+- Remove dead code and address warnings after legacy cleanup.
+
+**Recent Config Changes**
+- Added cube block defs: cobblestone, mossy_cobblestone, stone_bricks, mossy_stone_bricks, brick, granite, diorite, andesite, polished_{granite,diorite,andesite}, gravel, smooth_stone, sandstone, red_sandstone, quartz_block, lapis_block, coal_block, prismarine_bricks, nether_bricks, end_stone, end_stone_bricks, bookshelf, coarse_dirt, podzol, and planks for all wood species.
+- Extended `palette_map.toml` rules to map the above Minecraft keys to runtime blocks.
+- Added missing materials: `end_stone`, `end_stone_bricks`.
 
 **Acceptance Criteria**
 - Visual parity: Grass/dirt/stone, sand, snow render as before; logs/leaves for oak/birch/spruce/jungle/acacia match current, leaves use leaves shader.

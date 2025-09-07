@@ -38,6 +38,8 @@ lapis_block = ["assets/blocks/lapis_block.png"]
 coal_block = ["assets/blocks/coal_block.png"]
 prismarine_bricks = ["assets/blocks/prismarine_bricks.png"]
 nether_bricks = ["assets/blocks/nether_bricks.png"]
+end_stone = ["assets/blocks/end_stone.png"]
+end_stone_bricks = ["assets/blocks/end_stone_bricks.png"]
 
 # Wood family (render_tag can drive leaf shader later)
 oak_log = { paths = ["assets/blocks/log_oak.png"], render_tag = "log" }
