@@ -135,8 +135,13 @@ impl World {
         let climate_for = |wx: i32, wz: i32| -> Option<(f32, f32)> {
             match (&ctx.temp2d, &ctx.moist2d) {
                 (Some(t), Some(m)) => {
-                    let tt = ((t.get_noise_2d(wx as f32, wz as f32) + 1.0) * 0.5).clamp(0.0, 1.0);
-                    let mm = ((m.get_noise_2d(wx as f32, wz as f32) + 1.0) * 0.5).clamp(0.0, 1.0);
+                    let b = ctx.params.biomes.as_ref().unwrap();
+                    let sx = if b.scale_x == 0.0 { 1.0 } else { b.scale_x };
+                    let sz = if b.scale_z == 0.0 { 1.0 } else { b.scale_z };
+                    let x = wx as f32 * sx;
+                    let z = wz as f32 * sz;
+                    let tt = ((t.get_noise_2d(x, z) + 1.0) * 0.5).clamp(0.0, 1.0);
+                    let mm = ((m.get_noise_2d(x, z) + 1.0) * 0.5).clamp(0.0, 1.0);
                     Some((tt, mm))
                 }
                 _ => None,
@@ -144,8 +149,15 @@ impl World {
         };
         let biome_for = |wx: i32, wz: i32| -> Option<&crate::worldgen::BiomeDefParam> {
             if ctx.params.biomes.is_none() { return None; }
-            let (t, m) = climate_for(wx, wz)?;
             let b = ctx.params.biomes.as_ref().unwrap();
+            if b.debug_pack_all && !b.defs.is_empty() {
+                let cell = b.debug_cell_size.max(1) as i32;
+                let cx = (wx.div_euclid(cell)) as i64;
+                let cz = (wz.div_euclid(cell)) as i64;
+                let idx = ((cx * 31 + cz * 17).rem_euclid(b.defs.len() as i64)) as usize;
+                if let Some(def) = b.defs.get(idx) { return Some(def); }
+            }
+            let (t, m) = climate_for(wx, wz)?;
             for def in &b.defs {
                 if t >= def.temp_min && t < def.temp_max && m >= def.moisture_min && m < def.moisture_max {
                     return Some(def);
@@ -398,15 +410,19 @@ impl World {
         // Tree placement
         let tree_prob_for = |wx: i32, wz: i32| -> f32 {
             if let Some(ref b) = ctx.params.biomes {
-                if let (Some(tn), Some(mn)) = (&ctx.temp2d, &ctx.moist2d) {
-                    let tt = ((tn.get_noise_2d(wx as f32, wz as f32) + 1.0) * 0.5).clamp(0.0, 1.0);
-                    let mm = ((mn.get_noise_2d(wx as f32, wz as f32) + 1.0) * 0.5).clamp(0.0, 1.0);
-                    for def in &b.defs {
-                        if tt >= def.temp_min && tt < def.temp_max && mm >= def.moisture_min && mm < def.moisture_max {
-                            if let Some(d) = def.tree_density { return d.max(0.0).min(1.0); }
-                            break;
-                        }
-                    }
+                if b.debug_pack_all && !b.defs.is_empty() {
+                    let cell = b.debug_cell_size.max(1) as i32;
+                    let cx = (wx.div_euclid(cell)) as i64;
+                    let cz = (wz.div_euclid(cell)) as i64;
+                    let idx = ((cx * 31 + cz * 17).rem_euclid(b.defs.len() as i64)) as usize;
+                    if let Some(def) = b.defs.get(idx) { if let Some(d)=def.tree_density { return d.max(0.0).min(1.0); } }
+                } else if let (Some(tn), Some(mn)) = (&ctx.temp2d, &ctx.moist2d) {
+                    let sx = if b.scale_x == 0.0 { 1.0 } else { b.scale_x };
+                    let sz = if b.scale_z == 0.0 { 1.0 } else { b.scale_z };
+                    let x = wx as f32 * sx; let z = wz as f32 * sz;
+                    let tt = ((tn.get_noise_2d(x, z) + 1.0) * 0.5).clamp(0.0, 1.0);
+                    let mm = ((mn.get_noise_2d(x, z) + 1.0) * 0.5).clamp(0.0, 1.0);
+                    for def in &b.defs { if tt >= def.temp_min && tt < def.temp_max && mm >= def.moisture_min && mm < def.moisture_max { if let Some(d)=def.tree_density { return d.max(0.0).min(1.0); } break; } }
                 }
             }
             ctx.params.tree_probability
@@ -543,14 +559,27 @@ impl World {
         use fastnoise_lite::{FastNoiseLite, NoiseType};
         let gp = self.gen_params.read().ok()?.clone();
         let b = gp.biomes.as_ref()?;
+        // Respect debug tiling mode to ensure predictable biome assignment
+        if b.debug_pack_all && !b.defs.is_empty() {
+            let cell = b.debug_cell_size.max(1) as i32;
+            let cx = (wx.div_euclid(cell)) as i64;
+            let cz = (wz.div_euclid(cell)) as i64;
+            let idx = ((cx * 31 + cz * 17).rem_euclid(b.defs.len() as i64)) as usize;
+            return b.defs.get(idx).cloned();
+        }
+        // Sample climate noise using configured frequencies and scales
         let mut t = FastNoiseLite::with_seed((self.seed as i32) ^ 0x1203_5F31);
         t.set_noise_type(Some(NoiseType::OpenSimplex2));
         t.set_frequency(Some(b.temp_freq));
         let mut m = FastNoiseLite::with_seed(((self.seed as u32) ^ 0x92E3_A1B2u32) as i32);
         m.set_noise_type(Some(NoiseType::OpenSimplex2));
         m.set_frequency(Some(b.moisture_freq));
-        let tt = ((t.get_noise_2d(wx as f32, wz as f32) + 1.0) * 0.5).clamp(0.0, 1.0);
-        let mm = ((m.get_noise_2d(wx as f32, wz as f32) + 1.0) * 0.5).clamp(0.0, 1.0);
+        let sx = if b.scale_x == 0.0 { 1.0 } else { b.scale_x };
+        let sz = if b.scale_z == 0.0 { 1.0 } else { b.scale_z };
+        let x = wx as f32 * sx;
+        let z = wz as f32 * sz;
+        let tt = ((t.get_noise_2d(x, z) + 1.0) * 0.5).clamp(0.0, 1.0);
+        let mm = ((m.get_noise_2d(x, z) + 1.0) * 0.5).clamp(0.0, 1.0);
         for def in &b.defs {
             if tt >= def.temp_min && tt < def.temp_max && mm >= def.moisture_min && mm < def.moisture_max {
                 return Some(def.clone());

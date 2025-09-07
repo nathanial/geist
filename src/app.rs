@@ -735,6 +735,16 @@ impl App {
                     &self.runtime.reg.materials,
                 )
                 {
+                    // Assign biome-based leaf tint for this chunk (center sample)
+                    let sx = self.gs.world.chunk_size_x as i32;
+                    let sz = self.gs.world.chunk_size_z as i32;
+                    let wx = cx * sx + sx / 2;
+                    let wz = cz * sz + sz / 2;
+                    if let Some(b) = self.gs.world.biome_at(wx, wz) {
+                        if let Some(t) = b.leaf_tint {
+                            cr.leaf_tint = Some(t);
+                        }
+                    }
                     // Assign shaders
                     for (mid, model) in &mut cr.parts {
                         if let Some(mat) = model.materials_mut().get_mut(0) {

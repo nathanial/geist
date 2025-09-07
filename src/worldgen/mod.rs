@@ -239,12 +239,18 @@ pub struct Biomes {
     #[serde(default)] pub temp: Climate2D,
     #[serde(default)] pub moisture: Climate2D,
     #[serde(default)] pub biomes: Vec<BiomeDef>,
+    #[serde(default = "d_one")] pub scale_x: f32,
+    #[serde(default = "d_one")] pub scale_z: f32,
+    #[serde(default)] pub debug_pack_all: bool,
+    #[serde(default = "d_cell")] pub debug_cell_size: i32,
 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Climate2D { #[serde(default = "default_climate_freq")] pub frequency: f32 }
 fn default_climate_freq() -> f32 { 0.01 }
 impl Default for Climate2D { fn default() -> Self { Self { frequency: default_climate_freq() } } }
+fn d_one() -> f32 { 1.0 }
+fn d_cell() -> i32 { 32 }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct BiomeDef {
@@ -264,6 +270,10 @@ pub struct BiomesParams {
     pub temp_freq: f32,
     pub moisture_freq: f32,
     pub defs: Vec<BiomeDefParam>,
+    pub scale_x: f32,
+    pub scale_z: f32,
+    pub debug_pack_all: bool,
+    pub debug_cell_size: i32,
 }
 
 #[derive(Clone, Debug)]
@@ -300,6 +310,10 @@ impl BiomesParams {
             temp_freq: cfg.temp.frequency,
             moisture_freq: cfg.moisture.frequency,
             defs,
+            scale_x: cfg.scale_x,
+            scale_z: cfg.scale_z,
+            debug_pack_all: cfg.debug_pack_all,
+            debug_cell_size: cfg.debug_cell_size,
         }
     }
 }
