@@ -734,14 +734,14 @@ impl App {
                 // Drop if stale
                 let cur_rev = self.gs.edits.get_rev(cx, cz);
                 if rev < cur_rev {
-                    // Only re-enqueue if there isn't already a newer inflight job and not pending
+                    // Only re-enqueue if there isn't already a newer inflight job
                     let inflight = self
                         .gs
                         .inflight_rev
                         .get(&(cx, cz))
                         .copied()
                         .unwrap_or(0);
-                    if !self.gs.pending.contains(&(cx, cz)) && inflight < cur_rev {
+                    if inflight < cur_rev {
                         let neighbors = self.neighbor_mask(cx, cz);
                         let job_id = Self::job_hash(cx, cz, cur_rev, neighbors);
                         self.queue.emit_now(Event::BuildChunkJobRequested {
@@ -751,6 +751,7 @@ impl App {
                             rev: cur_rev,
                             job_id,
                         });
+                        // Keep pending set; ensure inflight_rev reflects latest
                         self.gs.pending.insert((cx, cz));
                         self.gs.inflight_rev.insert((cx, cz), cur_rev);
                     }
