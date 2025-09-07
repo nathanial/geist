@@ -46,3 +46,60 @@ below_height_offset = 2
 chance = 0.0009
 [features.place]
 block = "glowstone"
+
+[[features]]
+name = "sandstone_under_sand"
+[features.when]
+base_in = ["sand"]
+below_height_offset = 3
+[features.place]
+block = "sandstone"
+
+[[features]]
+name = "granite_veins"
+[features.when]
+base_in = ["stone"]
+y_min = 20
+y_max = 200
+chance = 0.03
+[features.place]
+block = "granite"
+
+[[features]]
+name = "diorite_veins"
+[features.when]
+base_in = ["stone"]
+y_min = 20
+y_max = 200
+chance = 0.02
+[features.place]
+block = "diorite"
+
+[[features]]
+name = "andesite_veins"
+[features.when]
+base_in = ["stone"]
+y_min = 10
+y_max = 160
+chance = 0.02
+[features.place]
+block = "andesite"
+
+[[features]]
+name = "gravel_pockets"
+[features.when]
+base_in = ["stone"]
+y_min = 5
+y_max = 80
+chance = 0.01
+[features.place]
+block = "gravel"
+
+[[features]]
+name = "coal_specks"
+[features.when]
+base_in = ["stone"]
+y_max = 128
+chance = 0.002
+[features.place]
+block = "coal_block"
