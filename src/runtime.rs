@@ -297,11 +297,22 @@ impl Runtime {
             let job_rx_light = job_rx_light;
             let q_light_c = q_light_ctr.clone();
             let inflight_c = inflight_light_ctr.clone();
+            let q_bg_c = q_bg_ctr.clone();
+            let inflight_bg_c = inflight_bg_ctr.clone();
+            let w_bg_cl = w_bg;
             thread::spawn(move || {
                 let mut i = 0usize;
                 while let Ok(job) = job_rx_light.recv() {
                     q_light_c.fetch_sub(1, Ordering::Relaxed);
-                    if !light_worker_txs_cl.is_empty() {
+                    // If BG lane appears idle, let BG workers help with lighting
+                    let bg_idle = !bg_worker_txs_cl.is_empty()
+                        && q_bg_c.load(Ordering::Relaxed) == 0
+                        && inflight_bg_c.load(Ordering::Relaxed) < w_bg_cl;
+                    if bg_idle {
+                        let _ = bg_worker_txs_cl[i % bg_worker_txs_cl.len()].send(job);
+                        inflight_c.fetch_add(1, Ordering::Relaxed);
+                        i = i.wrapping_add(1);
+                    } else if !light_worker_txs_cl.is_empty() {
                         let _ = light_worker_txs_cl[i % light_worker_txs_cl.len()].send(job);
                         inflight_c.fetch_add(1, Ordering::Relaxed);
                         i = i.wrapping_add(1);
