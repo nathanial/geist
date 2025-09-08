@@ -278,13 +278,45 @@ impl BlockRegistry {
                                 }
                                 _ => None,
                             };
-                            (occ_mask, ShapeVariant { occupancy: occ8 })
+                            (
+                                occ_mask,
+                                ShapeVariant {
+                                    occupancy: occ8,
+                                    dynamic: None,
+                                },
+                            )
                         }
+                        Shape::Pane => (
+                            0, // panes shouldn't occlude neighbors
+                            ShapeVariant {
+                                occupancy: None,
+                                dynamic: Some(DynamicShape::Pane),
+                            },
+                        ),
+                        Shape::Fence => (
+                            0, // fences as non-occluders for now
+                            ShapeVariant {
+                                occupancy: None,
+                                dynamic: Some(DynamicShape::Fence),
+                            },
+                        ),
                         _ => {
                             if ty.is_solid(state) {
-                                (0b11_1111, ShapeVariant { occupancy: None })
+                                (
+                                    0b11_1111,
+                                    ShapeVariant {
+                                        occupancy: None,
+                                        dynamic: None,
+                                    },
+                                )
                             } else {
-                                (0, ShapeVariant { occupancy: None })
+                                (
+                                    0,
+                                    ShapeVariant {
+                                        occupancy: None,
+                                        dynamic: None,
+                                    },
+                                )
                             }
                         }
                     };
@@ -324,7 +356,7 @@ impl BlockRegistry {
                         pre_mat_bottom: vec![MaterialId(0)],
                         pre_mat_side: vec![MaterialId(0)],
                         pre_occ_mask: vec![0],
-                        pre_shape_variants: vec![ShapeVariant { occupancy: None }],
+                        pre_shape_variants: vec![ShapeVariant { occupancy: None, dynamic: None }],
                         seam: SeamPolicy::Default,
                         state_schema: HashMap::new(),
                         state_fields: Vec::new(),
@@ -397,6 +429,8 @@ fn compile_shape(shape: Option<ShapeConfig>) -> Shape {
                     .unwrap_or_else(|| "facing".to_string()),
                 half_from: half.map(|p| p.from).unwrap_or_else(|| "half".to_string()),
             },
+            "pane" => Shape::Pane,
+            "fence" => Shape::Fence,
             _ => Shape::None,
         },
     }
@@ -405,6 +439,7 @@ fn compile_shape(shape: Option<ShapeConfig>) -> Shape {
 #[derive(Clone, Debug, Default)]
 pub struct ShapeVariant {
     pub occupancy: Option<u8>, // 2×2×2 micro-grid occupancy; None for greedy-cube shapes
+    pub dynamic: Option<DynamicShape>,
 }
 
 #[inline]
@@ -430,6 +465,12 @@ fn occ_stairs(facing: Facing, is_top: bool) -> u8 {
         Facing::East => bit2(1, y_minor, 0) | bit2(1, y_minor, 1),
     };
     full_layer | half_minor
+}
+
+#[derive(Copy, Clone, Debug)]
+pub enum DynamicShape {
+    Pane,
+    Fence,
 }
 
 fn compile_materials(matcat: &MaterialCatalog, mats: Option<MaterialsDef>) -> CompiledMaterials {

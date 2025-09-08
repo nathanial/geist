@@ -550,3 +550,21 @@ solid = true
 blocks_skylight = true
 shape = "cube"
 materials = { all = "oak_planks" }
+
+# Glass pane (cross or connected arms)
+[[blocks]]
+name = "glass_pane"
+solid = false
+blocks_skylight = true
+emission = 0
+shape = "pane"
+materials = { all = "glass" }
+
+# Oak fence (post with arms)
+[[blocks]]
+name = "oak_fence"
+solid = false
+blocks_skylight = true
+emission = 0
+shape = "fence"
+materials = { all = "oak_planks" }

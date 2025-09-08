@@ -42,5 +42,7 @@ pub enum Shape {
         facing_from: String,
         half_from: String,
     },
+    Pane,
+    Fence,
     None,
 }

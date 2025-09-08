@@ -233,7 +233,7 @@ to = { name = "air" }
 
 [[rules]]
 from = "minecraft:glass_pane"
-to = { name = "air" }
+to = { name = "glass_pane" }
 
 [[rules]]
 from = "minecraft:torch"
@@ -469,3 +469,6 @@ to = { name = "stairs", state = { material = "sandstone" } }
 [[rules]]
 from = "minecraft:red_sandstone_stairs"
 to = { name = "stairs", state = { material = "red_sandstone" } }
+[[rules]]
+from = "minecraft:oak_fence"
+to = { name = "oak_fence" }

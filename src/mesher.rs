@@ -705,6 +705,226 @@ pub fn build_chunk_greedy_cpu_buf(
                                 )
                             },
                         );
+                    } else if let Some(dyns) = var.dynamic {
+                        let fx = base_x as f32 + x as f32;
+                        let fy = y as f32;
+                        let fz = base_z as f32 + z as f32;
+                        let gx = base_x + x as i32;
+                        let gy = y as i32;
+                        let gz = base_z + z as i32;
+                        let here = buf.get_local(x, y, z);
+                        let face_material = |face: Face| ty.material_for_cached(face.role(), b.state);
+                        match dyns {
+                            crate::blocks::registry::DynamicShape::Pane => {
+                                // Connectivity: 4-bit mask W,E,N,S
+                                let mut mask: u8 = 0;
+                                let dirs = [
+                                    (-1, 0, 0u8), // W
+                                    (1, 0, 1u8),  // E
+                                    (0, -1, 2u8), // N
+                                    (0, 1, 3u8),  // S
+                                ];
+                                for (dx, dz, bit) in dirs {
+                                    let nx = gx + dx;
+                                    let nz = gz + dz;
+                                    let ny = gy;
+                                    let mut connected = false;
+                                    if buf.contains_world(nx, ny, nz) {
+                                        let lx = (nx - base_x) as usize;
+                                        let ly = ny as usize;
+                                        let lz = (nz - base_z) as usize;
+                                        let nb = buf.get_local(lx, ly, lz);
+                                        connected = reg
+                                            .get(nb.id)
+                                            .map(|t| matches!(t.shape, crate::blocks::Shape::Pane) || is_full_cube(reg, nb))
+                                            .unwrap_or(false);
+                                    } else {
+                                        // Cross-chunk: only connect when neighbor chunk loaded and block is connectable
+                                        let x0 = buf.cx * buf.sx as i32;
+                                        let z0 = buf.cz * buf.sz as i32;
+                                        let x1 = x0 + buf.sx as i32;
+                                        let z1 = z0 + buf.sz as i32;
+                                        let mut neighbor_loaded = false;
+                                        if nx < x0 { neighbor_loaded = neighbors.neg_x; }
+                                        else if nx >= x1 { neighbor_loaded = neighbors.pos_x; }
+                                        else if nz < z0 { neighbor_loaded = neighbors.neg_z; }
+                                        else if nz >= z1 { neighbor_loaded = neighbors.pos_z; }
+                                        if neighbor_loaded {
+                                            let nb = if let Some(es) = edits {
+                                                es.get(&(nx, ny, nz)).copied().unwrap_or_else(|| world.block_at_runtime(reg, nx, ny, nz))
+                                            } else {
+                                                world.block_at_runtime(reg, nx, ny, nz)
+                                            };
+                                            connected = reg
+                                                .get(nb.id)
+                                                .map(|t| matches!(t.shape, crate::blocks::Shape::Pane) || is_full_cube(reg, nb))
+                                                .unwrap_or(false);
+                                        }
+                                    }
+                                    if connected { mask |= 1u8 << bit; }
+                                }
+                                let t = 0.25f32;
+                                // Generate boxes per mask
+                                let mut boxes: Vec<(Vector3, Vector3)> = Vec::new();
+                                if mask == 0 {
+                                    // Cross
+                                    boxes.push((
+                                        Vector3::new(fx + 0.0, fy + 0.0, fz + 0.5 - t * 0.5),
+                                        Vector3::new(fx + 1.0, fy + 1.0, fz + 0.5 + t * 0.5),
+                                    ));
+                                    boxes.push((
+                                        Vector3::new(fx + 0.5 - t * 0.5, fy + 0.0, fz + 0.0),
+                                        Vector3::new(fx + 0.5 + t * 0.5, fy + 1.0, fz + 1.0),
+                                    ));
+                                } else {
+                                    if (mask & (1 << 0)) != 0 {
+                                        boxes.push((
+                                            Vector3::new(fx + 0.0, fy + 0.0, fz + 0.5 - t * 0.5),
+                                            Vector3::new(fx + 0.5, fy + 1.0, fz + 0.5 + t * 0.5),
+                                        ));
+                                    }
+                                    if (mask & (1 << 1)) != 0 {
+                                        boxes.push((
+                                            Vector3::new(fx + 0.5, fy + 0.0, fz + 0.5 - t * 0.5),
+                                            Vector3::new(fx + 1.0, fy + 1.0, fz + 0.5 + t * 0.5),
+                                        ));
+                                    }
+                                    if (mask & (1 << 2)) != 0 {
+                                        boxes.push((
+                                            Vector3::new(fx + 0.5 - t * 0.5, fy + 0.0, fz + 0.0),
+                                            Vector3::new(fx + 0.5 + t * 0.5, fy + 1.0, fz + 0.5),
+                                        ));
+                                    }
+                                    if (mask & (1 << 3)) != 0 {
+                                        boxes.push((
+                                            Vector3::new(fx + 0.5 - t * 0.5, fy + 0.0, fz + 0.5),
+                                            Vector3::new(fx + 0.5 + t * 0.5, fy + 1.0, fz + 1.0),
+                                        ));
+                                    }
+                                }
+                                for (min, max) in boxes {
+                                    emit_box_generic(
+                                        &mut builds,
+                                        min,
+                                        max,
+                                        &face_material,
+                                        |face| {
+                                            let (dx, dy, dz) = face.delta();
+                                            let (nx, ny, nz) = (gx + dx, gy + dy, gz + dz);
+                                            is_occluder(
+                                                buf, world, edits, neighbors, reg, here, face, nx, ny, nz,
+                                            )
+                                        },
+                                        |face| {
+                                            let lv = light.sample_face_local(x, y, z, face.index());
+                                            lv.max(VISUAL_LIGHT_MIN)
+                                        },
+                                    );
+                                }
+                            }
+                            crate::blocks::registry::DynamicShape::Fence => {
+                                // Connectivity: 4-bit mask W,E,N,S (connect to same fence or full cube)
+                                let mut mask: u8 = 0;
+                                let dirs = [
+                                    (-1, 0, 0u8), // W
+                                    (1, 0, 1u8),  // E
+                                    (0, -1, 2u8), // N
+                                    (0, 1, 3u8),  // S
+                                ];
+                                for (dx, dz, bit) in dirs {
+                                    let nx = gx + dx;
+                                    let nz = gz + dz;
+                                    let ny = gy;
+                                    let mut connected = false;
+                                    if buf.contains_world(nx, ny, nz) {
+                                        let lx = (nx - base_x) as usize;
+                                        let ly = ny as usize;
+                                        let lz = (nz - base_z) as usize;
+                                        let nb = buf.get_local(lx, ly, lz);
+                                        connected = reg
+                                            .get(nb.id)
+                                            .map(|t| matches!(t.shape, crate::blocks::Shape::Fence) || is_full_cube(reg, nb))
+                                            .unwrap_or(false);
+                                    } else {
+                                        let x0 = buf.cx * buf.sx as i32;
+                                        let z0 = buf.cz * buf.sz as i32;
+                                        let x1 = x0 + buf.sx as i32;
+                                        let z1 = z0 + buf.sz as i32;
+                                        let mut neighbor_loaded = false;
+                                        if nx < x0 { neighbor_loaded = neighbors.neg_x; }
+                                        else if nx >= x1 { neighbor_loaded = neighbors.pos_x; }
+                                        else if nz < z0 { neighbor_loaded = neighbors.neg_z; }
+                                        else if nz >= z1 { neighbor_loaded = neighbors.pos_z; }
+                                        if neighbor_loaded {
+                                            let nb = if let Some(es) = edits {
+                                                es.get(&(nx, ny, nz)).copied().unwrap_or_else(|| world.block_at_runtime(reg, nx, ny, nz))
+                                            } else {
+                                                world.block_at_runtime(reg, nx, ny, nz)
+                                            };
+                                            connected = reg
+                                                .get(nb.id)
+                                                .map(|t| matches!(t.shape, crate::blocks::Shape::Fence) || is_full_cube(reg, nb))
+                                                .unwrap_or(false);
+                                        }
+                                    }
+                                    if connected { mask |= 1u8 << bit; }
+                                }
+                                let p = 0.25f32; // post thickness
+                                let t = 0.25f32; // arm thickness
+                                let mid_y0 = 0.5 - t * 0.5;
+                                let mid_y1 = 0.5 + t * 0.5;
+                                let mut boxes: Vec<(Vector3, Vector3)> = Vec::new();
+                                // center post
+                                boxes.push((
+                                    Vector3::new(fx + 0.5 - p * 0.5, fy + 0.0, fz + 0.5 - p * 0.5),
+                                    Vector3::new(fx + 0.5 + p * 0.5, fy + 1.0, fz + 0.5 + p * 0.5),
+                                ));
+                                // arms
+                                if (mask & (1 << 0)) != 0 {
+                                    boxes.push((
+                                        Vector3::new(fx + 0.0, fy + mid_y0, fz + 0.5 - t * 0.5),
+                                        Vector3::new(fx + 0.5, fy + mid_y1, fz + 0.5 + t * 0.5),
+                                    ));
+                                }
+                                if (mask & (1 << 1)) != 0 {
+                                    boxes.push((
+                                        Vector3::new(fx + 0.5, fy + mid_y0, fz + 0.5 - t * 0.5),
+                                        Vector3::new(fx + 1.0, fy + mid_y1, fz + 0.5 + t * 0.5),
+                                    ));
+                                }
+                                if (mask & (1 << 2)) != 0 {
+                                    boxes.push((
+                                        Vector3::new(fx + 0.5 - t * 0.5, fy + mid_y0, fz + 0.0),
+                                        Vector3::new(fx + 0.5 + t * 0.5, fy + mid_y1, fz + 0.5),
+                                    ));
+                                }
+                                if (mask & (1 << 3)) != 0 {
+                                    boxes.push((
+                                        Vector3::new(fx + 0.5 - t * 0.5, fy + mid_y0, fz + 0.5),
+                                        Vector3::new(fx + 0.5 + t * 0.5, fy + mid_y1, fz + 1.0),
+                                    ));
+                                }
+                                for (min, max) in boxes {
+                                    emit_box_generic(
+                                        &mut builds,
+                                        min,
+                                        max,
+                                        &face_material,
+                                        |face| {
+                                            let (dx, dy, dz) = face.delta();
+                                            let (nx, ny, nz) = (gx + dx, gy + dy, gz + dz);
+                                            is_occluder(
+                                                buf, world, edits, neighbors, reg, here, face, nx, ny, nz,
+                                            )
+                                        },
+                                        |face| {
+                                            let lv = light.sample_face_local(x, y, z, face.index());
+                                            lv.max(VISUAL_LIGHT_MIN)
+                                        },
+                                    );
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1019,6 +1239,61 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             !matches!(ty.seam, SeamPolicy::DontProjectFixups),
                             |_, _, _, face, _| face_light(face, ambient),
                         );
+                    } else if let Some(dyns) = var.dynamic {
+                        let fx = x as f32;
+                        let fy = y as f32;
+                        let fz = z as f32;
+                        let face_material = |face: Face| ty.material_for_cached(face.role(), b.state);
+                        match dyns {
+                            crate::blocks::registry::DynamicShape::Pane => {
+                                let mut mask: u8 = 0;
+                                let dirs = [(-1, 0, 0u8), (1, 0, 1u8), (0, -1, 2u8), (0, 1, 3u8)];
+                                for (dx, dz, bit) in dirs {
+                                    let nx = x as i32 + dx;
+                                    let nz = z as i32 + dz;
+                                    let ny = y as i32;
+                                    if nx < 0 || nz < 0 || ny < 0 { continue; }
+                                    let xu = nx as usize; let yu = ny as usize; let zu = nz as usize;
+                                    if xu >= buf.sx || yu >= buf.sy || zu >= buf.sz { continue; }
+                                    let nb = buf.get_local(xu, yu, zu);
+                                    let connected = reg.get(nb.id).map(|t| matches!(t.shape, crate::blocks::Shape::Pane) || is_full_cube(reg, nb)).unwrap_or(false);
+                                    if connected { mask |= 1u8 << bit; }
+                                }
+                                let t = 0.25f32;
+                                let mut boxes: Vec<(Vector3, Vector3)> = Vec::new();
+                                if mask == 0 {
+                                    boxes.push((Vector3::new(fx + 0.0, fy + 0.0, fz + 0.5 - t * 0.5), Vector3::new(fx + 1.0, fy + 1.0, fz + 0.5 + t * 0.5)));
+                                    boxes.push((Vector3::new(fx + 0.5 - t * 0.5, fy + 0.0, fz + 0.0), Vector3::new(fx + 0.5 + t * 0.5, fy + 1.0, fz + 1.0)));
+                                } else {
+                                    if (mask & (1 << 0)) != 0 { boxes.push((Vector3::new(fx + 0.0, fy + 0.0, fz + 0.5 - t * 0.5), Vector3::new(fx + 0.5, fy + 1.0, fz + 0.5 + t * 0.5))); }
+                                    if (mask & (1 << 1)) != 0 { boxes.push((Vector3::new(fx + 0.5, fy + 0.0, fz + 0.5 - t * 0.5), Vector3::new(fx + 1.0, fy + 1.0, fz + 0.5 + t * 0.5))); }
+                                    if (mask & (1 << 2)) != 0 { boxes.push((Vector3::new(fx + 0.5 - t * 0.5, fy + 0.0, fz + 0.0), Vector3::new(fx + 0.5 + t * 0.5, fy + 1.0, fz + 0.5))); }
+                                    if (mask & (1 << 3)) != 0 { boxes.push((Vector3::new(fx + 0.5 - t * 0.5, fy + 0.0, fz + 0.5), Vector3::new(fx + 0.5 + t * 0.5, fy + 1.0, fz + 1.0))); }
+                                }
+                                for (min, max) in boxes { emit_box_local(&mut builds, buf, reg, x, y, z, &face_material, min, max, ambient); }
+                            }
+                            crate::blocks::registry::DynamicShape::Fence => {
+                                let mut mask: u8 = 0;
+                                let dirs = [(-1, 0, 0u8), (1, 0, 1u8), (0, -1, 2u8), (0, 1, 3u8)];
+                                for (dx, dz, bit) in dirs {
+                                    let nx = x as i32 + dx; let nz = z as i32 + dz; let ny = y as i32;
+                                    if nx < 0 || nz < 0 || ny < 0 { continue; }
+                                    let xu = nx as usize; let yu = ny as usize; let zu = nz as usize;
+                                    if xu >= buf.sx || yu >= buf.sy || zu >= buf.sz { continue; }
+                                    let nb = buf.get_local(xu, yu, zu);
+                                    let connected = reg.get(nb.id).map(|t| matches!(t.shape, crate::blocks::Shape::Fence) || is_full_cube(reg, nb)).unwrap_or(false);
+                                    if connected { mask |= 1u8 << bit; }
+                                }
+                                let p = 0.25f32; let t = 0.25f32; let mid_y0 = 0.5 - t * 0.5; let mid_y1 = 0.5 + t * 0.5;
+                                let mut boxes: Vec<(Vector3, Vector3)> = Vec::new();
+                                boxes.push((Vector3::new(fx + 0.5 - p * 0.5, fy + 0.0, fz + 0.5 - p * 0.5), Vector3::new(fx + 0.5 + p * 0.5, fy + 1.0, fz + 0.5 + p * 0.5)));
+                                if (mask & (1 << 0)) != 0 { boxes.push((Vector3::new(fx + 0.0, fy + mid_y0, fz + 0.5 - t * 0.5), Vector3::new(fx + 0.5, fy + mid_y1, fz + 0.5 + t * 0.5))); }
+                                if (mask & (1 << 1)) != 0 { boxes.push((Vector3::new(fx + 0.5, fy + mid_y0, fz + 0.5 - t * 0.5), Vector3::new(fx + 1.0, fy + mid_y1, fz + 0.5 + t * 0.5))); }
+                                if (mask & (1 << 2)) != 0 { boxes.push((Vector3::new(fx + 0.5 - t * 0.5, fy + mid_y0, fz + 0.0), Vector3::new(fx + 0.5 + t * 0.5, fy + mid_y1, fz + 0.5))); }
+                                if (mask & (1 << 3)) != 0 { boxes.push((Vector3::new(fx + 0.5 - t * 0.5, fy + mid_y0, fz + 0.5), Vector3::new(fx + 0.5 + t * 0.5, fy + mid_y1, fz + 1.0))); }
+                                for (min, max) in boxes { emit_box_local(&mut builds, buf, reg, x, y, z, &face_material, min, max, ambient); }
+                            }
+                        }
                     }
                 }
             }
