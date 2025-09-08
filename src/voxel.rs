@@ -3,6 +3,60 @@ use crate::worldgen::WorldGenParams;
 use fastnoise_lite::{FastNoiseLite, NoiseType};
 use std::sync::{Arc, RwLock};
 
+#[derive(Clone, Debug)]
+pub struct ShowcaseEntry {
+    pub block: RtBlock,
+    pub label: String,
+}
+
+// Build the list of showcase entries (blocks to place and their labels).
+// Expands material variants for generic slabs and stairs; others appear once.
+pub fn build_showcase_entries(reg: &BlockRegistry) -> Vec<ShowcaseEntry> {
+    let mut out: Vec<ShowcaseEntry> = Vec::new();
+    let air_id = reg.id_by_name("air").unwrap_or(0);
+    for ty in &reg.blocks {
+        if ty.id == air_id {
+            continue;
+        }
+        if ty.name == "slab" {
+            if let Some(mats) = ty.state_schema.get("material") {
+                for m in mats {
+                    let mut props = std::collections::HashMap::new();
+                    props.insert("half".to_string(), "bottom".to_string());
+                    props.insert("material".to_string(), m.clone());
+                    let state = ty.pack_state(&props);
+                    out.push(ShowcaseEntry {
+                        block: RtBlock { id: ty.id, state },
+                        label: format!("slab({})", m),
+                    });
+                }
+                continue;
+            }
+        } else if ty.name == "stairs" {
+            if let Some(mats) = ty.state_schema.get("material") {
+                for m in mats {
+                    let mut props = std::collections::HashMap::new();
+                    props.insert("half".to_string(), "bottom".to_string());
+                    props.insert("facing".to_string(), "north".to_string());
+                    props.insert("material".to_string(), m.clone());
+                    let state = ty.pack_state(&props);
+                    out.push(ShowcaseEntry {
+                        block: RtBlock { id: ty.id, state },
+                        label: format!("stairs({})", m),
+                    });
+                }
+                continue;
+            }
+        }
+        // Default: include one instance of the block type with default state
+        out.push(ShowcaseEntry {
+            block: RtBlock { id: ty.id, state: 0 },
+            label: ty.name.clone(),
+        });
+    }
+    out
+}
+
 pub struct World {
     pub chunk_size_x: usize,
     pub chunk_size_y: usize,
@@ -140,19 +194,14 @@ impl World {
             if z != cz {
                 return air;
             }
-            // Count non-air blocks
-            let air_id = reg.id_by_name("air").unwrap_or(0);
-            let total_non_air = reg
-                .blocks
-                .iter()
-                .filter(|b| b.id != air_id)
-                .count() as i32;
-            if total_non_air <= 0 {
+            // Build entries (expands slabs/stairs variants)
+            let entries = build_showcase_entries(reg);
+            if entries.is_empty() {
                 return air;
             }
             // Layout: spacing=2 (air between), centered on world X
             let spacing = 2;
-            let row_len = total_non_air * spacing - 1; // blocks separated by single air
+            let row_len = (entries.len() as i32) * spacing - 1; // blocks separated by single air
             let cx = (self.world_size_x() as i32) / 2;
             let start_x = cx - row_len / 2;
             if x < start_x || x >= start_x + row_len {
@@ -162,19 +211,11 @@ impl World {
             if dx % spacing != 0 {
                 return air;
             }
-            let idx = dx / spacing; // 0..total_non_air-1
-            // Pick idx-th non-air block by registry order
-            let mut nth = 0i32;
-            for (i, b) in reg.blocks.iter().enumerate() {
-                if b.id == air_id {
-                    continue;
-                }
-                if nth == idx {
-                    return RtBlock { id: i as u16, state: 0 };
-                }
-                nth += 1;
-            }
-            return air;
+            let idx = (dx / spacing) as usize; // 0..entries.len()-1
+            return entries
+                .get(idx)
+                .map(|e| e.block)
+                .unwrap_or(air);
         }
         // Flat world shortcut
         if let WorldGenMode::Flat { thickness } = self.mode {
