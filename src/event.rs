@@ -16,6 +16,7 @@ pub enum RebuildCause {
 
 pub enum Event {
     // Time housekeeping
+    #[allow(dead_code)]
     Tick,
 
     // Input-derived intents
@@ -148,7 +149,9 @@ pub enum Event {
 }
 
 pub struct EventEnvelope {
+    #[allow(dead_code)]
     pub id: u64,
+    #[allow(dead_code)]
     pub tick: u64,
     pub kind: Event,
 }

@@ -9,7 +9,9 @@ use super::types::MaterialId;
 
 #[derive(Clone, Debug)]
 pub struct Material {
+    #[allow(dead_code)]
     pub id: MaterialId,
+    #[allow(dead_code)]
     pub key: String,
     pub texture_candidates: Vec<PathBuf>,
     pub render_tag: Option<String>,
@@ -76,4 +78,3 @@ pub enum MaterialEntry {
     // material = { paths = ["..."], render_tag = "leaves" }
     Detail { paths: Vec<String>, render_tag: Option<String> },
 }
-

@@ -2,7 +2,7 @@ use serde::Deserialize;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct WorldGenConfig {
-    #[serde(default = "default_mode")] pub mode: Mode,
+    #[serde(default = "default_mode")] #[allow(dead_code)] pub mode: Mode,
     #[serde(default)] pub flat: Flat,
     #[serde(default)] pub platform: Platform,
     #[serde(default)] pub height: Height,
@@ -117,6 +117,7 @@ impl Default for Trees { fn default() -> Self { Self { probability: default_tree
 // Flattened params used in tight loops (snapshot of config)
 #[derive(Clone, Debug)]
 pub struct WorldGenParams {
+    #[allow(dead_code)]
     pub mode_flat_thickness: i32,
     pub height_frequency: f32,
     pub min_y_ratio: f32,
@@ -242,7 +243,7 @@ pub struct FeaturePlace { pub block: String }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct FeatureRule {
-    #[serde(default)] pub name: Option<String>,
+    #[serde(default)] #[allow(dead_code)] pub name: Option<String>,
     #[serde(default)] pub when: FeatureWhen,
     pub place: FeaturePlace,
 }

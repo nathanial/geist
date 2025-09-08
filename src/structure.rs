@@ -13,6 +13,7 @@ pub struct Pose {
 }
 
 pub struct Structure {
+    #[allow(dead_code)]
     pub id: StructureId,
     pub sx: usize,
     pub sy: usize,

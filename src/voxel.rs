@@ -189,22 +189,22 @@ impl World {
         let mut carved_here = false;
         if matches!(base, "stone" | "dirt" | "sand" | "snow" | "glowstone") {
             // Params
-            let Y_SCALE: f32 = ctx.params.y_scale;
-            let EPS_BASE: f32 = ctx.params.eps_base;
-            let EPS_ADD: f32 = ctx.params.eps_add;
-            let WARP_XY: f32 = ctx.params.warp_xy;
-            let WARP_Y: f32 = ctx.params.warp_y;
-            let ROOM_CELL: f32 = ctx.params.room_cell;
-            let ROOM_THR_BASE: f32 = ctx.params.room_thr_base;
-            let ROOM_THR_ADD: f32 = ctx.params.room_thr_add;
-            let SOIL_MIN: f32 = ctx.params.soil_min;
-            let MIN_Y: f32 = ctx.params.min_y;
-            let _GLOW_PROB: f32 = ctx.params.glow_prob;
+            let y_scale: f32 = ctx.params.y_scale;
+            let eps_base: f32 = ctx.params.eps_base;
+            let eps_add: f32 = ctx.params.eps_add;
+            let warp_xy: f32 = ctx.params.warp_xy;
+            let warp_y: f32 = ctx.params.warp_y;
+            let room_cell: f32 = ctx.params.room_cell;
+            let room_thr_base: f32 = ctx.params.room_thr_base;
+            let room_thr_add: f32 = ctx.params.room_thr_add;
+            let soil_min: f32 = ctx.params.soil_min;
+            let min_y: f32 = ctx.params.min_y;
+            let _glow_prob: f32 = ctx.params.glow_prob;
 
             let h = height as f32;
             let wy = y as f32;
             let soil = h - wy;
-            if ctx.params.carvers_enable && soil > SOIL_MIN && wy > MIN_Y {
+            if ctx.params.carvers_enable && soil > soil_min && wy > min_y {
                 let fractal3 = |n: &FastNoiseLite,
                                 x: f32,
                                 y: f32,
@@ -283,18 +283,18 @@ impl World {
                 let wxw = fractal3(&ctx.warp, wx, wy, wz, &ctx.params.warp);
                 let wyw = fractal3(&ctx.warp, wx + 133.7, wy + 71.3, wz - 19.1, &ctx.params.warp);
                 let wzw = fractal3(&ctx.warp, wx - 54.2,  wy + 29.7, wz + 88.8, &ctx.params.warp);
-                let xp = wx + wxw * WARP_XY;
-                let yp = wy + wyw * WARP_Y;
-                let zp = wz + wzw * WARP_XY;
+                let xp = wx + wxw * warp_xy;
+                let yp = wy + wyw * warp_y;
+                let zp = wz + wzw * warp_xy;
 
-                let tn = fractal3(&ctx.tunnel, xp, yp * Y_SCALE, zp, &ctx.params.tunnel);
+                let tn = fractal3(&ctx.tunnel, xp, yp * y_scale, zp, &ctx.params.tunnel);
                 let mut depth = soil / (self.chunk_size_y as f32);
                 if depth < 0.0 { depth = 0.0; }
                 if depth > 1.0 { depth = 1.0; }
-                let eps = EPS_BASE + EPS_ADD * depth;
+                let eps = eps_base + eps_add * depth;
                 let carve_tn = tn.abs() < eps;
-                let wn = worley3_f1_norm(xp, yp, zp, ROOM_CELL);
-                let room_thr = ROOM_THR_BASE + ROOM_THR_ADD * depth;
+                let wn = worley3_f1_norm(xp, yp, zp, room_cell);
+                let room_thr = room_thr_base + room_thr_add * depth;
                 let carve_rm = wn < room_thr;
 
                 if carve_tn || carve_rm {
@@ -310,16 +310,16 @@ impl World {
             let mut compute_near_solid = || -> bool {
                 if let Some(v) = near_solid_cache { return v; }
                 let mut near_solid = false;
-                let Y_SCALE: f32 = ctx.params.y_scale;
-                let EPS_BASE: f32 = ctx.params.eps_base;
-                let EPS_ADD: f32 = ctx.params.eps_add;
-                let WARP_XY: f32 = ctx.params.warp_xy;
-                let WARP_Y: f32 = ctx.params.warp_y;
-                let ROOM_CELL: f32 = ctx.params.room_cell;
-                let ROOM_THR_BASE: f32 = ctx.params.room_thr_base;
-                let ROOM_THR_ADD: f32 = ctx.params.room_thr_add;
-                let SOIL_MIN: f32 = ctx.params.soil_min;
-                let MIN_Y: f32 = ctx.params.min_y;
+                let y_scale: f32 = ctx.params.y_scale;
+                let eps_base: f32 = ctx.params.eps_base;
+                let eps_add: f32 = ctx.params.eps_add;
+                let warp_xy: f32 = ctx.params.warp_xy;
+                let warp_y: f32 = ctx.params.warp_y;
+                let room_cell: f32 = ctx.params.room_cell;
+                let room_thr_base: f32 = ctx.params.room_thr_base;
+                let room_thr_add: f32 = ctx.params.room_thr_add;
+                let soil_min: f32 = ctx.params.soil_min;
+                let min_y: f32 = ctx.params.min_y;
                 let fractal3 = |n: &FastNoiseLite,
                                 x: f32,
                                 y: f32,
@@ -370,14 +370,14 @@ impl World {
                     let wxw_n = fractal3(&ctx.warp, wxn, wyn, wzn, &ctx.params.warp);
                     let wyw_n = fractal3(&ctx.warp, wxn + 133.7, wyn + 71.3, wzn - 19.1, &ctx.params.warp);
                     let wzw_n = fractal3(&ctx.warp, wxn - 54.2,  wyn + 29.7, wzn + 88.8, &ctx.params.warp);
-                    let nxp = wxn + wxw_n * WARP_XY; let nyp = wyn + wyw_n * WARP_Y; let nzp = wzn + wzw_n * WARP_XY;
-                    let tn_n = fractal3(&ctx.tunnel, nxp, nyp * Y_SCALE, nzp, &ctx.params.tunnel);
+                    let nxp = wxn + wxw_n * warp_xy; let nyp = wyn + wyw_n * warp_y; let nzp = wzn + wzw_n * warp_xy;
+                    let tn_n = fractal3(&ctx.tunnel, nxp, nyp * y_scale, nzp, &ctx.params.tunnel);
                     let nsoil = nh as f32 - wyn; let mut n_depth = nsoil / (self.chunk_size_y as f32);
                     if n_depth < 0.0 { n_depth = 0.0; } if n_depth > 1.0 { n_depth = 1.0; }
-                    let eps_n = EPS_BASE + EPS_ADD * n_depth;
-                    let wn_n = worley3_f1_norm(nxp, nyp, nzp, ROOM_CELL);
-                    let room_thr_n = ROOM_THR_BASE + ROOM_THR_ADD * n_depth;
-                    let neighbor_carved_air = (nsoil > SOIL_MIN && wyn > MIN_Y) && (tn_n.abs() < eps_n || wn_n < room_thr_n);
+                    let eps_n = eps_base + eps_add * n_depth;
+                    let wn_n = worley3_f1_norm(nxp, nyp, nzp, room_cell);
+                    let room_thr_n = room_thr_base + room_thr_add * n_depth;
+                    let neighbor_carved_air = (nsoil > soil_min && wyn > min_y) && (tn_n.abs() < eps_n || wn_n < room_thr_n);
                     if !neighbor_carved_air { near_solid = true; break; }
                 }
                 near_solid_cache = Some(near_solid);
@@ -427,10 +427,10 @@ impl World {
             }
             ctx.params.tree_probability
         };
-        let TREE_PROB: f32 = tree_prob_for(x, z);
-        let TRUNK_MIN: i32 = ctx.params.trunk_min;
-        let TRUNK_MAX: i32 = ctx.params.trunk_max;
-        let LEAF_R: i32 = ctx.params.leaf_radius;
+        let tree_prob: f32 = tree_prob_for(x, z);
+        let trunk_min: i32 = ctx.params.trunk_min;
+        let trunk_max: i32 = ctx.params.trunk_max;
+        let leaf_r: i32 = ctx.params.leaf_radius;
         let hash2 = |ix: i32, iz: i32, seed: u32| -> u32 {
             let mut h = (ix as u32).wrapping_mul(0x85eb_ca6b)
                 ^ (iz as u32).wrapping_mul(0xc2b2_ae35)
@@ -485,10 +485,10 @@ impl World {
             let surf = height_for(tx, tz) - 1;
             let surf_block = top_block_for_column(tx, tz, surf + 1);
             if surf_block != "grass" { return None; }
-            if rand01(tx, tz, 0xA53F9) >= TREE_PROB { return None; }
-            let span = (TRUNK_MAX - TRUNK_MIN).max(0) as u32;
+            if rand01(tx, tz, 0xA53F9) >= tree_prob { return None; }
+            let span = (trunk_max - trunk_min).max(0) as u32;
             let hsel = hash2(tx, tz, 0x51F0_A7) % (span + 1);
-            let th = TRUNK_MIN + hsel as i32;
+            let th = trunk_min + hsel as i32;
             if surf <= 2 || surf >= (self.chunk_size_y as i32 - 6) { return None; }
             let sp = pick_species(tx, tz);
             Some((surf, th, sp))
@@ -509,13 +509,13 @@ impl World {
             }
         }
         if base == "air" {
-            for tx in (x - LEAF_R)..=(x + LEAF_R) {
-                for tz in (z - LEAF_R)..=(z + LEAF_R) {
+            for tx in (x - leaf_r)..=(x + leaf_r) {
+                for tz in (z - leaf_r)..=(z + leaf_r) {
                     if let Some((surf, th, sp)) = trunk_at(tx, tz) {
                         let top_y = surf + th;
                         let dy = y - top_y;
                         if dy < -2 || dy > 2 { continue; }
-                        let rad = if dy <= -2 || dy >= 2 { LEAF_R - 1 } else { LEAF_R };
+                        let rad = if dy <= -2 || dy >= 2 { leaf_r - 1 } else { leaf_r };
                         let dx = x - tx; let dz = z - tz;
                         if dx == 0 && dz == 0 && dy >= 0 { continue; }
                         let man = dx.abs() + dz.abs();

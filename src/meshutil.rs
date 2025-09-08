@@ -17,6 +17,7 @@ impl Face {
     pub fn index(self) -> usize { self as usize }
 
     #[inline]
+    #[allow(dead_code)]
     pub fn from_index(i: usize) -> Face {
         match i {
             0 => Face::PosY,
@@ -69,4 +70,3 @@ pub fn is_full_cube(reg: &BlockRegistry, nb: Block) -> bool {
         .map(|t| matches!(t.shape, Shape::Cube | Shape::AxisCube { .. }))
         .unwrap_or(false)
 }
-

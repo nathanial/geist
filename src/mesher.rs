@@ -212,7 +212,6 @@ fn stair_segs_for_z_neighbor(facing: &str, fx: f32, is_north_neighbor: bool) -> 
     }
 }
 
-#[inline]
 // Legacy helpers removed; materials are resolved via registry CompiledMaterials
 
 #[inline]
@@ -474,7 +473,9 @@ fn occludes_face(nb: Block, face: Face, reg: &BlockRegistry) -> bool {
 // No legacy mapping helpers; all block resolution is via registry-backed runtime Block.
 
 pub struct ChunkRender {
+    #[allow(dead_code)]
     pub cx: i32,
+    #[allow(dead_code)]
     pub cz: i32,
     pub bbox: BoundingBox,
     pub parts: Vec<(MaterialId, raylib::core::models::Model)>,
@@ -1139,7 +1140,6 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             }
 
                             // Neighbor face restoration for full cubes with oriented segments
-                            let draw_top = !is_top;
                             let y0 = if is_top { fy + 0.5 } else { fy };
                             let y1 = if is_top { fy + 1.0 } else { fy + 0.5 };
                             // Helper to decide if neighbor is a full cube (not special)
@@ -1222,4 +1222,3 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
         parts: builds,
     }
 }
-

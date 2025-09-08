@@ -172,12 +172,14 @@ impl EditStore {
     }
 
     // Check if a chunk needs rebuilding
+    #[allow(dead_code)]
     pub fn needs_rebuild(&self, cx: i32, cz: i32) -> bool {
         let current_rev = self.get_rev(cx, cz);
         let built_rev = self.get_built_rev(cx, cz);
         current_rev > built_rev
     }
 
+    #[allow(dead_code)]
     pub fn get_built_rev(&self, cx: i32, cz: i32) -> u64 {
         self.built.get(&(cx, cz)).copied().unwrap_or(0)
     }

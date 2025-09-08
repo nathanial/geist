@@ -713,7 +713,6 @@ fn skylight_transparent(b: Block, reg: &BlockRegistry) -> bool {
     }
 }
 
-#[inline]
 // (legacy palette mapping removed)
 
 // Helper: determine if a block allows block-light propagation using the runtime registry.

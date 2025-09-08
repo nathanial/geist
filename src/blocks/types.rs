@@ -20,6 +20,7 @@ pub struct MaterialId(pub u16);
 // Used by cube-like shapes to resolve which material to apply
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum FaceRole {
+    #[allow(dead_code)]
     All,
     Top,
     Bottom,
@@ -36,4 +37,3 @@ pub enum Shape {
     Stairs { facing_from: String, half_from: String },
     None,
 }
-

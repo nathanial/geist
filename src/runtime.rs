@@ -6,7 +6,7 @@ use std::thread;
 use crate::chunkbuf;
 use crate::mesher::{self, ChunkMeshCPU, NeighborsLoaded};
 use crate::texture_cache::TextureCache;
-use raylib::prelude::{RaylibMaterial, RaylibModel, RaylibTexture2D};
+use raylib::prelude::{RaylibMaterial, RaylibTexture2D};
 use crate::shaders;
 use crate::structure::StructureId;
 use crate::voxel::World;

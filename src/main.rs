@@ -21,7 +21,6 @@ mod worldgen;
 mod texture_cache;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
-use raylib::prelude::*;
 use std::path::PathBuf;
 use std::sync::Arc;
 use voxel::{World, WorldGenMode};

@@ -48,14 +48,18 @@ pub struct DebugStats {
     // Event debug
     pub queued_events_total: usize,
     pub queued_events_by: Vec<(String, usize)>,
-    pub processed_events_total: usize,
-    pub processed_events_by: Vec<(String, usize)>,
     pub intents_size: usize,
 }
 
 // Internal prioritization cause for scheduling
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-enum IntentCause { Edit = 0, Light = 1, StreamLoad = 2, HotReload = 3 }
+enum IntentCause {
+    Edit = 0,
+    Light = 1,
+    StreamLoad = 2,
+    #[allow(dead_code)]
+    HotReload = 3,
+}
 
 #[derive(Clone, Copy, Debug)]
 struct IntentEntry {

@@ -9,6 +9,7 @@ use super::types::{Block, BlockId, BlockState, FaceRole, MaterialId, Shape};
 
 #[derive(Clone, Debug)]
 pub struct BlockType {
+    #[allow(dead_code)]
     pub id: BlockId,
     pub name: String,
     pub solid: bool,
@@ -18,6 +19,7 @@ pub struct BlockType {
     pub light: CompiledLight,
     pub shape: Shape,
     pub materials: CompiledMaterials,
+    #[allow(dead_code)]
     pub state_schema: HashMap<String, Vec<String>>, // property name -> allowed values
     // Precomputed, sorted layout for fast state packing/unpacking
     pub state_fields: Vec<StateField>,
@@ -67,6 +69,7 @@ impl CompiledMaterials {
         }
     }
 
+    #[allow(dead_code)]
     pub fn material_for_props(
         &self,
         role: FaceRole,
@@ -190,8 +193,8 @@ impl BlockRegistry {
 
 #[derive(Clone, Debug)]
 pub enum CompiledLight {
-    Omni { attenuation: u8, max_range: Option<u16> },
-    Beam { straight_cost: u8, turn_cost: u8, vertical_cost: u8, source_dirs: SourceDirs, max_range: Option<u16> },
+    Omni { attenuation: u8, #[allow(dead_code)] max_range: Option<u16> },
+    Beam { straight_cost: u8, turn_cost: u8, vertical_cost: u8, source_dirs: SourceDirs, #[allow(dead_code)] max_range: Option<u16> },
 }
 
 fn compile_shape(shape: Option<ShapeConfig>) -> Shape {
@@ -268,6 +271,7 @@ impl BlockType {
     pub fn blocks_skylight(&self, _state: BlockState) -> bool { self.blocks_skylight }
     pub fn propagates_light(&self, _state: BlockState) -> bool { self.propagates_light }
     pub fn light_emission(&self, _state: BlockState) -> u8 { self.emission }
+    #[allow(dead_code)]
     pub fn debug_name(&self) -> &str { &self.name }
 
     pub fn light_is_beam(&self) -> bool {

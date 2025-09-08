@@ -11,6 +11,7 @@ use crate::voxel::World;
 
 pub struct ChunkEntry {
     pub buf: Option<ChunkBuf>,
+    #[allow(dead_code)]
     pub built_rev: u64,
 }
 
