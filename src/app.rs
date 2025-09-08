@@ -103,6 +103,7 @@ impl App {
         let worker_n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8);
         let cap = (worker_n * 2).max(8); // allow some burst but bounded
         let mut submitted = 0usize;
+        let mut submitted_keys: Vec<(i32,i32)> = Vec::new();
 
         for (key, ent, _db, _ab) in items.into_iter() {
             if submitted >= cap { break; }
@@ -136,9 +137,13 @@ impl App {
             // Submit for next tick to avoid stranding events after we've finished this tick's loop
             self.queue.emit_after(1, Event::BuildChunkJobRequested { cx, cz, neighbors, rev, job_id });
             self.gs.inflight_rev.insert(key, rev);
+            submitted_keys.push(key);
             submitted += 1;
         }
-        self.intents.clear();
+        // Remove only submitted intents; keep the rest to trickle in subsequent frames
+        for k in submitted_keys {
+            self.intents.remove(&k);
+        }
     }
     fn load_hotbar(reg: &BlockRegistry) -> Vec<Block> {
         let path = std::path::Path::new("assets/voxels/hotbar.toml");
