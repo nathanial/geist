@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use crate::blocks::{Block as RtBlock, BlockRegistry};
+use crate::structure::Structure;
 
 // Map a Sponge palette key like "minecraft:oak_log[axis=y]" to our Block
 fn base_from_key(key: &str) -> &str {
@@ -140,6 +141,59 @@ pub fn load_sponge_schem_apply_edits(
                     let rt = maybe_rt.unwrap_or_else(|| RtBlock { id: reg.unknown_block_id_or_panic(), state: 0 });
                     if rt.id != reg.id_by_name("air").unwrap_or(0) {
                         edits.set(wx, wy, wz, rt);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok((sx, sy, sz))
+}
+
+/// Load a schematic file and stamp its blocks into a Structure at a local origin (lx, ly, lz).
+/// Returns the schematic size (sx, sy, sz) on success.
+pub fn load_any_schematic_apply_into_structure(
+    path: &Path,
+    origin_local: (i32, i32, i32),
+    st: &mut Structure,
+    reg: &BlockRegistry,
+) -> Result<(usize, usize, usize), String> {
+    let (schem, _meta) =
+        mc_schem::Schematic::from_file(path.to_str().ok_or_else(|| "invalid path".to_string())?)
+            .map_err(|e| format!("parse schem: {e}"))?;
+
+    let shape = schem.shape();
+    let (sx, sy, sz) = (shape[0] as usize, shape[1] as usize, shape[2] as usize);
+    let (ox, oy, oz) = origin_local;
+
+    let lut: std::collections::HashMap<String, ToDef> = if let Some(cfg) = load_palette_map() {
+        cfg.rules
+            .into_iter()
+            .map(|r| (r.from, r.to))
+            .collect()
+    } else {
+        std::collections::HashMap::new()
+    };
+
+    for x in 0..shape[0] {
+        for y in 0..shape[1] {
+            for z in 0..shape[2] {
+                if let Some(b) = schem.first_block_at([x, y, z]) {
+                    if b.is_air() || b.is_structure_void() {
+                        continue;
+                    }
+                    let key = b.full_id();
+                    let maybe_rt = if lut.is_empty() {
+                        None
+                    } else {
+                        runtime_from_palette_key_with_lut(reg, &key, &lut)
+                    };
+                    let lx = ox + x;
+                    let ly = oy + y;
+                    let lz = oz + z;
+                    let rt = maybe_rt.unwrap_or_else(|| RtBlock { id: reg.unknown_block_id_or_panic(), state: 0 });
+                    if rt.id != reg.id_by_name("air").unwrap_or(0) {
+                        st.set_local(lx, ly, lz, rt);
                     }
                 }
             }

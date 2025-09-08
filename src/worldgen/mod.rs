@@ -4,6 +4,7 @@ use serde::Deserialize;
 pub struct WorldGenConfig {
     #[serde(default = "default_mode")] pub mode: Mode,
     #[serde(default)] pub flat: Flat,
+    #[serde(default)] pub platform: Platform,
     #[serde(default)] pub height: Height,
     #[serde(default)] pub surface: Surface,
     #[serde(default)] pub carvers: Carvers,
@@ -22,6 +23,15 @@ fn default_mode() -> Mode { Mode::Normal }
 pub struct Flat { #[serde(default = "default_flat_thickness")] pub thickness: i32 }
 fn default_flat_thickness() -> i32 { 1 }
 impl Default for Flat { fn default() -> Self { Self { thickness: 1 } } }
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct Platform {
+    #[serde(default = "default_platform_y_ratio")] pub y_ratio: f32,
+    #[serde(default = "default_platform_y_offset")] pub y_offset: f32,
+}
+fn default_platform_y_ratio() -> f32 { 0.70 }
+fn default_platform_y_offset() -> f32 { 16.0 }
+impl Default for Platform { fn default() -> Self { Self { y_ratio: default_platform_y_ratio(), y_offset: default_platform_y_offset() } } }
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct Height {
@@ -139,6 +149,9 @@ pub struct WorldGenParams {
     pub leaf_radius: i32,
     pub features: Vec<FeatureRule>,
     pub biomes: Option<BiomesParams>,
+    // Platform controls (for flying structures)
+    pub platform_y_ratio: f32,
+    pub platform_y_offset: f32,
 }
 
 impl WorldGenParams {
@@ -176,6 +189,8 @@ impl WorldGenParams {
             leaf_radius: cfg.trees.leaf_radius,
             features: cfg.features.clone(),
             biomes: if cfg.biomes.enable { Some(BiomesParams::from(&cfg.biomes)) } else { None },
+            platform_y_ratio: cfg.platform.y_ratio,
+            platform_y_offset: cfg.platform.y_offset,
         }
     }
 }
@@ -191,6 +206,7 @@ impl Default for WorldGenConfig {
         Self {
             mode: Mode::Normal,
             flat: Flat::default(),
+            platform: Platform::default(),
             height: Height::default(),
             surface: Surface::default(),
             carvers: Carvers::default(),

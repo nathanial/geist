@@ -303,23 +303,13 @@ impl App {
         let mut queue = EventQueue::new();
         let hotbar = Self::load_hotbar(&reg);
 
-        // Discover and load all .schem files in 'schematics/', laying them out based on size.
-        // In flat worlds, place on top of slab (y=1 if thickness>0, else y=0). In normal worlds, use y=0.
+        // Discover and load all .schem files in 'schematics/'.
+        // Flat worlds: keep existing ground placement.
+        // Non-flat worlds: compute a flying platform sized to hold all schematics and stamp them onto it.
         {
             use std::path::Path;
             let dir = Path::new("schematics");
             if dir.exists() {
-                // Determine base Y for placement (top of slab in flat worlds)
-                let base_y: i32 = match world.mode {
-                    crate::voxel::WorldGenMode::Flat { thickness } => {
-                        if thickness > 0 {
-                            1
-                        } else {
-                            0
-                        }
-                    }
-                    _ => 0,
-                };
                 match crate::schem::list_schematics_with_size(dir) {
                     Ok(mut list) => {
                         if list.is_empty() {
@@ -339,87 +329,137 @@ impl App {
                                     .unwrap_or_default();
                                 an.cmp(&bn)
                             });
-                            // Simple shelf layout with row width constrained to the configured world width
-                            let margin: i32 = 4;
-                            let row_width_limit: i32 =
-                                (world.world_size_x() as i32).max(64) - margin;
-                            // base_y is computed above
-
-                            // First, layout locally starting at (0,0)
-                            let mut placements: Vec<(
-                                std::path::PathBuf,
-                                (i32, i32, i32),
-                                (i32, i32),
-                            )> = Vec::new();
-                            let mut cur_x: i32 = 0;
-                            let mut cur_z: i32 = 0;
-                            let mut row_depth: i32 = 0; // max sz in row + margin
-                            for ent in &list {
-                                let (sx, _sy, sz) = ent.size;
-                                if cur_x > 0 && cur_x + sx > row_width_limit {
-                                    cur_x = 0;
-                                    cur_z += row_depth;
-                                    row_depth = 0;
-                                }
-                                placements.push((
-                                    ent.path.clone(),
-                                    (cur_x, base_y, cur_z),
-                                    (sx, sz),
-                                ));
-                                cur_x += sx + margin;
-                                row_depth = row_depth.max(sz + margin);
-                            }
-                            // Compute local bounding box
-                            let mut min_x = i32::MAX;
-                            let mut max_x = i32::MIN;
-                            let mut min_z = i32::MAX;
-                            let mut max_z = i32::MIN;
-                            for (_p, (lx, _ly, lz), (sx, sz)) in &placements {
-                                min_x = min_x.min(*lx);
-                                min_z = min_z.min(*lz);
-                                max_x = max_x.max(*lx + sx);
-                                max_z = max_z.max(*lz + sz);
-                            }
-                            if min_x == i32::MAX {
-                                min_x = 0;
-                                max_x = 0;
-                                min_z = 0;
-                                max_z = 0;
-                            }
-                            let layout_cx = (min_x + max_x) / 2;
-                            let layout_cz = (min_z + max_z) / 2;
-                            let world_cx = (world.world_size_x() as i32) / 2;
-                            let world_cz = (world.world_size_z() as i32) / 2;
-                            let shift_x = world_cx - layout_cx;
-                            let shift_z = world_cz - layout_cz;
-
-                            // Apply
-                            for (p, (lx, ly, lz), (_sx, _sz)) in placements {
-                                let wx = lx + shift_x;
-                                let wy = ly;
-                                let wz = lz + shift_z;
-                                match crate::schem::load_any_schematic_apply_edits(
-                                    &p,
-                                    (wx, wy, wz),
-                                    &mut gs.edits,
-                                    &reg,
-                                ) {
-                                    Ok((sx, sy, sz)) => {
-                                        log::info!(
-                                            "Loaded schem {:?} at ({},{},{}) ({}x{}x{})",
-                                            p,
-                                            wx,
-                                            wy,
-                                            wz,
-                                            sx,
-                                            sy,
-                                            sz
-                                        );
+                            let is_flat = world.is_flat();
+                            if is_flat {
+                                // Flat placement (existing behavior)
+                                let base_y: i32 = match world.mode {
+                                    crate::voxel::WorldGenMode::Flat { thickness } => if thickness > 0 { 1 } else { 0 },
+                                    _ => 0,
+                                };
+                                let margin: i32 = 4;
+                                let row_width_limit: i32 = (world.world_size_x() as i32).max(64) - margin;
+                                let mut placements: Vec<(std::path::PathBuf, (i32, i32, i32), (i32, i32))> = Vec::new();
+                                let mut cur_x: i32 = 0;
+                                let mut cur_z: i32 = 0;
+                                let mut row_depth: i32 = 0;
+                                for ent in &list {
+                                    let (sx, _sy, sz) = ent.size;
+                                    if cur_x > 0 && cur_x + sx > row_width_limit {
+                                        cur_x = 0;
+                                        cur_z += row_depth;
+                                        row_depth = 0;
                                     }
-                                    Err(e) => {
-                                        log::warn!("Failed loading schem {:?}: {}", p, e);
+                                    placements.push((ent.path.clone(), (cur_x, base_y, cur_z), (sx, sz)));
+                                    cur_x += sx + margin;
+                                    row_depth = row_depth.max(sz + margin);
+                                }
+                                // Center within world
+                                let (mut min_x, mut max_x, mut min_z, mut max_z) = (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
+                                for (_p, (lx, _ly, lz), (sx, sz)) in &placements {
+                                    min_x = min_x.min(*lx);
+                                    min_z = min_z.min(*lz);
+                                    max_x = max_x.max(*lx + sx);
+                                    max_z = max_z.max(*lz + sz);
+                                }
+                                if min_x == i32::MAX { min_x = 0; max_x = 0; min_z = 0; max_z = 0; }
+                                let layout_cx = (min_x + max_x) / 2;
+                                let layout_cz = (min_z + max_z) / 2;
+                                let world_cx = (world.world_size_x() as i32) / 2;
+                                let world_cz = (world.world_size_z() as i32) / 2;
+                                let shift_x = world_cx - layout_cx;
+                                let shift_z = world_cz - layout_cz;
+                                for (p, (lx, ly, lz), (_sx, _sz)) in placements {
+                                    let wx = lx + shift_x;
+                                    let wy = ly;
+                                    let wz = lz + shift_z;
+                                    match crate::schem::load_any_schematic_apply_edits(&p, (wx, wy, wz), &mut gs.edits, &reg) {
+                                        Ok((sx, sy, sz)) => {
+                                            log::info!("Loaded schem {:?} at ({},{},{}) ({}x{}x{})", p, wx, wy, wz, sx, sy, sz);
+                                        }
+                                        Err(e) => { log::warn!("Failed loading schem {:?}: {}", p, e); }
                                     }
                                 }
+                            } else {
+                                // Non-flat: place schematics onto a flying castle platform sized to fit them
+                                // 1) Decide target platform footprint by packing into rows near-square
+                                let margin: i32 = 4;
+                                let total_area: i64 = list.iter().map(|e| (e.size.0 as i64) * (e.size.2 as i64)).sum();
+                                let target_w: i32 = (((total_area as f64).sqrt()).ceil() as i32).max(32);
+                                let row_width_limit: i32 = target_w;
+                                // Pack placements in local (0,0) space first
+                                let mut placements: Vec<(std::path::PathBuf, (i32, i32), (i32, i32, i32))> = Vec::new();
+                                let mut cur_x: i32 = 0;
+                                let mut cur_z: i32 = 0;
+                                let mut row_depth: i32 = 0;
+                                let mut max_h: i32 = 0;
+                                for ent in &list {
+                                    let (sx, sy, sz) = ent.size;
+                                    if cur_x > 0 && cur_x + sx > row_width_limit {
+                                        cur_x = 0;
+                                        cur_z += row_depth;
+                                        row_depth = 0;
+                                    }
+                                    placements.push((ent.path.clone(), (cur_x, cur_z), (sx, sy, sz)));
+                                    cur_x += sx + margin;
+                                    row_depth = row_depth.max(sz + margin);
+                                    max_h = max_h.max(sy);
+                                }
+                                // Compute layout extents
+                                let mut min_x = i32::MAX; let mut max_x = i32::MIN; let mut min_z = i32::MAX; let mut max_z = i32::MIN;
+                                for (_p, (lx, lz), (sx, _sy, sz)) in &placements {
+                                    min_x = min_x.min(*lx);
+                                    min_z = min_z.min(*lz);
+                                    max_x = max_x.max(*lx + sx);
+                                    max_z = max_z.max(*lz + sz);
+                                }
+                                if min_x == i32::MAX { min_x = 0; max_x = 0; min_z = 0; max_z = 0; }
+                                let layout_w = (max_x - min_x).max(1);
+                                let layout_d = (max_z - min_z).max(1);
+                                // Add an outer border margin around platform
+                                let edge: i32 = 6;
+                                let st_sx = (layout_w + edge * 2) as usize;
+                                let st_sz = (layout_d + edge * 2) as usize;
+                                // Choose sy so deck has space below and schematics + clearance above
+                                let mut st_sy: usize = 24; // minimum height
+                                let clearance_above: i32 = 4;
+                                let below_space: i32 = 2;
+                                loop {
+                                    let deck_y = ((st_sy as f32) * 0.33) as i32;
+                                    let above = (st_sy as i32) - (deck_y + 1);
+                                    if deck_y >= below_space && above >= max_h + clearance_above { break; }
+                                    st_sy += 1;
+                                    if st_sy > 128 { break; }
+                                }
+                                // Spawn or replace the flying castle structure sized to fit
+                                let castle_id: StructureId = 1;
+                                // Center the platform near world center at a comfortable altitude
+                                let world_center_x = (world.world_size_x() as f32) * 0.5;
+                                let world_center_z = (world.world_size_z() as f32) * 0.5;
+                                let params = { world.gen_params.read().unwrap().clone() };
+                                let platform_y = (world.world_size_y() as f32) * params.platform_y_ratio + params.platform_y_offset;
+                                let pose = Pose { pos: Vector3::new(world_center_x, platform_y, world_center_z) + Vector3::new(0.0, 0.0, 40.0), yaw_deg: 0.0 };
+                                let mut st = Structure::new(castle_id, st_sx, st_sy, st_sz, pose, &reg);
+                                // Compute deck_y consistent with Structure::new()
+                                let deck_y = ((st_sy as f32) * 0.33) as i32;
+                                // Center layout on platform: shift so layout bbox lands in middle with edge border
+                                let shift_x = edge - min_x + ((st_sx as i32 - (layout_w + edge * 2)) / 2);
+                                let shift_z = edge - min_z + ((st_sz as i32 - (layout_d + edge * 2)) / 2);
+                                // Stamp each schematic onto the platform one block above the deck
+                                for (p, (lx, lz), (_sx, _sy, _sz)) in placements {
+                                    let ox = lx + shift_x;
+                                    let oy = deck_y + 1;
+                                    let oz = lz + shift_z;
+                                    match crate::schem::load_any_schematic_apply_into_structure(&p, (ox, oy, oz), &mut st, &reg) {
+                                        Ok((sx, sy, sz)) => {
+                                            log::info!("Loaded schem {:?} onto platform at local ({},{},{}) ({}x{}x{})", p, ox, oy, oz, sx, sy, sz);
+                                        }
+                                        Err(e) => { log::warn!("Failed loading schem {:?} into structure: {}", p, e); }
+                                    }
+                                }
+                                // Install/replace structure and request a build at its current dirty rev
+                                let rev = st.dirty_rev;
+                                gs.structures.insert(castle_id, st);
+                                queue.emit_now(Event::StructureBuildRequested { id: castle_id, rev });
                             }
                         }
                     }
@@ -427,22 +467,18 @@ impl App {
                         log::warn!("Failed scanning schematics dir {:?}: {}", dir, e);
                     }
                 }
-                // Additionally, try to import .mcworld structures if the feature is enabled
-                match crate::mcworld::load_mcworlds_in_dir(dir, base_y, &mut gs.edits) {
-                    Ok(list) => {
-                        for (name, (_x, _y, _z), (sx, sy, sz)) in list {
-                            log::info!("Loaded mcworld structure {} ({}x{}x{})", name, sx, sy, sz);
+                // mcworld import remains ground-stamped only in flat worlds
+                if world.is_flat() {
+                    let base_y: i32 = match world.mode { crate::voxel::WorldGenMode::Flat { thickness } => if thickness > 0 { 1 } else { 0 }, _ => 0 };
+                    match crate::mcworld::load_mcworlds_in_dir(dir, base_y, &mut gs.edits) {
+                        Ok(list) => {
+                            for (name, (_x, _y, _z), (sx, sy, sz)) in list {
+                                log::info!("Loaded mcworld structure {} ({}x{}x{})", name, sx, sy, sz);
+                            }
                         }
-                    }
-                    Err(e) => {
-                        // Only log info if not enabled; else warn
-                        if e.contains("not enabled") {
-                            log::info!(
-                                "{}.mcworld files present will be ignored unless built with --features mcworld",
-                                e
-                            );
-                        } else {
-                            log::warn!("mcworld load: {}", e);
+                        Err(e) => {
+                            if e.contains("not enabled") { log::info!("{}.mcworld files present will be ignored unless built with --features mcworld", e); }
+                            else { log::warn!("mcworld load: {}", e); }
                         }
                     }
                 }
@@ -455,28 +491,7 @@ impl App {
         let ccx = (cam.position.x / world.chunk_size_x as f32).floor() as i32;
         let ccz = (cam.position.z / world.chunk_size_z as f32).floor() as i32;
         queue.emit_now(Event::ViewCenterChanged { ccx, ccz });
-        // Spawn a flying castle structure at high altitude (skip for flat world)
-        if !world.is_flat() {
-            let castle_id: StructureId = 1;
-            let world_center = Vector3::new(
-                (world.world_size_x() as f32) * 0.5,
-                (world.world_size_y() as f32) * 0.7,
-                (world.world_size_z() as f32) * 0.5,
-            );
-            let st_sx = 32usize;
-            let st_sy = 24usize;
-            let st_sz = 32usize;
-            let pose = Pose {
-                pos: world_center + Vector3::new(0.0, 16.0, 40.0),
-                yaw_deg: 0.0,
-            };
-            let st = Structure::new(castle_id, st_sx, st_sy, st_sz, pose, &reg);
-            gs.structures.insert(castle_id, st);
-            queue.emit_now(Event::StructureBuildRequested {
-                id: castle_id,
-                rev: 1,
-            });
-        }
+        // Do not spawn a default platform in non-flat: schematics drive platform creation now.
         // Default place_type: stone
         if let Some(id) = runtime.reg.id_by_name("stone") {
             gs.place_type = Block { id, state: 0 };
