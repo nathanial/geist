@@ -218,19 +218,32 @@ fn emit_neighbor_fixups_micro_generic(
             continue;
         }
         let nb = buf.get_local(nx as usize, y, nz as usize);
-        if !is_full_cube(reg, nb) {
-            continue;
-        }
+        // Determine neighbor eligibility and occupancy mask. Full cubes act like fully-occupied (all 8 cells).
+        let (neighbor_ok, nb_occ) = if let Some(ty) = reg.get(nb.id) {
+            let var = ty.variant(nb.state);
+            if var.occupancy.is_some() {
+                (true, var.occupancy.unwrap())
+            } else if is_full_cube(reg, nb) {
+                (true, 0xFFu8)
+            } else {
+                (false, 0)
+            }
+        } else {
+            (false, 0)
+        };
+        if !neighbor_ok { continue; }
         let mid = registry_material_for_or_unknown(nb, face, reg);
         match face {
             Face::PosX | Face::NegX => {
                 // Boundary at fixed x (bx) across (v=ly, u=lz)
                 let bx = if dx < 0 { 0 } else { 1 };
+                let nb_bx = match face { Face::PosX => 1, Face::NegX => 0, _ => bx };
                 let mut mask: u8 = 0;
                 for ly in 0..2 {
                     for lz in 0..2 {
-                        let empty = (occ & micro_bit(bx, ly, lz)) == 0;
-                        if empty {
+                        let empty_here = (occ & micro_bit(bx, ly, lz)) == 0;
+                        let nb_has = (nb_occ & micro_bit(nb_bx, ly, lz)) != 0;
+                        if empty_here && nb_has {
                             let bit = ((ly << 1) | lz) as u8;
                             mask |= 1u8 << bit;
                         }
@@ -257,11 +270,13 @@ fn emit_neighbor_fixups_micro_generic(
             Face::PosZ | Face::NegZ => {
                 // Boundary at fixed z (bz) across (v=ly, u=lx)
                 let bz = if dz < 0 { 0 } else { 1 };
+                let nb_bz = match face { Face::PosZ => 1, Face::NegZ => 0, _ => bz };
                 let mut mask: u8 = 0;
                 for ly in 0..2 {
                     for lx in 0..2 {
-                        let empty = (occ & micro_bit(lx, ly, bz)) == 0;
-                        if empty {
+                        let empty_here = (occ & micro_bit(lx, ly, bz)) == 0;
+                        let nb_has = (nb_occ & micro_bit(lx, ly, nb_bz)) != 0;
+                        if empty_here && nb_has {
                             let bit = ((ly << 1) | lx) as u8;
                             mask |= 1u8 << bit;
                         }
@@ -297,17 +312,30 @@ fn emit_neighbor_fixups_micro_generic(
             continue;
         }
         let nb = buf.get_local(x, ny as usize, z);
-        if !is_full_cube(reg, nb) {
-            continue;
-        }
+        // Determine neighbor eligibility and occupancy (full cubes => fully occupied)
+        let (neighbor_ok, nb_occ) = if let Some(ty) = reg.get(nb.id) {
+            let var = ty.variant(nb.state);
+            if var.occupancy.is_some() {
+                (true, var.occupancy.unwrap())
+            } else if is_full_cube(reg, nb) {
+                (true, 0xFFu8)
+            } else {
+                (false, 0)
+            }
+        } else {
+            (false, 0)
+        };
+        if !neighbor_ok { continue; }
         let mid = registry_material_for_or_unknown(nb, face, reg);
         // Boundary at fixed y (ly) across (v=lz, u=lx)
         let ly = if dy < 0 { 0 } else { 1 } as usize;
+        let nb_ly = match face { Face::PosY => 1usize, Face::NegY => 0usize, _ => ly };
         let mut mask: u8 = 0;
         for lz in 0..2 {
             for lx in 0..2 {
-                let empty = (occ & micro_bit(lx, ly, lz)) == 0;
-                if empty {
+                let empty_here = (occ & micro_bit(lx, ly, lz)) == 0;
+                let nb_has = (nb_occ & micro_bit(lx, nb_ly, lz)) != 0;
+                if empty_here && nb_has {
                     let bit = ((lz << 1) | lx) as u8; // v=lz, u=lx
                     mask |= 1u8 << bit;
                 }
@@ -1482,8 +1510,10 @@ pub const SIDE_NEIGHBORS: [(i32, i32, Face, f32, f32); 4] = [
 
 #[inline]
 pub fn is_full_cube(reg: &BlockRegistry, nb: Block) -> bool {
+    // Treat as a full cube only when the block is solid and has a cube-like shape.
+    // This avoids treating non-solid cubes like `air` as neighbors for fixups/connectivity.
     reg.get(nb.id)
-        .map(|t| matches!(t.shape, Shape::Cube | Shape::AxisCube { .. }))
+        .map(|t| t.is_solid(nb.state) && matches!(t.shape, Shape::Cube | Shape::AxisCube { .. }))
         .unwrap_or(false)
 }
 
