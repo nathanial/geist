@@ -567,32 +567,9 @@ fn is_occluder(
 }
 
 fn occlusion_mask_for(reg: &BlockRegistry, nb: Block) -> u8 {
-    if let Some(ty) = reg.get(nb.id) {
-        match &ty.shape {
-            crate::blocks::Shape::Slab { half_from }
-            | crate::blocks::Shape::Stairs { half_from, .. } => {
-                let is_top = ty.state_prop_is_value(nb.state, half_from, "top");
-                let posy = (!is_top) as u8;
-                let negy = (is_top) as u8;
-                // Bits by Face::index(): 0..5 = PosY, NegY, PosX, NegX, PosZ, NegZ
-                (posy << Face::PosY.index())
-                    | (negy << Face::NegY.index())
-                    | (1 << Face::PosX.index())
-                    | (1 << Face::NegX.index())
-                    | (1 << Face::PosZ.index())
-                    | (1 << Face::NegZ.index())
-            }
-            _ => {
-                if ty.is_solid(nb.state) {
-                    0b11_1111
-                } else {
-                    0
-                }
-            }
-        }
-    } else {
-        0
-    }
+    reg.get(nb.id)
+        .map(|ty| ty.occlusion_mask_cached(nb.state))
+        .unwrap_or(0)
 }
 
 #[inline]

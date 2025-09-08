@@ -9,6 +9,7 @@ use super::config::{
 };
 use super::material::MaterialCatalog;
 use super::types::{Block, BlockId, BlockState, FaceRole, MaterialId, Shape};
+use crate::meshutil::Face;
 
 #[derive(Clone, Debug)]
 pub struct BlockType {
@@ -26,6 +27,8 @@ pub struct BlockType {
     pub pre_mat_top: Vec<MaterialId>,
     pub pre_mat_bottom: Vec<MaterialId>,
     pub pre_mat_side: Vec<MaterialId>,
+    // Precomputed occlusion mask per state (6 bits in Face order)
+    pub pre_occ_mask: Vec<u8>,
     #[allow(dead_code)]
     pub state_schema: HashMap<String, Vec<String>>, // property name -> allowed values
     // Precomputed, sorted layout for fast state packing/unpacking
@@ -214,12 +217,13 @@ impl BlockRegistry {
                 pre_mat_top: Vec::new(),
                 pre_mat_bottom: Vec::new(),
                 pre_mat_side: Vec::new(),
+                pre_occ_mask: Vec::new(),
                 state_schema,
                 state_fields,
                 prop_index,
             };
             // Precompute face materials per state for fast lookup
-            let (pre_top, pre_bottom, pre_side) = {
+            let (pre_top, pre_bottom, pre_side, pre_occ) = {
                 let total_bits: u32 = ty.state_fields.iter().map(|f| f.bits).sum();
                 let states_len: usize = if total_bits == 0 {
                     1
@@ -243,15 +247,42 @@ impl BlockRegistry {
                     }
                     v
                 };
+                let mut occ = Vec::with_capacity(states_len);
+                for s in 0..states_len {
+                    let state = s as BlockState;
+                    let m = match &ty.shape {
+                        Shape::Slab { half_from } | Shape::Stairs { half_from, .. } => {
+                            let is_top = ty.state_prop_is_value(state, half_from, "top");
+                            let posy = (!is_top) as u8;
+                            let negy = (is_top) as u8;
+                            (posy << Face::PosY.index())
+                                | (negy << Face::NegY.index())
+                                | (1 << Face::PosX.index())
+                                | (1 << Face::NegX.index())
+                                | (1 << Face::PosZ.index())
+                                | (1 << Face::NegZ.index())
+                        }
+                        _ => {
+                            if ty.is_solid(state) {
+                                0b11_1111
+                            } else {
+                                0
+                            }
+                        }
+                    };
+                    occ.push(m);
+                }
                 (
                     fill_role(FaceRole::Top),
                     fill_role(FaceRole::Bottom),
                     fill_role(FaceRole::Side),
+                    occ,
                 )
             };
             ty.pre_mat_top = pre_top;
             ty.pre_mat_bottom = pre_bottom;
             ty.pre_mat_side = pre_side;
+            ty.pre_occ_mask = pre_occ;
             if reg.blocks.len() <= id as usize {
                 reg.blocks.resize(
                     id as usize + 1,
@@ -271,6 +302,7 @@ impl BlockRegistry {
                         pre_mat_top: vec![MaterialId(0)],
                         pre_mat_bottom: vec![MaterialId(0)],
                         pre_mat_side: vec![MaterialId(0)],
+                        pre_occ_mask: vec![0],
                         state_schema: HashMap::new(),
                         state_fields: Vec::new(),
                         prop_index: HashMap::new(),
@@ -517,6 +549,12 @@ impl BlockType {
                 self.pre_mat_side[state as usize & (len - 1)]
             }
         }
+    }
+
+    #[inline]
+    pub fn occlusion_mask_cached(&self, state: BlockState) -> u8 {
+        let len = self.pre_occ_mask.len();
+        self.pre_occ_mask[state as usize & (len - 1)]
     }
 }
 
