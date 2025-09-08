@@ -6,7 +6,7 @@ thickness = 1
 [platform]
 # Controls flying platform height in non-flat worlds
 # Position = world_size_y * y_ratio + y_offset
-y_ratio = 0.70
+y_ratio = 0.50
 y_offset = 16.0
 
 [height]

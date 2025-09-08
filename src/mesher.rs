@@ -1038,89 +1038,117 @@ pub fn upload_chunk_mesh(
 ) -> Option<ChunkRender> {
     let mut parts_gpu = Vec::new();
     for (mid, mb) in cpu.parts.into_iter() {
-        if mb.idx.is_empty() {
-            continue;
-        }
-        // allocate mesh
-        let mut raw: raylib::ffi::Mesh = unsafe { std::mem::zeroed() };
-        raw.vertexCount = (mb.pos.len() / 3) as i32;
-        raw.triangleCount = (mb.idx.len() / 3) as i32;
-        unsafe {
-            let vbytes = (mb.pos.len() * std::mem::size_of::<f32>()) as u32;
-            let nbytes = (mb.norm.len() * std::mem::size_of::<f32>()) as u32;
-            let tbytes = (mb.uv.len() * std::mem::size_of::<f32>()) as u32;
-            let ibytes = (mb.idx.len() * std::mem::size_of::<u16>()) as u32;
-            let cbytes = (mb.col.len() * std::mem::size_of::<u8>()) as u32;
-            raw.vertices = raylib::ffi::MemAlloc(vbytes) as *mut f32;
-            raw.normals = raylib::ffi::MemAlloc(nbytes) as *mut f32;
-            raw.texcoords = raylib::ffi::MemAlloc(tbytes) as *mut f32;
-            raw.indices = raylib::ffi::MemAlloc(ibytes) as *mut u16;
-            raw.colors = raylib::ffi::MemAlloc(cbytes) as *mut u8;
-            std::ptr::copy_nonoverlapping(mb.pos.as_ptr(), raw.vertices, mb.pos.len());
-            std::ptr::copy_nonoverlapping(mb.norm.as_ptr(), raw.normals, mb.norm.len());
-            std::ptr::copy_nonoverlapping(mb.uv.as_ptr(), raw.texcoords, mb.uv.len());
-            std::ptr::copy_nonoverlapping(mb.idx.as_ptr(), raw.indices, mb.idx.len());
-            std::ptr::copy_nonoverlapping(mb.col.as_ptr(), raw.colors, mb.col.len());
-        }
-        let mut mesh = unsafe { raylib::core::models::Mesh::from_raw(raw) };
-        unsafe {
-            mesh.upload(false);
-        }
-        let model = rl
-            .load_model_from_mesh(thread, unsafe { mesh.make_weak() })
-            .ok()?;
-        // Get cached texture and assign
-        let mut model = model;
-        if let Some(mat) = model.materials_mut().get_mut(0) {
-            if let Some(mdef) = mats.get(mid) {
-                let candidates: Vec<String> = mdef
-                    .texture_candidates
-                    .iter()
-                    .map(|p| p.to_string_lossy().to_string())
-                    .collect();
-                // Pick an on-disk path if possible, else use first candidate
-                let chosen: Option<String> = candidates
-                    .iter()
-                    .find(|p| std::path::Path::new(p.as_str()).exists())
-                    .cloned()
-                    .or_else(|| candidates.first().cloned());
-                if let Some(path) = chosen {
-                    // Canonicalize path to create a stable cache key that matches watcher events
-                    let key = std::fs::canonicalize(&path)
-                        .ok()
+        let total_verts = mb.pos.len() / 3;
+        if total_verts == 0 { continue; }
+        // Split into safe submeshes to avoid 16-bit index overflow (raylib uses u16 indices)
+        let max_verts: usize = 65000; // keep under u16::MAX and divisible by quads nicely
+        let total_quads = total_verts / 4; // each quad adds 4 verts
+        let max_quads = max_verts / 4;
+        let mut q = 0usize;
+        while q < total_quads {
+            let take_q = (total_quads - q).min(max_quads);
+            let v_start = q * 4;
+            let v_count = take_q * 4;
+            // Prepare raw mesh
+            let mut raw: raylib::ffi::Mesh = unsafe { std::mem::zeroed() };
+            raw.vertexCount = v_count as i32;
+            raw.triangleCount = (take_q * 2) as i32;
+            unsafe {
+                let pos_start = v_start * 3;
+                let pos_end = pos_start + v_count * 3;
+                let norm_start = v_start * 3;
+                let norm_end = norm_start + v_count * 3;
+                let uv_start = v_start * 2;
+                let uv_end = uv_start + v_count * 2;
+                let col_start = v_start * 4;
+                let col_end = col_start + v_count * 4;
+
+                // Allocate buffers
+                let vbytes = (v_count * 3 * std::mem::size_of::<f32>()) as u32;
+                let nbytes = (v_count * 3 * std::mem::size_of::<f32>()) as u32;
+                let tbytes = (v_count * 2 * std::mem::size_of::<f32>()) as u32;
+                let cbytes = (v_count * 4 * std::mem::size_of::<u8>()) as u32;
+                let ibytes = (take_q * 6 * std::mem::size_of::<u16>()) as u32;
+                raw.vertices = raylib::ffi::MemAlloc(vbytes) as *mut f32;
+                raw.normals = raylib::ffi::MemAlloc(nbytes) as *mut f32;
+                raw.texcoords = raylib::ffi::MemAlloc(tbytes) as *mut f32;
+                raw.colors = raylib::ffi::MemAlloc(cbytes) as *mut u8;
+                raw.indices = raylib::ffi::MemAlloc(ibytes) as *mut u16;
+
+                // Copy vertex attributes slice
+                std::ptr::copy_nonoverlapping(mb.pos[pos_start..pos_end].as_ptr(), raw.vertices, v_count * 3);
+                std::ptr::copy_nonoverlapping(mb.norm[norm_start..norm_end].as_ptr(), raw.normals, v_count * 3);
+                std::ptr::copy_nonoverlapping(mb.uv[uv_start..uv_end].as_ptr(), raw.texcoords, v_count * 2);
+                std::ptr::copy_nonoverlapping(mb.col[col_start..col_end].as_ptr(), raw.colors, v_count * 4);
+
+                // Rebuild indices per submesh with local bases (0..v_count)
+                let idx_ptr = raw.indices;
+                let mut write = 0usize;
+                for i in 0..take_q {
+                    let base = (i * 4) as u16;
+                    let tri = [base, base + 1, base + 2, base, base + 2, base + 3];
+                    let dst = idx_ptr.add(write);
+                    std::ptr::copy_nonoverlapping(tri.as_ptr(), dst, 6);
+                    write += 6;
+                }
+            }
+            let mut mesh = unsafe { raylib::core::models::Mesh::from_raw(raw) };
+            unsafe { mesh.upload(false); }
+            let model = rl
+                .load_model_from_mesh(thread, unsafe { mesh.make_weak() })
+                .ok()?;
+            // Assign texture
+            let mut model = model;
+            if let Some(mat) = model.materials_mut().get_mut(0) {
+                if let Some(mdef) = mats.get(mid) {
+                    let candidates: Vec<String> = mdef
+                        .texture_candidates
+                        .iter()
                         .map(|p| p.to_string_lossy().to_string())
-                        .unwrap_or(path);
-                    use std::collections::hash_map::Entry;
-                    match tex_cache.map.entry(key.clone()) {
-                        Entry::Occupied(e) => {
-                            let tex = e.into_mut();
-                            mat.set_material_texture(
-                                raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO,
-                                tex,
-                            );
-                        }
-                        Entry::Vacant(v) => {
-                            if let Ok(t) = rl.load_texture(thread, &key) {
-                                t.set_texture_filter(
-                                    thread,
-                                    raylib::consts::TextureFilter::TEXTURE_FILTER_POINT,
-                                );
-                                t.set_texture_wrap(
-                                    thread,
-                                    raylib::consts::TextureWrap::TEXTURE_WRAP_REPEAT,
-                                );
-                                let tex = v.insert(t);
+                        .collect();
+                    let chosen: Option<String> = candidates
+                        .iter()
+                        .find(|p| std::path::Path::new(p.as_str()).exists())
+                        .cloned()
+                        .or_else(|| candidates.first().cloned());
+                    if let Some(path) = chosen {
+                        let key = std::fs::canonicalize(&path)
+                            .ok()
+                            .map(|p| p.to_string_lossy().to_string())
+                            .unwrap_or(path);
+                        use std::collections::hash_map::Entry;
+                        match tex_cache.map.entry(key.clone()) {
+                            Entry::Occupied(e) => {
+                                let tex = e.into_mut();
                                 mat.set_material_texture(
                                     raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO,
                                     tex,
                                 );
                             }
+                            Entry::Vacant(v) => {
+                                if let Ok(t) = rl.load_texture(thread, &key) {
+                                    t.set_texture_filter(
+                                        thread,
+                                        raylib::consts::TextureFilter::TEXTURE_FILTER_POINT,
+                                    );
+                                    t.set_texture_wrap(
+                                        thread,
+                                        raylib::consts::TextureWrap::TEXTURE_WRAP_REPEAT,
+                                    );
+                                    let tex = v.insert(t);
+                                    mat.set_material_texture(
+                                        raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO,
+                                        tex,
+                                    );
+                                }
+                            }
                         }
                     }
                 }
             }
+            parts_gpu.push((mid, model));
+            q += take_q;
         }
-        parts_gpu.push((mid, model));
     }
     Some(ChunkRender {
         cx: cpu.cx,
@@ -1144,60 +1172,548 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
     let sy = buf.sy;
     let sz = buf.sz;
 
-    // Unified path via meshing_core
-    {
-        #[inline]
-        fn solid_local(buf: &ChunkBuf, x: i32, y: i32, z: i32, reg: &BlockRegistry) -> bool {
-            if x < 0 || y < 0 || z < 0 {
-                return false;
-            }
-            let (xu, yu, zu) = (x as usize, y as usize, z as usize);
-            if xu >= buf.sx || yu >= buf.sy || zu >= buf.sz {
-                return false;
-            }
-            reg.get(buf.get_local(xu, yu, zu).id).map(|ty| ty.is_solid(buf.get_local(xu, yu, zu).state)).unwrap_or(false)
+    // Unified path via meshing_core + special-shapes pass to match world mesher
+    #[inline]
+    fn solid_local(buf: &ChunkBuf, x: i32, y: i32, z: i32, reg: &BlockRegistry) -> bool {
+        if x < 0 || y < 0 || z < 0 {
+            return false;
         }
-
-        #[inline]
-        fn face_light(face: usize, ambient: u8) -> u8 {
-            match face {
-                0 => ambient.saturating_add(40).min(255),
-                1 => ambient.saturating_sub(60),
-                _ => ambient,
-            }
+        let (xu, yu, zu) = (x as usize, y as usize, z as usize);
+        if xu >= buf.sx || yu >= buf.sy || zu >= buf.sz {
+            return false;
         }
+        let b = buf.get_local(xu, yu, zu);
+        reg.get(b.id).map(|ty| ty.is_solid(b.state)).unwrap_or(false)
+    }
 
-        let flip_v = [false, true, false, true, false, true];
-        let builds = crate::meshing_core::build_mesh_core(buf, 0, 0, flip_v, None, |x, y, z, face, here| {
-                if !is_solid_runtime(here, reg) {
+    #[inline]
+    fn face_light(face: usize, ambient: u8) -> u8 {
+        match face {
+            0 => ambient.saturating_add(40).min(255),
+            1 => ambient.saturating_sub(60),
+            _ => ambient,
+        }
+    }
+
+    // Match world mesher V orientation for all faces
+    let flip_v = [false, false, false, false, false, false];
+
+    // Skip non-cubic shapes in greedy pass; they are emitted below
+    let mut builds = crate::meshing_core::build_mesh_core(buf, 0, 0, flip_v, None, |x, y, z, face, here| {
+        if !is_solid_runtime(here, reg) {
+            return None;
+        }
+        if let Some(ty) = reg.get(here.id) {
+            match ty.shape {
+                crate::blocks::Shape::Slab { .. } | crate::blocks::Shape::Stairs { .. } => {
                     return None;
                 }
-                let (nx, ny, nz) = match face {
-                    0 => (x as i32, y as i32 + 1, z as i32),
-                    1 => (x as i32, y as i32 - 1, z as i32),
-                    2 => (x as i32 + 1, y as i32, z as i32),
-                    3 => (x as i32 - 1, y as i32, z as i32),
-                    4 => (x as i32, y as i32, z as i32 + 1),
-                    5 => (x as i32, y as i32, z as i32 - 1),
-                    _ => unreachable!(),
-                };
-                if solid_local(buf, nx, ny, nz, reg) {
-                    return None;
-                }
-                let mid = registry_material_for_or_unknown(here, face, reg);
-                let l = face_light(face, ambient);
-                Some((mid, l))
-            });
-        let bbox = BoundingBox::new(
-            Vector3::new(0.0, 0.0, 0.0),
-            Vector3::new(sx as f32, sy as f32, sz as f32),
-        );
-        return ChunkMeshCPU {
-            cx: 0,
-            cz: 0,
-            bbox,
-            parts: builds,
+                _ => {}
+            }
+        }
+        let (nx, ny, nz) = match face {
+            0 => (x as i32, y as i32 + 1, z as i32),
+            1 => (x as i32, y as i32 - 1, z as i32),
+            2 => (x as i32 + 1, y as i32, z as i32),
+            3 => (x as i32 - 1, y as i32, z as i32),
+            4 => (x as i32, y as i32, z as i32 + 1),
+            5 => (x as i32, y as i32, z as i32 - 1),
+            _ => unreachable!(),
         };
+        // Local occlusion: only cull when an in-bounds neighbor truly occludes this face.
+        if nx >= 0 && ny >= 0 && nz >= 0 {
+            let (xu, yu, zu) = (nx as usize, ny as usize, nz as usize);
+            if xu < buf.sx && yu < buf.sy && zu < buf.sz {
+                let nb = buf.get_local(xu, yu, zu);
+                if occludes_face(nb, face, reg) {
+                    return None;
+                }
+            }
+        }
+        let mid = registry_material_for_or_unknown(here, face, reg);
+        let l = face_light(face, ambient);
+        Some((mid, l))
+    });
+
+    // Helpers for special-shapes pass
+    #[inline]
+    fn occludes_local(buf: &ChunkBuf, x: i32, y: i32, z: i32, face: usize, reg: &BlockRegistry) -> bool {
+        if x < 0 || y < 0 || z < 0 {
+            return false;
+        }
+        let (xu, yu, zu) = (x as usize, y as usize, z as usize);
+        if xu >= buf.sx || yu >= buf.sy || zu >= buf.sz {
+            return false;
+        }
+        let nb = buf.get_local(xu, yu, zu);
+        occludes_face(nb, face, reg)
+    }
+
+    #[inline]
+    fn emit_box_local(
+        builds: &mut std::collections::HashMap<MaterialId, MeshBuild>,
+        buf: &ChunkBuf,
+        reg: &BlockRegistry,
+        x: usize,
+        y: usize,
+        z: usize,
+        face_material: &dyn Fn(usize) -> MaterialId,
+        min: Vector3,
+        max: Vector3,
+        ambient: u8,
+    ) {
+        let gx = x as i32;
+        let gy = y as i32;
+        let gz = z as i32;
+        // +Y
+        if !occludes_local(buf, gx, gy + 1, gz, 0, reg) {
+            let lv = face_light(0, ambient);
+            let rgba = [lv, lv, lv, 255];
+            let mid = face_material(0);
+            let mb = builds.entry(mid).or_default();
+            mb.add_quad(
+                Vector3::new(min.x, max.y, min.z),
+                Vector3::new(max.x, max.y, min.z),
+                Vector3::new(max.x, max.y, max.z),
+                Vector3::new(min.x, max.y, max.z),
+                Vector3::new(0.0, 1.0, 0.0),
+                max.x - min.x,
+                max.z - min.z,
+                false,
+                rgba,
+            );
+        }
+        // -Y
+        if !occludes_local(buf, gx, gy - 1, gz, 1, reg) {
+            let lv = face_light(1, ambient);
+            let rgba = [lv, lv, lv, 255];
+            let mid = face_material(1);
+            let mb = builds.entry(mid).or_default();
+            mb.add_quad(
+                Vector3::new(min.x, min.y, max.z),
+                Vector3::new(max.x, min.y, max.z),
+                Vector3::new(max.x, min.y, min.z),
+                Vector3::new(min.x, min.y, min.z),
+                Vector3::new(0.0, -1.0, 0.0),
+                max.x - min.x,
+                max.z - min.z,
+                false,
+                rgba,
+            );
+        }
+        // +X
+        if !occludes_local(buf, gx + 1, gy, gz, 2, reg) {
+            let lv = face_light(2, ambient);
+            let rgba = [lv, lv, lv, 255];
+            let mid = face_material(2);
+            let mb = builds.entry(mid).or_default();
+            mb.add_quad(
+                Vector3::new(max.x, max.y, max.z),
+                Vector3::new(max.x, max.y, min.z),
+                Vector3::new(max.x, min.y, min.z),
+                Vector3::new(max.x, min.y, max.z),
+                Vector3::new(1.0, 0.0, 0.0),
+                max.z - min.z,
+                max.y - min.y,
+                false,
+                rgba,
+            );
+        }
+        // -X
+        if !occludes_local(buf, gx - 1, gy, gz, 3, reg) {
+            let lv = face_light(3, ambient);
+            let rgba = [lv, lv, lv, 255];
+            let mid = face_material(3);
+            let mb = builds.entry(mid).or_default();
+            mb.add_quad(
+                Vector3::new(min.x, max.y, min.z),
+                Vector3::new(min.x, max.y, max.z),
+                Vector3::new(min.x, min.y, max.z),
+                Vector3::new(min.x, min.y, min.z),
+                Vector3::new(-1.0, 0.0, 0.0),
+                max.z - min.z,
+                max.y - min.y,
+                false,
+                rgba,
+            );
+        }
+        // +Z
+        if !occludes_local(buf, gx, gy, gz + 1, 4, reg) {
+            let lv = face_light(4, ambient);
+            let rgba = [lv, lv, lv, 255];
+            let mid = face_material(4);
+            let mb = builds.entry(mid).or_default();
+            mb.add_quad(
+                Vector3::new(min.x, max.y, max.z),
+                Vector3::new(max.x, max.y, max.z),
+                Vector3::new(max.x, min.y, max.z),
+                Vector3::new(min.x, min.y, max.z),
+                Vector3::new(0.0, 0.0, 1.0),
+                max.x - min.x,
+                max.y - min.y,
+                false,
+                rgba,
+            );
+        }
+        // -Z
+        if !occludes_local(buf, gx, gy, gz - 1, 5, reg) {
+            let lv = face_light(5, ambient);
+            let rgba = [lv, lv, lv, 255];
+            let mid = face_material(5);
+            let mb = builds.entry(mid).or_default();
+            mb.add_quad(
+                Vector3::new(max.x, max.y, min.z),
+                Vector3::new(min.x, max.y, min.z),
+                Vector3::new(min.x, min.y, min.z),
+                Vector3::new(max.x, min.y, min.z),
+                Vector3::new(0.0, 0.0, -1.0),
+                max.x - min.x,
+                max.y - min.y,
+                false,
+                rgba,
+            );
+        }
+    }
+
+    // Special-shapes pass: slabs and stairs
+    let sx = buf.sx;
+    let sy = buf.sy;
+    let sz = buf.sz;
+    for z in 0..sz {
+        for y in 0..sy {
+            for x in 0..sx {
+                let b = buf.get_local(x, y, z);
+                if let Some(ty) = reg.get(b.id) {
+                    match &ty.shape {
+                        crate::blocks::Shape::Slab { half_from } => {
+                            let fx = x as f32;
+                            let fy = y as f32;
+                            let fz = z as f32;
+                            let is_top = ty.state_prop_is_value(b.state, half_from, "top");
+                            let (y0, y1) = if is_top { (fy + 0.5, fy + 1.0) } else { (fy, fy + 0.5) };
+                            let min = Vector3::new(fx, y0, fz);
+                            let max = Vector3::new(fx + 1.0, y1, fz + 1.0);
+                            let face_material = |face: usize| {
+                                let role = match face {
+                                    0 => FaceRole::Top,
+                                    1 => FaceRole::Bottom,
+                                    _ => FaceRole::Side,
+                                };
+                                ty.materials
+                                    .material_for(role, b.state, ty)
+                                    .unwrap_or_else(|| unknown_material_id(reg))
+                            };
+                            emit_box_local(&mut builds, buf, reg, x, y, z, &face_material, min, max, ambient);
+
+                            // Restore partial neighbor faces for full-cube neighbors
+                            let (vis_y0, vis_y1) = if is_top { (fy, fy + 0.5) } else { (fy + 0.5, fy + 1.0) };
+                            let is_full_cube = |nb: Block| -> bool {
+                                reg.get(nb.id)
+                                    .map(|t| matches!(t.shape, crate::blocks::Shape::Cube | crate::blocks::Shape::AxisCube { .. }))
+                                    .unwrap_or(false)
+                            };
+                            // West neighbor (+X face on neighbor)
+                            if x > 0 {
+                                let nb = buf.get_local(x - 1, y, z);
+                                if is_full_cube(nb) {
+                                    let rgba = {
+                                        let lv = face_light(2, ambient);
+                                        [lv, lv, lv, 255]
+                                    };
+                                    let mid = registry_material_for_or_unknown(nb, 2, reg);
+                                    let mb = builds.entry(mid).or_default();
+                                    let px = fx; // plane at x
+                                    mb.add_quad(
+                                        Vector3::new(px, vis_y1, fz + 1.0),
+                                        Vector3::new(px, vis_y1, fz),
+                                        Vector3::new(px, vis_y0, fz),
+                                        Vector3::new(px, vis_y0, fz + 1.0),
+                                        Vector3::new(1.0, 0.0, 0.0),
+                                        1.0,
+                                        vis_y1 - vis_y0,
+                                        false,
+                                        rgba,
+                                    );
+                                }
+                            }
+                            // East neighbor (-X face on neighbor)
+                            if x + 1 < sx {
+                                let nb = buf.get_local(x + 1, y, z);
+                                if is_full_cube(nb) {
+                                    let rgba = {
+                                        let lv = face_light(3, ambient);
+                                        [lv, lv, lv, 255]
+                                    };
+                                    let mid = registry_material_for_or_unknown(nb, 3, reg);
+                                    let mb = builds.entry(mid).or_default();
+                                    let px = fx + 1.0; // plane at x+1
+                                    mb.add_quad(
+                                        Vector3::new(px, vis_y1, fz),
+                                        Vector3::new(px, vis_y1, fz + 1.0),
+                                        Vector3::new(px, vis_y0, fz + 1.0),
+                                        Vector3::new(px, vis_y0, fz),
+                                        Vector3::new(-1.0, 0.0, 0.0),
+                                        1.0,
+                                        vis_y1 - vis_y0,
+                                        false,
+                                        rgba,
+                                    );
+                                }
+                            }
+                            // North neighbor (+Z face on neighbor)
+                            if z > 0 {
+                                let nb = buf.get_local(x, y, z - 1);
+                                if is_full_cube(nb) {
+                                    let rgba = {
+                                        let lv = face_light(4, ambient);
+                                        [lv, lv, lv, 255]
+                                    };
+                                    let mid = registry_material_for_or_unknown(nb, 4, reg);
+                                    let mb = builds.entry(mid).or_default();
+                                    let pz = fz; // plane at z
+                                    mb.add_quad(
+                                        Vector3::new(fx + 1.0, vis_y1, pz),
+                                        Vector3::new(fx, vis_y1, pz),
+                                        Vector3::new(fx, vis_y0, pz),
+                                        Vector3::new(fx + 1.0, vis_y0, pz),
+                                        Vector3::new(0.0, 0.0, 1.0),
+                                        1.0,
+                                        vis_y1 - vis_y0,
+                                        false,
+                                        rgba,
+                                    );
+                                }
+                            }
+                            // South neighbor (-Z face on neighbor)
+                            if z + 1 < sz {
+                                let nb = buf.get_local(x, y, z + 1);
+                                if is_full_cube(nb) {
+                                    let rgba = {
+                                        let lv = face_light(5, ambient);
+                                        [lv, lv, lv, 255]
+                                    };
+                                    let mid = registry_material_for_or_unknown(nb, 5, reg);
+                                    let mb = builds.entry(mid).or_default();
+                                    let pz = fz + 1.0; // plane at z+1
+                                    mb.add_quad(
+                                        Vector3::new(fx, vis_y1, pz),
+                                        Vector3::new(fx + 1.0, vis_y1, pz),
+                                        Vector3::new(fx + 1.0, vis_y0, pz),
+                                        Vector3::new(fx, vis_y0, pz),
+                                        Vector3::new(0.0, 0.0, -1.0),
+                                        1.0,
+                                        vis_y1 - vis_y0,
+                                        false,
+                                        rgba,
+                                    );
+                                }
+                            }
+                        }
+                        crate::blocks::Shape::Stairs { facing_from, half_from } => {
+                            let fx = x as f32;
+                            let fy = y as f32;
+                            let fz = z as f32;
+                            let is_top = ty.state_prop_is_value(b.state, half_from, "top");
+                            let facing = ty.state_prop_value(b.state, facing_from).unwrap_or("north");
+                            // Big half-height slab
+                            let (min_a, max_a) = if is_top {
+                                (Vector3::new(fx, fy + 0.5, fz), Vector3::new(fx + 1.0, fy + 1.0, fz + 1.0))
+                            } else {
+                                (Vector3::new(fx, fy, fz), Vector3::new(fx + 1.0, fy + 0.5, fz + 1.0))
+                            };
+                            let face_material = |face: usize| {
+                                let role = match face {
+                                    0 => FaceRole::Top,
+                                    1 => FaceRole::Bottom,
+                                    _ => FaceRole::Side,
+                                };
+                                ty.materials
+                                    .material_for(role, b.state, ty)
+                                    .unwrap_or_else(|| unknown_material_id(reg))
+                            };
+                            emit_box_local(&mut builds, buf, reg, x, y, z, &face_material, min_a, max_a, ambient);
+                            // Secondary half slab toward facing
+                            let (min_b, max_b) = match (facing, is_top) {
+                                ("north", false) => (Vector3::new(fx, fy + 0.5, fz), Vector3::new(fx + 1.0, fy + 1.0, fz + 0.5)),
+                                ("south", false) => (Vector3::new(fx, fy + 0.5, fz + 0.5), Vector3::new(fx + 1.0, fy + 1.0, fz + 1.0)),
+                                ("west",  false) => (Vector3::new(fx, fy + 0.5, fz), Vector3::new(fx + 0.5, fy + 1.0, fz + 1.0)),
+                                ("east",  false) => (Vector3::new(fx + 0.5, fy + 0.5, fz), Vector3::new(fx + 1.0, fy + 1.0, fz + 1.0)),
+                                ("north", true)  => (Vector3::new(fx, fy, fz + 0.5), Vector3::new(fx + 1.0, fy + 0.5, fz + 1.0)),
+                                ("south", true)  => (Vector3::new(fx, fy, fz),       Vector3::new(fx + 1.0, fy + 0.5, fz + 0.5)),
+                                ("west",  true)  => (Vector3::new(fx + 0.5, fy, fz), Vector3::new(fx + 1.0, fy + 0.5, fz + 1.0)),
+                                ("east",  true)  => (Vector3::new(fx, fy, fz),       Vector3::new(fx + 0.5, fy + 0.5, fz + 1.0)),
+                                _ => (Vector3::new(fx, fy, fz), Vector3::new(fx, fy, fz)),
+                            };
+                            if max_b.x > min_b.x || max_b.y > min_b.y || max_b.z > min_b.z {
+                                emit_box_local(&mut builds, buf, reg, x, y, z, &face_material, min_b, max_b, ambient);
+                            }
+
+                            // Neighbor face restoration for full cubes with oriented segments
+                            let draw_top = !is_top;
+                            let y0 = if is_top { fy + 0.5 } else { fy };
+                            let y1 = if is_top { fy + 1.0 } else { fy + 0.5 };
+                            let is_full_cube = |nb: Block| -> bool {
+                                reg.get(nb.id)
+                                    .map(|t| matches!(t.shape, crate::blocks::Shape::Cube | crate::blocks::Shape::AxisCube { .. }))
+                                    .unwrap_or(false)
+                            };
+                            // West neighbor (+X on neighbor)
+                            if x > 0 {
+                                let nb = buf.get_local(x - 1, y, z);
+                                if is_full_cube(nb) {
+                                    let rgba = { let lv = face_light(2, ambient); [lv, lv, lv, 255] };
+                                    let mid = registry_material_for_or_unknown(nb, 2, reg);
+                                    let mb = builds.entry(mid).or_default();
+                                    let px = fx;
+                                    let segs: &[(f32, f32)] = match (facing, is_top) {
+                                        ("north", false) => &[(fz + 0.5, fz + 1.0)],
+                                        ("south", false) => &[(fz, fz + 0.5)],
+                                        ("west",  false) => &[],
+                                        ("east",  false) => &[(fz, fz + 1.0)],
+                                        ("north", true)  => &[(fz + 0.5, fz + 1.0)],
+                                        ("south", true)  => &[(fz, fz + 0.5)],
+                                        ("west",  true)  => &[],
+                                        ("east",  true)  => &[(fz, fz + 1.0)],
+                                        _ => &[],
+                                    };
+                                    for &(z0, z1) in segs.iter() {
+                                        if z1 <= z0 { continue; }
+                                        mb.add_quad(
+                                            Vector3::new(px, y1, z1),
+                                            Vector3::new(px, y1, z0),
+                                            Vector3::new(px, y0, z0),
+                                            Vector3::new(px, y0, z1),
+                                            Vector3::new(1.0, 0.0, 0.0),
+                                            z1 - z0,
+                                            y1 - y0,
+                                            false,
+                                            rgba,
+                                        );
+                                    }
+                                }
+                            }
+                            // East neighbor (-X on neighbor)
+                            if x + 1 < sx {
+                                let nb = buf.get_local(x + 1, y, z);
+                                if is_full_cube(nb) {
+                                    let rgba = { let lv = face_light(3, ambient); [lv, lv, lv, 255] };
+                                    let mid = registry_material_for_or_unknown(nb, 3, reg);
+                                    let mb = builds.entry(mid).or_default();
+                                    let px = fx + 1.0;
+                                    let segs: &[(f32, f32)] = match (facing, is_top) {
+                                        ("north", false) => &[(fz + 0.5, fz + 1.0)],
+                                        ("south", false) => &[(fz, fz + 0.5)],
+                                        ("west",  false) => &[(fz, fz + 1.0)],
+                                        ("east",  false) => &[],
+                                        ("north", true)  => &[(fz + 0.5, fz + 1.0)],
+                                        ("south", true)  => &[(fz, fz + 0.5)],
+                                        ("west",  true)  => &[(fz, fz + 1.0)],
+                                        ("east",  true)  => &[],
+                                        _ => &[],
+                                    };
+                                    for &(z0, z1) in segs.iter() {
+                                        if z1 <= z0 { continue; }
+                                        mb.add_quad(
+                                            Vector3::new(px, y1, z0),
+                                            Vector3::new(px, y1, z1),
+                                            Vector3::new(px, y0, z1),
+                                            Vector3::new(px, y0, z0),
+                                            Vector3::new(-1.0, 0.0, 0.0),
+                                            z1 - z0,
+                                            y1 - y0,
+                                            false,
+                                            rgba,
+                                        );
+                                    }
+                                }
+                            }
+                            // North neighbor (+Z on neighbor)
+                            if z > 0 {
+                                let nb = buf.get_local(x, y, z - 1);
+                                if is_full_cube(nb) {
+                                    let rgba = { let lv = face_light(4, ambient); [lv, lv, lv, 255] };
+                                    let mid = registry_material_for_or_unknown(nb, 4, reg);
+                                    let mb = builds.entry(mid).or_default();
+                                    let pz = fz;
+                                    let segs: &[(f32, f32)] = match (facing, is_top) {
+                                        ("east",  false) => &[(fx + 0.5, fx + 1.0)],
+                                        ("west",  false) => &[(fx, fx + 0.5)],
+                                        ("north", false) => &[(fx, fx + 1.0)],
+                                        ("south", false) => &[],
+                                        ("east",  true)  => &[(fx + 0.5, fx + 1.0)],
+                                        ("west",  true)  => &[(fx, fx + 0.5)],
+                                        ("north", true)  => &[(fx, fx + 1.0)],
+                                        ("south", true)  => &[],
+                                        _ => &[],
+                                    };
+                                    for &(x0f, x1f) in segs.iter() {
+                                        if x1f <= x0f { continue; }
+                                        mb.add_quad(
+                                            Vector3::new(x1f, y1, pz),
+                                            Vector3::new(x0f, y1, pz),
+                                            Vector3::new(x0f, y0, pz),
+                                            Vector3::new(x1f, y0, pz),
+                                            Vector3::new(0.0, 0.0, 1.0),
+                                            x1f - x0f,
+                                            y1 - y0,
+                                            false,
+                                            rgba,
+                                        );
+                                    }
+                                }
+                            }
+                            // South neighbor (-Z on neighbor)
+                            if z + 1 < sz {
+                                let nb = buf.get_local(x, y, z + 1);
+                                if is_full_cube(nb) {
+                                    let rgba = { let lv = face_light(5, ambient); [lv, lv, lv, 255] };
+                                    let mid = registry_material_for_or_unknown(nb, 5, reg);
+                                    let mb = builds.entry(mid).or_default();
+                                    let pz = fz + 1.0;
+                                    let segs: &[(f32, f32)] = match (facing, is_top) {
+                                        ("east",  false) => &[(fx + 0.5, fx + 1.0)],
+                                        ("west",  false) => &[(fx, fx + 0.5)],
+                                        ("north", false) => &[],
+                                        ("south", false) => &[(fx, fx + 1.0)],
+                                        ("east",  true)  => &[(fx + 0.5, fx + 1.0)],
+                                        ("west",  true)  => &[(fx, fx + 0.5)],
+                                        ("north", true)  => &[],
+                                        ("south", true)  => &[(fx, fx + 1.0)],
+                                        _ => &[],
+                                    };
+                                    for &(x0f, x1f) in segs.iter() {
+                                        if x1f <= x0f { continue; }
+                                        mb.add_quad(
+                                            Vector3::new(x0f, y1, pz),
+                                            Vector3::new(x1f, y1, pz),
+                                            Vector3::new(x1f, y0, pz),
+                                            Vector3::new(x0f, y0, pz),
+                                            Vector3::new(0.0, 0.0, -1.0),
+                                            x1f - x0f,
+                                            y1 - y0,
+                                            false,
+                                            rgba,
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    let bbox = BoundingBox::new(
+        Vector3::new(0.0, 0.0, 0.0),
+        Vector3::new(sx as f32, sy as f32, sz as f32),
+    );
+    ChunkMeshCPU {
+        cx: 0,
+        cz: 0,
+        bbox,
+        parts: builds,
     }
 }
 
