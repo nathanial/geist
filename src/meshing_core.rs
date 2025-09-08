@@ -45,6 +45,11 @@ fn greedy_rects<K: Copy + Eq + Hash>(
     }
 }
 
+#[inline]
+fn apply_min_light(l: u8, min: Option<u8>) -> u8 {
+    if let Some(m) = min { l.max(m) } else { l }
+}
+
 // Core greedy meshing builder used by both world and local meshers.
 // The `face_info` closure decides visibility and lighting per face; it must return None if the
 // face is not visible. `flip_v[face]` controls V flipping for that face (0..5).
@@ -83,22 +88,9 @@ where
             let u1 = w as f32;
             let v1 = h as f32;
             let mb = builds.entry(codev.0).or_default();
-            let mut lv = codev.1;
-            if let Some(m) = min_light {
-                lv = lv.max(m);
-            }
+            let lv = apply_min_light(codev.1, min_light);
             let rgba = [lv, lv, lv, 255];
-            mb.add_quad(
-                Vector3::new(fx, fy, fz),
-                Vector3::new(fx + u1, fy, fz),
-                Vector3::new(fx + u1, fy, fz + v1),
-                Vector3::new(fx, fy, fz + v1),
-                Vector3::new(0.0, 1.0, 0.0),
-                u1,
-                v1,
-                flip_v[0],
-                rgba,
-            );
+            mb.add_face_rect(0, Vector3::new(fx, fy, fz), u1, v1, flip_v[0], rgba);
         });
     }
 
@@ -120,22 +112,9 @@ where
             let u1 = w as f32;
             let v1 = h as f32;
             let mb = builds.entry(codev.0).or_default();
-            let mut lv = codev.1;
-            if let Some(m) = min_light {
-                lv = lv.max(m);
-            }
+            let lv = apply_min_light(codev.1, min_light);
             let rgba = [lv, lv, lv, 255];
-            mb.add_quad(
-                Vector3::new(fx, fy, fz + v1),
-                Vector3::new(fx + u1, fy, fz + v1),
-                Vector3::new(fx + u1, fy, fz),
-                Vector3::new(fx, fy, fz),
-                Vector3::new(0.0, -1.0, 0.0),
-                u1,
-                v1,
-                flip_v[1],
-                rgba,
-            );
+            mb.add_face_rect(1, Vector3::new(fx, fy, fz), u1, v1, flip_v[1], rgba);
         });
     }
 
@@ -159,38 +138,10 @@ where
                 let u1 = w as f32;
                 let v1 = h as f32;
                 let mb = builds.entry(codev.0).or_default();
-                let mut lv = codev.1;
-                if let Some(m) = min_light {
-                    lv = lv.max(m);
-                }
+                let lv = apply_min_light(codev.1, min_light);
                 let rgba = [lv, lv, lv, 255];
-                if !pos {
-                    // -X
-                    mb.add_quad(
-                        Vector3::new(fx, fy + v1, fz),
-                        Vector3::new(fx, fy + v1, fz + u1),
-                        Vector3::new(fx, fy, fz + u1),
-                        Vector3::new(fx, fy, fz),
-                        Vector3::new(-1.0, 0.0, 0.0),
-                        u1,
-                        v1,
-                        flip_v[3],
-                        rgba,
-                    );
-                } else {
-                    // +X
-                    mb.add_quad(
-                        Vector3::new(fx, fy + v1, fz + u1),
-                        Vector3::new(fx, fy + v1, fz),
-                        Vector3::new(fx, fy, fz),
-                        Vector3::new(fx, fy, fz + u1),
-                        Vector3::new(1.0, 0.0, 0.0),
-                        u1,
-                        v1,
-                        flip_v[2],
-                        rgba,
-                    );
-                }
+                let face = if pos { 2 } else { 3 };
+                mb.add_face_rect(face, Vector3::new(fx, fy, fz), u1, v1, flip_v[face], rgba);
             });
         }
     }
@@ -215,38 +166,10 @@ where
                 let u1 = w as f32;
                 let v1 = h as f32;
                 let mb = builds.entry(codev.0).or_default();
-                let mut lv = codev.1;
-                if let Some(m) = min_light {
-                    lv = lv.max(m);
-                }
+                let lv = apply_min_light(codev.1, min_light);
                 let rgba = [lv, lv, lv, 255];
-                if !pos {
-                    // -Z
-                    mb.add_quad(
-                        Vector3::new(fx, fy + v1, fz),
-                        Vector3::new(fx + u1, fy + v1, fz),
-                        Vector3::new(fx + u1, fy, fz),
-                        Vector3::new(fx, fy, fz),
-                        Vector3::new(0.0, 0.0, -1.0),
-                        u1,
-                        v1,
-                        flip_v[5],
-                        rgba,
-                    );
-                } else {
-                    // +Z
-                    mb.add_quad(
-                        Vector3::new(fx + u1, fy + v1, fz),
-                        Vector3::new(fx, fy + v1, fz),
-                        Vector3::new(fx, fy, fz),
-                        Vector3::new(fx + u1, fy, fz),
-                        Vector3::new(0.0, 0.0, 1.0),
-                        u1,
-                        v1,
-                        flip_v[4],
-                        rgba,
-                    );
-                }
+                let face = if pos { 4 } else { 5 };
+                mb.add_face_rect(face, Vector3::new(fx, fy, fz), u1, v1, flip_v[face], rgba);
             });
         }
     }

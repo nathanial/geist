@@ -73,6 +73,65 @@ impl MeshBuild {
             (base + 3) as u16,
         ]);
     }
+
+    #[inline]
+    pub(crate) fn add_face_rect(
+        &mut self,
+        face: usize,
+        origin: Vector3,
+        u1: f32,
+        v1: f32,
+        flip_v: bool,
+        rgba: [u8; 4],
+    ) {
+        let n = face_normal(face);
+        let (a, b, c, d) = match face {
+            // +Y: origin=(x,y,z), u is +X, v is +Z
+            0 => (
+                Vector3::new(origin.x, origin.y, origin.z),
+                Vector3::new(origin.x + u1, origin.y, origin.z),
+                Vector3::new(origin.x + u1, origin.y, origin.z + v1),
+                Vector3::new(origin.x, origin.y, origin.z + v1),
+            ),
+            // -Y: origin=(x,y,z), u is +X, v is +Z but flipped on Z
+            1 => (
+                Vector3::new(origin.x, origin.y, origin.z + v1),
+                Vector3::new(origin.x + u1, origin.y, origin.z + v1),
+                Vector3::new(origin.x + u1, origin.y, origin.z),
+                Vector3::new(origin.x, origin.y, origin.z),
+            ),
+            // +X: origin=(x,y,z), u is +Z, v is +Y
+            2 => (
+                Vector3::new(origin.x, origin.y + v1, origin.z + u1),
+                Vector3::new(origin.x, origin.y + v1, origin.z),
+                Vector3::new(origin.x, origin.y, origin.z),
+                Vector3::new(origin.x, origin.y, origin.z + u1),
+            ),
+            // -X: origin=(x,y,z), u is +Z, v is +Y
+            3 => (
+                Vector3::new(origin.x, origin.y + v1, origin.z),
+                Vector3::new(origin.x, origin.y + v1, origin.z + u1),
+                Vector3::new(origin.x, origin.y, origin.z + u1),
+                Vector3::new(origin.x, origin.y, origin.z),
+            ),
+            // +Z: origin=(x,y,z), u is +X, v is +Y
+            4 => (
+                Vector3::new(origin.x + u1, origin.y + v1, origin.z),
+                Vector3::new(origin.x, origin.y + v1, origin.z),
+                Vector3::new(origin.x, origin.y, origin.z),
+                Vector3::new(origin.x + u1, origin.y, origin.z),
+            ),
+            // -Z: origin=(x,y,z), u is +X, v is +Y
+            5 => (
+                Vector3::new(origin.x, origin.y + v1, origin.z),
+                Vector3::new(origin.x + u1, origin.y + v1, origin.z),
+                Vector3::new(origin.x + u1, origin.y, origin.z),
+                Vector3::new(origin.x, origin.y, origin.z),
+            ),
+            _ => unreachable!(),
+        };
+        self.add_quad(a, b, c, d, n, u1, v1, flip_v, rgba);
+    }
 }
 
 #[inline]
@@ -83,17 +142,55 @@ fn unknown_material_id(reg: &BlockRegistry) -> MaterialId {
 #[inline]
 fn registry_material_for(block: Block, face: usize, reg: &BlockRegistry) -> Option<MaterialId> {
     let ty = reg.get(block.id)?;
-    let role = match face {
-        0 => FaceRole::Top,
-        1 => FaceRole::Bottom,
-        _ => FaceRole::Side,
-    };
+    let role = face_to_role(face);
     ty.materials.material_for(role, block.state, ty)
 }
 
 #[inline]
 fn registry_material_for_or_unknown(block: Block, face: usize, reg: &BlockRegistry) -> MaterialId {
     registry_material_for(block, face, reg).unwrap_or_else(|| unknown_material_id(reg))
+}
+
+#[inline]
+fn face_to_role(face: usize) -> FaceRole {
+    match face {
+        0 => FaceRole::Top,
+        1 => FaceRole::Bottom,
+        _ => FaceRole::Side,
+    }
+}
+
+#[inline]
+fn neighbor_delta(face: usize) -> (i32, i32, i32) {
+    match face {
+        0 => (0, 1, 0),   // +Y
+        1 => (0, -1, 0),  // -Y
+        2 => (1, 0, 0),   // +X
+        3 => (-1, 0, 0),  // -X
+        4 => (0, 0, 1),   // +Z
+        5 => (0, 0, -1),  // -Z
+        _ => (0, 0, 0),
+    }
+}
+
+#[inline]
+fn face_normal(face: usize) -> Vector3 {
+    match face {
+        0 => Vector3::new(0.0, 1.0, 0.0),
+        1 => Vector3::new(0.0, -1.0, 0.0),
+        2 => Vector3::new(1.0, 0.0, 0.0),
+        3 => Vector3::new(-1.0, 0.0, 0.0),
+        4 => Vector3::new(0.0, 0.0, 1.0),
+        5 => Vector3::new(0.0, 0.0, -1.0),
+        _ => Vector3::zero(),
+    }
+}
+
+#[inline]
+fn is_full_cube(reg: &BlockRegistry, nb: Block) -> bool {
+    reg.get(nb.id)
+        .map(|t| matches!(t.shape, crate::blocks::Shape::Cube | crate::blocks::Shape::AxisCube { .. }))
+        .unwrap_or(false)
 }
 
 #[inline]
@@ -244,15 +341,8 @@ fn emit_box(
     let gz = base_z + z as i32;
     let here = buf.get_local(x, y, z);
     emit_box_faces(builds, min, max, |face| {
-        let (nx, ny, nz) = match face {
-            0 => (gx, gy + 1, gz),
-            1 => (gx, gy - 1, gz),
-            2 => (gx + 1, gy, gz),
-            3 => (gx - 1, gy, gz),
-            4 => (gx, gy, gz + 1),
-            5 => (gx, gy, gz - 1),
-            _ => unreachable!(),
-        };
+        let (dx, dy, dz) = neighbor_delta(face);
+        let (nx, ny, nz) = (gx + dx, gy + dy, gz + dz);
         if is_occluder(buf, world, edits, neighbors, reg, here, face, nx, ny, nz) {
             return None;
         }
@@ -486,11 +576,7 @@ pub fn build_chunk_greedy_cpu_buf(
                             base_x,
                             base_z,
                             &|face| {
-                                let role = match face {
-                                    0 => FaceRole::Top,
-                                    1 => FaceRole::Bottom,
-                                    _ => FaceRole::Side,
-                                };
+                                let role = face_to_role(face);
                                 ty.materials
                                     .material_for(role, b.state, ty)
                                     .unwrap_or_else(|| unknown_material_id(reg))
@@ -503,15 +589,10 @@ pub fn build_chunk_greedy_cpu_buf(
                         // Visible portion is opposite half along Y
                         let (vis_y0, vis_y1) = if is_top { (fy, fy + 0.5) } else { (fy + 0.5, fy + 1.0) };
                         // Helper to decide if neighbor is a full cube (not special)
-                        let is_full_cube = |nb: Block| -> bool {
-                            reg.get(nb.id)
-                                .map(|t| matches!(t.shape, crate::blocks::Shape::Cube | crate::blocks::Shape::AxisCube { .. }))
-                                .unwrap_or(false)
-                        };
                         // West neighbor (+X face on neighbor)
                         if x > 0 {
                             let nb = buf.get_local(x - 1, y, z);
-                            if is_full_cube(nb) {
+                            if is_full_cube(reg, nb) {
                                 let l0 = light.sample_face_local(x - 1, y, z, 2);
                                 let lv = if !is_top {
                                     let la = if y + 1 < sy { light.sample_face_local(x - 1, y + 1, z, 2) } else { l0 };
@@ -541,7 +622,7 @@ pub fn build_chunk_greedy_cpu_buf(
                         // East neighbor (-X face on neighbor)
                         if x + 1 < sx {
                             let nb = buf.get_local(x + 1, y, z);
-                            if is_full_cube(nb) {
+                            if is_full_cube(reg, nb) {
                                 let l0 = light.sample_face_local(x + 1, y, z, 3);
                                 let lv = if !is_top {
                                     let la = if y + 1 < sy { light.sample_face_local(x + 1, y + 1, z, 3) } else { l0 };
@@ -571,7 +652,7 @@ pub fn build_chunk_greedy_cpu_buf(
                         // North neighbor (+Z face on neighbor)
                         if z > 0 {
                             let nb = buf.get_local(x, y, z - 1);
-                            if is_full_cube(nb) {
+                            if is_full_cube(reg, nb) {
                                 let l0 = light.sample_face_local(x, y, z - 1, 4);
                                 let lv = if !is_top {
                                     let la = if y + 1 < sy { light.sample_face_local(x, y + 1, z - 1, 4) } else { l0 };
@@ -601,7 +682,7 @@ pub fn build_chunk_greedy_cpu_buf(
                         // South neighbor (-Z face on neighbor)
                         if z + 1 < sz {
                             let nb = buf.get_local(x, y, z + 1);
-                            if is_full_cube(nb) {
+                            if is_full_cube(reg, nb) {
                                 let l0 = light.sample_face_local(x, y, z + 1, 5);
                                 let lv = if !is_top {
                                     let la = if y + 1 < sy { light.sample_face_local(x, y + 1, z + 1, 5) } else { l0 };
@@ -642,11 +723,7 @@ pub fn build_chunk_greedy_cpu_buf(
                                 (Vector3::new(fx, fy, fz), Vector3::new(fx + 1.0, fy + 0.5, fz + 1.0))
                             };
                             let face_material = |face: usize| {
-                                let role = match face {
-                                    0 => FaceRole::Top,
-                                    1 => FaceRole::Bottom,
-                                    _ => FaceRole::Side,
-                                };
+                                let role = face_to_role(face);
                                 ty.materials
                                     .material_for(role, b.state, ty)
                                     .unwrap_or_else(|| unknown_material_id(reg))
@@ -714,15 +791,11 @@ pub fn build_chunk_greedy_cpu_buf(
                                 };
                                 l0.max(ladd).max(VISUAL_LIGHT_MIN)
                             }
-                            let is_full_cube = |nb: Block| -> bool {
-                                reg.get(nb.id)
-                                    .map(|t| matches!(t.shape, crate::blocks::Shape::Cube | crate::blocks::Shape::AxisCube { .. }))
-                                    .unwrap_or(false)
-                            };
+                            // Helper to decide if neighbor is a full cube (not special)
                             // West neighbor (+X face on neighbor)
                             if x > 0 {
                                 let nb = buf.get_local(x - 1, y, z);
-                                if is_full_cube(nb) {
+                                if is_full_cube(reg, nb) {
                                     let rgba = {
                                         let lv = sample_lv(&light, x - 1, y, z, 2, draw_top, sy);
                                         [lv, lv, lv, 255]
@@ -760,7 +833,7 @@ pub fn build_chunk_greedy_cpu_buf(
                             // East neighbor (-X face on neighbor)
                             if x + 1 < sx {
                                 let nb = buf.get_local(x + 1, y, z);
-                                if is_full_cube(nb) {
+                                if is_full_cube(reg, nb) {
                                     let rgba = {
                                         let lv = sample_lv(&light, x + 1, y, z, 3, draw_top, sy);
                                         [lv, lv, lv, 255]
@@ -798,7 +871,7 @@ pub fn build_chunk_greedy_cpu_buf(
                             // North neighbor (+Z face on neighbor)
                             if z > 0 {
                                 let nb = buf.get_local(x, y, z - 1);
-                                if is_full_cube(nb) {
+                                if is_full_cube(reg, nb) {
                                     let rgba = {
                                         let lv = sample_lv(&light, x, y, z - 1, 4, draw_top, sy);
                                         [lv, lv, lv, 255]
@@ -836,7 +909,7 @@ pub fn build_chunk_greedy_cpu_buf(
                             // South neighbor (-Z face on neighbor)
                             if z + 1 < sz {
                                 let nb = buf.get_local(x, y, z + 1);
-                                if is_full_cube(nb) {
+                                if is_full_cube(reg, nb) {
                                     let rgba = {
                                         let lv = sample_lv(&light, x, y, z + 1, 5, draw_top, sy);
                                         [lv, lv, lv, 255]
@@ -1037,24 +1110,7 @@ pub struct TextureCache {
 
 // Local-body mesher: emits vertices in local-space [0..sx, 0..sz], no world/lighting deps.
 pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry) -> ChunkMeshCPU {
-    let sx = buf.sx;
-    let sy = buf.sy;
-    let sz = buf.sz;
-
     // Unified path via meshing_core + special-shapes pass to match world mesher
-    #[inline]
-    fn solid_local(buf: &ChunkBuf, x: i32, y: i32, z: i32, reg: &BlockRegistry) -> bool {
-        if x < 0 || y < 0 || z < 0 {
-            return false;
-        }
-        let (xu, yu, zu) = (x as usize, y as usize, z as usize);
-        if xu >= buf.sx || yu >= buf.sy || zu >= buf.sz {
-            return false;
-        }
-        let b = buf.get_local(xu, yu, zu);
-        reg.get(b.id).map(|ty| ty.is_solid(b.state)).unwrap_or(false)
-    }
-
     #[inline]
     fn face_light(face: usize, ambient: u8) -> u8 {
         match face {
@@ -1080,15 +1136,8 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                 _ => {}
             }
         }
-        let (nx, ny, nz) = match face {
-            0 => (x as i32, y as i32 + 1, z as i32),
-            1 => (x as i32, y as i32 - 1, z as i32),
-            2 => (x as i32 + 1, y as i32, z as i32),
-            3 => (x as i32 - 1, y as i32, z as i32),
-            4 => (x as i32, y as i32, z as i32 + 1),
-            5 => (x as i32, y as i32, z as i32 - 1),
-            _ => unreachable!(),
-        };
+        let (dx, dy, dz) = neighbor_delta(face);
+        let (nx, ny, nz) = (x as i32 + dx, y as i32 + dy, z as i32 + dz);
         // Local occlusion: only cull when an in-bounds neighbor truly occludes this face.
         if nx >= 0 && ny >= 0 && nz >= 0 {
             let (xu, yu, zu) = (nx as usize, ny as usize, nz as usize);
@@ -1135,15 +1184,8 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
         let gy = y as i32;
         let gz = z as i32;
         emit_box_faces(builds, min, max, |face| {
-            let (nx, ny, nz) = match face {
-                0 => (gx, gy + 1, gz),
-                1 => (gx, gy - 1, gz),
-                2 => (gx + 1, gy, gz),
-                3 => (gx - 1, gy, gz),
-                4 => (gx, gy, gz + 1),
-                5 => (gx, gy, gz - 1),
-                _ => unreachable!(),
-            };
+            let (dx, dy, dz) = neighbor_delta(face);
+            let (nx, ny, nz) = (gx + dx, gy + dy, gz + dz);
             if occludes_local(buf, nx, ny, nz, face, reg) {
                 return None;
             }
@@ -1173,11 +1215,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             let min = Vector3::new(fx, y0, fz);
                             let max = Vector3::new(fx + 1.0, y1, fz + 1.0);
                             let face_material = |face: usize| {
-                                let role = match face {
-                                    0 => FaceRole::Top,
-                                    1 => FaceRole::Bottom,
-                                    _ => FaceRole::Side,
-                                };
+                                let role = face_to_role(face);
                                 ty.materials
                                     .material_for(role, b.state, ty)
                                     .unwrap_or_else(|| unknown_material_id(reg))
@@ -1186,15 +1224,11 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
 
                             // Restore partial neighbor faces for full-cube neighbors
                             let (vis_y0, vis_y1) = if is_top { (fy, fy + 0.5) } else { (fy + 0.5, fy + 1.0) };
-                            let is_full_cube = |nb: Block| -> bool {
-                                reg.get(nb.id)
-                                    .map(|t| matches!(t.shape, crate::blocks::Shape::Cube | crate::blocks::Shape::AxisCube { .. }))
-                                    .unwrap_or(false)
-                            };
+                            // Helper to decide if neighbor is a full cube (not special)
                             // West neighbor (+X face on neighbor)
                             if x > 0 {
                                 let nb = buf.get_local(x - 1, y, z);
-                                if is_full_cube(nb) {
+                                if is_full_cube(reg, nb) {
                                     let rgba = {
                                         let lv = face_light(2, ambient);
                                         [lv, lv, lv, 255]
@@ -1218,7 +1252,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             // East neighbor (-X face on neighbor)
                             if x + 1 < sx {
                                 let nb = buf.get_local(x + 1, y, z);
-                                if is_full_cube(nb) {
+                                if is_full_cube(reg, nb) {
                                     let rgba = {
                                         let lv = face_light(3, ambient);
                                         [lv, lv, lv, 255]
@@ -1242,7 +1276,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             // North neighbor (+Z face on neighbor)
                             if z > 0 {
                                 let nb = buf.get_local(x, y, z - 1);
-                                if is_full_cube(nb) {
+                                if is_full_cube(reg, nb) {
                                     let rgba = {
                                         let lv = face_light(4, ambient);
                                         [lv, lv, lv, 255]
@@ -1266,7 +1300,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             // South neighbor (-Z face on neighbor)
                             if z + 1 < sz {
                                 let nb = buf.get_local(x, y, z + 1);
-                                if is_full_cube(nb) {
+                                if is_full_cube(reg, nb) {
                                     let rgba = {
                                         let lv = face_light(5, ambient);
                                         [lv, lv, lv, 255]
@@ -1301,11 +1335,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                                 (Vector3::new(fx, fy, fz), Vector3::new(fx + 1.0, fy + 0.5, fz + 1.0))
                             };
                             let face_material = |face: usize| {
-                                let role = match face {
-                                    0 => FaceRole::Top,
-                                    1 => FaceRole::Bottom,
-                                    _ => FaceRole::Side,
-                                };
+                                let role = face_to_role(face);
                                 ty.materials
                                     .material_for(role, b.state, ty)
                                     .unwrap_or_else(|| unknown_material_id(reg))
@@ -1331,15 +1361,11 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             let draw_top = !is_top;
                             let y0 = if is_top { fy + 0.5 } else { fy };
                             let y1 = if is_top { fy + 1.0 } else { fy + 0.5 };
-                            let is_full_cube = |nb: Block| -> bool {
-                                reg.get(nb.id)
-                                    .map(|t| matches!(t.shape, crate::blocks::Shape::Cube | crate::blocks::Shape::AxisCube { .. }))
-                                    .unwrap_or(false)
-                            };
+                            // Helper to decide if neighbor is a full cube (not special)
                             // West neighbor (+X on neighbor)
                             if x > 0 {
                                 let nb = buf.get_local(x - 1, y, z);
-                                if is_full_cube(nb) {
+                                if is_full_cube(reg, nb) {
                                     let rgba = { let lv = face_light(2, ambient); [lv, lv, lv, 255] };
                                     let mid = registry_material_for_or_unknown(nb, 2, reg);
                                     let mb = builds.entry(mid).or_default();
@@ -1374,7 +1400,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             // East neighbor (-X on neighbor)
                             if x + 1 < sx {
                                 let nb = buf.get_local(x + 1, y, z);
-                                if is_full_cube(nb) {
+                                if is_full_cube(reg, nb) {
                                     let rgba = { let lv = face_light(3, ambient); [lv, lv, lv, 255] };
                                     let mid = registry_material_for_or_unknown(nb, 3, reg);
                                     let mb = builds.entry(mid).or_default();
@@ -1409,7 +1435,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             // North neighbor (+Z on neighbor)
                             if z > 0 {
                                 let nb = buf.get_local(x, y, z - 1);
-                                if is_full_cube(nb) {
+                                if is_full_cube(reg, nb) {
                                     let rgba = { let lv = face_light(4, ambient); [lv, lv, lv, 255] };
                                     let mid = registry_material_for_or_unknown(nb, 4, reg);
                                     let mb = builds.entry(mid).or_default();
@@ -1444,7 +1470,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             // South neighbor (-Z on neighbor)
                             if z + 1 < sz {
                                 let nb = buf.get_local(x, y, z + 1);
-                                if is_full_cube(nb) {
+                                if is_full_cube(reg, nb) {
                                     let rgba = { let lv = face_light(5, ambient); [lv, lv, lv, 255] };
                                     let mid = registry_material_for_or_unknown(nb, 5, reg);
                                     let mb = builds.entry(mid).or_default();
