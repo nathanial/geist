@@ -66,10 +66,10 @@ impl MeshBuild {
         }
         // Two triangles: (0,1,2) and (0,2,3)
         self.idx.extend_from_slice(&[
-            (base + 0) as u16,
+            base as u16,
             (base + 1) as u16,
             (base + 2) as u16,
-            (base + 0) as u16,
+            base as u16,
             (base + 2) as u16,
             (base + 3) as u16,
         ]);
@@ -794,7 +794,7 @@ pub fn build_chunk_greedy_cpu_buf(
         ),
     );
     let light_borders = Some(LightBorders::from_grid(&light));
-    return Some((
+    Some((
         ChunkMeshCPU {
             cx,
             cz,
@@ -802,7 +802,7 @@ pub fn build_chunk_greedy_cpu_buf(
             parts: builds,
         },
         light_borders,
-    ));
+    ))
 }
 
 pub fn upload_chunk_mesh(
@@ -944,7 +944,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
     #[inline]
     fn face_light(face: Face, ambient: u8) -> u8 {
         match face {
-            Face::PosY => ambient.saturating_add(40).min(255),
+            Face::PosY => ambient.saturating_add(40),
             Face::NegY => ambient.saturating_sub(60),
             _ => ambient,
         }
@@ -998,6 +998,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
     }
 
     #[inline]
+    #[allow(clippy::too_many_arguments)]
     fn emit_box_local(
         builds: &mut std::collections::HashMap<MaterialId, MeshBuild>,
         buf: &ChunkBuf,

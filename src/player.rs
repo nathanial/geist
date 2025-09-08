@@ -104,6 +104,7 @@ impl Walker {
         moved
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn update_with_sampler<F>(
         &mut self,
         rl: &mut raylib::RaylibHandle,

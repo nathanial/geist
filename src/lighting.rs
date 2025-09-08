@@ -104,6 +104,7 @@ impl LightGrid {
         let mut q: VecDeque<(usize, usize, usize, u8, u8)> = VecDeque::new();
         // q_beacon (beam): (x, y, z, level, direction, straight_cost, turn_cost, vertical_cost)
         // direction: 0=source, 1=+X, 2=-X, 3=+Z, 4=-Z, 5=non-cardinal
+        #[allow(clippy::type_complexity)]
         let mut q_beacon: VecDeque<(usize, usize, usize, u8, u8, u8, u8, u8)> = VecDeque::new();
         for z in 0..sz {
             for y in 0..sy {
@@ -249,7 +250,7 @@ impl LightGrid {
                         .as_ref()
                         .and_then(|p| p.get(y * sz + z).cloned())
                         .unwrap_or(5);
-                    let atten = match dir { 1 | 2 | 3 | 4 => 1, _ => 32 };
+                    let atten = match dir { 1..=4 => 1, _ => 32 };
                     let v = orig_v as i32 - atten;
                     if v > 0 {
                         let v8 = v as u8;
@@ -272,7 +273,7 @@ impl LightGrid {
                         .as_ref()
                         .and_then(|p| p.get(y * sz + z).cloned())
                         .unwrap_or(5);
-                    let atten = match dir { 1 | 2 | 3 | 4 => 1, _ => 32 };
+                    let atten = match dir { 1..=4 => 1, _ => 32 };
                     let v = orig_v as i32 - atten;
                     if v > 0 {
                         let v8 = v as u8;
@@ -296,7 +297,7 @@ impl LightGrid {
                         .as_ref()
                         .and_then(|p| p.get(y * sx + x).cloned())
                         .unwrap_or(5);
-                    let atten = match dir { 1 | 2 | 3 | 4 => 1, _ => 32 };
+                    let atten = match dir { 1..=4 => 1, _ => 32 };
                     let v = orig_v as i32 - atten;
                     if v > 0 {
                         let v8 = v as u8;
@@ -319,7 +320,7 @@ impl LightGrid {
                         .as_ref()
                         .and_then(|p| p.get(y * sx + x).cloned())
                         .unwrap_or(5);
-                    let atten = match dir { 1 | 2 | 3 | 4 => 1, _ => 32 };
+                    let atten = match dir { 1..=4 => 1, _ => 32 };
                     let v = orig_v as i32 - atten;
                     if v > 0 {
                         let v8 = v as u8;
@@ -579,7 +580,7 @@ impl LightGrid {
                 1 => return 0,   // assume dark below
                 2 => {
                     // +X uses xp planes, index by (y,z) in dims sy*sz
-                    let idxp = (y * self.sz + z) as usize;
+                    let idxp = y * self.sz + z;
                     let sky = self
                         .nb_xp_sky
                         .as_ref()
@@ -600,14 +601,14 @@ impl LightGrid {
                         return max_neighbor;
                     }
                     // Fallback: sample our own border cell
-                    let i = self.idx(self.sx - 1, y as usize, z as usize);
+                    let i = self.idx(self.sx - 1, y, z);
                     return self.skylight[i]
                         .max(self.block_light[i])
                         .max(self.beacon_light[i]);
                 }
                 3 => {
                     // -X uses xn planes
-                    let idxp = (y * self.sz + z) as usize;
+                    let idxp = y * self.sz + z;
                     let sky = self
                         .nb_xn_sky
                         .as_ref()
@@ -627,14 +628,14 @@ impl LightGrid {
                     if max_neighbor > 0 {
                         return max_neighbor;
                     }
-                    let i = self.idx(0, y as usize, z as usize);
+                    let i = self.idx(0, y, z);
                     return self.skylight[i]
                         .max(self.block_light[i])
                         .max(self.beacon_light[i]);
                 }
                 4 => {
                     // +Z uses zp planes, index by (y,x) in dims sy*sx
-                    let idxp = (y * self.sx + x) as usize;
+                    let idxp = y * self.sx + x;
                     let sky = self
                         .nb_zp_sky
                         .as_ref()
@@ -654,14 +655,14 @@ impl LightGrid {
                     if max_neighbor > 0 {
                         return max_neighbor;
                     }
-                    let i = self.idx(x as usize, y as usize, self.sz - 1);
+                    let i = self.idx(x, y, self.sz - 1);
                     return self.skylight[i]
                         .max(self.block_light[i])
                         .max(self.beacon_light[i]);
                 }
                 5 => {
                     // -Z uses zn planes
-                    let idxp = (y * self.sx + x) as usize;
+                    let idxp = y * self.sx + x;
                     let sky = self
                         .nb_zn_sky
                         .as_ref()
@@ -681,7 +682,7 @@ impl LightGrid {
                     if max_neighbor > 0 {
                         return max_neighbor;
                     }
-                    let i = self.idx(x as usize, y as usize, 0);
+                    let i = self.idx(x, y, 0);
                     return self.skylight[i]
                         .max(self.block_light[i])
                         .max(self.beacon_light[i]);
@@ -954,7 +955,7 @@ impl LightingStore {
         let lz = wz.rem_euclid(sz) as usize;
         let ly = wy as usize;
         let mut map = self.emitters.lock().unwrap();
-        let v = map.entry((cx, cz)).or_insert_with(Vec::new);
+        let v = map.entry((cx, cz)).or_default();
         if !v
             .iter()
             .any(|&(x, y, z, _, _): &(usize, usize, usize, u8, bool)| x == lx && y == ly && z == lz)

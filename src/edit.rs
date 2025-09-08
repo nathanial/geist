@@ -38,7 +38,7 @@ impl EditStore {
 
     pub fn set(&mut self, wx: i32, wy: i32, wz: i32, b: Block) {
         let k = self.chunk_key(wx, wz);
-        let entry = self.inner.entry(k).or_insert_with(HashMap::new);
+        let entry = self.inner.entry(k).or_default();
         entry.insert((wx, wy, wz), b);
     }
 

@@ -84,7 +84,7 @@ pub fn load_any_schematic_apply_edits(
 ) -> Result<(usize, usize, usize), String> {
     let ext = path
         .extension()
-        .and_then(|e| Some(e.to_string_lossy().to_lowercase()))
+        .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
     if ext == "schem" || ext == "schematic" {
         // Unified config-driven path using mc_schem palette keys + palette_map.toml
@@ -274,10 +274,7 @@ pub fn list_schematics_with_size(dir: &Path) -> Result<Vec<SchematicEntry>, Stri
                     ) {
                         Ok((schem, _meta)) => {
                             let shape = schem.shape();
-                            out.push(SchematicEntry {
-                                path: p,
-                                size: (shape[0] as i32, shape[1] as i32, shape[2] as i32),
-                            });
+                            out.push(SchematicEntry { path: p, size: (shape[0], shape[1], shape[2]) });
                         }
                         Err(e) => return Err(format!("parse schem {:?}: {}", p, e)),
                     }
@@ -288,10 +285,7 @@ pub fn list_schematics_with_size(dir: &Path) -> Result<Vec<SchematicEntry>, Stri
                     ) {
                         Ok((schem, _meta)) => {
                             let shape = schem.shape();
-                            out.push(SchematicEntry {
-                                path: p,
-                                size: (shape[0] as i32, shape[1] as i32, shape[2] as i32),
-                            });
+                            out.push(SchematicEntry { path: p, size: (shape[0], shape[1], shape[2]) });
                         }
                         Err(e) => {
                             log::warn!("parse schem {:?}: {}", p, e);

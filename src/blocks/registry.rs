@@ -303,7 +303,7 @@ impl BlockType {
         let &i = self.prop_index.get(prop)?;
         let f = &self.state_fields[i];
         if f.bits == 0 {
-            return f.values.get(0).map(|s| s.as_str());
+            return f.values.first().map(|s| s.as_str());
         }
         let mask: u32 = if f.bits >= 32 { u32::MAX } else { (1u32 << f.bits) - 1 };
         let idx: usize = (((state as u32) >> f.offset) & mask) as usize;

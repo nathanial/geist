@@ -152,13 +152,13 @@ impl App {
                 }
                 IntentCause::Light => {
                     // Prioritize and gate by distance; skip far lighting rebuilds
-                    let r = self.gs.view_radius_chunks as i32;
+                    let r = self.gs.view_radius_chunks;
                     if dist_bucket as i32 > r + 1 { continue; }
                     if budget_light == 0 { continue; }
                 }
                 IntentCause::StreamLoad | IntentCause::HotReload => {
                     // StreamLoad: only schedule if still desired (within view radius)
-                    let r = self.gs.view_radius_chunks as i32;
+                    let r = self.gs.view_radius_chunks;
                     if !is_loaded && dist_bucket as i32 > r { continue; }
                     // If already loaded, allow HotReload rebuilds only (not implemented here)
                     if is_loaded { /* already loaded; schedule rebuild only if HotReload */ }
@@ -178,9 +178,9 @@ impl App {
             submitted += 1;
             // Consume lane budget
             match ent.cause {
-                IntentCause::Edit => { if budget_edit > 0 { budget_edit -= 1; } }
-                IntentCause::Light => { if budget_light > 0 { budget_light -= 1; } }
-                IntentCause::StreamLoad | IntentCause::HotReload => { if budget_bg > 0 { budget_bg -= 1; } }
+                IntentCause::Edit => { budget_edit = budget_edit.saturating_sub(1); }
+                IntentCause::Light => { budget_light = budget_light.saturating_sub(1); }
+                IntentCause::StreamLoad | IntentCause::HotReload => { budget_bg = budget_bg.saturating_sub(1); }
             }
         }
         // Remove only submitted intents; keep the rest to trickle in subsequent frames
@@ -262,8 +262,9 @@ impl App {
         }
         false
     }
+    #[allow(clippy::too_many_arguments, clippy::type_complexity)]
     pub fn new(
-        mut rl: &mut RaylibHandle,
+        rl: &mut RaylibHandle,
         thread: &RaylibThread,
         world: std::sync::Arc<World>,
         lighting: std::sync::Arc<LightingStore>,
@@ -291,7 +292,7 @@ impl App {
         let cam = crate::camera::FlyCamera::new(spawn + Vector3::new(0.0, 5.0, 20.0));
 
         let runtime = Runtime::new(
-            &mut rl,
+            rl,
             thread,
             world.clone(),
             lighting.clone(),
@@ -528,8 +529,8 @@ impl App {
             h ^= v;
             h = h.wrapping_mul(0x100000001b3);
         };
-        write(cx as u64 as u64);
-        write(cz as u64 as u64);
+        write(cx as u64);
+        write(cz as u64);
         write(rev);
         let mask = (n.neg_x as u64)
             | ((n.pos_x as u64) << 1)
@@ -617,7 +618,7 @@ impl App {
                     let reg = &self.runtime.reg;
                     let sampler = |wx: i32, wy: i32, wz: i32| -> Block {
                         // Check dynamic structures first
-                        for (_id, st) in &self.gs.structures {
+                        for st in self.gs.structures.values() {
                             let local = rotate_yaw_inv(
                                 Vector3::new(wx as f32 + 0.5, wy as f32 + 0.5, wz as f32 + 0.5)
                                     - st.pose.pos,
@@ -1064,7 +1065,7 @@ impl App {
                         local_org,
                         local_dir,
                         8.0 * 32.0,
-                        |x, y, z| is_solid_local(x, y, z),
+                        is_solid_local,
                     ) {
                         let cc_local = Vector3::new(
                             hit.bx as f32 + 0.5,
@@ -1651,7 +1652,7 @@ impl App {
                 fs.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end);
             }
 
-            for (_key, cr) in &self.runtime.renders {
+            for cr in self.runtime.renders.values() {
                 // Check if chunk is within frustum
                 if self.gs.frustum_culling_enabled && !frustum.contains_bounding_box(&cr.bbox) {
                     self.debug_stats.chunks_culled += 1;
@@ -1789,7 +1790,7 @@ impl App {
 
             if self.gs.show_chunk_bounds {
                 let col = Color::new(255, 64, 32, 200);
-                for (_k, cr) in &self.runtime.renders {
+                for cr in self.runtime.renders.values() {
                     let min = cr.bbox.min;
                     let max = cr.bbox.max;
                     let center = Vector3::new(

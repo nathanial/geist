@@ -97,6 +97,7 @@ pub struct StructureJobOut {
 }
 
 impl Runtime {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         rl: &mut raylib::prelude::RaylibHandle,
         thread: &raylib::prelude::RaylibThread,

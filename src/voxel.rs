@@ -79,7 +79,7 @@ impl World {
         let mut warp = FastNoiseLite::with_seed(self.seed ^ 99_173);
         warp.set_noise_type(Some(NoiseType::OpenSimplex2));
         warp.set_frequency(Some(0.012));
-        let mut tunnel = FastNoiseLite::with_seed((self.seed as i32 ^ 41_337) as i32);
+        let mut tunnel = FastNoiseLite::with_seed(self.seed ^ 41_337);
         tunnel.set_noise_type(Some(NoiseType::OpenSimplex2));
         tunnel.set_frequency(Some(0.017));
         let (temp2d, moist2d) = if let Some(ref b) = params.biomes {
@@ -148,10 +148,9 @@ impl World {
             }
         };
         let biome_for = |wx: i32, wz: i32| -> Option<&crate::worldgen::BiomeDefParam> {
-            if ctx.params.biomes.is_none() { return None; }
-            let b = ctx.params.biomes.as_ref().unwrap();
+            let b = ctx.params.biomes.as_ref()?;
             if b.debug_pack_all && !b.defs.is_empty() {
-                let cell = b.debug_cell_size.max(1) as i32;
+                let cell = b.debug_cell_size.max(1);
                 let cx = (wx.div_euclid(cell)) as i64;
                 let cz = (wz.div_euclid(cell)) as i64;
                 let idx = ((cx * 31 + cz * 17).rem_euclid(b.defs.len() as i64)) as usize;
@@ -487,7 +486,7 @@ impl World {
             if surf_block != "grass" { return None; }
             if rand01(tx, tz, 0xA53F9) >= tree_prob { return None; }
             let span = (trunk_max - trunk_min).max(0) as u32;
-            let hsel = hash2(tx, tz, 0x51F0_A7) % (span + 1);
+            let hsel = hash2(tx, tz, 0x0051_F0A7) % (span + 1);
             let th = trunk_min + hsel as i32;
             if surf <= 2 || surf >= (self.chunk_size_y as i32 - 6) { return None; }
             let sp = pick_species(tx, tz);
@@ -496,7 +495,7 @@ impl World {
 
         // Trunk or leaves overrides base at this column
         if let Some((surf, th, sp)) = trunk_at(x, z) {
-            if y >= surf + 1 && y <= surf + th {
+            if y > surf && y <= surf + th {
                 base = match sp {
                     "oak" => "oak_log",
                     "birch" => "birch_log",
@@ -561,14 +560,14 @@ impl World {
         let b = gp.biomes.as_ref()?;
         // Respect debug tiling mode to ensure predictable biome assignment
         if b.debug_pack_all && !b.defs.is_empty() {
-            let cell = b.debug_cell_size.max(1) as i32;
+            let cell = b.debug_cell_size.max(1);
             let cx = (wx.div_euclid(cell)) as i64;
             let cz = (wz.div_euclid(cell)) as i64;
             let idx = ((cx * 31 + cz * 17).rem_euclid(b.defs.len() as i64)) as usize;
             return b.defs.get(idx).cloned();
         }
         // Sample climate noise using configured frequencies and scales
-        let mut t = FastNoiseLite::with_seed((self.seed as i32) ^ 0x1203_5F31);
+        let mut t = FastNoiseLite::with_seed(self.seed ^ 0x1203_5F31);
         t.set_noise_type(Some(NoiseType::OpenSimplex2));
         t.set_frequency(Some(b.temp_freq));
         let mut m = FastNoiseLite::with_seed(((self.seed as u32) ^ 0x92E3_A1B2u32) as i32);

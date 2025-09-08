@@ -14,6 +14,7 @@ pub enum RebuildCause {
     StreamLoad,
 }
 
+#[allow(clippy::large_enum_variant)]
 pub enum Event {
     // Time housekeeping
     #[allow(dead_code)]
@@ -259,7 +260,7 @@ impl EventQueue {
     ) -> (usize, std::collections::BTreeMap<&'static str, usize>) {
         let mut total: usize = 0;
         let mut by: std::collections::BTreeMap<&'static str, usize> = Default::default();
-        for (_tick, q) in &self.by_tick {
+        for q in self.by_tick.values() {
             for env in q {
                 total += 1;
                 let label: &'static str = match &env.kind {
