@@ -67,6 +67,7 @@ impl Face {
 }
 
 /// Ordered list of all faces; useful for compact table iteration.
+#[allow(dead_code)]
 pub const ALL_FACES: [Face; 6] = [
     Face::PosY,
     Face::NegY,

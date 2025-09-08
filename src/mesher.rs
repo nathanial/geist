@@ -1,7 +1,7 @@
 use crate::blocks::{Block, BlockRegistry, MaterialCatalog, MaterialId};
 use crate::chunkbuf::ChunkBuf;
 use crate::lighting::{LightBorders, LightGrid, LightingStore};
-use crate::meshutil::{Face, Facing, SIDE_NEIGHBORS, is_full_cube};
+use crate::meshutil::{Face, SIDE_NEIGHBORS, is_full_cube};
 use crate::microgrid_tables::{empty4_to_rects, occ8_to_boxes};
 use crate::texture_cache::TextureCache;
 use crate::voxel::World;
@@ -137,12 +137,6 @@ impl MeshBuild {
 #[inline]
 fn unknown_material_id(reg: &BlockRegistry) -> MaterialId {
     reg.materials.get_id("unknown").unwrap_or(MaterialId(0))
-}
-
-#[inline]
-fn registry_material_for(block: Block, face: Face, reg: &BlockRegistry) -> Option<MaterialId> {
-    reg.get(block.id)
-        .map(|ty| ty.material_for_cached(face.role(), block.state))
 }
 
 #[inline]
@@ -450,33 +444,7 @@ fn micro_bit(x: usize, y: usize, z: usize) -> u8 {
     1u8 << (((y & 1) << 2) | ((z & 1) << 1) | (x & 1))
 }
 
-#[inline]
-fn micro_occupancy_slab(is_top: bool) -> u8 {
-    // Fill top or bottom y-layer fully (4 cells)
-    let y = if is_top { 1 } else { 0 };
-    micro_bit(0, y, 0)
-        | micro_bit(1, y, 0)
-        | micro_bit(0, y, 1)
-        | micro_bit(1, y, 1)
-}
-
-#[inline]
-fn micro_occupancy_stairs(facing: Facing, is_top: bool) -> u8 {
-    // Major half-slab on chosen y, plus riser on opposite y occupying a half-plane along facing.
-    let y_major = if is_top { 1 } else { 0 };
-    let y_minor = 1 - y_major;
-    let full_layer = micro_bit(0, y_major, 0)
-        | micro_bit(1, y_major, 0)
-        | micro_bit(0, y_major, 1)
-        | micro_bit(1, y_major, 1);
-    let half_minor = match facing {
-        Facing::North => micro_bit(0, y_minor, 0) | micro_bit(1, y_minor, 0),
-        Facing::South => micro_bit(0, y_minor, 1) | micro_bit(1, y_minor, 1),
-        Facing::West => micro_bit(0, y_minor, 0) | micro_bit(0, y_minor, 1),
-        Facing::East => micro_bit(1, y_minor, 0) | micro_bit(1, y_minor, 1),
-    };
-    full_layer | half_minor
-}
+// micro_occupancy_* moved to registry precompute (ShapeVariant)
 
 #[inline]
 fn microgrid_boxes(fx: f32, fy: f32, fz: f32, occ: u8) -> Vec<(Vector3, Vector3)> {
@@ -629,13 +597,10 @@ pub fn build_chunk_greedy_cpu_buf(
             if !is_solid_runtime(here, reg) {
                 return None;
             }
-            // Skip non-cubic special shapes here; they are handled in a dedicated pass below.
+            // Skip micro-grid shapes; they are handled in a dedicated pass.
             if let Some(ty) = reg.get(here.id) {
-                match ty.shape {
-                    crate::blocks::Shape::Slab { .. } | crate::blocks::Shape::Stairs { .. } => {
-                        return None;
-                    }
-                    _ => {}
+                if ty.variant(here.state).occupancy.is_some() {
+                    return None;
                 }
             }
             let gx = base_x + x as i32;
@@ -920,11 +885,8 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                 return None;
             }
             if let Some(ty) = reg.get(here.id) {
-                match ty.shape {
-                    crate::blocks::Shape::Slab { .. } | crate::blocks::Shape::Stairs { .. } => {
-                        return None;
-                    }
-                    _ => {}
+                if ty.variant(here.state).occupancy.is_some() {
+                    return None;
                 }
             }
             let (dx, dy, dz) = face.delta();
