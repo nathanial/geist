@@ -147,14 +147,12 @@ impl LightGrid {
                             .unwrap_or((1, 32, 32));
                         q_beacon.push_back((x, y, z, level, 0, sc, tc, vc));
                     }
-                } else {
-                    if lg.block_light[idx] < level {
-                        lg.block_light[idx] = level;
-                        // Pull attenuation from the block type if present, else default
-                        let b = buf.get_local(x, y, z);
-                        let att = reg.get(b.id).map(|ty| ty.omni_attenuation()).unwrap_or(32);
-                        q.push_back((x, y, z, level, att));
-                    }
+                } else if lg.block_light[idx] < level {
+                    lg.block_light[idx] = level;
+                    // Pull attenuation from the block type if present, else default
+                    let b = buf.get_local(x, y, z);
+                    let att = reg.get(b.id).map(|ty| ty.omni_attenuation()).unwrap_or(32);
+                    q.push_back((x, y, z, level, att));
                 }
             }
         }

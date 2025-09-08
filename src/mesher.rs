@@ -180,9 +180,7 @@ fn sample_neighbor_half_light(
     let l0 = light.sample_face_local(x, y, z, face.index());
     let ladd = if draw_top_half {
         if y + 1 < sy { light.sample_face_local(x, y + 1, z, face.index()) } else { l0 }
-    } else {
-        if y > 0 { light.sample_face_local(x, y - 1, z, face.index()) } else { l0 }
-    };
+    } else if y > 0 { light.sample_face_local(x, y - 1, z, face.index()) } else { l0 };
     l0.max(ladd).max(VISUAL_LIGHT_MIN)
 }
 
@@ -540,8 +538,7 @@ pub fn build_chunk_greedy_cpu_buf(
             }
             // Resolve material via registry; fallback to unknown when unmapped
             let mut l = light.sample_face_local(x, y, z, face.index());
-            if matches!(face, Face::PosY) {
-                if buf.contains_world(nx, ny, nz) && ny >= 0 && (ny as usize) < sy {
+            if matches!(face, Face::PosY) && buf.contains_world(nx, ny, nz) && ny >= 0 && (ny as usize) < sy {
                     let lx = (nx - base_x) as usize;
                     let ly = ny as usize;
                     let lz = (nz - base_z) as usize;
@@ -554,7 +551,6 @@ pub fn build_chunk_greedy_cpu_buf(
                         .max(light.sample_face_local(x, y, z, Face::NegZ.index()));
                     l = l.max(l2);
             }
-                }
             }
             let mid = registry_material_for_or_unknown(here, face, reg);
             Some((mid, l))

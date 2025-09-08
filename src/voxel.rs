@@ -76,14 +76,14 @@ impl World {
         let mut terrain = FastNoiseLite::with_seed(self.seed);
         terrain.set_noise_type(Some(NoiseType::OpenSimplex2));
         terrain.set_frequency(Some(params.height_frequency));
-        let mut warp = FastNoiseLite::with_seed((self.seed as i32 ^ 991_73) as i32);
+        let mut warp = FastNoiseLite::with_seed(self.seed ^ 99_173);
         warp.set_noise_type(Some(NoiseType::OpenSimplex2));
         warp.set_frequency(Some(0.012));
         let mut tunnel = FastNoiseLite::with_seed((self.seed as i32 ^ 41_337) as i32);
         tunnel.set_noise_type(Some(NoiseType::OpenSimplex2));
         tunnel.set_frequency(Some(0.017));
         let (temp2d, moist2d) = if let Some(ref b) = params.biomes {
-            let mut t = FastNoiseLite::with_seed((self.seed as i32) ^ 0x1203_5F31);
+            let mut t = FastNoiseLite::with_seed(self.seed ^ 0x1203_5F31);
             t.set_noise_type(Some(NoiseType::OpenSimplex2));
             t.set_frequency(Some(b.temp_freq));
             let mut m = FastNoiseLite::with_seed(((self.seed as u32) ^ 0x92E3_A1B2u32) as i32);
@@ -289,8 +289,7 @@ impl World {
 
                 let tn = fractal3(&ctx.tunnel, xp, yp * y_scale, zp, &ctx.params.tunnel);
                 let mut depth = soil / (self.chunk_size_y as f32);
-                if depth < 0.0 { depth = 0.0; }
-                if depth > 1.0 { depth = 1.0; }
+                depth = depth.clamp(0.0, 1.0);
                 let eps = eps_base + eps_add * depth;
                 let carve_tn = tn.abs() < eps;
                 let wn = worley3_f1_norm(xp, yp, zp, room_cell);
@@ -373,11 +372,12 @@ impl World {
                     let nxp = wxn + wxw_n * warp_xy; let nyp = wyn + wyw_n * warp_y; let nzp = wzn + wzw_n * warp_xy;
                     let tn_n = fractal3(&ctx.tunnel, nxp, nyp * y_scale, nzp, &ctx.params.tunnel);
                     let nsoil = nh as f32 - wyn; let mut n_depth = nsoil / (self.chunk_size_y as f32);
-                    if n_depth < 0.0 { n_depth = 0.0; } if n_depth > 1.0 { n_depth = 1.0; }
+                    n_depth = n_depth.clamp(0.0, 1.0);
                     let eps_n = eps_base + eps_add * n_depth;
                     let wn_n = worley3_f1_norm(nxp, nyp, nzp, room_cell);
                     let room_thr_n = room_thr_base + room_thr_add * n_depth;
-                    let neighbor_carved_air = (nsoil > soil_min && wyn > min_y) && (tn_n.abs() < eps_n || wn_n < room_thr_n);
+                    let neighbor_carved_air = (nsoil > soil_min && wyn > min_y)
+                        && (tn_n.abs() < eps_n || wn_n < room_thr_n);
                     if !neighbor_carved_air { near_solid = true; break; }
                 }
                 near_solid_cache = Some(near_solid);
@@ -411,18 +411,18 @@ impl World {
         let tree_prob_for = |wx: i32, wz: i32| -> f32 {
             if let Some(ref b) = ctx.params.biomes {
                 if b.debug_pack_all && !b.defs.is_empty() {
-                    let cell = b.debug_cell_size.max(1) as i32;
+                    let cell = b.debug_cell_size.max(1);
                     let cx = (wx.div_euclid(cell)) as i64;
                     let cz = (wz.div_euclid(cell)) as i64;
                     let idx = ((cx * 31 + cz * 17).rem_euclid(b.defs.len() as i64)) as usize;
-                    if let Some(def) = b.defs.get(idx) { if let Some(d)=def.tree_density { return d.max(0.0).min(1.0); } }
+                    if let Some(def) = b.defs.get(idx) { if let Some(d)=def.tree_density { return d.clamp(0.0, 1.0); } }
                 } else if let (Some(tn), Some(mn)) = (&ctx.temp2d, &ctx.moist2d) {
                     let sx = if b.scale_x == 0.0 { 1.0 } else { b.scale_x };
                     let sz = if b.scale_z == 0.0 { 1.0 } else { b.scale_z };
                     let x = wx as f32 * sx; let z = wz as f32 * sz;
                     let tt = ((tn.get_noise_2d(x, z) + 1.0) * 0.5).clamp(0.0, 1.0);
                     let mm = ((mn.get_noise_2d(x, z) + 1.0) * 0.5).clamp(0.0, 1.0);
-                    for def in &b.defs { if tt >= def.temp_min && tt < def.temp_max && mm >= def.moisture_min && mm < def.moisture_max { if let Some(d)=def.tree_density { return d.max(0.0).min(1.0); } break; } }
+                    for def in &b.defs { if tt >= def.temp_min && tt < def.temp_max && mm >= def.moisture_min && mm < def.moisture_max { if let Some(d)=def.tree_density { return d.clamp(0.0, 1.0); } break; } }
                 }
             }
             ctx.params.tree_probability
@@ -451,7 +451,7 @@ impl World {
             if let Some(def) = biome_for(tx, tz) {
                 if !def.species_weights.is_empty() {
                     let mut total = 0.0_f32;
-                    for (_k, w) in &def.species_weights { total += *w; }
+                    for w in def.species_weights.values() { total += *w; }
                     if total > 0.0 {
                         let r = rand01(tx, tz, 0xA11CE) * total;
                         let mut acc = 0.0_f32;
@@ -514,7 +514,7 @@ impl World {
                     if let Some((surf, th, sp)) = trunk_at(tx, tz) {
                         let top_y = surf + th;
                         let dy = y - top_y;
-                        if dy < -2 || dy > 2 { continue; }
+                        if !(-2..=2).contains(&dy) { continue; }
                         let rad = if dy <= -2 || dy >= 2 { leaf_r - 1 } else { leaf_r };
                         let dx = x - tx; let dz = z - tz;
                         if dx == 0 && dz == 0 && dy >= 0 { continue; }

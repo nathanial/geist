@@ -152,16 +152,14 @@ where
                 t = tmz;
                 tmz += tdz;
             }
+        } else if tmy < tmz {
+            vy += stepy;
+            t = tmy;
+            tmy += tdy;
         } else {
-            if tmy < tmz {
-                vy += stepy;
-                t = tmy;
-                tmy += tdy;
-            } else {
-                vz += stepz;
-                t = tmz;
-                tmz += tdz;
-            }
+            vz += stepz;
+            t = tmz;
+            tmz += tdz;
         }
     }
     None

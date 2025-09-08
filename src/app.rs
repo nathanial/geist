@@ -159,9 +159,7 @@ impl App {
                 IntentCause::StreamLoad | IntentCause::HotReload => {
                     // StreamLoad: only schedule if still desired (within view radius)
                     let r = self.gs.view_radius_chunks as i32;
-                    if !is_loaded {
-                        if dist_bucket as i32 > r { continue; }
-                    }
+                    if !is_loaded && dist_bucket as i32 > r { continue; }
                     // If already loaded, allow HotReload rebuilds only (not implemented here)
                     if is_loaded { /* already loaded; schedule rebuild only if HotReload */ }
                     if budget_bg == 0 { continue; }

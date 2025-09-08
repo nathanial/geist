@@ -122,17 +122,12 @@ impl Default for RunArgs {
     }
 }
 
-#[derive(Clone, Debug, ValueEnum)]
+#[derive(Clone, Debug, ValueEnum, Default)]
 enum WorldKind {
+    #[default]
     Normal,
     Flat,
     SchemOnly,
-}
-
-impl Default for WorldKind {
-    fn default() -> Self {
-        WorldKind::Normal
-    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -240,7 +235,6 @@ fn main() {
                     }
                 }
             }
-            return;
         }
         Command::Run(run) => run_app(run),
     }
