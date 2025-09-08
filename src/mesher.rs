@@ -701,11 +701,98 @@ pub fn build_chunk_greedy_cpu_buf(
                                 max,
                                 &face_material,
                                 |face| {
+                                    // Micro-accurate occlusion against neighbor occupancy or full cubes
                                     let (dx, dy, dz) = face.delta();
                                     let (nx, ny, nz) = (gx + dx, gy + dy, gz + dz);
-                                    is_occluder(
-                                        buf, world, edits, neighbors, reg, here, face, nx, ny, nz,
-                                    )
+                                    // Resolve neighbor block with neighbor-loaded guard across chunk borders
+                                    let mut neighbor_loaded = true;
+                                    if !buf.contains_world(nx, ny, nz) {
+                                        neighbor_loaded = match (dx, dy, dz) {
+                                            (-1, 0, 0) => neighbors.neg_x,
+                                            (1, 0, 0) => neighbors.pos_x,
+                                            (0, 0, -1) => neighbors.neg_z,
+                                            (0, 0, 1) => neighbors.pos_z,
+                                            _ => true,
+                                        };
+                                    }
+                                    if !neighbor_loaded {
+                                        return false;
+                                    }
+                                    let nb = if buf.contains_world(nx, ny, nz) {
+                                        let lx = (nx - base_x) as usize;
+                                        let ly = ny as usize;
+                                        let lz = (nz - base_z) as usize;
+                                        buf.get_local(lx, ly, lz)
+                                    } else {
+                                        if let Some(es) = edits {
+                                            es.get(&(nx, ny, nz)).copied().unwrap_or_else(|| {
+                                                world.block_at_runtime(reg, nx, ny, nz)
+                                            })
+                                        } else {
+                                            world.block_at_runtime(reg, nx, ny, nz)
+                                        }
+                                    };
+                                    // Seam policy: don't occlude with same ID if configured
+                                    if let (Some(h), Some(nbt)) = (reg.get(here.id), reg.get(nb.id)) {
+                                        if h.seam.dont_occlude_same && here.id == nb.id {
+                                            return false;
+                                        }
+                                        // Full cubes occlude fully
+                                        if matches!(nbt.shape, Shape::Cube | Shape::AxisCube { .. }) && nbt.is_solid(nb.state) {
+                                            return true;
+                                        }
+                                        // Micro-grid neighbor: occlude only if neighbor occupancy fully covers this face area
+                                        if let Some(nb_occ) = nbt.variant(nb.state).occupancy {
+                                            // Compute local [0,2] micro ranges on the face plane
+                                            let mut range_uv = |a0: f32, a1: f32| -> (usize, usize) {
+                                                let r0 = a0.max(0.0).min(1.0);
+                                                let r1 = a1.max(0.0).min(1.0);
+                                                let s = if (r0 - 0.0).abs() < 1e-4 { 0 } else { 1 };
+                                                let e = if (r1 - 1.0).abs() < 1e-4 { 2 } else { 1 };
+                                                (s, e)
+                                            };
+                                            let fully = match face {
+                                                Face::PosX => {
+                                                    let (ys, ye) = range_uv(min.y - fy, max.y - fy);
+                                                    let (zs, ze) = range_uv(min.z - fz, max.z - fz);
+                                                    let bx = 0usize; // neighbor's x micro on boundary
+                                                    (ys..ye).all(|ly| (zs..ze).all(|lz| (nb_occ & micro_bit(bx, ly, lz)) != 0))
+                                                }
+                                                Face::NegX => {
+                                                    let (ys, ye) = range_uv(min.y - fy, max.y - fy);
+                                                    let (zs, ze) = range_uv(min.z - fz, max.z - fz);
+                                                    let bx = 1usize;
+                                                    (ys..ye).all(|ly| (zs..ze).all(|lz| (nb_occ & micro_bit(bx, ly, lz)) != 0))
+                                                }
+                                                Face::PosZ => {
+                                                    let (ys, ye) = range_uv(min.y - fy, max.y - fy);
+                                                    let (xs, xe) = range_uv(min.x - fx, max.x - fx);
+                                                    let bz = 0usize;
+                                                    (ys..ye).all(|ly| (xs..xe).all(|lx| (nb_occ & micro_bit(lx, ly, bz)) != 0))
+                                                }
+                                                Face::NegZ => {
+                                                    let (ys, ye) = range_uv(min.y - fy, max.y - fy);
+                                                    let (xs, xe) = range_uv(min.x - fx, max.x - fx);
+                                                    let bz = 1usize;
+                                                    (ys..ye).all(|ly| (xs..xe).all(|lx| (nb_occ & micro_bit(lx, ly, bz)) != 0))
+                                                }
+                                                Face::PosY => {
+                                                    let (zs, ze) = range_uv(min.z - fz, max.z - fz);
+                                                    let (xs, xe) = range_uv(min.x - fx, max.x - fx);
+                                                    let by = 0usize;
+                                                    (zs..ze).all(|lz| (xs..xe).all(|lx| (nb_occ & micro_bit(lx, by, lz)) != 0))
+                                                }
+                                                Face::NegY => {
+                                                    let (zs, ze) = range_uv(min.z - fz, max.z - fz);
+                                                    let (xs, xe) = range_uv(min.x - fx, max.x - fx);
+                                                    let by = 1usize;
+                                                    (zs..ze).all(|lz| (xs..xe).all(|lx| (nb_occ & micro_bit(lx, by, lz)) != 0))
+                                                }
+                                            };
+                                            if fully { return true; }
+                                        }
+                                    }
+                                    false
                                 },
                                 |face| {
                                     let lv = light.sample_face_local(x, y, z, face.index());
@@ -1301,17 +1388,79 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                         let fz = z as f32;
                         let face_material = |face: Face| ty.material_for_cached(face.role(), b.state);
                         for (min, max) in microgrid_boxes(fx, fy, fz, occ) {
-                            emit_box_local(
+                            // Custom micro-accurate occlusion closure
+                            let occludes = |face: Face| {
+                                let (dx, dy, dz) = face.delta();
+                                let (nx, ny, nz) = (x as i32 + dx, y as i32 + dy, z as i32 + dz);
+                                if nx < 0 || ny < 0 || nz < 0 { return false; }
+                                let (xu, yu, zu) = (nx as usize, ny as usize, nz as usize);
+                                if xu >= buf.sx || yu >= buf.sy || zu >= buf.sz { return false; }
+                                let nb = buf.get_local(xu, yu, zu);
+                                if let (Some(h), Some(nbt)) = (reg.get(b.id), reg.get(nb.id)) {
+                                    if h.seam.dont_occlude_same && b.id == nb.id { return false; }
+                                    if matches!(nbt.shape, Shape::Cube | Shape::AxisCube { .. }) && nbt.is_solid(nb.state) { return true; }
+                                    if let Some(nb_occ) = nbt.variant(nb.state).occupancy {
+                                        let mut range_uv = |a0: f32, a1: f32| -> (usize, usize) {
+                                            let r0 = a0.max(0.0).min(1.0);
+                                            let r1 = a1.max(0.0).min(1.0);
+                                            let s = if (r0 - 0.0).abs() < 1e-4 { 0 } else { 1 };
+                                            let e = if (r1 - 1.0).abs() < 1e-4 { 2 } else { 1 };
+                                            (s, e)
+                                        };
+                                        let fully = match face {
+                                            Face::PosX => {
+                                                let (ys, ye) = range_uv(min.y - fy, max.y - fy);
+                                                let (zs, ze) = range_uv(min.z - fz, max.z - fz);
+                                                let bx = 0usize;
+                                                (ys..ye).all(|ly| (zs..ze).all(|lz| (nb_occ & micro_bit(bx, ly, lz)) != 0))
+                                            }
+                                            Face::NegX => {
+                                                let (ys, ye) = range_uv(min.y - fy, max.y - fy);
+                                                let (zs, ze) = range_uv(min.z - fz, max.z - fz);
+                                                let bx = 1usize;
+                                                (ys..ye).all(|ly| (zs..ze).all(|lz| (nb_occ & micro_bit(bx, ly, lz)) != 0))
+                                            }
+                                            Face::PosZ => {
+                                                let (ys, ye) = range_uv(min.y - fy, max.y - fy);
+                                                let (xs, xe) = range_uv(min.x - fx, max.x - fx);
+                                                let bz = 0usize;
+                                                (ys..ye).all(|ly| (xs..xe).all(|lx| (nb_occ & micro_bit(lx, ly, bz)) != 0))
+                                            }
+                                            Face::NegZ => {
+                                                let (ys, ye) = range_uv(min.y - fy, max.y - fy);
+                                                let (xs, xe) = range_uv(min.x - fx, max.x - fx);
+                                                let bz = 1usize;
+                                                (ys..ye).all(|ly| (xs..xe).all(|lx| (nb_occ & micro_bit(lx, ly, bz)) != 0))
+                                            }
+                                            Face::PosY => {
+                                                let (zs, ze) = range_uv(min.z - fz, max.z - fz);
+                                                let (xs, xe) = range_uv(min.x - fx, max.x - fx);
+                                                let by = 0usize;
+                                                (zs..ze).all(|lz| (xs..xe).all(|lx| (nb_occ & micro_bit(lx, by, lz)) != 0))
+                                            }
+                                            Face::NegY => {
+                                                let (zs, ze) = range_uv(min.z - fz, max.z - fz);
+                                                let (xs, xe) = range_uv(min.x - fx, max.x - fx);
+                                                let by = 1usize;
+                                                (zs..ze).all(|lz| (xs..xe).all(|lx| (nb_occ & micro_bit(lx, by, lz)) != 0))
+                                            }
+                                        };
+                                        if fully { return true; }
+                                    }
+                                }
+                                false
+                            };
+                            emit_box_faces(
                                 &mut builds,
-                                buf,
-                                reg,
-                                x,
-                                y,
-                                z,
-                                &face_material,
                                 min,
                                 max,
-                                ambient,
+                                |face| {
+                                    if occludes(face) { return None; }
+                                    let lv = face_light(face, ambient);
+                                    let rgba = [lv, lv, lv, 255];
+                                    let mid = face_material(face);
+                                    Some((mid, rgba))
+                                },
                             );
                         }
 
