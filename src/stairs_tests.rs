@@ -95,6 +95,55 @@ fn count_up_quads_at_y(
     total
 }
 
+fn has_vertical_half_face_posx(
+    parts: &std::collections::HashMap<crate::blocks::types::MaterialId, crate::mesher::MeshBuild>,
+    min: Vector3,
+    max: Vector3,
+    y_base: f32,
+) -> bool {
+    let eps = 1e-4f32;
+    for (_mid, mb) in parts.iter() {
+        let pos = mb.positions();
+        let nor = mb.normals();
+        let verts = pos.len() / 3;
+        if verts == 0 { continue; }
+        let quads = verts / 4;
+        for i in 0..quads {
+            let pbase = i * 12; // 4 verts * 3 comps
+            let nbase = i * 12;
+            // normal must be +X
+            let nx = nor[nbase + 0];
+            let ny = nor[nbase + 1];
+            let nz = nor[nbase + 2];
+            if (nx - 1.0).abs() > 1e-5 || ny.abs() > 1e-5 || nz.abs() > 1e-5 { continue; }
+            // All 4 verts inside the block bounds
+            let mut inside = true;
+            let mut miny = f32::INFINITY;
+            let mut maxy = -f32::INFINITY;
+            let mut minz = f32::INFINITY;
+            let mut maxz = -f32::INFINITY;
+            for v in 0..4 {
+                let x = pos[pbase + v * 3 + 0];
+                let y = pos[pbase + v * 3 + 1];
+                let z = pos[pbase + v * 3 + 2];
+                if x < min.x - eps || x > max.x + eps || y < min.y - eps || y > max.y + eps || z < min.z - eps || z > max.z + eps {
+                    inside = false; break;
+                }
+                miny = miny.min(y); maxy = maxy.max(y);
+                minz = minz.min(z); maxz = maxz.max(z);
+            }
+            if !inside { continue; }
+            // Expect vertical span from y+0.5 to y+1.0 and full z span
+            if (miny - (y_base + 0.5)).abs() < 1e-4 && (maxy - (y_base + 1.0)).abs() < 1e-4 {
+                if (minz - min.z).abs() < 1e-4 && (maxz - max.z).abs() < 1e-4 {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 fn build_chunk_with_stairs_cluster(
     reg: &BlockRegistry,
 ) -> (ChunkBuf, World, i32, i32, i32, Vec<(i32, i32, Block)>) {
@@ -172,4 +221,74 @@ fn stair_singles_have_two_up_faces() {
         let up = count_quads_in_box_with_normal(&cpu.parts, min, max, Vector3::new(0.0, 1.0, 0.0));
         assert!(up >= 2, "single stair at ({},{}) expected at least 2 +Y faces, got {}", wx, wz, up);
     }
+}
+
+#[test]
+fn stair_inline_bottom_east_pair_has_riser_on_left() {
+    let reg = reg();
+    let (buf, world, _sx, _sz, y, positions) = build_chunk_with_stairs_cluster(&reg);
+    let store = LightingStore::new(buf.sx, buf.sy, buf.sz);
+    let neighbors = NeighborsLoaded::default();
+    let (cpu, _lb) = build_chunk_greedy_cpu_buf(&buf, Some(&store), &world, None, neighbors, 0, 0, &reg).expect("mesh");
+    // Find two bottom-east stairs sharing z and x+1
+    for (wx, wz, b) in positions.iter().copied() {
+        let ty = reg.get(b.id).unwrap();
+        if ty.name != "stairs" { continue; }
+        if !ty.state_prop_is_value(b.state, "half", "bottom") { continue; }
+        if !ty.state_prop_is_value(b.state, "facing", "east") { continue; }
+        let left_x = wx;
+        let right_x = wx + 1;
+        // Check if right neighbor is also bottom-east
+        let right = positions.iter().find(|(x2, z2, b2)| {
+            *z2 == wz && *x2 == right_x && {
+                let t2 = reg.get(b2.id).unwrap();
+                t2.name == "stairs" && t2.state_prop_is_value(b2.state, "half", "bottom") && t2.state_prop_is_value(b2.state, "facing", "east")
+            }
+        });
+        if right.is_none() { continue; }
+        // Assert left block has a vertical +X half-face (riser) from y+0.5..y+1.0 across full z span
+        let min = Vector3::new(left_x as f32, y as f32, wz as f32);
+        let max = Vector3::new(left_x as f32 + 1.0, y as f32 + 1.0, wz as f32 + 1.0);
+        assert!(
+            has_vertical_half_face_posx(&cpu.parts, min, max, y as f32),
+            "left stair at ({},{}) missing vertical riser on +X",
+            left_x, wz
+        );
+        return; // only need to validate one such pair
+    }
+    panic!("no inline bottom-east pair found in cluster");
+}
+
+#[test]
+fn stair_inline_bottom_east_vs_bottom_west_has_no_riser_on_left() {
+    let reg = reg();
+    let (buf, world, _sx, _sz, y, positions) = build_chunk_with_stairs_cluster(&reg);
+    let store = LightingStore::new(buf.sx, buf.sy, buf.sz);
+    let neighbors = NeighborsLoaded::default();
+    let (cpu, _lb) = build_chunk_greedy_cpu_buf(&buf, Some(&store), &world, None, neighbors, 0, 0, &reg).expect("mesh");
+    // Find left bottom-east with right neighbor bottom-west
+    for (wx, wz, b) in positions.iter().copied() {
+        let ty = reg.get(b.id).unwrap();
+        if ty.name != "stairs" { continue; }
+        if !ty.state_prop_is_value(b.state, "half", "bottom") { continue; }
+        if !ty.state_prop_is_value(b.state, "facing", "east") { continue; }
+        let left_x = wx;
+        let right_x = wx + 1;
+        let right = positions.iter().find(|(x2, z2, b2)| {
+            *z2 == wz && *x2 == right_x && {
+                let t2 = reg.get(b2.id).unwrap();
+                t2.name == "stairs" && t2.state_prop_is_value(b2.state, "half", "bottom") && t2.state_prop_is_value(b2.state, "facing", "west")
+            }
+        });
+        if right.is_none() { continue; }
+        let min = Vector3::new(left_x as f32, y as f32, wz as f32);
+        let max = Vector3::new(left_x as f32 + 1.0, y as f32 + 1.0, wz as f32 + 1.0);
+        assert!(
+            !has_vertical_half_face_posx(&cpu.parts, min, max, y as f32),
+            "left stair at ({},{}) should not have vertical riser on +X against bottom-west",
+            left_x, wz
+        );
+        return;
+    }
+    panic!("no bottom-east vs bottom-west pair found in cluster");
 }
