@@ -9,7 +9,7 @@ use super::config::{
 };
 use super::material::MaterialCatalog;
 use super::types::{Block, BlockId, BlockState, FaceRole, MaterialId, Shape};
-use crate::meshutil::{Face, Facing};
+use crate::mesher::{Face, Facing};
 
 #[derive(Clone, Debug)]
 pub struct BlockType {
