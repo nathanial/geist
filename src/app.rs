@@ -85,9 +85,8 @@ impl App {
             let (cx, cz) = key;
             let dx = cx - ccx;
             let dz = cz - ccz;
-            let d2 = (dx as i32).saturating_mul(dx as i32) + (dz as i32).saturating_mul(dz as i32);
-            // Distance buckets in chunk units (0: <=1, 1: <=4, 2: else)
-            let dist_bucket: u32 = if d2 <= 1 { 0 } else if d2 <= 4 { 1 } else { 2 };
+            // Chebyshev radius (ring distance) in chunk units for granular rings
+            let dist_bucket: u32 = dx.abs().max(dz.abs()) as u32;
             // Age: older gets a small boost (negative weight)
             let age = now.saturating_sub(ent.last_tick);
             let age_boost: i32 = if age > 180 { -2 } else if age > 60 { -1 } else { 0 }; // ~1-3 seconds at 60Hz
