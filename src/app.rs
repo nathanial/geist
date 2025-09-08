@@ -14,6 +14,11 @@ use crate::blocks::Block;
 use crate::voxel::World;
 use serde::Deserialize;
 
+// Scheduling/queue tuning knobs
+// Increase per-frame submissions and per-lane queue headroom so workers stay busier.
+const JOB_FRAME_CAP_MULT: usize = 4; // was 2
+const LANE_QUEUE_EXTRA: usize = 3;   // was 1 (target = workers + extra)
+
 #[derive(Deserialize)]
 struct HotbarConfig { items: Vec<String> }
 
@@ -100,18 +105,18 @@ impl App {
                 .then(a.3.cmp(&b.3))
         });
 
-        // Cap submissions per frame
+        // Cap submissions per frame (larger multiplier keeps queues primed)
         let worker_n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8);
-        let cap = (worker_n * 2).max(8); // allow some burst but bounded
+        let cap = (worker_n * JOB_FRAME_CAP_MULT).max(8);
         let mut submitted = 0usize;
         let mut submitted_keys: Vec<(i32,i32)> = Vec::new();
 
         // Backpressure budgets per lane (avoid overfilling runtime FIFOs)
         let (q_e, if_e, q_l, if_l, q_b, if_b) = self.runtime.queue_debug_counts();
-        // Allow small buffer (workers + 1) to absorb a burst without building long FIFO
-        let target_edit = self.runtime.w_edit.max(1) + 1;
-        let target_light = self.runtime.w_light.max(1) + 1;
-        let target_bg = self.runtime.w_bg.max(1) + 1;
+        // Allow a larger buffer (workers + extra) to keep workers fed
+        let target_edit = self.runtime.w_edit.max(1) + LANE_QUEUE_EXTRA;
+        let target_light = self.runtime.w_light.max(1) + LANE_QUEUE_EXTRA;
+        let target_bg = self.runtime.w_bg.max(1) + LANE_QUEUE_EXTRA;
         let mut budget_edit = target_edit.saturating_sub(q_e + if_e);
         let mut budget_light = target_light.saturating_sub(q_l + if_l);
         let mut budget_bg = target_bg.saturating_sub(q_b + if_b);
