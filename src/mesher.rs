@@ -228,16 +228,16 @@ fn emit_neighbor_fixups_micro_generic(
                 let bx = if dx < 0 { 0 } else { 1 }; // boundary column in micro-grid along X
                 for ly in 0..2 {
                     let y0 = fy + (ly as f32) * cell;
-                    for lz in 0..2 {
-                        let filled = (occ & micro_bit(bx, ly, lz)) != 0;
-                        if filled {
-                            continue;
-                        }
+                    let e0 = (occ & micro_bit(bx, ly, 0)) == 0;
+                    let e1 = (occ & micro_bit(bx, ly, 1)) == 0;
+                    if e0 || e1 {
+                        let (z_idx, span) = if e0 && e1 { (0, 2) } else if e0 { (0, 1) } else { (1, 1) };
+                        let z0 = fz + (z_idx as f32) * cell;
                         let draw_top = ly == 1;
                         let lv = light_for_neighbor(nx as usize, y, nz as usize, face, draw_top);
                         let rgba = [lv, lv, lv, 255];
-                        let origin = Vector3::new(fx + x_off, y0, fz + (lz as f32) * cell + z_off - z_off);
-                        emit_face_rect_for(builds, mid, face, origin, cell, cell, rgba);
+                        let origin = Vector3::new(fx + x_off, y0, z0);
+                        emit_face_rect_for(builds, mid, face, origin, span as f32 * cell, cell, rgba);
                     }
                 }
             }
@@ -245,20 +245,84 @@ fn emit_neighbor_fixups_micro_generic(
                 let bz = if dz < 0 { 0 } else { 1 }; // boundary row in micro-grid along Z
                 for ly in 0..2 {
                     let y0 = fy + (ly as f32) * cell;
-                    for lx in 0..2 {
-                        let filled = (occ & micro_bit(lx, ly, bz)) != 0;
-                        if filled {
-                            continue;
-                        }
+                    let e0 = (occ & micro_bit(0, ly, bz)) == 0;
+                    let e1 = (occ & micro_bit(1, ly, bz)) == 0;
+                    if e0 || e1 {
+                        let (x_idx, span) = if e0 && e1 { (0, 2) } else if e0 { (0, 1) } else { (1, 1) };
+                        let x0 = fx + (x_idx as f32) * cell;
                         let draw_top = ly == 1;
                         let lv = light_for_neighbor(nx as usize, y, nz as usize, face, draw_top);
                         let rgba = [lv, lv, lv, 255];
-                        let origin = Vector3::new(fx + (lx as f32) * cell + x_off - x_off, y0, fz + z_off);
-                        emit_face_rect_for(builds, mid, face, origin, cell, cell, rgba);
+                        let origin = Vector3::new(x0, y0, fz + z_off);
+                        emit_face_rect_for(builds, mid, face, origin, span as f32 * cell, cell, rgba);
                     }
                 }
             }
             _ => {}
+        }
+    }
+
+    // Vertical neighbors (±Y): project empty cells on top/bottom boundary onto neighbor faces.
+    let sy = buf.sy as i32;
+    for &(dy, face) in &[(-1, Face::PosY), (1, Face::NegY)] {
+        let ny = y as i32 + dy;
+        if ny < 0 || ny >= sy {
+            continue;
+        }
+        let nb = buf.get_local(x, ny as usize, z);
+        if !is_full_cube(reg, nb) {
+            continue;
+        }
+        let mid = registry_material_for_or_unknown(nb, face, reg);
+        let ly = if dy < 0 { 0 } else { 1 };
+        // Build 2x2 empty grid on boundary layer (X×Z)
+        let mut grid = [[false; 2]; 2];
+        for lz in 0..2 {
+            for lx in 0..2 {
+                grid[lz][lx] = (occ & micro_bit(lx, ly, lz)) == 0;
+            }
+        }
+        let mut used = [[false; 2]; 2];
+        for lz in 0..2 {
+            for lx in 0..2 {
+                if !grid[lz][lx] || used[lz][lx] {
+                    continue;
+                }
+                let w = if lx == 0 && grid[lz][1] && !used[lz][1] { 2 } else { 1 };
+                let h = if lz == 0 {
+                    let mut ok = true;
+                    for xi in lx..(lx + w) {
+                        if !grid[1][xi] || used[1][xi] {
+                            ok = false;
+                            break;
+                        }
+                    }
+                    if ok { 2 } else { 1 }
+                } else {
+                    1
+                };
+                for dz in 0..h {
+                    for dx in 0..w {
+                        used[lz + dz][lx + dx] = true;
+                    }
+                }
+                let x0 = fx + (lx as f32) * cell;
+                let z0 = fz + (lz as f32) * cell;
+                let y0 = if dy < 0 { fy } else { fy + 1.0 };
+                let draw_top = ly == 1;
+                let lv = light_for_neighbor(x, ny as usize, z, face, draw_top);
+                let rgba = [lv, lv, lv, 255];
+                let origin = Vector3::new(x0, y0, z0);
+                emit_face_rect_for(
+                    builds,
+                    mid,
+                    face,
+                    origin,
+                    w as f32 * cell,
+                    h as f32 * cell,
+                    rgba,
+                );
+            }
         }
     }
 }
@@ -351,7 +415,6 @@ fn emit_box_faces(
     }
 }
 
-#[inline]
 #[inline]
 fn emit_box_generic(
     builds: &mut std::collections::HashMap<MaterialId, MeshBuild>,
@@ -534,8 +597,6 @@ fn is_occluder(
     occludes_face(nb, face, reg)
 }
 
-#[inline]
-#[inline]
 fn occlusion_mask_for(reg: &BlockRegistry, nb: Block) -> u8 {
     if let Some(ty) = reg.get(nb.id) {
         match &ty.shape {
