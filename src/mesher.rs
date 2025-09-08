@@ -122,6 +122,106 @@ fn is_top_half_shape(b: Block, reg: &BlockRegistry) -> bool {
 // Legacy world mapping removed; mesher queries runtime worldgen directly when needed.
 
 #[inline]
+fn emit_box_faces(
+    builds: &mut std::collections::HashMap<MaterialId, MeshBuild>,
+    min: Vector3,
+    max: Vector3,
+    mut choose: impl FnMut(usize) -> Option<(MaterialId, [u8; 4])>,
+)
+{
+    // 0 = +Y
+    if let Some((mid, rgba)) = choose(0) {
+        let mb = builds.entry(mid).or_default();
+        mb.add_quad(
+            Vector3::new(min.x, max.y, min.z),
+            Vector3::new(max.x, max.y, min.z),
+            Vector3::new(max.x, max.y, max.z),
+            Vector3::new(min.x, max.y, max.z),
+            Vector3::new(0.0, 1.0, 0.0),
+            max.x - min.x,
+            max.z - min.z,
+            false,
+            rgba,
+        );
+    }
+    // 1 = -Y
+    if let Some((mid, rgba)) = choose(1) {
+        let mb = builds.entry(mid).or_default();
+        mb.add_quad(
+            Vector3::new(min.x, min.y, max.z),
+            Vector3::new(max.x, min.y, max.z),
+            Vector3::new(max.x, min.y, min.z),
+            Vector3::new(min.x, min.y, min.z),
+            Vector3::new(0.0, -1.0, 0.0),
+            max.x - min.x,
+            max.z - min.z,
+            false,
+            rgba,
+        );
+    }
+    // 2 = +X
+    if let Some((mid, rgba)) = choose(2) {
+        let mb = builds.entry(mid).or_default();
+        mb.add_quad(
+            Vector3::new(max.x, max.y, max.z),
+            Vector3::new(max.x, max.y, min.z),
+            Vector3::new(max.x, min.y, min.z),
+            Vector3::new(max.x, min.y, max.z),
+            Vector3::new(1.0, 0.0, 0.0),
+            max.z - min.z,
+            max.y - min.y,
+            false,
+            rgba,
+        );
+    }
+    // 3 = -X
+    if let Some((mid, rgba)) = choose(3) {
+        let mb = builds.entry(mid).or_default();
+        mb.add_quad(
+            Vector3::new(min.x, max.y, min.z),
+            Vector3::new(min.x, max.y, max.z),
+            Vector3::new(min.x, min.y, max.z),
+            Vector3::new(min.x, min.y, min.z),
+            Vector3::new(-1.0, 0.0, 0.0),
+            max.z - min.z,
+            max.y - min.y,
+            false,
+            rgba,
+        );
+    }
+    // 4 = +Z
+    if let Some((mid, rgba)) = choose(4) {
+        let mb = builds.entry(mid).or_default();
+        mb.add_quad(
+            Vector3::new(min.x, max.y, max.z),
+            Vector3::new(max.x, max.y, max.z),
+            Vector3::new(max.x, min.y, max.z),
+            Vector3::new(min.x, min.y, max.z),
+            Vector3::new(0.0, 0.0, 1.0),
+            max.x - min.x,
+            max.y - min.y,
+            false,
+            rgba,
+        );
+    }
+    // 5 = -Z
+    if let Some((mid, rgba)) = choose(5) {
+        let mb = builds.entry(mid).or_default();
+        mb.add_quad(
+            Vector3::new(max.x, max.y, min.z),
+            Vector3::new(min.x, max.y, min.z),
+            Vector3::new(min.x, min.y, min.z),
+            Vector3::new(max.x, min.y, min.z),
+            Vector3::new(0.0, 0.0, -1.0),
+            max.x - min.x,
+            max.y - min.y,
+            false,
+            rgba,
+        );
+    }
+}
+
+#[inline]
 fn emit_box(
     builds: &mut std::collections::HashMap<MaterialId, MeshBuild>,
     buf: &ChunkBuf,
@@ -139,155 +239,29 @@ fn emit_box(
     min: Vector3,
     max: Vector3,
 ) {
-    // Faces: 0=+Y,1=-Y,2=+X,3=-X,4=+Z,5=-Z
     let gx = base_x + x as i32;
     let gy = y as i32;
     let gz = base_z + z as i32;
     let here = buf.get_local(x, y, z);
-    // +Y top
-    {
-        let nx = gx;
-        let ny = gy + 1;
-        let nz = gz;
-        if !is_occluder(buf, world, edits, neighbors, reg, here, 0, nx, ny, nz) {
-            let l = light.sample_face_local(x, y, z, 0);
-            let lv = l.max(VISUAL_LIGHT_MIN);
-            let rgba = [lv, lv, lv, 255];
-            let mid = fm_for_face(0);
-            let mb = builds.entry(mid).or_default();
-            mb.add_quad(
-                Vector3::new(min.x, max.y, min.z),
-                Vector3::new(max.x, max.y, min.z),
-                Vector3::new(max.x, max.y, max.z),
-                Vector3::new(min.x, max.y, max.z),
-                Vector3::new(0.0, 1.0, 0.0),
-                max.x - min.x,
-                max.z - min.z,
-                false,
-                rgba,
-            );
+    emit_box_faces(builds, min, max, |face| {
+        let (nx, ny, nz) = match face {
+            0 => (gx, gy + 1, gz),
+            1 => (gx, gy - 1, gz),
+            2 => (gx + 1, gy, gz),
+            3 => (gx - 1, gy, gz),
+            4 => (gx, gy, gz + 1),
+            5 => (gx, gy, gz - 1),
+            _ => unreachable!(),
+        };
+        if is_occluder(buf, world, edits, neighbors, reg, here, face, nx, ny, nz) {
+            return None;
         }
-    }
-    // -Y bottom
-    {
-        let nx = gx;
-        let ny = gy - 1;
-        let nz = gz;
-        if !is_occluder(buf, world, edits, neighbors, reg, here, 1, nx, ny, nz) {
-            let l = light.sample_face_local(x, y, z, 1);
-            let lv = l.max(VISUAL_LIGHT_MIN);
-            let rgba = [lv, lv, lv, 255];
-            let mid = fm_for_face(1);
-            let mb = builds.entry(mid).or_default();
-            mb.add_quad(
-                Vector3::new(min.x, min.y, max.z),
-                Vector3::new(max.x, min.y, max.z),
-                Vector3::new(max.x, min.y, min.z),
-                Vector3::new(min.x, min.y, min.z),
-                Vector3::new(0.0, -1.0, 0.0),
-                max.x - min.x,
-                max.z - min.z,
-                false,
-                rgba,
-            );
-        }
-    }
-    // +X face
-    {
-        let nx = gx + 1;
-        let ny = gy;
-        let nz = gz;
-        if !is_occluder(buf, world, edits, neighbors, reg, here, 2, nx, ny, nz) {
-            let l = light.sample_face_local(x, y, z, 2);
-            let lv = l.max(VISUAL_LIGHT_MIN);
-            let rgba = [lv, lv, lv, 255];
-            let mid = fm_for_face(2);
-            let mb = builds.entry(mid).or_default();
-            mb.add_quad(
-                Vector3::new(max.x, max.y, max.z),
-                Vector3::new(max.x, max.y, min.z),
-                Vector3::new(max.x, min.y, min.z),
-                Vector3::new(max.x, min.y, max.z),
-                Vector3::new(1.0, 0.0, 0.0),
-                max.z - min.z,
-                max.y - min.y,
-                false,
-                rgba,
-            );
-        }
-    }
-    // -X face
-    {
-        let nx = gx - 1;
-        let ny = gy;
-        let nz = gz;
-        if !is_occluder(buf, world, edits, neighbors, reg, here, 3, nx, ny, nz) {
-            let l = light.sample_face_local(x, y, z, 3);
-            let lv = l.max(VISUAL_LIGHT_MIN);
-            let rgba = [lv, lv, lv, 255];
-            let mid = fm_for_face(3);
-            let mb = builds.entry(mid).or_default();
-            mb.add_quad(
-                Vector3::new(min.x, max.y, min.z),
-                Vector3::new(min.x, max.y, max.z),
-                Vector3::new(min.x, min.y, max.z),
-                Vector3::new(min.x, min.y, min.z),
-                Vector3::new(-1.0, 0.0, 0.0),
-                max.z - min.z,
-                max.y - min.y,
-                false,
-                rgba,
-            );
-        }
-    }
-    // +Z face
-    {
-        let nx = gx;
-        let ny = gy;
-        let nz = gz + 1;
-        if !is_occluder(buf, world, edits, neighbors, reg, here, 4, nx, ny, nz) {
-            let l = light.sample_face_local(x, y, z, 4);
-            let lv = l.max(VISUAL_LIGHT_MIN);
-            let rgba = [lv, lv, lv, 255];
-            let mid = fm_for_face(4);
-            let mb = builds.entry(mid).or_default();
-            mb.add_quad(
-                Vector3::new(min.x, max.y, max.z),
-                Vector3::new(max.x, max.y, max.z),
-                Vector3::new(max.x, min.y, max.z),
-                Vector3::new(min.x, min.y, max.z),
-                Vector3::new(0.0, 0.0, 1.0),
-                max.x - min.x,
-                max.y - min.y,
-                false,
-                rgba,
-            );
-        }
-    }
-    // -Z face
-    {
-        let nx = gx;
-        let ny = gy;
-        let nz = gz - 1;
-        if !is_occluder(buf, world, edits, neighbors, reg, here, 5, nx, ny, nz) {
-            let l = light.sample_face_local(x, y, z, 5);
-            let lv = l.max(VISUAL_LIGHT_MIN);
-            let rgba = [lv, lv, lv, 255];
-            let mid = fm_for_face(5);
-            let mb = builds.entry(mid).or_default();
-            mb.add_quad(
-                Vector3::new(max.x, max.y, min.z),
-                Vector3::new(min.x, max.y, min.z),
-                Vector3::new(min.x, min.y, min.z),
-                Vector3::new(max.x, min.y, min.z),
-                Vector3::new(0.0, 0.0, -1.0),
-                max.x - min.x,
-                max.y - min.y,
-                false,
-                rgba,
-            );
-        }
-    }
+        let mut lv = light.sample_face_local(x, y, z, face);
+        lv = lv.max(VISUAL_LIGHT_MIN);
+        let rgba = [lv, lv, lv, 255];
+        let mid = fm_for_face(face);
+        Some((mid, rgba))
+    });
 }
 
 // world-based occluder test removed; occlusion uses only local chunk buffers.
@@ -538,225 +512,120 @@ pub fn build_chunk_greedy_cpu_buf(
                         if x > 0 {
                             let nb = buf.get_local(x - 1, y, z);
                             if is_full_cube(nb) {
-                                if let Some(mid) = registry_material_for(nb, 2, reg) {
-                                    let l0 = light.sample_face_local(x - 1, y, z, 2);
-                                    let lv = if !is_top {
-                                        // slab bottom -> show upper half of neighbor
-                                            let la = if y + 1 < sy { light.sample_face_local(x - 1, y + 1, z, 2) } else { l0 };
-                                            l0.max(la).max(VISUAL_LIGHT_MIN)
-                                        } else {
-                                            let lb = if y > 0 { light.sample_face_local(x - 1, y - 1, z, 2) } else { l0 };
-                                            l0.max(lb).max(VISUAL_LIGHT_MIN)
-                                        };
-                                    let rgba = [lv, lv, lv, 255];
-                                    let mb = builds.entry(mid).or_default();
-                                    let px = fx; // plane at x
-                                    // +X face orientation (normal +X)
-                                    mb.add_quad(
-                                        Vector3::new(px, vis_y1, fz + 1.0),
-                                        Vector3::new(px, vis_y1, fz),
-                                        Vector3::new(px, vis_y0, fz),
-                                        Vector3::new(px, vis_y0, fz + 1.0),
-                                        Vector3::new(1.0, 0.0, 0.0),
-                                        1.0,
-                                        vis_y1 - vis_y0,
-                                        false,
-                                        rgba,
-                                    );
+                                let l0 = light.sample_face_local(x - 1, y, z, 2);
+                                let lv = if !is_top {
+                                    let la = if y + 1 < sy { light.sample_face_local(x - 1, y + 1, z, 2) } else { l0 };
+                                    l0.max(la).max(VISUAL_LIGHT_MIN)
                                 } else {
-                                    let l0 = light.sample_face_local(x - 1, y, z, 2);
-                                    let lv = if !is_top {
-                                            let la = if y + 1 < sy { light.sample_face_local(x - 1, y + 1, z, 2) } else { l0 };
-                                            l0.max(la).max(VISUAL_LIGHT_MIN)
-                                        } else {
-                                            let lb = if y > 0 { light.sample_face_local(x - 1, y - 1, z, 2) } else { l0 };
-                                            l0.max(lb).max(VISUAL_LIGHT_MIN)
-                                        };
-                                    let rgba = [lv, lv, lv, 255];
-                                    let mid = registry_material_for_or_unknown(nb, 2, reg);
-                                    let mb = builds.entry(mid).or_default();
-                                    let px = fx; // plane at x
-                                    // +X face orientation (normal +X)
-                                    mb.add_quad(
-                                        Vector3::new(px, vis_y1, fz + 1.0),
-                                        Vector3::new(px, vis_y1, fz),
-                                        Vector3::new(px, vis_y0, fz),
-                                        Vector3::new(px, vis_y0, fz + 1.0),
-                                        Vector3::new(1.0, 0.0, 0.0),
-                                        1.0,
-                                        vis_y1 - vis_y0,
-                                        false,
-                                        rgba,
-                                    );
-                                }
+                                    let lb = if y > 0 { light.sample_face_local(x - 1, y - 1, z, 2) } else { l0 };
+                                    l0.max(lb).max(VISUAL_LIGHT_MIN)
+                                };
+                                let rgba = [lv, lv, lv, 255];
+                                let mid = registry_material_for_or_unknown(nb, 2, reg);
+                                let mb = builds.entry(mid).or_default();
+                                let px = fx; // plane at x
+                                // +X face orientation (normal +X)
+                                mb.add_quad(
+                                    Vector3::new(px, vis_y1, fz + 1.0),
+                                    Vector3::new(px, vis_y1, fz),
+                                    Vector3::new(px, vis_y0, fz),
+                                    Vector3::new(px, vis_y0, fz + 1.0),
+                                    Vector3::new(1.0, 0.0, 0.0),
+                                    1.0,
+                                    vis_y1 - vis_y0,
+                                    false,
+                                    rgba,
+                                );
                             }
                         }
                         // East neighbor (-X face on neighbor)
                         if x + 1 < sx {
                             let nb = buf.get_local(x + 1, y, z);
                             if is_full_cube(nb) {
-                                if let Some(mid) = registry_material_for(nb, 3, reg) {
-                                    let l0 = light.sample_face_local(x + 1, y, z, 3);
-                                    let lv = if !is_top {
-                                            let la = if y + 1 < sy { light.sample_face_local(x + 1, y + 1, z, 3) } else { l0 };
-                                            l0.max(la).max(VISUAL_LIGHT_MIN)
-                                        } else {
-                                            let lb = if y > 0 { light.sample_face_local(x + 1, y - 1, z, 3) } else { l0 };
-                                            l0.max(lb).max(VISUAL_LIGHT_MIN)
-                                        };
-                                    let rgba = [lv, lv, lv, 255];
-                                    let mb = builds.entry(mid).or_default();
-                                    let px = fx + 1.0; // plane at x+1
-                                    // -X face orientation (normal -X)
-                                    mb.add_quad(
-                                        Vector3::new(px, vis_y1, fz),
-                                        Vector3::new(px, vis_y1, fz + 1.0),
-                                        Vector3::new(px, vis_y0, fz + 1.0),
-                                        Vector3::new(px, vis_y0, fz),
-                                        Vector3::new(-1.0, 0.0, 0.0),
-                                        1.0,
-                                        vis_y1 - vis_y0,
-                                        false,
-                                        rgba,
-                                    );
+                                let l0 = light.sample_face_local(x + 1, y, z, 3);
+                                let lv = if !is_top {
+                                    let la = if y + 1 < sy { light.sample_face_local(x + 1, y + 1, z, 3) } else { l0 };
+                                    l0.max(la).max(VISUAL_LIGHT_MIN)
                                 } else {
-                                    let l0 = light.sample_face_local(x + 1, y, z, 3);
-                                    let lv = if !is_top {
-                                            let la = if y + 1 < sy { light.sample_face_local(x + 1, y + 1, z, 3) } else { l0 };
-                                            l0.max(la).max(VISUAL_LIGHT_MIN)
-                                        } else {
-                                            let lb = if y > 0 { light.sample_face_local(x + 1, y - 1, z, 3) } else { l0 };
-                                            l0.max(lb).max(VISUAL_LIGHT_MIN)
-                                        };
-                                    let rgba = [lv, lv, lv, 255];
-                                    let mid = registry_material_for_or_unknown(nb, 3, reg);
-                                    let mb = builds.entry(mid).or_default();
-                                    let px = fx + 1.0; // plane at x+1
-                                    // -X face orientation (normal -X)
-                                    mb.add_quad(
-                                        Vector3::new(px, vis_y1, fz),
-                                        Vector3::new(px, vis_y1, fz + 1.0),
-                                        Vector3::new(px, vis_y0, fz + 1.0),
-                                        Vector3::new(px, vis_y0, fz),
-                                        Vector3::new(-1.0, 0.0, 0.0),
-                                        1.0,
-                                        vis_y1 - vis_y0,
-                                        false,
-                                        rgba,
-                                    );
-                                }
+                                    let lb = if y > 0 { light.sample_face_local(x + 1, y - 1, z, 3) } else { l0 };
+                                    l0.max(lb).max(VISUAL_LIGHT_MIN)
+                                };
+                                let rgba = [lv, lv, lv, 255];
+                                let mid = registry_material_for_or_unknown(nb, 3, reg);
+                                let mb = builds.entry(mid).or_default();
+                                let px = fx + 1.0; // plane at x+1
+                                // -X face orientation (normal -X)
+                                mb.add_quad(
+                                    Vector3::new(px, vis_y1, fz),
+                                    Vector3::new(px, vis_y1, fz + 1.0),
+                                    Vector3::new(px, vis_y0, fz + 1.0),
+                                    Vector3::new(px, vis_y0, fz),
+                                    Vector3::new(-1.0, 0.0, 0.0),
+                                    1.0,
+                                    vis_y1 - vis_y0,
+                                    false,
+                                    rgba,
+                                );
                             }
                         }
                         // North neighbor (+Z face on neighbor)
                         if z > 0 {
                             let nb = buf.get_local(x, y, z - 1);
                             if is_full_cube(nb) {
-                                if let Some(mid) = registry_material_for(nb, 4, reg) {
-                                    let l0 = light.sample_face_local(x, y, z - 1, 4);
-                                    let lv = if !is_top {
-                                            let la = if y + 1 < sy { light.sample_face_local(x, y + 1, z - 1, 4) } else { l0 };
-                                            l0.max(la).max(VISUAL_LIGHT_MIN)
-                                        } else {
-                                            let lb = if y > 0 { light.sample_face_local(x, y - 1, z - 1, 4) } else { l0 };
-                                            l0.max(lb).max(VISUAL_LIGHT_MIN)
-                                        };
-                                    let rgba = [lv, lv, lv, 255];
-                                    let mb = builds.entry(mid).or_default();
-                                    let pz = fz; // plane at z
-                                    // +Z face orientation (normal +Z)
-                                    mb.add_quad(
-                                        Vector3::new(fx + 1.0, vis_y1, pz),
-                                        Vector3::new(fx, vis_y1, pz),
-                                        Vector3::new(fx, vis_y0, pz),
-                                        Vector3::new(fx + 1.0, vis_y0, pz),
-                                        Vector3::new(0.0, 0.0, 1.0),
-                                        1.0,
-                                        vis_y1 - vis_y0,
-                                        false,
-                                        rgba,
-                                    );
+                                let l0 = light.sample_face_local(x, y, z - 1, 4);
+                                let lv = if !is_top {
+                                    let la = if y + 1 < sy { light.sample_face_local(x, y + 1, z - 1, 4) } else { l0 };
+                                    l0.max(la).max(VISUAL_LIGHT_MIN)
                                 } else {
-                                    let l0 = light.sample_face_local(x, y, z - 1, 4);
-                                    let lv = if !is_top {
-                                            let la = if y + 1 < sy { light.sample_face_local(x, y + 1, z - 1, 4) } else { l0 };
-                                            l0.max(la).max(VISUAL_LIGHT_MIN)
-                                        } else {
-                                            let lb = if y > 0 { light.sample_face_local(x, y - 1, z - 1, 4) } else { l0 };
-                                            l0.max(lb).max(VISUAL_LIGHT_MIN)
-                                        };
-                                    let rgba = [lv, lv, lv, 255];
-                                    let mid = registry_material_for_or_unknown(nb, 4, reg);
-                                    let mb = builds.entry(mid).or_default();
-                                    let pz = fz; // plane at z
-                                    // +Z face orientation (normal +Z)
-                                    mb.add_quad(
-                                        Vector3::new(fx + 1.0, vis_y1, pz),
-                                        Vector3::new(fx, vis_y1, pz),
-                                        Vector3::new(fx, vis_y0, pz),
-                                        Vector3::new(fx + 1.0, vis_y0, pz),
-                                        Vector3::new(0.0, 0.0, 1.0),
-                                        1.0,
-                                        vis_y1 - vis_y0,
-                                        false,
-                                        rgba,
-                                    );
-                                }
+                                    let lb = if y > 0 { light.sample_face_local(x, y - 1, z - 1, 4) } else { l0 };
+                                    l0.max(lb).max(VISUAL_LIGHT_MIN)
+                                };
+                                let rgba = [lv, lv, lv, 255];
+                                let mid = registry_material_for_or_unknown(nb, 4, reg);
+                                let mb = builds.entry(mid).or_default();
+                                let pz = fz; // plane at z
+                                // +Z face orientation (normal +Z)
+                                mb.add_quad(
+                                    Vector3::new(fx + 1.0, vis_y1, pz),
+                                    Vector3::new(fx, vis_y1, pz),
+                                    Vector3::new(fx, vis_y0, pz),
+                                    Vector3::new(fx + 1.0, vis_y0, pz),
+                                    Vector3::new(0.0, 0.0, 1.0),
+                                    1.0,
+                                    vis_y1 - vis_y0,
+                                    false,
+                                    rgba,
+                                );
                             }
                         }
                         // South neighbor (-Z face on neighbor)
                         if z + 1 < sz {
                             let nb = buf.get_local(x, y, z + 1);
                             if is_full_cube(nb) {
-                                if let Some(mid) = registry_material_for(nb, 5, reg) {
-                                    let l0 = light.sample_face_local(x, y, z + 1, 5);
-                                    let lv = if !is_top {
-                                            let la = if y + 1 < sy { light.sample_face_local(x, y + 1, z + 1, 5) } else { l0 };
-                                            l0.max(la).max(VISUAL_LIGHT_MIN)
-                                        } else {
-                                            let lb = if y > 0 { light.sample_face_local(x, y - 1, z + 1, 5) } else { l0 };
-                                            l0.max(lb).max(VISUAL_LIGHT_MIN)
-                                        };
-                                    let rgba = [lv, lv, lv, 255];
-                                    let mb = builds.entry(mid).or_default();
-                                    let pz = fz + 1.0; // plane at z+1
-                                    // -Z face orientation (normal -Z)
-                                    mb.add_quad(
-                                        Vector3::new(fx, vis_y1, pz),
-                                        Vector3::new(fx + 1.0, vis_y1, pz),
-                                        Vector3::new(fx + 1.0, vis_y0, pz),
-                                        Vector3::new(fx, vis_y0, pz),
-                                        Vector3::new(0.0, 0.0, -1.0),
-                                        1.0,
-                                        vis_y1 - vis_y0,
-                                        false,
-                                        rgba,
-                                    );
+                                let l0 = light.sample_face_local(x, y, z + 1, 5);
+                                let lv = if !is_top {
+                                    let la = if y + 1 < sy { light.sample_face_local(x, y + 1, z + 1, 5) } else { l0 };
+                                    l0.max(la).max(VISUAL_LIGHT_MIN)
                                 } else {
-                                    let l0 = light.sample_face_local(x, y, z + 1, 5);
-                                    let lv = if !is_top {
-                                            let la = if y + 1 < sy { light.sample_face_local(x, y + 1, z + 1, 5) } else { l0 };
-                                            l0.max(la).max(VISUAL_LIGHT_MIN)
-                                        } else {
-                                            let lb = if y > 0 { light.sample_face_local(x, y - 1, z + 1, 5) } else { l0 };
-                                            l0.max(lb).max(VISUAL_LIGHT_MIN)
-                                        };
-                                    let rgba = [lv, lv, lv, 255];
-                                    let mid = registry_material_for_or_unknown(nb, 5, reg);
-                                    let mb = builds.entry(mid).or_default();
-                                    let pz = fz + 1.0; // plane at z+1
-                                    // -Z face orientation (normal -Z)
-                                    mb.add_quad(
-                                        Vector3::new(fx, vis_y1, pz),
-                                        Vector3::new(fx + 1.0, vis_y1, pz),
-                                        Vector3::new(fx + 1.0, vis_y0, pz),
-                                        Vector3::new(fx, vis_y0, pz),
-                                        Vector3::new(0.0, 0.0, -1.0),
-                                        1.0,
-                                        vis_y1 - vis_y0,
-                                        false,
-                                        rgba,
-                                    );
-                                }
+                                    let lb = if y > 0 { light.sample_face_local(x, y - 1, z + 1, 5) } else { l0 };
+                                    l0.max(lb).max(VISUAL_LIGHT_MIN)
+                                };
+                                let rgba = [lv, lv, lv, 255];
+                                let mid = registry_material_for_or_unknown(nb, 5, reg);
+                                let mb = builds.entry(mid).or_default();
+                                let pz = fz + 1.0; // plane at z+1
+                                // -Z face orientation (normal -Z)
+                                mb.add_quad(
+                                    Vector3::new(fx, vis_y1, pz),
+                                    Vector3::new(fx + 1.0, vis_y1, pz),
+                                    Vector3::new(fx + 1.0, vis_y0, pz),
+                                    Vector3::new(fx, vis_y0, pz),
+                                    Vector3::new(0.0, 0.0, -1.0),
+                                    1.0,
+                                    vis_y1 - vis_y0,
+                                    false,
+                                    rgba,
+                                );
                             }
                         }
                         }
@@ -1265,114 +1134,24 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
         let gx = x as i32;
         let gy = y as i32;
         let gz = z as i32;
-        // +Y
-        if !occludes_local(buf, gx, gy + 1, gz, 0, reg) {
-            let lv = face_light(0, ambient);
+        emit_box_faces(builds, min, max, |face| {
+            let (nx, ny, nz) = match face {
+                0 => (gx, gy + 1, gz),
+                1 => (gx, gy - 1, gz),
+                2 => (gx + 1, gy, gz),
+                3 => (gx - 1, gy, gz),
+                4 => (gx, gy, gz + 1),
+                5 => (gx, gy, gz - 1),
+                _ => unreachable!(),
+            };
+            if occludes_local(buf, nx, ny, nz, face, reg) {
+                return None;
+            }
+            let lv = face_light(face, ambient);
             let rgba = [lv, lv, lv, 255];
-            let mid = face_material(0);
-            let mb = builds.entry(mid).or_default();
-            mb.add_quad(
-                Vector3::new(min.x, max.y, min.z),
-                Vector3::new(max.x, max.y, min.z),
-                Vector3::new(max.x, max.y, max.z),
-                Vector3::new(min.x, max.y, max.z),
-                Vector3::new(0.0, 1.0, 0.0),
-                max.x - min.x,
-                max.z - min.z,
-                false,
-                rgba,
-            );
-        }
-        // -Y
-        if !occludes_local(buf, gx, gy - 1, gz, 1, reg) {
-            let lv = face_light(1, ambient);
-            let rgba = [lv, lv, lv, 255];
-            let mid = face_material(1);
-            let mb = builds.entry(mid).or_default();
-            mb.add_quad(
-                Vector3::new(min.x, min.y, max.z),
-                Vector3::new(max.x, min.y, max.z),
-                Vector3::new(max.x, min.y, min.z),
-                Vector3::new(min.x, min.y, min.z),
-                Vector3::new(0.0, -1.0, 0.0),
-                max.x - min.x,
-                max.z - min.z,
-                false,
-                rgba,
-            );
-        }
-        // +X
-        if !occludes_local(buf, gx + 1, gy, gz, 2, reg) {
-            let lv = face_light(2, ambient);
-            let rgba = [lv, lv, lv, 255];
-            let mid = face_material(2);
-            let mb = builds.entry(mid).or_default();
-            mb.add_quad(
-                Vector3::new(max.x, max.y, max.z),
-                Vector3::new(max.x, max.y, min.z),
-                Vector3::new(max.x, min.y, min.z),
-                Vector3::new(max.x, min.y, max.z),
-                Vector3::new(1.0, 0.0, 0.0),
-                max.z - min.z,
-                max.y - min.y,
-                false,
-                rgba,
-            );
-        }
-        // -X
-        if !occludes_local(buf, gx - 1, gy, gz, 3, reg) {
-            let lv = face_light(3, ambient);
-            let rgba = [lv, lv, lv, 255];
-            let mid = face_material(3);
-            let mb = builds.entry(mid).or_default();
-            mb.add_quad(
-                Vector3::new(min.x, max.y, min.z),
-                Vector3::new(min.x, max.y, max.z),
-                Vector3::new(min.x, min.y, max.z),
-                Vector3::new(min.x, min.y, min.z),
-                Vector3::new(-1.0, 0.0, 0.0),
-                max.z - min.z,
-                max.y - min.y,
-                false,
-                rgba,
-            );
-        }
-        // +Z
-        if !occludes_local(buf, gx, gy, gz + 1, 4, reg) {
-            let lv = face_light(4, ambient);
-            let rgba = [lv, lv, lv, 255];
-            let mid = face_material(4);
-            let mb = builds.entry(mid).or_default();
-            mb.add_quad(
-                Vector3::new(min.x, max.y, max.z),
-                Vector3::new(max.x, max.y, max.z),
-                Vector3::new(max.x, min.y, max.z),
-                Vector3::new(min.x, min.y, max.z),
-                Vector3::new(0.0, 0.0, 1.0),
-                max.x - min.x,
-                max.y - min.y,
-                false,
-                rgba,
-            );
-        }
-        // -Z
-        if !occludes_local(buf, gx, gy, gz - 1, 5, reg) {
-            let lv = face_light(5, ambient);
-            let rgba = [lv, lv, lv, 255];
-            let mid = face_material(5);
-            let mb = builds.entry(mid).or_default();
-            mb.add_quad(
-                Vector3::new(max.x, max.y, min.z),
-                Vector3::new(min.x, max.y, min.z),
-                Vector3::new(min.x, min.y, min.z),
-                Vector3::new(max.x, min.y, min.z),
-                Vector3::new(0.0, 0.0, -1.0),
-                max.x - min.x,
-                max.y - min.y,
-                false,
-                rgba,
-            );
-        }
+            let mid = face_material(face);
+            Some((mid, rgba))
+        });
     }
 
     // Special-shapes pass: slabs and stairs
