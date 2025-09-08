@@ -22,6 +22,10 @@ pub struct BlockType {
     pub light: CompiledLight,
     pub shape: Shape,
     pub materials: CompiledMaterials,
+    // Precomputed role->material lookup per state (fast path for mesher)
+    pub pre_mat_top: Vec<MaterialId>,
+    pub pre_mat_bottom: Vec<MaterialId>,
+    pub pre_mat_side: Vec<MaterialId>,
     #[allow(dead_code)]
     pub state_schema: HashMap<String, Vec<String>>, // property name -> allowed values
     // Precomputed, sorted layout for fast state packing/unpacking
@@ -197,7 +201,7 @@ impl BlockRegistry {
             let state_schema = def.state_schema.unwrap_or_default();
             let (state_fields, prop_index) = compute_state_layout(&state_schema);
 
-            let ty = BlockType {
+            let mut ty = BlockType {
                 id,
                 name: def.name,
                 solid,
@@ -207,10 +211,47 @@ impl BlockRegistry {
                 light,
                 shape,
                 materials: mats,
+                pre_mat_top: Vec::new(),
+                pre_mat_bottom: Vec::new(),
+                pre_mat_side: Vec::new(),
                 state_schema,
                 state_fields,
                 prop_index,
             };
+            // Precompute face materials per state for fast lookup
+            let (pre_top, pre_bottom, pre_side) = {
+                let total_bits: u32 = ty.state_fields.iter().map(|f| f.bits).sum();
+                let states_len: usize = if total_bits == 0 {
+                    1
+                } else {
+                    let tb = total_bits.min(16);
+                    1usize << tb
+                };
+                let unknown_mid = reg
+                    .materials
+                    .get_id("unknown")
+                    .unwrap_or(MaterialId(0));
+                let fill_role = |role: FaceRole| -> Vec<MaterialId> {
+                    let mut v = Vec::with_capacity(states_len);
+                    for s in 0..states_len {
+                        let state = s as BlockState;
+                        let id = ty
+                            .materials
+                            .material_for(role, state, &ty)
+                            .unwrap_or(unknown_mid);
+                        v.push(id);
+                    }
+                    v
+                };
+                (
+                    fill_role(FaceRole::Top),
+                    fill_role(FaceRole::Bottom),
+                    fill_role(FaceRole::Side),
+                )
+            };
+            ty.pre_mat_top = pre_top;
+            ty.pre_mat_bottom = pre_bottom;
+            ty.pre_mat_side = pre_side;
             if reg.blocks.len() <= id as usize {
                 reg.blocks.resize(
                     id as usize + 1,
@@ -227,6 +268,9 @@ impl BlockRegistry {
                         },
                         shape: Shape::None,
                         materials: CompiledMaterials::default(),
+                        pre_mat_top: vec![MaterialId(0)],
+                        pre_mat_bottom: vec![MaterialId(0)],
+                        pre_mat_side: vec![MaterialId(0)],
                         state_schema: HashMap::new(),
                         state_fields: Vec::new(),
                         prop_index: HashMap::new(),
@@ -451,6 +495,28 @@ impl BlockType {
             acc |= (sel_idx & ((1u32 << f.bits) - 1)) << f.offset;
         }
         acc as BlockState
+    }
+}
+
+impl BlockType {
+    #[inline]
+    pub fn material_for_cached(&self, role: FaceRole, state: BlockState) -> MaterialId {
+        // Precomputed arrays cover the encoded state space (2^sum(bits)), or length 1 when no state.
+        // Index by state masked to len-1 (len is power-of-two).
+        match role {
+            FaceRole::Top => {
+                let len = self.pre_mat_top.len();
+                self.pre_mat_top[state as usize & (len - 1)]
+            }
+            FaceRole::Bottom => {
+                let len = self.pre_mat_bottom.len();
+                self.pre_mat_bottom[state as usize & (len - 1)]
+            }
+            FaceRole::Side | FaceRole::All => {
+                let len = self.pre_mat_side.len();
+                self.pre_mat_side[state as usize & (len - 1)]
+            }
+        }
     }
 }
 

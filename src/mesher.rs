@@ -141,12 +141,14 @@ fn unknown_material_id(reg: &BlockRegistry) -> MaterialId {
 #[inline]
 fn registry_material_for(block: Block, face: Face, reg: &BlockRegistry) -> Option<MaterialId> {
     reg.get(block.id)
-        .and_then(|ty| ty.materials.material_for(face.role(), block.state, ty))
+        .map(|ty| ty.material_for_cached(face.role(), block.state))
 }
 
 #[inline]
 fn registry_material_for_or_unknown(block: Block, face: Face, reg: &BlockRegistry) -> MaterialId {
-    registry_material_for(block, face, reg).unwrap_or_else(|| unknown_material_id(reg))
+    reg.get(block.id)
+        .map(|ty| ty.material_for_cached(face.role(), block.state))
+        .unwrap_or_else(|| unknown_material_id(reg))
 }
 
 // Face helpers moved to crate::meshutil
@@ -461,35 +463,20 @@ fn emit_box_faces(
 }
 
 #[inline]
-fn emit_box(
+#[inline]
+fn emit_box_generic(
     builds: &mut std::collections::HashMap<MaterialId, MeshBuild>,
-    buf: &ChunkBuf,
-    world: &World,
-    edits: Option<&StdHashMap<(i32, i32, i32), Block>>,
-    neighbors: NeighborsLoaded,
-    reg: &BlockRegistry,
-    light: &LightGrid,
-    x: usize,
-    y: usize,
-    z: usize,
-    base_x: i32,
-    base_z: i32,
-    fm_for_face: &dyn Fn(Face) -> MaterialId,
     min: Vector3,
     max: Vector3,
+    fm_for_face: &dyn Fn(Face) -> MaterialId,
+    mut occludes: impl FnMut(Face) -> bool,
+    mut sample_light: impl FnMut(Face) -> u8,
 ) {
-    let gx = base_x + x as i32;
-    let gy = y as i32;
-    let gz = base_z + z as i32;
-    let here = buf.get_local(x, y, z);
     emit_box_faces(builds, min, max, |face| {
-        let (dx, dy, dz) = face.delta();
-        let (nx, ny, nz) = (gx + dx, gy + dy, gz + dz);
-        if is_occluder(buf, world, edits, neighbors, reg, here, face, nx, ny, nz) {
+        if occludes(face) {
             return None;
         }
-        let mut lv = light.sample_face_local(x, y, z, face.index());
-        lv = lv.max(VISUAL_LIGHT_MIN);
+        let lv = sample_light(face);
         let rgba = [lv, lv, lv, 255];
         let mid = fm_for_face(face);
         Some((mid, rgba))
@@ -567,19 +554,40 @@ fn is_occluder(
 }
 
 #[inline]
-fn occludes_face(nb: Block, face: Face, reg: &BlockRegistry) -> bool {
-    reg.get(nb.id).map_or(false, |ty| match &ty.shape {
-        crate::blocks::Shape::Slab { half_from }
-        | crate::blocks::Shape::Stairs { half_from, .. } => {
-            let is_top = ty.state_prop_is_value(nb.state, half_from, "top");
-            match face {
-                Face::PosY => !is_top,
-                Face::NegY => is_top,
-                _ => true,
+#[inline]
+fn occlusion_mask_for(reg: &BlockRegistry, nb: Block) -> u8 {
+    if let Some(ty) = reg.get(nb.id) {
+        match &ty.shape {
+            crate::blocks::Shape::Slab { half_from }
+            | crate::blocks::Shape::Stairs { half_from, .. } => {
+                let is_top = ty.state_prop_is_value(nb.state, half_from, "top");
+                let posy = (!is_top) as u8;
+                let negy = (is_top) as u8;
+                // Bits by Face::index(): 0..5 = PosY, NegY, PosX, NegX, PosZ, NegZ
+                (posy << Face::PosY.index())
+                    | (negy << Face::NegY.index())
+                    | (1 << Face::PosX.index())
+                    | (1 << Face::NegX.index())
+                    | (1 << Face::PosZ.index())
+                    | (1 << Face::NegZ.index())
+            }
+            _ => {
+                if ty.is_solid(nb.state) {
+                    0b11_1111
+                } else {
+                    0
+                }
             }
         }
-        _ => ty.is_solid(nb.state),
-    })
+    } else {
+        0
+    }
+}
+
+#[inline]
+fn occludes_face(nb: Block, face: Face, reg: &BlockRegistry) -> bool {
+    let mask = occlusion_mask_for(reg, nb);
+    (mask >> face.index()) & 1 == 1
 }
 
 // No legacy mapping helpers; all block resolution is via registry-backed runtime Block.
@@ -693,27 +701,27 @@ pub fn build_chunk_greedy_cpu_buf(
                             };
                             let min = Vector3::new(fx, y0, fz);
                             let max = Vector3::new(fx + 1.0, y1, fz + 1.0);
-                            emit_box(
+                            let gx = base_x + x as i32;
+                            let gy = y as i32;
+                            let gz = base_z + z as i32;
+                            let here = buf.get_local(x, y, z);
+                            let face_material = |face: Face| ty.material_for_cached(face.role(), b.state);
+                            emit_box_generic(
                                 &mut builds,
-                                buf,
-                                world,
-                                edits,
-                                neighbors,
-                                reg,
-                                &light,
-                                x,
-                                y,
-                                z,
-                                base_x,
-                                base_z,
-                                &|face| {
-                                    let role = face.role();
-                                    ty.materials
-                                        .material_for(role, b.state, ty)
-                                        .unwrap_or_else(|| unknown_material_id(reg))
-                                },
                                 min,
                                 max,
+                                &face_material,
+                                |face| {
+                                    let (dx, dy, dz) = face.delta();
+                                    let (nx, ny, nz) = (gx + dx, gy + dy, gz + dz);
+                                    is_occluder(
+                                        buf, world, edits, neighbors, reg, here, face, nx, ny, nz,
+                                    )
+                                },
+                                |face| {
+                                    let mut lv = light.sample_face_local(x, y, z, face.index());
+                                    lv.max(VISUAL_LIGHT_MIN)
+                                },
                             );
 
                             emit_neighbor_fixups_slab_generic(
@@ -757,48 +765,61 @@ pub fn build_chunk_greedy_cpu_buf(
                                     Vector3::new(fx + 1.0, fy + 0.5, fz + 1.0),
                                 )
                             };
-                            let face_material = |face: Face| {
-                                let role = face.role();
-                                ty.materials
-                                    .material_for(role, b.state, ty)
-                                    .unwrap_or_else(|| unknown_material_id(reg))
-                            };
-                            emit_box(
+                            let face_material = |face: Face| ty.material_for_cached(face.role(), b.state);
+                            let gx = base_x + x as i32;
+                            let gy = y as i32;
+                            let gz = base_z + z as i32;
+                            let here = buf.get_local(x, y, z);
+                            emit_box_generic(
                                 &mut builds,
-                                buf,
-                                world,
-                                edits,
-                                neighbors,
-                                reg,
-                                &light,
-                                x,
-                                y,
-                                z,
-                                base_x,
-                                base_z,
-                                &face_material,
                                 min_a,
                                 max_a,
+                                &face_material,
+                                |face| {
+                                    let (dx, dy, dz) = face.delta();
+                                    let (nx, ny, nz) = (gx + dx, gy + dy, gz + dz);
+                                    is_occluder(
+                                        buf, world, edits, neighbors, reg, here, face, nx, ny, nz,
+                                    )
+                                },
+                                |face| {
+                                    let mut lv = light.sample_face_local(x, y, z, face.index());
+                                    lv.max(VISUAL_LIGHT_MIN)
+                                },
                             );
                             let boxes = stairs_boxes(fx, fy, fz, facing, is_top);
                             for (min_b, max_b) in boxes.into_iter().skip(1) {
                                 if max_b.x > min_b.x && max_b.y > min_b.y && max_b.z > min_b.z {
-                                    emit_box(
+                                    let gx = base_x + x as i32;
+                                    let gy = y as i32;
+                                    let gz = base_z + z as i32;
+                                    let here = buf.get_local(x, y, z);
+                                    emit_box_generic(
                                         &mut builds,
-                                        buf,
-                                        world,
-                                        edits,
-                                        neighbors,
-                                        reg,
-                                        &light,
-                                        x,
-                                        y,
-                                        z,
-                                        base_x,
-                                        base_z,
-                                        &face_material,
                                         min_b,
                                         max_b,
+                                        &face_material,
+                                        |face| {
+                                            let (dx, dy, dz) = face.delta();
+                                            let (nx, ny, nz) = (gx + dx, gy + dy, gz + dz);
+                                            is_occluder(
+                                                buf,
+                                                world,
+                                                edits,
+                                                neighbors,
+                                                reg,
+                                                here,
+                                                face,
+                                                nx,
+                                                ny,
+                                                nz,
+                                            )
+                                        },
+                                        |face| {
+                                            let mut lv =
+                                                light.sample_face_local(x, y, z, face.index());
+                                            lv.max(VISUAL_LIGHT_MIN)
+                                        },
                                     );
                                 }
                             }
@@ -1118,12 +1139,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             };
                             let min = Vector3::new(fx, y0, fz);
                             let max = Vector3::new(fx + 1.0, y1, fz + 1.0);
-                            let face_material = |face: Face| {
-                                let role = face.role();
-                                ty.materials
-                                    .material_for(role, b.state, ty)
-                                    .unwrap_or_else(|| unknown_material_id(reg))
-                            };
+                            let face_material = |face: Face| ty.material_for_cached(face.role(), b.state);
                             emit_box_local(
                                 &mut builds,
                                 buf,
