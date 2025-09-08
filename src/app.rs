@@ -105,6 +105,16 @@ impl App {
         let mut submitted = 0usize;
         let mut submitted_keys: Vec<(i32,i32)> = Vec::new();
 
+        // Backpressure budgets per lane (avoid overfilling runtime FIFOs)
+        let (q_e, if_e, q_l, if_l, q_b, if_b) = self.runtime.queue_debug_counts();
+        // Allow small buffer (workers + 1) to absorb a burst without building long FIFO
+        let target_edit = self.runtime.w_edit.max(1) + 1;
+        let target_light = self.runtime.w_light.max(1) + 1;
+        let target_bg = self.runtime.w_bg.max(1) + 1;
+        let mut budget_edit = target_edit.saturating_sub(q_e + if_e);
+        let mut budget_light = target_light.saturating_sub(q_l + if_l);
+        let mut budget_bg = target_bg.saturating_sub(q_b + if_b);
+
         for (key, ent, dist_bucket, _ab) in items.into_iter() {
             if submitted >= cap { break; }
             let (cx, cz) = key;
@@ -128,11 +138,13 @@ impl App {
             match ent.cause {
                 IntentCause::Edit => {
                     // Schedule even if not loaded: acts as a high-priority load+rebuild
+                    if budget_edit == 0 { continue; }
                 }
                 IntentCause::Light => {
                     // Prioritize and gate by distance; skip far lighting rebuilds
                     let r = self.gs.view_radius_chunks as i32;
                     if dist_bucket as i32 > r + 1 { continue; }
+                    if budget_light == 0 { continue; }
                 }
                 IntentCause::StreamLoad | IntentCause::HotReload => {
                     // StreamLoad: only schedule if still desired (within view radius)
@@ -142,6 +154,7 @@ impl App {
                     }
                     // If already loaded, allow HotReload rebuilds only (not implemented here)
                     if is_loaded { /* already loaded; schedule rebuild only if HotReload */ }
+                    if budget_bg == 0 { continue; }
                 }
             }
             // Emit job request
@@ -155,6 +168,12 @@ impl App {
             self.gs.inflight_rev.insert(key, rev);
             submitted_keys.push(key);
             submitted += 1;
+            // Consume lane budget
+            match ent.cause {
+                IntentCause::Edit => { if budget_edit > 0 { budget_edit -= 1; } }
+                IntentCause::Light => { if budget_light > 0 { budget_light -= 1; } }
+                IntentCause::StreamLoad | IntentCause::HotReload => { if budget_bg > 0 { budget_bg -= 1; } }
+            }
         }
         // Remove only submitted intents; keep the rest to trickle in subsequent frames
         for k in submitted_keys {
