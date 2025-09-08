@@ -10,6 +10,7 @@ mod mcworld;
 mod mesher;
 mod meshing_core;
 mod meshutil;
+mod microgrid_tables;
 mod player;
 mod raycast;
 mod runtime;

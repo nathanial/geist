@@ -2,6 +2,7 @@ use crate::blocks::{Block, BlockRegistry, MaterialCatalog, MaterialId};
 use crate::chunkbuf::ChunkBuf;
 use crate::lighting::{LightBorders, LightGrid, LightingStore};
 use crate::meshutil::{Face, Facing, SIDE_NEIGHBORS, is_full_cube};
+use crate::microgrid_tables::{empty4_to_rects, occ8_to_boxes};
 use crate::texture_cache::TextureCache;
 use crate::voxel::World;
 use raylib::core::math::BoundingBox;
@@ -225,117 +226,65 @@ fn emit_neighbor_fixups_micro_generic(
         let mid = registry_material_for_or_unknown(nb, face, reg);
         match face {
             Face::PosX | Face::NegX => {
-                // Build emptiness grid on boundary column bx across (ly, lz)
+                // Boundary at fixed x (bx) across (v=ly, u=lz)
                 let bx = if dx < 0 { 0 } else { 1 };
-                let mut grid = [[false; 2]; 2]; // [ly][lz]
+                let mut mask: u8 = 0;
                 for ly in 0..2 {
                     for lz in 0..2 {
-                        grid[ly][lz] = (occ & micro_bit(bx, ly, lz)) == 0;
+                        let empty = (occ & micro_bit(bx, ly, lz)) == 0;
+                        if empty {
+                            let bit = ((ly << 1) | lz) as u8;
+                            mask |= 1u8 << bit;
+                        }
                     }
                 }
-                let mut used = [[false; 2]; 2];
-                for ly in 0..2 {
-                    for lz in 0..2 {
-                        if !grid[ly][lz] || used[ly][lz] {
-                            continue;
-                        }
-                        let w = if lz == 0 && grid[ly][1] && !used[ly][1] { 2 } else { 1 };
-                        let h = if ly == 0 {
-                            let mut ok = true;
-                            for zi in lz..(lz + w) {
-                                if !grid[1][zi] || used[1][zi] {
-                                    ok = false;
-                                    break;
-                                }
-                            }
-                            if ok { 2 } else { 1 }
-                        } else {
-                            1
-                        };
-                        for dyh in 0..h {
-                            for dzw in 0..w {
-                                used[ly + dyh][lz + dzw] = true;
-                            }
-                        }
-                        let y0 = fy + (ly as f32) * cell;
-                        let z0 = fz + (lz as f32) * cell;
-                        let lv = if h == 2 {
-                            let l0 = light_for_neighbor(nx as usize, y, nz as usize, face, false);
-                            let l1 = light_for_neighbor(nx as usize, y, nz as usize, face, true);
-                            l0.max(l1)
-                        } else {
-                            let draw_top = ly == 1;
-                            light_for_neighbor(nx as usize, y, nz as usize, face, draw_top)
-                        };
-                        let rgba = [lv, lv, lv, 255];
-                        let origin = Vector3::new(fx + x_off, y0, z0);
-                        emit_face_rect_for(
-                            builds,
-                            mid,
-                            face,
-                            origin,
-                            w as f32 * cell,
-                            h as f32 * cell,
-                            rgba,
-                        );
-                    }
+                for r in empty4_to_rects(mask) {
+                    let u0 = r[0] as f32 * cell; // along Z
+                    let v0 = r[1] as f32 * cell; // along Y
+                    let du = r[2] as f32 * cell;
+                    let dv = r[3] as f32 * cell;
+                    let lv = if r[3] == 2 {
+                        let l0 = light_for_neighbor(nx as usize, y, nz as usize, face, false);
+                        let l1 = light_for_neighbor(nx as usize, y, nz as usize, face, true);
+                        l0.max(l1)
+                    } else {
+                        let draw_top = r[1] == 1; // v0==1 -> top half
+                        light_for_neighbor(nx as usize, y, nz as usize, face, draw_top)
+                    };
+                    let rgba = [lv, lv, lv, 255];
+                    let origin = Vector3::new(fx + x_off, fy + v0, fz + u0);
+                    emit_face_rect_for(builds, mid, face, origin, du, dv, rgba);
                 }
             }
             Face::PosZ | Face::NegZ => {
-                // Build emptiness grid on boundary row bz across (ly, lx)
+                // Boundary at fixed z (bz) across (v=ly, u=lx)
                 let bz = if dz < 0 { 0 } else { 1 };
-                let mut grid = [[false; 2]; 2]; // [ly][lx]
+                let mut mask: u8 = 0;
                 for ly in 0..2 {
                     for lx in 0..2 {
-                        grid[ly][lx] = (occ & micro_bit(lx, ly, bz)) == 0;
+                        let empty = (occ & micro_bit(lx, ly, bz)) == 0;
+                        if empty {
+                            let bit = ((ly << 1) | lx) as u8;
+                            mask |= 1u8 << bit;
+                        }
                     }
                 }
-                let mut used = [[false; 2]; 2];
-                for ly in 0..2 {
-                    for lx in 0..2 {
-                        if !grid[ly][lx] || used[ly][lx] {
-                            continue;
-                        }
-                        let w = if lx == 0 && grid[ly][1] && !used[ly][1] { 2 } else { 1 };
-                        let h = if ly == 0 {
-                            let mut ok = true;
-                            for xi in lx..(lx + w) {
-                                if !grid[1][xi] || used[1][xi] {
-                                    ok = false;
-                                    break;
-                                }
-                            }
-                            if ok { 2 } else { 1 }
-                        } else {
-                            1
-                        };
-                        for dyh in 0..h {
-                            for dxw in 0..w {
-                                used[ly + dyh][lx + dxw] = true;
-                            }
-                        }
-                        let y0 = fy + (ly as f32) * cell;
-                        let x0 = fx + (lx as f32) * cell;
-                        let lv = if h == 2 {
-                            let l0 = light_for_neighbor(nx as usize, y, nz as usize, face, false);
-                            let l1 = light_for_neighbor(nx as usize, y, nz as usize, face, true);
-                            l0.max(l1)
-                        } else {
-                            let draw_top = ly == 1;
-                            light_for_neighbor(nx as usize, y, nz as usize, face, draw_top)
-                        };
-                        let rgba = [lv, lv, lv, 255];
-                        let origin = Vector3::new(x0, y0, fz + z_off);
-                        emit_face_rect_for(
-                            builds,
-                            mid,
-                            face,
-                            origin,
-                            w as f32 * cell,
-                            h as f32 * cell,
-                            rgba,
-                        );
-                    }
+                for r in empty4_to_rects(mask) {
+                    let u0 = r[0] as f32 * cell; // along X
+                    let v0 = r[1] as f32 * cell; // along Y
+                    let du = r[2] as f32 * cell;
+                    let dv = r[3] as f32 * cell;
+                    let lv = if r[3] == 2 {
+                        let l0 = light_for_neighbor(nx as usize, y, nz as usize, face, false);
+                        let l1 = light_for_neighbor(nx as usize, y, nz as usize, face, true);
+                        l0.max(l1)
+                    } else {
+                        let draw_top = r[1] == 1;
+                        light_for_neighbor(nx as usize, y, nz as usize, face, draw_top)
+                    };
+                    let rgba = [lv, lv, lv, 255];
+                    let origin = Vector3::new(fx + u0, fy + v0, fz + z_off);
+                    emit_face_rect_for(builds, mid, face, origin, du, dv, rgba);
                 }
             }
             _ => {}
@@ -354,55 +303,29 @@ fn emit_neighbor_fixups_micro_generic(
             continue;
         }
         let mid = registry_material_for_or_unknown(nb, face, reg);
-        let ly = if dy < 0 { 0 } else { 1 };
-        // Build 2x2 empty grid on boundary layer (X×Z)
-        let mut grid = [[false; 2]; 2];
+        // Boundary at fixed y (ly) across (v=lz, u=lx)
+        let ly = if dy < 0 { 0 } else { 1 } as usize;
+        let mut mask: u8 = 0;
         for lz in 0..2 {
             for lx in 0..2 {
-                grid[lz][lx] = (occ & micro_bit(lx, ly, lz)) == 0;
+                let empty = (occ & micro_bit(lx, ly, lz)) == 0;
+                if empty {
+                    let bit = ((lz << 1) | lx) as u8; // v=lz, u=lx
+                    mask |= 1u8 << bit;
+                }
             }
         }
-        let mut used = [[false; 2]; 2];
-        for lz in 0..2 {
-            for lx in 0..2 {
-                if !grid[lz][lx] || used[lz][lx] {
-                    continue;
-                }
-                let w = if lx == 0 && grid[lz][1] && !used[lz][1] { 2 } else { 1 };
-                let h = if lz == 0 {
-                    let mut ok = true;
-                    for xi in lx..(lx + w) {
-                        if !grid[1][xi] || used[1][xi] {
-                            ok = false;
-                            break;
-                        }
-                    }
-                    if ok { 2 } else { 1 }
-                } else {
-                    1
-                };
-                for dz in 0..h {
-                    for dx in 0..w {
-                        used[lz + dz][lx + dx] = true;
-                    }
-                }
-                let x0 = fx + (lx as f32) * cell;
-                let z0 = fz + (lz as f32) * cell;
-                let y0 = if dy < 0 { fy } else { fy + 1.0 };
-                let draw_top = ly == 1;
-                let lv = light_for_neighbor(x, ny as usize, z, face, draw_top);
-                let rgba = [lv, lv, lv, 255];
-                let origin = Vector3::new(x0, y0, z0);
-                emit_face_rect_for(
-                    builds,
-                    mid,
-                    face,
-                    origin,
-                    w as f32 * cell,
-                    h as f32 * cell,
-                    rgba,
-                );
-            }
+        for r in empty4_to_rects(mask) {
+            let u0 = r[0] as f32 * cell; // x
+            let v0 = r[1] as f32 * cell; // z
+            let du = r[2] as f32 * cell;
+            let dv = r[3] as f32 * cell;
+            let y0 = if dy < 0 { fy } else { fy + 1.0 };
+            let draw_top = dy > 0; // matches previous ly==1 logic
+            let lv = light_for_neighbor(x, ny as usize, z, face, draw_top);
+            let rgba = [lv, lv, lv, 255];
+            let origin = Vector3::new(fx + u0, y0, fz + v0);
+            emit_face_rect_for(builds, mid, face, origin, du, dv, rgba);
         }
     }
 }
@@ -437,12 +360,14 @@ fn is_top_half_shape(b: Block, reg: &BlockRegistry) -> bool {
 
 // Local path uses the generic stairs fixups with a different light function.
 
-#[inline]
+const LOCAL_FACE_LIGHT: [i16; 6] = [40, -60, 0, 0, 0, 0];
+
 fn face_light(face: Face, ambient: u8) -> u8 {
-    match face {
-        Face::PosY => ambient.saturating_add(40),
-        Face::NegY => ambient.saturating_sub(60),
-        _ => ambient,
+    let bias = LOCAL_FACE_LIGHT[face.index()];
+    if bias >= 0 {
+        ambient.saturating_add(bias as u8)
+    } else {
+        ambient.saturating_sub((-bias) as u8)
     }
 }
 
@@ -555,56 +480,20 @@ fn micro_occupancy_stairs(facing: Facing, is_top: bool) -> u8 {
 
 #[inline]
 fn microgrid_boxes(fx: f32, fy: f32, fz: f32, occ: u8) -> Vec<(Vector3, Vector3)> {
-    // Greedy 2D merge per y-layer on a 2x2 grid; each rect becomes an AABB of height 0.5.
-    let mut out = Vec::new();
     let cell = 0.5f32;
-    for y in 0..2 {
-        let mut grid = [[false; 2]; 2]; // [z][x]
-        for z in 0..2 {
-            for x in 0..2 {
-                let bit = micro_bit(x, y, z);
-                grid[z][x] = (occ & bit) != 0;
-            }
-        }
-        let mut used = [[false; 2]; 2];
-        for z in 0..2 {
-            for x in 0..2 {
-                if !grid[z][x] || used[z][x] {
-                    continue;
-                }
-                // Try expand in X
-                let w = if x == 0 && grid[z][1] && !used[z][1] { 2 } else { 1 };
-                // Try expand in Z with width `w`
-                let h = if z == 0 {
-                    let mut ok = true;
-                    for xi in x..(x + w) {
-                        if !grid[1][xi] || used[1][xi] {
-                            ok = false;
-                            break;
-                        }
-                    }
-                    if ok { 2 } else { 1 }
-                } else {
-                    1
-                };
-                for dz in 0..h {
-                    for dx in 0..w {
-                        used[z + dz][x + dx] = true;
-                    }
-                }
-                let min = Vector3::new(
-                    fx + (x as f32) * cell,
-                    fy + (y as f32) * cell,
-                    fz + (z as f32) * cell,
-                );
-                let max = Vector3::new(
-                    fx + ((x + w) as f32) * cell,
-                    fy + ((y + 1) as f32) * cell,
-                    fz + ((z + h) as f32) * cell,
-                );
-                out.push((min, max));
-            }
-        }
+    let mut out = Vec::new();
+    for b in occ8_to_boxes(occ) {
+        let min = Vector3::new(
+            fx + (b[0] as f32) * cell,
+            fy + (b[1] as f32) * cell,
+            fz + (b[2] as f32) * cell,
+        );
+        let max = Vector3::new(
+            fx + (b[3] as f32) * cell,
+            fy + (b[4] as f32) * cell,
+            fz + (b[5] as f32) * cell,
+        );
+        out.push((min, max));
     }
     out
 }
