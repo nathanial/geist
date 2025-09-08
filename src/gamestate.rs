@@ -47,6 +47,8 @@ pub struct GameState {
     pub ground_attach: Option<GroundAttach>,
     // Control: global speed for moving structures (units/sec)
     pub structure_speed: f32,
+    // Control: vertical speed for moving structures (units/sec)
+    pub structure_elev_speed: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -87,6 +89,7 @@ impl GameState {
             structures: HashMap::new(),
             ground_attach: None,
             structure_speed: 9.6,
+            structure_elev_speed: 0.0,
         }
     }
 }
