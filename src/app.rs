@@ -45,6 +45,7 @@ pub struct DebugStats {
     pub queued_events_by: Vec<(String, usize)>,
     pub processed_events_total: usize,
     pub processed_events_by: Vec<(String, usize)>,
+    pub intents_size: usize,
 }
 
 // Internal prioritization cause for scheduling
@@ -1548,6 +1549,8 @@ impl App {
         }
         // After handling events for this tick, flush prioritized intents.
         self.flush_intents();
+        // Snapshot current intents backlog for debug overlay
+        self.debug_stats.intents_size = self.intents.len();
         self.gs.tick = self.gs.tick.wrapping_add(1);
         self.queue.advance_tick();
         // Sanity check: events left in past ticks will never be processed; warn if detected
@@ -1568,8 +1571,15 @@ impl App {
     }
 
     pub fn render(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread) {
-        // Reset debug stats for this frame
+        // Preserve queued-events snapshot captured during step() before processing,
+        // then reset per-frame stats for rendering accumulation.
+        let prev_q_total = self.debug_stats.queued_events_total;
+        let prev_q_by = self.debug_stats.queued_events_by.clone();
+        let prev_intents = self.debug_stats.intents_size;
         self.debug_stats = DebugStats::default();
+        self.debug_stats.queued_events_total = prev_q_total;
+        self.debug_stats.queued_events_by = prev_q_by;
+        self.debug_stats.intents_size = prev_intents;
 
         // Calculate frustum for culling
         let screen_width = rl.get_screen_width() as f32;
@@ -1803,6 +1813,7 @@ impl App {
             if self.debug_stats.queued_events_by.len() > shown { right_text.push_str("\n  …"); }
         }
         right_text.push_str(&format!("\nProcessed Events (session): {}", self.evt_processed_total));
+        right_text.push_str(&format!("\nIntents: {}", self.debug_stats.intents_size));
         if self.evt_processed_total > 0 {
             let max_show = 10usize;
             // Build a sorted list by count desc
