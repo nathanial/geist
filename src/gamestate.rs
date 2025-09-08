@@ -88,7 +88,7 @@ impl GameState {
             show_biome_label: true,
             structures: HashMap::new(),
             ground_attach: None,
-            structure_speed: 9.6,
+            structure_speed: 0.0,
             structure_elev_speed: 0.0,
         }
     }
