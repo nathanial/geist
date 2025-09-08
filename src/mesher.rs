@@ -1,4 +1,5 @@
 use crate::blocks::{Block, BlockRegistry, MaterialCatalog, MaterialId};
+use crate::blocks::registry::SeamPolicy;
 use crate::chunkbuf::ChunkBuf;
 use crate::lighting::{LightBorders, LightGrid, LightingStore};
 use crate::meshutil::{Face, SIDE_NEIGHBORS, is_full_cube};
@@ -201,8 +202,12 @@ fn emit_neighbor_fixups_micro_generic(
     fy: f32,
     fz: f32,
     occ: u8,
+    project_fixups: bool,
     mut light_for_neighbor: impl FnMut(usize, usize, usize, Face, bool) -> u8,
 ) {
+    if !project_fixups {
+        return;
+    }
     let sx = buf.sx as i32;
     let sz = buf.sz as i32;
     let cell = 0.5f32;
@@ -501,6 +506,12 @@ fn is_occluder(
         let ly = ny as usize;
         let lz = (nz - z0) as usize;
         let nb = buf.get_local(lx, ly, lz);
+        // Seam policy: optionally avoid occluding against the same type
+        if let (Some(h), Some(_n)) = (reg.get(here.id), reg.get(nb.id)) {
+            if matches!(h.seam, SeamPolicy::DontOccludeAgainstSameType) && here.id == nb.id {
+                return false;
+            }
+        }
         return occludes_face(nb, face, reg);
     }
     // Outside current chunk: only occlude if the corresponding neighbor chunk is loaded.
@@ -531,6 +542,11 @@ fn is_occluder(
     } else {
         world.block_at_runtime(reg, nx, ny, nz)
     };
+    if let (Some(h), Some(_n)) = (reg.get(here.id), reg.get(nb.id)) {
+        if matches!(h.seam, SeamPolicy::DontOccludeAgainstSameType) && here.id == nb.id {
+            return false;
+        }
+    }
     occludes_face(nb, face, reg)
 }
 
@@ -682,6 +698,7 @@ pub fn build_chunk_greedy_cpu_buf(
                             fy,
                             fz,
                             occ,
+                            !matches!(ty.seam, SeamPolicy::DontProjectFixups),
                             |nx, ny, nz, face, draw_top| {
                                 sample_neighbor_half_light(
                                     &light, nx, ny, nz, face, draw_top, sy,
@@ -999,6 +1016,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             fy,
                             fz,
                             occ,
+                            !matches!(ty.seam, SeamPolicy::DontProjectFixups),
                             |_, _, _, face, _| face_light(face, ambient),
                         );
                     }

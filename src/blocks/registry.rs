@@ -31,6 +31,8 @@ pub struct BlockType {
     pub pre_occ_mask: Vec<u8>,
     // Precomputed shape variant per state (for micro-grid based shapes)
     pub pre_shape_variants: Vec<ShapeVariant>,
+    // Seam policy to control occlusion and fixup projection between neighbors
+    pub seam: SeamPolicy,
     #[allow(dead_code)]
     pub state_schema: HashMap<String, Vec<String>>, // property name -> allowed values
     // Precomputed, sorted layout for fast state packing/unpacking
@@ -221,6 +223,7 @@ impl BlockRegistry {
                 pre_mat_side: Vec::new(),
                 pre_occ_mask: Vec::new(),
                 pre_shape_variants: Vec::new(),
+                seam: SeamPolicy::Default,
                 state_schema,
                 state_fields,
                 prop_index,
@@ -322,6 +325,7 @@ impl BlockRegistry {
                         pre_mat_side: vec![MaterialId(0)],
                         pre_occ_mask: vec![0],
                         pre_shape_variants: vec![ShapeVariant { occupancy: None }],
+                        seam: SeamPolicy::Default,
                         state_schema: HashMap::new(),
                         state_fields: Vec::new(),
                         prop_index: HashMap::new(),
@@ -354,6 +358,17 @@ pub enum CompiledLight {
         #[allow(dead_code)]
         max_range: Option<u16>,
     },
+}
+
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[allow(dead_code)]
+pub enum SeamPolicy {
+    // Default behavior: occlude based on occlusion mask; project fixups normally.
+    Default,
+    // Do not occlude faces against neighbors of the same block id (optional for transparent blocks).
+    DontOccludeAgainstSameType,
+    // Do not project micro-grid neighbor fixups for this block.
+    DontProjectFixups,
 }
 
 fn compile_shape(shape: Option<ShapeConfig>) -> Shape {
