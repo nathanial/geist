@@ -192,12 +192,10 @@ fn sample_neighbor_half_light(
     l0.max(ladd).max(VISUAL_LIGHT_MIN)
 }
 
-// --- Table-driven neighbor fixups (shared by world/local) ----------------------
-
-const SLAB_Y_SPANS: [(f32, f32); 2] = [(0.0, 0.5), (0.5, 1.0)]; // [bottom, top]
+// --- Generic neighbor fixups from micro-grid occupancy ------------------------
 
 #[inline]
-fn emit_neighbor_fixups_slab_generic(
+fn emit_neighbor_fixups_micro_generic(
     builds: &mut std::collections::HashMap<MaterialId, MeshBuild>,
     buf: &ChunkBuf,
     reg: &BlockRegistry,
@@ -207,137 +205,65 @@ fn emit_neighbor_fixups_slab_generic(
     fx: f32,
     fy: f32,
     fz: f32,
-    is_top: bool,
+    occ: u8,
     mut light_for_neighbor: impl FnMut(usize, usize, usize, Face, bool) -> u8,
 ) {
-    let (v0, v1) = if is_top {
-        SLAB_Y_SPANS[0]
-    } else {
-        SLAB_Y_SPANS[1]
-    };
-    let draw_top_half = !is_top;
-    let vis_y0 = fy + v0;
-    let vis_y1 = fy + v1;
-
     let sx = buf.sx as i32;
     let sz = buf.sz as i32;
+    let cell = 0.5f32;
 
     for &(dx, dz, face, x_off, z_off) in &SIDE_NEIGHBORS {
         let nx = x as i32 + dx;
         let nz = z as i32 + dz;
-        if nx >= 0 && nx < sx && nz >= 0 && nz < sz {
-            let nb = buf.get_local(nx as usize, y, nz as usize);
-            if is_full_cube(reg, nb) {
-                let lv = light_for_neighbor(nx as usize, y, nz as usize, face, draw_top_half);
-                let rgba = [lv, lv, lv, 255];
-                let mid = registry_material_for_or_unknown(nb, face, reg);
-                let origin = Vector3::new(fx + x_off, vis_y0, fz + z_off);
-                emit_face_rect_for(builds, mid, face, origin, 1.0, vis_y1 - vis_y0, rgba);
-            }
+        if nx < 0 || nx >= sx || nz < 0 || nz >= sz {
+            continue;
         }
-    }
-}
-
-#[inline]
-fn stairs_span_for_x_neighbor(facing: Facing) -> (f32, f32) {
-    // Restrict along Z when neighbor is along X
-    match facing {
-        Facing::North => (0.5, 1.0),
-        Facing::South => (0.0, 0.5),
-        Facing::West | Facing::East => (0.0, 1.0),
-    }
-}
-
-#[inline]
-fn stairs_span_for_z_neighbor(facing: Facing) -> (f32, f32) {
-    // Restrict along X when neighbor is along Z
-    match facing {
-        Facing::East => (0.5, 1.0),
-        Facing::West => (0.0, 0.5),
-        Facing::North | Facing::South => (0.0, 1.0),
-    }
-}
-
-#[inline]
-fn emit_neighbor_fixups_stairs_generic(
-    builds: &mut std::collections::HashMap<MaterialId, MeshBuild>,
-    buf: &ChunkBuf,
-    reg: &BlockRegistry,
-    x: usize,
-    y: usize,
-    z: usize,
-    fx: f32,
-    fy: f32,
-    fz: f32,
-    is_top: bool,
-    facing: Facing,
-    mut light_for_neighbor: impl FnMut(usize, usize, usize, Face, bool) -> u8,
-) {
-    let draw_top = !is_top;
-    let (y0, y1) = if draw_top { (fy + 0.5, fy + 1.0) } else { (fy, fy + 0.5) };
-
-    let sx = buf.sx as i32;
-    let sz = buf.sz as i32;
-
-    // X-axis neighbors: restrict Z
-    for (dx, face, x_off, is_west) in [(-1i32, Face::PosX, 0.0f32, true), (1, Face::NegX, 1.0, false)] {
-        let nx = x as i32 + dx;
-        if nx >= 0 && nx < sx {
-            let nb = buf.get_local(nx as usize, y, z);
-            if is_full_cube(reg, nb) {
-                // Mimic legacy skip behavior: when facing West, skip West neighbor trim;
-                // when facing East, include full span for X neighbors.
-                let z_span = stairs_span_for_x_neighbor(facing);
-                if !(facing == Facing::West && is_west) {
-                    let (z0, z1) = (fz + z_span.0, fz + z_span.1);
-                    if z1 > z0 {
-                        let lv = light_for_neighbor(nx as usize, y, z, face, draw_top);
+        let nb = buf.get_local(nx as usize, y, nz as usize);
+        if !is_full_cube(reg, nb) {
+            continue;
+        }
+        let mid = registry_material_for_or_unknown(nb, face, reg);
+        match face {
+            Face::PosX | Face::NegX => {
+                let bx = if dx < 0 { 0 } else { 1 }; // boundary column in micro-grid along X
+                for ly in 0..2 {
+                    let y0 = fy + (ly as f32) * cell;
+                    for lz in 0..2 {
+                        let filled = (occ & micro_bit(bx, ly, lz)) != 0;
+                        if filled {
+                            continue;
+                        }
+                        let draw_top = ly == 1;
+                        let lv = light_for_neighbor(nx as usize, y, nz as usize, face, draw_top);
                         let rgba = [lv, lv, lv, 255];
-                        let mid = registry_material_for_or_unknown(nb, face, reg);
-                        emit_face_rect_for(
-                            builds,
-                            mid,
-                            face,
-                            Vector3::new(fx + x_off, y0, z0),
-                            z1 - z0,
-                            y1 - y0,
-                            rgba,
-                        );
+                        let origin = Vector3::new(fx + x_off, y0, fz + (lz as f32) * cell + z_off - z_off);
+                        emit_face_rect_for(builds, mid, face, origin, cell, cell, rgba);
                     }
                 }
             }
-        }
-    }
-
-    // Z-axis neighbors: restrict X
-    for (dz, face, z_off, is_north) in [(-1i32, Face::PosZ, 0.0f32, true), (1, Face::NegZ, 1.0, false)] {
-        let nz = z as i32 + dz;
-        if nz >= 0 && nz < sz {
-            let nb = buf.get_local(x, y, nz as usize);
-            if is_full_cube(reg, nb) {
-                // Mimic legacy skip behavior: when facing North, skip North neighbor trim.
-                let x_span = stairs_span_for_z_neighbor(facing);
-                if !(facing == Facing::North && is_north) {
-                    let (x0, x1) = (fx + x_span.0, fx + x_span.1);
-                    if x1 > x0 {
-                        let lv = light_for_neighbor(x, y, nz as usize, face, draw_top);
+            Face::PosZ | Face::NegZ => {
+                let bz = if dz < 0 { 0 } else { 1 }; // boundary row in micro-grid along Z
+                for ly in 0..2 {
+                    let y0 = fy + (ly as f32) * cell;
+                    for lx in 0..2 {
+                        let filled = (occ & micro_bit(lx, ly, bz)) != 0;
+                        if filled {
+                            continue;
+                        }
+                        let draw_top = ly == 1;
+                        let lv = light_for_neighbor(nx as usize, y, nz as usize, face, draw_top);
                         let rgba = [lv, lv, lv, 255];
-                        let mid = registry_material_for_or_unknown(nb, face, reg);
-                        emit_face_rect_for(
-                            builds,
-                            mid,
-                            face,
-                            Vector3::new(x0, y0, fz + z_off),
-                            x1 - x0,
-                            y1 - y0,
-                            rgba,
-                        );
+                        let origin = Vector3::new(fx + (lx as f32) * cell + x_off - x_off, y0, fz + z_off);
+                        emit_face_rect_for(builds, mid, face, origin, cell, cell, rgba);
                     }
                 }
             }
+            _ => {}
         }
     }
 }
+
+// Table-driven stairs/slab fixups replaced by micro-grid neighbor projection.
 
 // Replaced by micro-grid boxes above.
 
@@ -775,7 +701,7 @@ pub fn build_chunk_greedy_cpu_buf(
                                 );
                             }
 
-                            emit_neighbor_fixups_slab_generic(
+                            emit_neighbor_fixups_micro_generic(
                                 &mut builds,
                                 buf,
                                 reg,
@@ -785,7 +711,7 @@ pub fn build_chunk_greedy_cpu_buf(
                                 fx,
                                 fy,
                                 fz,
-                                is_top,
+                                occ,
                                 |nx, ny, nz, face, draw_top| {
                                     sample_neighbor_half_light(
                                         &light, nx, ny, nz, face, draw_top, sy,
@@ -830,7 +756,7 @@ pub fn build_chunk_greedy_cpu_buf(
                                 );
                             }
 
-                            emit_neighbor_fixups_stairs_generic(
+                            emit_neighbor_fixups_micro_generic(
                                 &mut builds,
                                 buf,
                                 reg,
@@ -840,8 +766,7 @@ pub fn build_chunk_greedy_cpu_buf(
                                 fx,
                                 fy,
                                 fz,
-                                is_top,
-                                facing,
+                                occ,
                                 |nx, ny, nz, face, draw_top| {
                                     sample_neighbor_half_light(
                                         &light, nx, ny, nz, face, draw_top, sy,
@@ -1155,7 +1080,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                                 );
                             }
 
-                            emit_neighbor_fixups_slab_generic(
+                            emit_neighbor_fixups_micro_generic(
                                 &mut builds,
                                 buf,
                                 reg,
@@ -1165,7 +1090,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                                 fx,
                                 fy,
                                 fz,
-                                is_top,
+                                occ,
                                 |_, _, _, face, _| face_light(face, ambient),
                             );
                         }
@@ -1197,7 +1122,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                                 );
                             }
 
-                            emit_neighbor_fixups_stairs_generic(
+                            emit_neighbor_fixups_micro_generic(
                                 &mut builds,
                                 buf,
                                 reg,
@@ -1207,8 +1132,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                                 fx,
                                 fy,
                                 fz,
-                                is_top,
-                                facing,
+                                occ,
                                 |_, _, _, face, _| face_light(face, ambient),
                             );
                         }
