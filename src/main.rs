@@ -20,6 +20,7 @@ mod voxel;
 mod worldgen;
 #[cfg(test)]
 mod stairs_tests;
+mod snapshowcase;
 
 use crate::blocks::BlockRegistry;
 use clap::{Args, Parser, Subcommand, ValueEnum};
@@ -53,6 +54,9 @@ enum Command {
         #[command(subcommand)]
         cmd: SchemCmd,
     },
+
+    /// Render showcase snapshots and write XML manifest
+    SnapShowcase(SnapArgs),
 }
 
 #[derive(Args, Debug)]
@@ -242,6 +246,7 @@ fn main() {
             }
         }
         Command::Run(run) => run_app(run),
+        Command::SnapShowcase(args) => snapshowcase::run_showcase_snapshots(args),
     }
 }
 
@@ -357,4 +362,51 @@ fn run_app(run: RunArgs) {
         app.step(&mut rl, &thread, dt);
         app.render(&mut rl, &thread);
     }
+}
+
+#[derive(Args, Debug)]
+pub struct SnapArgs {
+    /// Output directory for screenshots and manifest.xml
+    #[arg(long, default_value = "showcase_output")]
+    pub out_dir: String,
+
+    /// Screenshot width in pixels
+    #[arg(long, default_value_t = 512)]
+    pub width: i32,
+
+    /// Screenshot height in pixels
+    #[arg(long, default_value_t = 512)]
+    pub height: i32,
+
+    /// Number of camera angles around each item (e.g., 4 or 8)
+    #[arg(long, default_value_t = 8)]
+    pub angles: usize,
+
+    /// World seed
+    #[arg(long, default_value_t = 1337)]
+    pub seed: i32,
+
+    /// Number of chunks along X
+    #[arg(long, default_value_t = 4)]
+    pub chunks_x: usize,
+
+    /// Number of chunks along Z
+    #[arg(long, default_value_t = 4)]
+    pub chunks_z: usize,
+
+    /// Chunk size along X
+    #[arg(long, default_value_t = 32)]
+    pub chunk_size_x: usize,
+
+    /// Chunk size along Y
+    #[arg(long, default_value_t = 256)]
+    pub chunk_size_y: usize,
+
+    /// Chunk size along Z
+    #[arg(long, default_value_t = 32)]
+    pub chunk_size_z: usize,
+
+    /// Worldgen config path (TOML)
+    #[arg(long, value_name = "PATH", default_value = "assets/worldgen/worldgen.toml")]
+    pub world_config: String,
 }
