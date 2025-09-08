@@ -75,6 +75,8 @@ pub enum Event {
         neighbors: NeighborsLoaded,
         rev: u64,
         job_id: u64,
+        // Scheduling hint: which cause triggered this build
+        cause: RebuildCause,
     },
     BuildChunkJobCompleted {
         cx: i32,

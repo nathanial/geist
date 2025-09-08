@@ -50,10 +50,14 @@ pub struct Runtime {
     pub renders: HashMap<(i32, i32), mesher::ChunkRender>,
     pub structure_renders: HashMap<StructureId, mesher::ChunkRender>,
 
-    // Worker infra
-    job_tx: mpsc::Sender<BuildJob>,
+    // Worker infra (three lanes: edit, light, bg)
+    job_tx_edit: mpsc::Sender<BuildJob>,
+    job_tx_light: mpsc::Sender<BuildJob>,
+    job_tx_bg: mpsc::Sender<BuildJob>,
     res_rx: mpsc::Receiver<JobOut>,
-    _worker_txs: Vec<mpsc::Sender<BuildJob>>, // hold to keep senders alive
+    _edit_worker_txs: Vec<mpsc::Sender<BuildJob>>, // hold to keep senders alive
+    _light_worker_txs: Vec<mpsc::Sender<BuildJob>>, // hold to keep senders alive
+    _bg_worker_txs: Vec<mpsc::Sender<BuildJob>>, // hold to keep senders alive
     // Structure worker infra
     s_job_tx: mpsc::Sender<StructureBuildJob>,
     s_res_rx: mpsc::Receiver<StructureJobOut>,
@@ -144,8 +148,10 @@ impl Runtime {
             });
         }
 
-        // Worker threads
-        let (job_tx, job_rx) = mpsc::channel::<BuildJob>();
+        // Worker threads (three lanes)
+        let (job_tx_edit, job_rx_edit) = mpsc::channel::<BuildJob>();
+        let (job_tx_light, job_rx_light) = mpsc::channel::<BuildJob>();
+        let (job_tx_bg, job_rx_bg) = mpsc::channel::<BuildJob>();
         let (res_tx, res_rx) = mpsc::channel::<JobOut>();
         // Structure channels
         let (s_job_tx, s_job_rx) = mpsc::channel::<StructureBuildJob>();
@@ -153,15 +159,17 @@ impl Runtime {
         let worker_count: usize = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(8);
-        // Per‑worker channels + threads
-        let mut worker_txs: Vec<mpsc::Sender<BuildJob>> = Vec::with_capacity(worker_count);
-        for _ in 0..worker_count {
-            let (wtx, wrx) = mpsc::channel::<BuildJob>();
-            worker_txs.push(wtx);
-            let tx = res_tx.clone();
-            let w = world.clone();
-            let ls = lighting.clone();
-            let reg = reg.clone();
+        // Split workers: ensure at least 1 edit worker; try to keep 1 light worker; rest bg
+        let w_edit = 1usize;
+        let remaining = worker_count.saturating_sub(w_edit);
+        let w_light = if remaining >= 2 { 1 } else { 0 };
+        let w_bg = remaining.saturating_sub(w_light);
+        // Per‑worker channels + threads for EDIT, LIGHT, BG pools
+        let mut edit_worker_txs: Vec<mpsc::Sender<BuildJob>> = Vec::with_capacity(w_edit);
+        let mut light_worker_txs: Vec<mpsc::Sender<BuildJob>> = Vec::with_capacity(w_light);
+        let mut bg_worker_txs: Vec<mpsc::Sender<BuildJob>> = Vec::with_capacity(w_bg);
+        // Worker factory closure
+        let spawn_worker = |wrx: mpsc::Receiver<BuildJob>, tx: mpsc::Sender<JobOut>, w: Arc<World>, ls: Arc<crate::lighting::LightingStore>, reg: Arc<BlockRegistry>| {
             thread::spawn(move || {
                 while let Ok(job) = wrx.recv() {
                     // Start from previous buffer when provided; else regenerate from worldgen
@@ -208,16 +216,78 @@ impl Runtime {
                         });
                     }
                 }
-            });
+            })
+        };
+        // Spawn EDIT workers
+        for _ in 0..w_edit {
+            let (wtx, wrx) = mpsc::channel::<BuildJob>();
+            edit_worker_txs.push(wtx);
+            let tx = res_tx.clone();
+            let w = world.clone();
+            let ls = lighting.clone();
+            let reg = reg.clone();
+            let _handle = spawn_worker(wrx, tx, w, ls, reg);
         }
-        // Dispatcher thread: round robin jobs to workers (stable order by arrival)
+        // Spawn LIGHT workers
+        for _ in 0..w_light {
+            let (wtx, wrx) = mpsc::channel::<BuildJob>();
+            light_worker_txs.push(wtx);
+            let tx = res_tx.clone();
+            let w = world.clone();
+            let ls = lighting.clone();
+            let reg = reg.clone();
+            let _handle = spawn_worker(wrx, tx, w, ls, reg);
+        }
+        // Spawn BG workers
+        for _ in 0..w_bg {
+            let (wtx, wrx) = mpsc::channel::<BuildJob>();
+            bg_worker_txs.push(wtx);
+            let tx = res_tx.clone();
+            let w = world.clone();
+            let ls = lighting.clone();
+            let reg = reg.clone();
+            let _handle = spawn_worker(wrx, tx, w, ls, reg);
+        }
+        // EDIT dispatcher
         {
-            let worker_txs_cl = worker_txs.clone();
+            let edit_worker_txs_cl = edit_worker_txs.clone();
+            let job_rx_edit = job_rx_edit;
             thread::spawn(move || {
                 let mut i = 0usize;
-                while let Ok(job) = job_rx.recv() {
-                    if !worker_txs_cl.is_empty() {
-                        let _ = worker_txs_cl[i % worker_txs_cl.len()].send(job);
+                while let Ok(job) = job_rx_edit.recv() {
+                    if !edit_worker_txs_cl.is_empty() {
+                        let _ = edit_worker_txs_cl[i % edit_worker_txs_cl.len()].send(job);
+                        i = i.wrapping_add(1);
+                    }
+                }
+            });
+        }
+        // LIGHT dispatcher (no fallback to EDIT; preserve edit exclusivity)
+        {
+            let light_worker_txs_cl = light_worker_txs.clone();
+            let bg_worker_txs_cl = bg_worker_txs.clone();
+            let job_rx_light = job_rx_light;
+            thread::spawn(move || {
+                let mut i = 0usize;
+                while let Ok(job) = job_rx_light.recv() {
+                    if !light_worker_txs_cl.is_empty() {
+                        let _ = light_worker_txs_cl[i % light_worker_txs_cl.len()].send(job);
+                        i = i.wrapping_add(1);
+                    } else if !bg_worker_txs_cl.is_empty() {
+                        let _ = bg_worker_txs_cl[i % bg_worker_txs_cl.len()].send(job);
+                        i = i.wrapping_add(1);
+                    }
+                }
+            });
+        }
+        // BG dispatcher: round-robin on BG workers
+        {
+            let bg_worker_txs_cl = bg_worker_txs.clone();
+            thread::spawn(move || {
+                let mut i = 0usize;
+                while let Ok(job) = job_rx_bg.recv() {
+                    if !bg_worker_txs_cl.is_empty() {
+                        let _ = bg_worker_txs_cl[i % bg_worker_txs_cl.len()].send(job);
                         i = i.wrapping_add(1);
                     }
                 }
@@ -271,16 +341,28 @@ impl Runtime {
             worldgen_dirty: false,
             renders: HashMap::new(),
             structure_renders: HashMap::new(),
-            job_tx,
+            job_tx_edit,
+            job_tx_light,
+            job_tx_bg,
             res_rx,
-            _worker_txs: worker_txs,
+            _edit_worker_txs: edit_worker_txs,
+            _light_worker_txs: light_worker_txs,
+            _bg_worker_txs: bg_worker_txs,
             s_job_tx,
             s_res_rx,
         }
     }
 
-    pub fn submit_build_job(&self, job: BuildJob) {
-        let _ = self.job_tx.send(job);
+    pub fn submit_build_job_edit(&self, job: BuildJob) {
+        let _ = self.job_tx_edit.send(job);
+    }
+
+    pub fn submit_build_job_light(&self, job: BuildJob) {
+        let _ = self.job_tx_light.send(job);
+    }
+
+    pub fn submit_build_job_bg(&self, job: BuildJob) {
+        let _ = self.job_tx_bg.send(job);
     }
 
     pub fn drain_worker_results(&self) -> Vec<JobOut> {

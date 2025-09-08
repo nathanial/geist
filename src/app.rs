@@ -127,7 +127,7 @@ impl App {
             let is_loaded = self.runtime.renders.contains_key(&key);
             match ent.cause {
                 IntentCause::Edit | IntentCause::Light => {
-                    if !is_loaded { continue; } // rebuild only if loaded
+                    // Schedule even if not loaded: acts as a high-priority load+rebuild
                 }
                 IntentCause::StreamLoad | IntentCause::HotReload => {
                     // StreamLoad: only schedule if still desired (within view radius)
@@ -141,7 +141,12 @@ impl App {
             }
             // Emit job request
             // Submit for next tick to avoid stranding events after we've finished this tick's loop
-            self.queue.emit_after(1, Event::BuildChunkJobRequested { cx, cz, neighbors, rev, job_id });
+            let cause = match ent.cause {
+                IntentCause::Edit => RebuildCause::Edit,
+                IntentCause::Light => RebuildCause::LightingBorder,
+                IntentCause::StreamLoad | IntentCause::HotReload => RebuildCause::StreamLoad,
+            };
+            self.queue.emit_after(1, Event::BuildChunkJobRequested { cx, cz, neighbors, rev, job_id, cause });
             self.gs.inflight_rev.insert(key, rev);
             submitted_keys.push(key);
             submitted += 1;
@@ -746,6 +751,7 @@ impl App {
                 neighbors,
                 rev,
                 job_id,
+                cause,
             } => {
                 // Prepare edit snapshots for workers (pure)
                 let chunk_edits = self.gs.edits.snapshot_for_chunk(cx, cz);
@@ -757,7 +763,7 @@ impl App {
                     .get(&(cx, cz))
                     .and_then(|c| c.buf.as_ref())
                     .cloned();
-                self.runtime.submit_build_job(BuildJob {
+                let job = BuildJob {
                     cx,
                     cz,
                     neighbors,
@@ -766,7 +772,18 @@ impl App {
                     chunk_edits,
                     region_edits,
                     prev_buf,
-                });
+                };
+                match cause {
+                    RebuildCause::Edit => {
+                        self.runtime.submit_build_job_edit(job);
+                    }
+                    RebuildCause::LightingBorder => {
+                        self.runtime.submit_build_job_light(job);
+                    }
+                    RebuildCause::StreamLoad => {
+                        self.runtime.submit_build_job_bg(job);
+                    }
+                }
                 // inflight_rev was set by the emitter (EnsureChunkLoaded/ChunkRebuildRequested) or requeue branch.
             }
             Event::StructureBuildRequested { id, rev } => {
@@ -854,6 +871,7 @@ impl App {
                             neighbors,
                             rev: cur_rev,
                             job_id,
+                            cause: RebuildCause::Edit,
                         });
                         // Ensure inflight_rev reflects latest
                         self.gs.inflight_rev.insert((cx, cz), cur_rev);
@@ -2088,6 +2106,7 @@ impl App {
                 neighbors,
                 rev,
                 job_id,
+                cause,
             } => {
                 let mask = [
                     neighbors.neg_x,
@@ -2095,8 +2114,8 @@ impl App {
                     neighbors.neg_z,
                     neighbors.pos_z,
                 ];
-                log::debug!(target: "events", "[tick {}] BuildChunkJobRequested ({}, {}) rev={} nmask={:?} job_id={:#x}",
-                    tick, cx, cz, rev, mask, job_id);
+                log::debug!(target: "events", "[tick {}] BuildChunkJobRequested ({}, {}) rev={} cause={:?} nmask={:?} job_id={:#x}",
+                    tick, cx, cz, rev, cause, mask, job_id);
             }
             E::BuildChunkJobCompleted {
                 cx,
