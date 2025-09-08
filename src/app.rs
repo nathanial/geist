@@ -126,8 +126,13 @@ impl App {
             // Visibility gating (lightweight): do not block edits
             let is_loaded = self.runtime.renders.contains_key(&key);
             match ent.cause {
-                IntentCause::Edit | IntentCause::Light => {
+                IntentCause::Edit => {
                     // Schedule even if not loaded: acts as a high-priority load+rebuild
+                }
+                IntentCause::Light => {
+                    // Prioritize and gate by distance; skip far lighting rebuilds
+                    let r = self.gs.view_radius_chunks as i32;
+                    if dist_bucket as i32 > r + 1 { continue; }
                 }
                 IntentCause::StreamLoad | IntentCause::HotReload => {
                     // StreamLoad: only schedule if still desired (within view radius)
@@ -772,6 +777,7 @@ impl App {
                     chunk_edits,
                     region_edits,
                     prev_buf,
+                    cause,
                 };
                 match cause {
                     RebuildCause::Edit => {
@@ -1227,7 +1233,12 @@ impl App {
             }
             Event::LightBordersUpdated { cx, cz } => {
                 // Neighbor rebuilds in response to border changes, if loaded and not already inflight
+                let (ccx, ccz) = self.gs.center_chunk;
+                let r_gate = self.gs.view_radius_chunks + 1; // small hysteresis
                 for (nx, nz) in [(cx - 1, cz), (cx + 1, cz), (cx, cz - 1), (cx, cz + 1)] {
+                    // Distance gating to avoid far-away lighting backlogs
+                    let ring = (nx - ccx).abs().max((nz - ccz).abs());
+                    if ring > r_gate { continue; }
                     if self.runtime.renders.contains_key(&(nx, nz))
                         && !self.gs.inflight_rev.contains_key(&(nx, nz))
                     {
@@ -1788,16 +1799,33 @@ impl App {
             }
             if self.evt_processed_by.len() > shown { right_text.push_str("\n  …"); }
         }
+        // Runtime queue debug (vertical layout)
+        let (q_e, if_e, q_l, if_l, q_b, if_b) = self.runtime.queue_debug_counts();
+        right_text.push_str("\nRuntime Queues:");
+        right_text.push_str(&format!("\n  Edit  - q={} inflight={}", q_e, if_e));
+        right_text.push_str(&format!("\n  Light - q={} inflight={}", q_l, if_l));
+        right_text.push_str(&format!("\n  BG    - q={} inflight={}", q_b, if_b));
+
         let screen_width = d.get_screen_width();
         let font_size = 20;
-        // compute width by longest line
-        let mut max_w = 0;
-        for line in right_text.split('\n') {
-            let w = d.measure_text(line, font_size);
-            if w > max_w { max_w = w; }
+        // Fixed panel width: assume up to 1,000,000 counts and widest queue line
+        let panel_templates = [
+            "Queued Events: 1,000,000",
+            "Processed Events (session): 1,000,000",
+            "Runtime Queues:",
+            "  Edit  - q=1,000,000 inflight=1,000,000",
+            "  Light - q=1,000,000 inflight=1,000,000",
+            "  BG    - q=1,000,000 inflight=1,000,000",
+        ];
+        let mut panel_w = 0;
+        for t in panel_templates.iter() {
+            let w = d.measure_text(t, font_size);
+            if w > panel_w { panel_w = w; }
         }
+        // Small padding so text doesn't hug the edge
+        panel_w += 8;
         let margin = 10;
-        let rx = screen_width - max_w - margin;
+        let rx = screen_width - panel_w - margin;
         // Align bottom similar to left overlay
         let lines = right_text.split('\n').count();
         let ry = screen_height - (lines as i32 * line_height) - 10;

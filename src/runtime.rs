@@ -10,6 +10,8 @@ use crate::shaders;
 use crate::structure::StructureId;
 use crate::voxel::World;
 use crate::blocks::{BlockRegistry, Block};
+use crate::event::RebuildCause;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Clone, Debug)]
 pub struct BuildJob {
@@ -22,6 +24,7 @@ pub struct BuildJob {
     pub region_edits: Vec<((i32, i32, i32), Block)>,
     // Optional previous buffer to reuse instead of regenerating from worldgen
     pub prev_buf: Option<chunkbuf::ChunkBuf>,
+    pub cause: RebuildCause,
 }
 
 pub struct JobOut {
@@ -32,6 +35,7 @@ pub struct JobOut {
     pub cz: i32,
     pub rev: u64,
     pub job_id: u64,
+    pub cause: RebuildCause,
 }
 
 pub struct Runtime {
@@ -61,6 +65,17 @@ pub struct Runtime {
     // Structure worker infra
     s_job_tx: mpsc::Sender<StructureBuildJob>,
     s_res_rx: mpsc::Receiver<StructureJobOut>,
+    // Debug counters
+    q_edit: Arc<AtomicUsize>,
+    q_light: Arc<AtomicUsize>,
+    q_bg: Arc<AtomicUsize>,
+    inflight_edit: Arc<AtomicUsize>,
+    inflight_light: Arc<AtomicUsize>,
+    inflight_bg: Arc<AtomicUsize>,
+    // Worker allocation
+    pub w_edit: usize,
+    pub w_light: usize,
+    pub w_bg: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -213,6 +228,7 @@ impl Runtime {
                             cz: job.cz,
                             rev: job.rev,
                             job_id: job.job_id,
+                            cause: job.cause,
                         });
                     }
                 }
@@ -248,15 +264,27 @@ impl Runtime {
             let reg = reg.clone();
             let _handle = spawn_worker(wrx, tx, w, ls, reg);
         }
+        // Counters (shared across threads)
+        let q_edit_ctr = Arc::new(AtomicUsize::new(0));
+        let q_light_ctr = Arc::new(AtomicUsize::new(0));
+        let q_bg_ctr = Arc::new(AtomicUsize::new(0));
+        let inflight_edit_ctr = Arc::new(AtomicUsize::new(0));
+        let inflight_light_ctr = Arc::new(AtomicUsize::new(0));
+        let inflight_bg_ctr = Arc::new(AtomicUsize::new(0));
+
         // EDIT dispatcher
         {
             let edit_worker_txs_cl = edit_worker_txs.clone();
             let job_rx_edit = job_rx_edit;
+            let q_edit_c = q_edit_ctr.clone();
+            let inflight_c = inflight_edit_ctr.clone();
             thread::spawn(move || {
                 let mut i = 0usize;
                 while let Ok(job) = job_rx_edit.recv() {
+                    q_edit_c.fetch_sub(1, Ordering::Relaxed);
                     if !edit_worker_txs_cl.is_empty() {
                         let _ = edit_worker_txs_cl[i % edit_worker_txs_cl.len()].send(job);
+                        inflight_c.fetch_add(1, Ordering::Relaxed);
                         i = i.wrapping_add(1);
                     }
                 }
@@ -267,14 +295,19 @@ impl Runtime {
             let light_worker_txs_cl = light_worker_txs.clone();
             let bg_worker_txs_cl = bg_worker_txs.clone();
             let job_rx_light = job_rx_light;
+            let q_light_c = q_light_ctr.clone();
+            let inflight_c = inflight_light_ctr.clone();
             thread::spawn(move || {
                 let mut i = 0usize;
                 while let Ok(job) = job_rx_light.recv() {
+                    q_light_c.fetch_sub(1, Ordering::Relaxed);
                     if !light_worker_txs_cl.is_empty() {
                         let _ = light_worker_txs_cl[i % light_worker_txs_cl.len()].send(job);
+                        inflight_c.fetch_add(1, Ordering::Relaxed);
                         i = i.wrapping_add(1);
                     } else if !bg_worker_txs_cl.is_empty() {
                         let _ = bg_worker_txs_cl[i % bg_worker_txs_cl.len()].send(job);
+                        inflight_c.fetch_add(1, Ordering::Relaxed);
                         i = i.wrapping_add(1);
                     }
                 }
@@ -283,11 +316,15 @@ impl Runtime {
         // BG dispatcher: round-robin on BG workers
         {
             let bg_worker_txs_cl = bg_worker_txs.clone();
+            let q_bg_c = q_bg_ctr.clone();
+            let inflight_c = inflight_bg_ctr.clone();
             thread::spawn(move || {
                 let mut i = 0usize;
                 while let Ok(job) = job_rx_bg.recv() {
+                    q_bg_c.fetch_sub(1, Ordering::Relaxed);
                     if !bg_worker_txs_cl.is_empty() {
                         let _ = bg_worker_txs_cl[i % bg_worker_txs_cl.len()].send(job);
+                        inflight_c.fetch_add(1, Ordering::Relaxed);
                         i = i.wrapping_add(1);
                     }
                 }
@@ -350,27 +387,61 @@ impl Runtime {
             _bg_worker_txs: bg_worker_txs,
             s_job_tx,
             s_res_rx,
+            q_edit: q_edit_ctr.clone(),
+            q_light: q_light_ctr.clone(),
+            q_bg: q_bg_ctr.clone(),
+            inflight_edit: inflight_edit_ctr.clone(),
+            inflight_light: inflight_light_ctr.clone(),
+            inflight_bg: inflight_bg_ctr.clone(),
+            w_edit,
+            w_light,
+            w_bg,
         }
     }
 
     pub fn submit_build_job_edit(&self, job: BuildJob) {
-        let _ = self.job_tx_edit.send(job);
+        self.q_edit.fetch_add(1, Ordering::Relaxed);
+        if self.job_tx_edit.send(job).is_err() {
+            self.q_edit.fetch_sub(1, Ordering::Relaxed);
+        }
     }
 
     pub fn submit_build_job_light(&self, job: BuildJob) {
-        let _ = self.job_tx_light.send(job);
+        self.q_light.fetch_add(1, Ordering::Relaxed);
+        if self.job_tx_light.send(job).is_err() {
+            self.q_light.fetch_sub(1, Ordering::Relaxed);
+        }
     }
 
     pub fn submit_build_job_bg(&self, job: BuildJob) {
-        let _ = self.job_tx_bg.send(job);
+        self.q_bg.fetch_add(1, Ordering::Relaxed);
+        if self.job_tx_bg.send(job).is_err() {
+            self.q_bg.fetch_sub(1, Ordering::Relaxed);
+        }
     }
 
     pub fn drain_worker_results(&self) -> Vec<JobOut> {
         let mut out = Vec::new();
         for x in self.res_rx.try_iter() {
+            match x.cause {
+                RebuildCause::Edit => { self.inflight_edit.fetch_sub(1, Ordering::Relaxed); }
+                RebuildCause::LightingBorder => { self.inflight_light.fetch_sub(1, Ordering::Relaxed); }
+                RebuildCause::StreamLoad => { self.inflight_bg.fetch_sub(1, Ordering::Relaxed); }
+            }
             out.push(x);
         }
         out
+    }
+
+    pub fn queue_debug_counts(&self) -> (usize, usize, usize, usize, usize, usize) {
+        (
+            self.q_edit.load(Ordering::Relaxed),
+            self.inflight_edit.load(Ordering::Relaxed),
+            self.q_light.load(Ordering::Relaxed),
+            self.inflight_light.load(Ordering::Relaxed),
+            self.q_bg.load(Ordering::Relaxed),
+            self.inflight_bg.load(Ordering::Relaxed),
+        )
     }
 
     pub fn submit_structure_build_job(&self, job: StructureBuildJob) {
