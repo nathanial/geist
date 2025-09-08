@@ -132,6 +132,12 @@ impl MeshBuild {
         };
         self.add_quad(a, b, c, d, n, u1, v1, flip_v, rgba);
     }
+
+    // Test-only accessors
+    #[inline]
+    pub(crate) fn positions(&self) -> &[f32] { &self.pos }
+    #[inline]
+    pub(crate) fn normals(&self) -> &[f32] { &self.norm }
 }
 
 #[inline]

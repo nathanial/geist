@@ -18,6 +18,8 @@ mod structure;
 mod texture_cache;
 mod voxel;
 mod worldgen;
+#[cfg(test)]
+mod stairs_tests;
 
 use crate::blocks::BlockRegistry;
 use clap::{Args, Parser, Subcommand, ValueEnum};
