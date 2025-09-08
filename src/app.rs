@@ -105,7 +105,7 @@ impl App {
         let mut submitted = 0usize;
         let mut submitted_keys: Vec<(i32,i32)> = Vec::new();
 
-        for (key, ent, _db, _ab) in items.into_iter() {
+        for (key, ent, dist_bucket, _ab) in items.into_iter() {
             if submitted >= cap { break; }
             let (cx, cz) = key;
             // inflight gating: skip if same/newer already in flight
@@ -130,6 +130,12 @@ impl App {
                     if !is_loaded { continue; } // rebuild only if loaded
                 }
                 IntentCause::StreamLoad | IntentCause::HotReload => {
+                    // StreamLoad: only schedule if still desired (within view radius)
+                    let r = self.gs.view_radius_chunks as i32;
+                    if !is_loaded {
+                        if dist_bucket as i32 > r { continue; }
+                    }
+                    // If already loaded, allow HotReload rebuilds only (not implemented here)
                     if is_loaded { /* already loaded; schedule rebuild only if HotReload */ }
                 }
             }
@@ -698,6 +704,17 @@ impl App {
                     }
                 }
                 // No explicit inflight cancellation for far chunks; allow in-flight jobs to complete.
+                // Prune stream-load intents well outside the new radius (hysteresis: r+1)
+                let mut to_remove: Vec<(i32,i32)> = Vec::new();
+                for (&(ix, iz), ent) in self.intents.iter() {
+                    if matches!(ent.cause, IntentCause::StreamLoad) {
+                        let dx = (ix - ccx).abs();
+                        let dz = (iz - ccz).abs();
+                        let ring = dx.max(dz);
+                        if ring > r + 1 { to_remove.push((ix, iz)); }
+                    }
+                }
+                for k in to_remove { self.intents.remove(&k); }
                 // Load new ones
                 for key in desired {
                     if !self.runtime.renders.contains_key(&key) && !self.gs.inflight_rev.contains_key(&key) {
@@ -841,6 +858,17 @@ impl App {
                         // Ensure inflight_rev reflects latest
                         self.gs.inflight_rev.insert((cx, cz), cur_rev);
                     }
+                    return;
+                }
+                // Gate completion by desired radius: if chunk is no longer desired, drop
+                let (ccx, ccz) = self.gs.center_chunk;
+                let dx = (cx - ccx).abs();
+                let dz = (cz - ccz).abs();
+                let ring = dx.max(dz);
+                if ring > self.gs.view_radius_chunks {
+                    // Not desired anymore: clear inflight and abandon result
+                    self.gs.inflight_rev.remove(&(cx, cz));
+                    // Do not upload or mark built; also avoid lighting border updates
                     return;
                 }
                 // Upload to GPU
