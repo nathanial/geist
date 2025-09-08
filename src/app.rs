@@ -2,25 +2,27 @@ use std::collections::{HashMap, HashSet};
 
 use raylib::prelude::*;
 
+use crate::blocks::Block;
+use crate::blocks::BlockRegistry;
 use crate::event::{Event, EventEnvelope, EventQueue, RebuildCause};
 use crate::gamestate::{ChunkEntry, GameState};
 use crate::lighting::LightingStore;
 use crate::mesher::{NeighborsLoaded, upload_chunk_mesh};
-use crate::blocks::BlockRegistry;
 use crate::raycast;
 use crate::runtime::{BuildJob, JobOut, Runtime, StructureBuildJob};
 use crate::structure::{Pose, Structure, StructureId, rotate_yaw, rotate_yaw_inv};
-use crate::blocks::Block;
 use crate::voxel::World;
 use serde::Deserialize;
 
 // Scheduling/queue tuning knobs
 // Increase per-frame submissions and per-lane queue headroom so workers stay busier.
 const JOB_FRAME_CAP_MULT: usize = 4; // was 2
-const LANE_QUEUE_EXTRA: usize = 3;   // was 1 (target = workers + extra)
+const LANE_QUEUE_EXTRA: usize = 3; // was 1 (target = workers + extra)
 
 #[derive(Deserialize)]
-struct HotbarConfig { items: Vec<String> }
+struct HotbarConfig {
+    items: Vec<String>,
+}
 
 pub struct App {
     pub gs: GameState,
@@ -76,21 +78,32 @@ impl App {
         self.intents
             .entry((cx, cz))
             .and_modify(|e| {
-                if cur_rev > e.rev { e.rev = cur_rev; }
+                if cur_rev > e.rev {
+                    e.rev = cur_rev;
+                }
                 // Keep strongest cause (lower enum value = higher priority)
-                if cause < e.cause { e.cause = cause; }
+                if cause < e.cause {
+                    e.cause = cause;
+                }
                 e.last_tick = now;
             })
-            .or_insert(IntentEntry { rev: cur_rev, cause, last_tick: now });
+            .or_insert(IntentEntry {
+                rev: cur_rev,
+                cause,
+                last_tick: now,
+            });
     }
 
     fn flush_intents(&mut self) {
-        if self.intents.is_empty() { return; }
+        if self.intents.is_empty() {
+            return;
+        }
         // Compute priorities
         let ccx = (self.cam.position.x / self.gs.world.chunk_size_x as f32).floor() as i32;
         let ccz = (self.cam.position.z / self.gs.world.chunk_size_z as f32).floor() as i32;
         let now = self.gs.tick;
-        let mut items: Vec<((i32,i32), IntentEntry, u32, i32)> = Vec::with_capacity(self.intents.len());
+        let mut items: Vec<((i32, i32), IntentEntry, u32, i32)> =
+            Vec::with_capacity(self.intents.len());
         for (&key, &ent) in self.intents.iter() {
             let (cx, cz) = key;
             let dx = cx - ccx;
@@ -99,21 +112,30 @@ impl App {
             let dist_bucket: u32 = dx.abs().max(dz.abs()) as u32;
             // Age: older gets a small boost (negative weight)
             let age = now.saturating_sub(ent.last_tick);
-            let age_boost: i32 = if age > 180 { -2 } else if age > 60 { -1 } else { 0 }; // ~1-3 seconds at 60Hz
+            let age_boost: i32 = if age > 180 {
+                -2
+            } else if age > 60 {
+                -1
+            } else {
+                0
+            }; // ~1-3 seconds at 60Hz
             items.push((key, ent, dist_bucket, age_boost));
         }
         items.sort_by(|a, b| {
             // (cause asc, dist asc, age_boost asc (more negative first))
-            a.1.cause.cmp(&b.1.cause)
+            a.1.cause
+                .cmp(&b.1.cause)
                 .then(a.2.cmp(&b.2))
                 .then(a.3.cmp(&b.3))
         });
 
         // Cap submissions per frame (larger multiplier keeps queues primed)
-        let worker_n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8);
+        let worker_n = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(8);
         let cap = (worker_n * JOB_FRAME_CAP_MULT).max(8);
         let mut submitted = 0usize;
-        let mut submitted_keys: Vec<(i32,i32)> = Vec::new();
+        let mut submitted_keys: Vec<(i32, i32)> = Vec::new();
 
         // Backpressure budgets per lane (avoid overfilling runtime FIFOs)
         let (q_e, if_e, q_l, if_l, q_b, if_b) = self.runtime.queue_debug_counts();
@@ -126,7 +148,9 @@ impl App {
         let mut budget_bg = target_bg.saturating_sub(q_b + if_b);
 
         for (key, ent, dist_bucket, _ab) in items.into_iter() {
-            if submitted >= cap { break; }
+            if submitted >= cap {
+                break;
+            }
             let (cx, cz) = key;
             // inflight gating: skip if same/newer already in flight
             // Skip only if an inflight entry exists and is already at or above this rev
@@ -148,21 +172,31 @@ impl App {
             match ent.cause {
                 IntentCause::Edit => {
                     // Schedule even if not loaded: acts as a high-priority load+rebuild
-                    if budget_edit == 0 { continue; }
+                    if budget_edit == 0 {
+                        continue;
+                    }
                 }
                 IntentCause::Light => {
                     // Prioritize and gate by distance; skip far lighting rebuilds
                     let r = self.gs.view_radius_chunks;
-                    if dist_bucket as i32 > r + 1 { continue; }
-                    if budget_light == 0 { continue; }
+                    if dist_bucket as i32 > r + 1 {
+                        continue;
+                    }
+                    if budget_light == 0 {
+                        continue;
+                    }
                 }
                 IntentCause::StreamLoad | IntentCause::HotReload => {
                     // StreamLoad: only schedule if still desired (within view radius)
                     let r = self.gs.view_radius_chunks;
-                    if !is_loaded && dist_bucket as i32 > r { continue; }
+                    if !is_loaded && dist_bucket as i32 > r {
+                        continue;
+                    }
                     // If already loaded, allow HotReload rebuilds only (not implemented here)
                     if is_loaded { /* already loaded; schedule rebuild only if HotReload */ }
-                    if budget_bg == 0 { continue; }
+                    if budget_bg == 0 {
+                        continue;
+                    }
                 }
             }
             // Emit job request
@@ -172,15 +206,31 @@ impl App {
                 IntentCause::Light => RebuildCause::LightingBorder,
                 IntentCause::StreamLoad | IntentCause::HotReload => RebuildCause::StreamLoad,
             };
-            self.queue.emit_after(1, Event::BuildChunkJobRequested { cx, cz, neighbors, rev, job_id, cause });
+            self.queue.emit_after(
+                1,
+                Event::BuildChunkJobRequested {
+                    cx,
+                    cz,
+                    neighbors,
+                    rev,
+                    job_id,
+                    cause,
+                },
+            );
             self.gs.inflight_rev.insert(key, rev);
             submitted_keys.push(key);
             submitted += 1;
             // Consume lane budget
             match ent.cause {
-                IntentCause::Edit => { budget_edit = budget_edit.saturating_sub(1); }
-                IntentCause::Light => { budget_light = budget_light.saturating_sub(1); }
-                IntentCause::StreamLoad | IntentCause::HotReload => { budget_bg = budget_bg.saturating_sub(1); }
+                IntentCause::Edit => {
+                    budget_edit = budget_edit.saturating_sub(1);
+                }
+                IntentCause::Light => {
+                    budget_light = budget_light.saturating_sub(1);
+                }
+                IntentCause::StreamLoad | IntentCause::HotReload => {
+                    budget_bg = budget_bg.saturating_sub(1);
+                }
             }
         }
         // Remove only submitted intents; keep the rest to trickle in subsequent frames
@@ -190,19 +240,21 @@ impl App {
     }
     fn load_hotbar(reg: &BlockRegistry) -> Vec<Block> {
         let path = std::path::Path::new("assets/voxels/hotbar.toml");
-        if !path.exists() { return Vec::new(); }
+        if !path.exists() {
+            return Vec::new();
+        }
         match std::fs::read_to_string(path) {
-            Ok(s) => {
-                match toml::from_str::<HotbarConfig>(&s) {
-                    Ok(cfg) => cfg.items.into_iter().filter_map(|name| {
-                        reg.id_by_name(&name).map(|id| Block { id, state: 0 })
-                    }).collect(),
-                    Err(e) => {
-                        log::warn!("hotbar.toml parse error: {}", e);
-                        Vec::new()
-                    }
+            Ok(s) => match toml::from_str::<HotbarConfig>(&s) {
+                Ok(cfg) => cfg
+                    .items
+                    .into_iter()
+                    .filter_map(|name| reg.id_by_name(&name).map(|id| Block { id, state: 0 }))
+                    .collect(),
+                Err(e) => {
+                    log::warn!("hotbar.toml parse error: {}", e);
+                    Vec::new()
                 }
-            }
+            },
             Err(e) => {
                 log::warn!("hotbar.toml read error: {}", e);
                 Vec::new()
@@ -231,7 +283,9 @@ impl App {
                 .unwrap_or(false);
         }
         let b = st.blocks[st.idx(lxu, lyu, lzu)];
-        reg.get(b.id).map(|ty| ty.is_solid(b.state)).unwrap_or(false)
+        reg.get(b.id)
+            .map(|ty| ty.is_solid(b.state))
+            .unwrap_or(false)
     }
 
     fn is_feet_on_structure(&self, st: &crate::structure::Structure, feet_world: Vector3) -> bool {
@@ -336,12 +390,23 @@ impl App {
                             if is_flat {
                                 // Flat placement (existing behavior)
                                 let base_y: i32 = match world.mode {
-                                    crate::voxel::WorldGenMode::Flat { thickness } => if thickness > 0 { 1 } else { 0 },
+                                    crate::voxel::WorldGenMode::Flat { thickness } => {
+                                        if thickness > 0 {
+                                            1
+                                        } else {
+                                            0
+                                        }
+                                    }
                                     _ => 0,
                                 };
                                 let margin: i32 = 4;
-                                let row_width_limit: i32 = (world.world_size_x() as i32).max(64) - margin;
-                                let mut placements: Vec<(std::path::PathBuf, (i32, i32, i32), (i32, i32))> = Vec::new();
+                                let row_width_limit: i32 =
+                                    (world.world_size_x() as i32).max(64) - margin;
+                                let mut placements: Vec<(
+                                    std::path::PathBuf,
+                                    (i32, i32, i32),
+                                    (i32, i32),
+                                )> = Vec::new();
                                 let mut cur_x: i32 = 0;
                                 let mut cur_z: i32 = 0;
                                 let mut row_depth: i32 = 0;
@@ -352,19 +417,29 @@ impl App {
                                         cur_z += row_depth;
                                         row_depth = 0;
                                     }
-                                    placements.push((ent.path.clone(), (cur_x, base_y, cur_z), (sx, sz)));
+                                    placements.push((
+                                        ent.path.clone(),
+                                        (cur_x, base_y, cur_z),
+                                        (sx, sz),
+                                    ));
                                     cur_x += sx + margin;
                                     row_depth = row_depth.max(sz + margin);
                                 }
                                 // Center within world
-                                let (mut min_x, mut max_x, mut min_z, mut max_z) = (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
+                                let (mut min_x, mut max_x, mut min_z, mut max_z) =
+                                    (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
                                 for (_p, (lx, _ly, lz), (sx, sz)) in &placements {
                                     min_x = min_x.min(*lx);
                                     min_z = min_z.min(*lz);
                                     max_x = max_x.max(*lx + sx);
                                     max_z = max_z.max(*lz + sz);
                                 }
-                                if min_x == i32::MAX { min_x = 0; max_x = 0; min_z = 0; max_z = 0; }
+                                if min_x == i32::MAX {
+                                    min_x = 0;
+                                    max_x = 0;
+                                    min_z = 0;
+                                    max_z = 0;
+                                }
                                 let layout_cx = (min_x + max_x) / 2;
                                 let layout_cz = (min_z + max_z) / 2;
                                 let world_cx = (world.world_size_x() as i32) / 2;
@@ -375,22 +450,46 @@ impl App {
                                     let wx = lx + shift_x;
                                     let wy = ly;
                                     let wz = lz + shift_z;
-                                    match crate::schem::load_any_schematic_apply_edits(&p, (wx, wy, wz), &mut gs.edits, &reg) {
+                                    match crate::schem::load_any_schematic_apply_edits(
+                                        &p,
+                                        (wx, wy, wz),
+                                        &mut gs.edits,
+                                        &reg,
+                                    ) {
                                         Ok((sx, sy, sz)) => {
-                                            log::info!("Loaded schem {:?} at ({},{},{}) ({}x{}x{})", p, wx, wy, wz, sx, sy, sz);
+                                            log::info!(
+                                                "Loaded schem {:?} at ({},{},{}) ({}x{}x{})",
+                                                p,
+                                                wx,
+                                                wy,
+                                                wz,
+                                                sx,
+                                                sy,
+                                                sz
+                                            );
                                         }
-                                        Err(e) => { log::warn!("Failed loading schem {:?}: {}", p, e); }
+                                        Err(e) => {
+                                            log::warn!("Failed loading schem {:?}: {}", p, e);
+                                        }
                                     }
                                 }
                             } else {
                                 // Non-flat: place schematics onto a flying castle platform sized to fit them
                                 // 1) Decide target platform footprint by packing into rows near-square
                                 let margin: i32 = 4;
-                                let total_area: i64 = list.iter().map(|e| (e.size.0 as i64) * (e.size.2 as i64)).sum();
-                                let target_w: i32 = (((total_area as f64).sqrt()).ceil() as i32).max(32);
+                                let total_area: i64 = list
+                                    .iter()
+                                    .map(|e| (e.size.0 as i64) * (e.size.2 as i64))
+                                    .sum();
+                                let target_w: i32 =
+                                    (((total_area as f64).sqrt()).ceil() as i32).max(32);
                                 let row_width_limit: i32 = target_w;
                                 // Pack placements in local (0,0) space first
-                                let mut placements: Vec<(std::path::PathBuf, (i32, i32), (i32, i32, i32))> = Vec::new();
+                                let mut placements: Vec<(
+                                    std::path::PathBuf,
+                                    (i32, i32),
+                                    (i32, i32, i32),
+                                )> = Vec::new();
                                 let mut cur_x: i32 = 0;
                                 let mut cur_z: i32 = 0;
                                 let mut row_depth: i32 = 0;
@@ -402,20 +501,32 @@ impl App {
                                         cur_z += row_depth;
                                         row_depth = 0;
                                     }
-                                    placements.push((ent.path.clone(), (cur_x, cur_z), (sx, sy, sz)));
+                                    placements.push((
+                                        ent.path.clone(),
+                                        (cur_x, cur_z),
+                                        (sx, sy, sz),
+                                    ));
                                     cur_x += sx + margin;
                                     row_depth = row_depth.max(sz + margin);
                                     max_h = max_h.max(sy);
                                 }
                                 // Compute layout extents
-                                let mut min_x = i32::MAX; let mut max_x = i32::MIN; let mut min_z = i32::MAX; let mut max_z = i32::MIN;
+                                let mut min_x = i32::MAX;
+                                let mut max_x = i32::MIN;
+                                let mut min_z = i32::MAX;
+                                let mut max_z = i32::MIN;
                                 for (_p, (lx, lz), (sx, _sy, sz)) in &placements {
                                     min_x = min_x.min(*lx);
                                     min_z = min_z.min(*lz);
                                     max_x = max_x.max(*lx + sx);
                                     max_z = max_z.max(*lz + sz);
                                 }
-                                if min_x == i32::MAX { min_x = 0; max_x = 0; min_z = 0; max_z = 0; }
+                                if min_x == i32::MAX {
+                                    min_x = 0;
+                                    max_x = 0;
+                                    min_z = 0;
+                                    max_z = 0;
+                                }
                                 let layout_w = (max_x - min_x).max(1);
                                 let layout_d = (max_z - min_z).max(1);
                                 // Add an outer border margin around platform
@@ -429,9 +540,13 @@ impl App {
                                 loop {
                                     let deck_y = ((st_sy as f32) * 0.33) as i32;
                                     let above = (st_sy as i32) - (deck_y + 1);
-                                    if deck_y >= below_space && above >= max_h + clearance_above { break; }
+                                    if deck_y >= below_space && above >= max_h + clearance_above {
+                                        break;
+                                    }
                                     st_sy += 1;
-                                    if st_sy > 128 { break; }
+                                    if st_sy > 128 {
+                                        break;
+                                    }
                                 }
                                 // Spawn or replace the flying castle structure sized to fit
                                 let castle_id: StructureId = 1;
@@ -439,30 +554,62 @@ impl App {
                                 let world_center_x = (world.world_size_x() as f32) * 0.5;
                                 let world_center_z = (world.world_size_z() as f32) * 0.5;
                                 let params = { world.gen_params.read().unwrap().clone() };
-                                let platform_y = (world.world_size_y() as f32) * params.platform_y_ratio + params.platform_y_offset;
-                                let pose = Pose { pos: Vector3::new(world_center_x, platform_y, world_center_z) + Vector3::new(0.0, 0.0, 40.0), yaw_deg: 0.0 };
-                                let mut st = Structure::new(castle_id, st_sx, st_sy, st_sz, pose, &reg);
+                                let platform_y = (world.world_size_y() as f32)
+                                    * params.platform_y_ratio
+                                    + params.platform_y_offset;
+                                let pose = Pose {
+                                    pos: Vector3::new(world_center_x, platform_y, world_center_z)
+                                        + Vector3::new(0.0, 0.0, 40.0),
+                                    yaw_deg: 0.0,
+                                };
+                                let mut st =
+                                    Structure::new(castle_id, st_sx, st_sy, st_sz, pose, &reg);
                                 // Compute deck_y consistent with Structure::new()
                                 let deck_y = ((st_sy as f32) * 0.33) as i32;
                                 // Center layout on platform: shift so layout bbox lands in middle with edge border
-                                let shift_x = edge - min_x + ((st_sx as i32 - (layout_w + edge * 2)) / 2);
-                                let shift_z = edge - min_z + ((st_sz as i32 - (layout_d + edge * 2)) / 2);
+                                let shift_x =
+                                    edge - min_x + ((st_sx as i32 - (layout_w + edge * 2)) / 2);
+                                let shift_z =
+                                    edge - min_z + ((st_sz as i32 - (layout_d + edge * 2)) / 2);
                                 // Stamp each schematic onto the platform one block above the deck
                                 for (p, (lx, lz), (_sx, _sy, _sz)) in placements {
                                     let ox = lx + shift_x;
                                     let oy = deck_y + 1;
                                     let oz = lz + shift_z;
-                                    match crate::schem::load_any_schematic_apply_into_structure(&p, (ox, oy, oz), &mut st, &reg) {
+                                    match crate::schem::load_any_schematic_apply_into_structure(
+                                        &p,
+                                        (ox, oy, oz),
+                                        &mut st,
+                                        &reg,
+                                    ) {
                                         Ok((sx, sy, sz)) => {
-                                            log::info!("Loaded schem {:?} onto platform at local ({},{},{}) ({}x{}x{})", p, ox, oy, oz, sx, sy, sz);
+                                            log::info!(
+                                                "Loaded schem {:?} onto platform at local ({},{},{}) ({}x{}x{})",
+                                                p,
+                                                ox,
+                                                oy,
+                                                oz,
+                                                sx,
+                                                sy,
+                                                sz
+                                            );
                                         }
-                                        Err(e) => { log::warn!("Failed loading schem {:?} into structure: {}", p, e); }
+                                        Err(e) => {
+                                            log::warn!(
+                                                "Failed loading schem {:?} into structure: {}",
+                                                p,
+                                                e
+                                            );
+                                        }
                                     }
                                 }
                                 // Install/replace structure and request a build at its current dirty rev
                                 let rev = st.dirty_rev;
                                 gs.structures.insert(castle_id, st);
-                                queue.emit_now(Event::StructureBuildRequested { id: castle_id, rev });
+                                queue.emit_now(Event::StructureBuildRequested {
+                                    id: castle_id,
+                                    rev,
+                                });
                             }
                         }
                     }
@@ -472,16 +619,37 @@ impl App {
                 }
                 // mcworld import remains ground-stamped only in flat worlds
                 if world.is_flat() {
-                    let base_y: i32 = match world.mode { crate::voxel::WorldGenMode::Flat { thickness } => if thickness > 0 { 1 } else { 0 }, _ => 0 };
+                    let base_y: i32 = match world.mode {
+                        crate::voxel::WorldGenMode::Flat { thickness } => {
+                            if thickness > 0 {
+                                1
+                            } else {
+                                0
+                            }
+                        }
+                        _ => 0,
+                    };
                     match crate::mcworld::load_mcworlds_in_dir(dir, base_y, &mut gs.edits) {
                         Ok(list) => {
                             for (name, (_x, _y, _z), (sx, sy, sz)) in list {
-                                log::info!("Loaded mcworld structure {} ({}x{}x{})", name, sx, sy, sz);
+                                log::info!(
+                                    "Loaded mcworld structure {} ({}x{}x{})",
+                                    name,
+                                    sx,
+                                    sy,
+                                    sz
+                                );
                             }
                         }
                         Err(e) => {
-                            if e.contains("not enabled") { log::info!("{}.mcworld files present will be ignored unless built with --features mcworld", e); }
-                            else { log::warn!("mcworld load: {}", e); }
+                            if e.contains("not enabled") {
+                                log::info!(
+                                    "{}.mcworld files present will be ignored unless built with --features mcworld",
+                                    e
+                                );
+                            } else {
+                                log::warn!("mcworld load: {}", e);
+                            }
                         }
                     }
                 }
@@ -758,19 +926,25 @@ impl App {
                 }
                 // No explicit inflight cancellation for far chunks; allow in-flight jobs to complete.
                 // Prune stream-load intents well outside the new radius (hysteresis: r+1)
-                let mut to_remove: Vec<(i32,i32)> = Vec::new();
+                let mut to_remove: Vec<(i32, i32)> = Vec::new();
                 for (&(ix, iz), ent) in self.intents.iter() {
                     if matches!(ent.cause, IntentCause::StreamLoad) {
                         let dx = (ix - ccx).abs();
                         let dz = (iz - ccz).abs();
                         let ring = dx.max(dz);
-                        if ring > r + 1 { to_remove.push((ix, iz)); }
+                        if ring > r + 1 {
+                            to_remove.push((ix, iz));
+                        }
                     }
                 }
-                for k in to_remove { self.intents.remove(&k); }
+                for k in to_remove {
+                    self.intents.remove(&k);
+                }
                 // Load new ones
                 for key in desired {
-                    if !self.runtime.renders.contains_key(&key) && !self.gs.inflight_rev.contains_key(&key) {
+                    if !self.runtime.renders.contains_key(&key)
+                        && !self.gs.inflight_rev.contains_key(&key)
+                    {
                         self.queue.emit_now(Event::EnsureChunkLoaded {
                             cx: key.0,
                             cz: key.1,
@@ -789,7 +963,9 @@ impl App {
             Event::EnsureChunkLoaded { cx, cz } => {
                 if self.runtime.renders.contains_key(&(cx, cz))
                     || self.gs.inflight_rev.contains_key(&(cx, cz))
-                { return; }
+                {
+                    return;
+                }
                 // Record load intent; scheduler will cap and prioritize
                 self.record_intent(cx, cz, IntentCause::StreamLoad);
             }
@@ -856,8 +1032,7 @@ impl App {
                     cpu,
                     &mut self.runtime.tex_cache,
                     &self.runtime.reg.materials,
-                )
-                {
+                ) {
                     for (mid, model) in &mut cr.parts {
                         if let Some(mat) = model.materials_mut().get_mut(0) {
                             let leaves = self
@@ -905,12 +1080,7 @@ impl App {
                 let cur_rev = self.gs.edits.get_rev(cx, cz);
                 if rev < cur_rev {
                     // Only re-enqueue if there isn't already a newer inflight job
-                    let inflight = self
-                        .gs
-                        .inflight_rev
-                        .get(&(cx, cz))
-                        .copied()
-                        .unwrap_or(0);
+                    let inflight = self.gs.inflight_rev.get(&(cx, cz)).copied().unwrap_or(0);
                     if inflight < cur_rev {
                         let neighbors = self.neighbor_mask(cx, cz);
                         let job_id = Self::job_hash(cx, cz, cur_rev, neighbors);
@@ -945,8 +1115,7 @@ impl App {
                     cpu,
                     &mut self.runtime.tex_cache,
                     &self.runtime.reg.materials,
-                )
-                {
+                ) {
                     // Assign biome-based leaf tint for this chunk (center sample)
                     let sx = self.gs.world.chunk_size_x as i32;
                     let sz = self.gs.world.chunk_size_z as i32;
@@ -1009,7 +1178,9 @@ impl App {
                 }
             }
             Event::ChunkRebuildRequested { cx, cz, cause } => {
-                if !self.runtime.renders.contains_key(&(cx, cz)) { return; }
+                if !self.runtime.renders.contains_key(&(cx, cz)) {
+                    return;
+                }
                 // Record rebuild intent; scheduler will cap and prioritize
                 let ic = match cause {
                     RebuildCause::Edit => IntentCause::Edit,
@@ -1033,16 +1204,27 @@ impl App {
                     let cz = wz.div_euclid(sz);
                     if let Some(cent) = self.gs.chunks.get(&(cx, cz)) {
                         if let Some(ref buf) = cent.buf {
-                            return buf.get_world(wx, wy, wz).unwrap_or(Block { id: reg.id_by_name("air").unwrap_or(0), state: 0 });
+                            return buf.get_world(wx, wy, wz).unwrap_or(Block {
+                                id: reg.id_by_name("air").unwrap_or(0),
+                                state: 0,
+                            });
                         }
                     }
                     // Outside loaded buffers: treat as air
-                    Block { id: reg.id_by_name("air").unwrap_or(0), state: 0 }
+                    Block {
+                        id: reg.id_by_name("air").unwrap_or(0),
+                        state: 0,
+                    }
                 };
-                let world_hit = raycast::raycast_first_hit_with_face(org, dir, 8.0 * 32.0, |x, y, z| {
-                    let b = sampler(x, y, z);
-                    self.runtime.reg.get(b.id).map(|ty| ty.is_solid(b.state)).unwrap_or(false)
-                });
+                let world_hit =
+                    raycast::raycast_first_hit_with_face(org, dir, 8.0 * 32.0, |x, y, z| {
+                        let b = sampler(x, y, z);
+                        self.runtime
+                            .reg
+                            .get(b.id)
+                            .map(|ty| ty.is_solid(b.state))
+                            .unwrap_or(false)
+                    });
                 let mut struct_hit: Option<(StructureId, raycast::RayHit, f32)> = None;
                 for (id, st) in &self.gs.structures {
                     let local_org = rotate_yaw_inv(org - st.pose.pos, st.pose.yaw_deg);
@@ -1056,10 +1238,19 @@ impl App {
                             return false;
                         }
                         if let Some(b) = st.edits.get(lx, ly, lz) {
-                            return self.runtime.reg.get(b.id).map(|ty| ty.is_solid(b.state)).unwrap_or(false);
+                            return self
+                                .runtime
+                                .reg
+                                .get(b.id)
+                                .map(|ty| ty.is_solid(b.state))
+                                .unwrap_or(false);
                         }
                         let b = st.blocks[st.idx(lxu, lyu, lzu)];
-                        self.runtime.reg.get(b.id).map(|ty| ty.is_solid(b.state)).unwrap_or(false)
+                        self.runtime
+                            .reg
+                            .get(b.id)
+                            .map(|ty| ty.is_solid(b.state))
+                            .unwrap_or(false)
                     };
                     if let Some(hit) = raycast::raycast_first_hit_with_face(
                         local_org,
@@ -1281,7 +1472,9 @@ impl App {
                 for (nx, nz) in [(cx - 1, cz), (cx + 1, cz), (cx, cz - 1), (cx, cz + 1)] {
                     // Distance gating to avoid far-away lighting backlogs
                     let ring = (nx - ccx).abs().max((nz - ccz).abs());
-                    if ring > r_gate { continue; }
+                    if ring > r_gate {
+                        continue;
+                    }
                     if self.runtime.renders.contains_key(&(nx, nz))
                         && !self.gs.inflight_rev.contains_key(&(nx, nz))
                     {
@@ -1337,7 +1530,7 @@ impl App {
         // Handle worldgen hot-reload
         // Always invalidate previous CPU buffers on change; optionally schedule rebuilds
         if self.runtime.take_worldgen_dirty() {
-            let keys: Vec<(i32,i32)> = self.runtime.renders.keys().cloned().collect();
+            let keys: Vec<(i32, i32)> = self.runtime.renders.keys().cloned().collect();
             for (cx, cz) in keys.iter().copied() {
                 if let Some(ent) = self.gs.chunks.get_mut(&(cx, cz)) {
                     ent.buf = None; // prevent reuse across worldgen param changes
@@ -1345,11 +1538,21 @@ impl App {
             }
             if self.runtime.rebuild_on_worldgen {
                 for (cx, cz) in keys.iter().copied() {
-                    self.queue.emit_now(Event::ChunkRebuildRequested { cx, cz, cause: RebuildCause::StreamLoad });
+                    self.queue.emit_now(Event::ChunkRebuildRequested {
+                        cx,
+                        cz,
+                        cause: RebuildCause::StreamLoad,
+                    });
                 }
-                log::info!("Scheduled rebuild of {} loaded chunks due to worldgen change", keys.len());
+                log::info!(
+                    "Scheduled rebuild of {} loaded chunks due to worldgen change",
+                    keys.len()
+                );
             } else {
-                log::info!("Worldgen changed; invalidated {} chunk buffers (rebuild on demand)", keys.len());
+                log::info!(
+                    "Worldgen changed; invalidated {} chunk buffers (rebuild on demand)",
+                    keys.len()
+                );
             }
         }
         // Input handling → emit events
@@ -1392,31 +1595,68 @@ impl App {
             ];
             for (i, key) in keys.iter().enumerate() {
                 if i < self.hotbar.len() && rl.is_key_pressed(*key) {
-                    self.queue.emit_now(Event::PlaceTypeSelected { block: self.hotbar[i] });
+                    self.queue.emit_now(Event::PlaceTypeSelected {
+                        block: self.hotbar[i],
+                    });
                 }
             }
         } else {
             let id_of = |name: &str| self.runtime.reg.id_by_name(name).unwrap_or(0);
             if rl.is_key_pressed(KeyboardKey::KEY_ONE) {
-                self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("dirt"), state: 0 } });
+                self.queue.emit_now(Event::PlaceTypeSelected {
+                    block: Block {
+                        id: id_of("dirt"),
+                        state: 0,
+                    },
+                });
             }
             if rl.is_key_pressed(KeyboardKey::KEY_TWO) {
-                self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("stone"), state: 0 } });
+                self.queue.emit_now(Event::PlaceTypeSelected {
+                    block: Block {
+                        id: id_of("stone"),
+                        state: 0,
+                    },
+                });
             }
             if rl.is_key_pressed(KeyboardKey::KEY_THREE) {
-                self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("sand"), state: 0 } });
+                self.queue.emit_now(Event::PlaceTypeSelected {
+                    block: Block {
+                        id: id_of("sand"),
+                        state: 0,
+                    },
+                });
             }
             if rl.is_key_pressed(KeyboardKey::KEY_FOUR) {
-                self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("grass"), state: 0 } });
+                self.queue.emit_now(Event::PlaceTypeSelected {
+                    block: Block {
+                        id: id_of("grass"),
+                        state: 0,
+                    },
+                });
             }
             if rl.is_key_pressed(KeyboardKey::KEY_FIVE) {
-                self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("snow"), state: 0 } });
+                self.queue.emit_now(Event::PlaceTypeSelected {
+                    block: Block {
+                        id: id_of("snow"),
+                        state: 0,
+                    },
+                });
             }
             if rl.is_key_pressed(KeyboardKey::KEY_SIX) {
-                self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("glowstone"), state: 0 } });
+                self.queue.emit_now(Event::PlaceTypeSelected {
+                    block: Block {
+                        id: id_of("glowstone"),
+                        state: 0,
+                    },
+                });
             }
             if rl.is_key_pressed(KeyboardKey::KEY_SEVEN) {
-                self.queue.emit_now(Event::PlaceTypeSelected { block: Block { id: id_of("beacon"), state: 0 } });
+                self.queue.emit_now(Event::PlaceTypeSelected {
+                    block: Block {
+                        id: id_of("beacon"),
+                        state: 0,
+                    },
+                });
             }
         }
 
@@ -1531,7 +1771,8 @@ impl App {
             let (total, by) = self.queue.queued_counts();
             self.debug_stats.queued_events_total = total;
             // Sort for stable presentation
-            let mut pairs: Vec<(String, usize)> = by.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
+            let mut pairs: Vec<(String, usize)> =
+                by.into_iter().map(|(k, v)| (k.to_string(), v)).collect();
             pairs.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
             self.debug_stats.queued_events_by = pairs;
         }
@@ -1670,7 +1911,13 @@ impl App {
                         ls.set_autumn_palette(p0, p1, p2, p3, 1.0);
                     } else {
                         // Default greenish palette
-                        ls.set_autumn_palette([0.32, 0.55, 0.25], [0.28, 0.48, 0.22], [0.20, 0.40, 0.18], [0.12, 0.28, 0.10], 1.0);
+                        ls.set_autumn_palette(
+                            [0.32, 0.55, 0.25],
+                            [0.28, 0.48, 0.22],
+                            [0.20, 0.40, 0.18],
+                            [0.12, 0.28, 0.10],
+                            1.0,
+                        );
                     }
                 }
                 for (_fm, model) in &cr.parts {
@@ -1741,12 +1988,18 @@ impl App {
                         return buf.get_world(wx, wy, wz).unwrap_or(Block::AIR);
                     }
                 }
-                self.gs.world.block_at_runtime(&self.runtime.reg, wx, wy, wz)
+                self.gs
+                    .world
+                    .block_at_runtime(&self.runtime.reg, wx, wy, wz)
             };
             let is_solid = |wx: i32, wy: i32, wz: i32| -> bool {
-    let b = sampler(wx, wy, wz);
-    self.runtime.reg.get(b.id).map(|ty| ty.is_solid(b.state)).unwrap_or(false)
-};
+                let b = sampler(wx, wy, wz);
+                self.runtime
+                    .reg
+                    .get(b.id)
+                    .map(|ty| ty.is_solid(b.state))
+                    .unwrap_or(false)
+            };
             if let Some(hit) = raycast::raycast_first_hit_with_face(org, dir, 5.0, is_solid) {
                 // Outline only the struck face of the solid block (bx,by,bz)
                 let (bx, by, bz) = (hit.bx, hit.by, hit.bz);
@@ -1845,9 +2098,14 @@ impl App {
             for (k, v) in self.debug_stats.queued_events_by.iter().take(shown) {
                 right_text.push_str(&format!("\n  {}: {}", k, v));
             }
-            if self.debug_stats.queued_events_by.len() > shown { right_text.push_str("\n  …"); }
+            if self.debug_stats.queued_events_by.len() > shown {
+                right_text.push_str("\n  …");
+            }
         }
-        right_text.push_str(&format!("\nProcessed Events (session): {}", self.evt_processed_total));
+        right_text.push_str(&format!(
+            "\nProcessed Events (session): {}",
+            self.evt_processed_total
+        ));
         right_text.push_str(&format!("\nIntents: {}", self.debug_stats.intents_size));
         if self.evt_processed_total > 0 {
             let max_show = 10usize;
@@ -1862,7 +2120,9 @@ impl App {
             for (k, v) in pairs.into_iter().take(shown) {
                 right_text.push_str(&format!("\n  {}: {}", k, v));
             }
-            if self.evt_processed_by.len() > shown { right_text.push_str("\n  …"); }
+            if self.evt_processed_by.len() > shown {
+                right_text.push_str("\n  …");
+            }
         }
         // Runtime queue debug (vertical layout)
         let (q_e, if_e, q_l, if_l, q_b, if_b) = self.runtime.queue_debug_counts();
@@ -1885,7 +2145,9 @@ impl App {
         let mut panel_w = 0;
         for t in panel_templates.iter() {
             let w = d.measure_text(t, font_size);
-            if w > panel_w { panel_w = w; }
+            if w > panel_w {
+                panel_w = w;
+            }
         }
         // Small padding so text doesn't hug the edge
         panel_w += 8;
@@ -2037,12 +2299,26 @@ impl App {
             let (block_at_pos, block_solid) = if in_bounds {
                 // Check edits first
                 if let Some(b) = st.edits.get(lx, ly, lz) {
-                    (format!("id:{} state:{} (edit)", b.id, b.state), self.runtime.reg.get(b.id).map(|ty| ty.is_solid(b.state)).unwrap_or(false))
+                    (
+                        format!("id:{} state:{} (edit)", b.id, b.state),
+                        self.runtime
+                            .reg
+                            .get(b.id)
+                            .map(|ty| ty.is_solid(b.state))
+                            .unwrap_or(false),
+                    )
                 } else {
                     // Check base blocks
                     let idx = st.idx(lx as usize, ly as usize, lz as usize);
                     let b = st.blocks[idx];
-                    (format!("id:{} state:{}", b.id, b.state), self.runtime.reg.get(b.id).map(|ty| ty.is_solid(b.state)).unwrap_or(false))
+                    (
+                        format!("id:{} state:{}", b.id, b.state),
+                        self.runtime
+                            .reg
+                            .get(b.id)
+                            .map(|ty| ty.is_solid(b.state))
+                            .unwrap_or(false),
+                    )
                 }
             } else {
                 ("out of bounds".to_string(), false)
@@ -2083,11 +2359,25 @@ impl App {
                     && (lz as usize) < st.sz
                 {
                     if let Some(b) = st.edits.get(lx, by, lz) {
-                        (format!("id:{} state:{} (edit)", b.id, b.state), self.runtime.reg.get(b.id).map(|ty| ty.is_solid(b.state)).unwrap_or(false))
+                        (
+                            format!("id:{} state:{} (edit)", b.id, b.state),
+                            self.runtime
+                                .reg
+                                .get(b.id)
+                                .map(|ty| ty.is_solid(b.state))
+                                .unwrap_or(false),
+                        )
                     } else {
                         let idx = st.idx(lx as usize, by as usize, lz as usize);
                         let b = st.blocks[idx];
-                        (format!("id:{} state:{}", b.id, b.state), self.runtime.reg.get(b.id).map(|ty| ty.is_solid(b.state)).unwrap_or(false))
+                        (
+                            format!("id:{} state:{}", b.id, b.state),
+                            self.runtime
+                                .reg
+                                .get(b.id)
+                                .map(|ty| ty.is_solid(b.state))
+                                .unwrap_or(false),
+                        )
                     }
                 } else {
                     ("out of bounds".to_string(), false)

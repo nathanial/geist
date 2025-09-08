@@ -1,12 +1,12 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use crate::blocks::Block;
 use crate::chunkbuf::ChunkBuf;
 use crate::edit::EditStore;
 use crate::lighting::LightingStore;
 use crate::player::Walker;
 use crate::structure::{Structure, StructureId};
-use crate::blocks::Block;
 use crate::voxel::World;
 
 pub struct ChunkEntry {

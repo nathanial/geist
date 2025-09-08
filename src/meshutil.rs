@@ -14,7 +14,9 @@ pub enum Face {
 
 impl Face {
     #[inline]
-    pub fn index(self) -> usize { self as usize }
+    pub fn index(self) -> usize {
+        self as usize
+    }
 
     #[inline]
     #[allow(dead_code)]

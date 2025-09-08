@@ -1,6 +1,6 @@
-use crate::chunkbuf::ChunkBuf;
 use crate::blocks::Block;
 use crate::blocks::BlockRegistry;
+use crate::chunkbuf::ChunkBuf;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
@@ -71,7 +71,11 @@ impl LightGrid {
         }
     }
 
-    pub fn compute_with_borders_buf(buf: &ChunkBuf, store: &LightingStore, reg: &BlockRegistry) -> Self {
+    pub fn compute_with_borders_buf(
+        buf: &ChunkBuf,
+        store: &LightingStore,
+        reg: &BlockRegistry,
+    ) -> Self {
         let sx = buf.sx;
         let sy = buf.sy;
         let sz = buf.sz;
@@ -250,7 +254,10 @@ impl LightGrid {
                         .as_ref()
                         .and_then(|p| p.get(y * sz + z).cloned())
                         .unwrap_or(5);
-                    let atten = match dir { 1..=4 => 1, _ => 32 };
+                    let atten = match dir {
+                        1..=4 => 1,
+                        _ => 32,
+                    };
                     let v = orig_v as i32 - atten;
                     if v > 0 {
                         let v8 = v as u8;
@@ -273,7 +280,10 @@ impl LightGrid {
                         .as_ref()
                         .and_then(|p| p.get(y * sz + z).cloned())
                         .unwrap_or(5);
-                    let atten = match dir { 1..=4 => 1, _ => 32 };
+                    let atten = match dir {
+                        1..=4 => 1,
+                        _ => 32,
+                    };
                     let v = orig_v as i32 - atten;
                     if v > 0 {
                         let v8 = v as u8;
@@ -297,7 +307,10 @@ impl LightGrid {
                         .as_ref()
                         .and_then(|p| p.get(y * sx + x).cloned())
                         .unwrap_or(5);
-                    let atten = match dir { 1..=4 => 1, _ => 32 };
+                    let atten = match dir {
+                        1..=4 => 1,
+                        _ => 32,
+                    };
                     let v = orig_v as i32 - atten;
                     if v > 0 {
                         let v8 = v as u8;
@@ -320,7 +333,10 @@ impl LightGrid {
                         .as_ref()
                         .and_then(|p| p.get(y * sx + x).cloned())
                         .unwrap_or(5);
-                    let atten = match dir { 1..=4 => 1, _ => 32 };
+                    let atten = match dir {
+                        1..=4 => 1,
+                        _ => 32,
+                    };
                     let v = orig_v as i32 - atten;
                     if v > 0 {
                         let v8 = v as u8;
@@ -515,16 +531,32 @@ impl LightGrid {
                         _ => (5, vcost as i32),
                     },
                     1 => {
-                        if *dx == 1 && *dy == 0 && *dz == 0 { (1, scost as i32) } else { (5, tcost as i32) }
+                        if *dx == 1 && *dy == 0 && *dz == 0 {
+                            (1, scost as i32)
+                        } else {
+                            (5, tcost as i32)
+                        }
                     }
                     2 => {
-                        if *dx == -1 && *dy == 0 && *dz == 0 { (2, scost as i32) } else { (5, tcost as i32) }
+                        if *dx == -1 && *dy == 0 && *dz == 0 {
+                            (2, scost as i32)
+                        } else {
+                            (5, tcost as i32)
+                        }
                     }
                     3 => {
-                        if *dx == 0 && *dy == 0 && *dz == 1 { (3, scost as i32) } else { (5, tcost as i32) }
+                        if *dx == 0 && *dy == 0 && *dz == 1 {
+                            (3, scost as i32)
+                        } else {
+                            (5, tcost as i32)
+                        }
                     }
                     4 => {
-                        if *dx == 0 && *dy == 0 && *dz == -1 { (4, scost as i32) } else { (5, tcost as i32) }
+                        if *dx == 0 && *dy == 0 && *dz == -1 {
+                            (4, scost as i32)
+                        } else {
+                            (5, tcost as i32)
+                        }
                     }
                     _ => (5, tcost as i32),
                 };
@@ -706,9 +738,10 @@ impl LightGrid {
 fn skylight_transparent(b: Block, reg: &BlockRegistry) -> bool {
     match b {
         _ if b.id == reg.id_by_name("air").unwrap_or(0) => true,
-        _ => {
-            reg.get(b.id).map(|ty| !ty.blocks_skylight(b.state)).unwrap_or(false)
-        }
+        _ => reg
+            .get(b.id)
+            .map(|ty| !ty.blocks_skylight(b.state))
+            .unwrap_or(false),
     }
 }
 

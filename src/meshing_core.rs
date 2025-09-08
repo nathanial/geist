@@ -91,7 +91,14 @@ where
             let mb = builds.entry(codev.0).or_default();
             let lv = apply_min_light(codev.1, min_light);
             let rgba = [lv, lv, lv, 255];
-            mb.add_face_rect(Face::PosY, Vector3::new(fx, fy, fz), u1, v1, flip_v[Face::PosY.index()], rgba);
+            mb.add_face_rect(
+                Face::PosY,
+                Vector3::new(fx, fy, fz),
+                u1,
+                v1,
+                flip_v[Face::PosY.index()],
+                rgba,
+            );
         });
     }
 
@@ -115,7 +122,14 @@ where
             let mb = builds.entry(codev.0).or_default();
             let lv = apply_min_light(codev.1, min_light);
             let rgba = [lv, lv, lv, 255];
-            mb.add_face_rect(Face::NegY, Vector3::new(fx, fy, fz), u1, v1, flip_v[Face::NegY.index()], rgba);
+            mb.add_face_rect(
+                Face::NegY,
+                Vector3::new(fx, fy, fz),
+                u1,
+                v1,
+                flip_v[Face::NegY.index()],
+                rgba,
+            );
         });
     }
 
@@ -142,7 +156,14 @@ where
                 let lv = apply_min_light(codev.1, min_light);
                 let rgba = [lv, lv, lv, 255];
                 let face = if pos { Face::PosX } else { Face::NegX };
-                mb.add_face_rect(face, Vector3::new(fx, fy, fz), u1, v1, flip_v[face.index()], rgba);
+                mb.add_face_rect(
+                    face,
+                    Vector3::new(fx, fy, fz),
+                    u1,
+                    v1,
+                    flip_v[face.index()],
+                    rgba,
+                );
             });
         }
     }
@@ -170,7 +191,14 @@ where
                 let lv = apply_min_light(codev.1, min_light);
                 let rgba = [lv, lv, lv, 255];
                 let face = if pos { Face::PosZ } else { Face::NegZ };
-                mb.add_face_rect(face, Vector3::new(fx, fy, fz), u1, v1, flip_v[face.index()], rgba);
+                mb.add_face_rect(
+                    face,
+                    Vector3::new(fx, fy, fz),
+                    u1,
+                    v1,
+                    flip_v[face.index()],
+                    rgba,
+                );
             });
         }
     }

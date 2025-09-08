@@ -1,4 +1,5 @@
 mod app;
+mod blocks;
 mod camera;
 mod chunkbuf;
 mod edit;
@@ -15,16 +16,15 @@ mod runtime;
 mod schem;
 mod shaders;
 mod structure;
-mod voxel;
-mod blocks;
-mod worldgen;
 mod texture_cache;
+mod voxel;
+mod worldgen;
 
+use crate::blocks::BlockRegistry;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 use std::sync::Arc;
 use voxel::{World, WorldGenMode};
-use crate::blocks::BlockRegistry;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -90,7 +90,11 @@ struct RunArgs {
     watch_textures: bool,
 
     /// Worldgen config path (TOML)
-    #[arg(long, value_name = "PATH", default_value = "assets/worldgen/worldgen.toml")]
+    #[arg(
+        long,
+        value_name = "PATH",
+        default_value = "assets/worldgen/worldgen.toml"
+    )]
     world_config: String,
 
     /// Watch worldgen config for changes and hot-reload params
@@ -100,7 +104,6 @@ struct RunArgs {
     /// Rebuild loaded chunks automatically when worldgen config changes
     #[arg(long, default_value_t = true)]
     rebuild_on_worldgen_change: bool,
-
 }
 
 impl Default for RunArgs {
@@ -263,14 +266,11 @@ fn run_app(run: RunArgs) {
 
     // Load runtime voxel registry (materials + block types) and keep it
     let reg = std::sync::Arc::new(
-        BlockRegistry::load_from_paths(
-            "assets/voxels/materials.toml",
-            "assets/voxels/blocks.toml",
-        )
-        .unwrap_or_else(|e| {
-            log::warn!("Failed to load runtime voxel registry: {}", e);
-            BlockRegistry::new()
-        }),
+        BlockRegistry::load_from_paths("assets/voxels/materials.toml", "assets/voxels/blocks.toml")
+            .unwrap_or_else(|e| {
+                log::warn!("Failed to load runtime voxel registry: {}", e);
+                BlockRegistry::new()
+            }),
     );
     log::info!(
         "Loaded voxel registry: {} materials, {} blocks",
@@ -315,7 +315,10 @@ fn run_app(run: RunArgs) {
                 }
             }
         } else {
-            log::info!("worldgen config not found at {}; using defaults", run.world_config);
+            log::info!(
+                "worldgen config not found at {}; using defaults",
+                run.world_config
+            );
         }
     }
     let lighting_store = Arc::new(lighting::LightingStore::new(

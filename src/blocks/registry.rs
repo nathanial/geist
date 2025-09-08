@@ -3,7 +3,10 @@ use std::error::Error;
 use std::fs;
 use std::path::Path;
 
-use super::config::{BlocksConfig, MaterialSelector, MaterialsDef, ShapeConfig, ShapeDetailed, LightProfile, SourceDirs};
+use super::config::{
+    BlocksConfig, LightProfile, MaterialSelector, MaterialsDef, ShapeConfig, ShapeDetailed,
+    SourceDirs,
+};
 use super::material::MaterialCatalog;
 use super::types::{Block, BlockId, BlockState, FaceRole, MaterialId, Shape};
 
@@ -45,11 +48,19 @@ pub struct CompiledMaterials {
 #[derive(Clone, Debug)]
 pub enum ResolvedSelector {
     Fixed(MaterialId),
-    By { by: String, map: HashMap<String, MaterialId> },
+    By {
+        by: String,
+        map: HashMap<String, MaterialId>,
+    },
 }
 
 impl CompiledMaterials {
-    pub fn material_for(&self, role: FaceRole, state: BlockState, ty: &BlockType) -> Option<MaterialId> {
+    pub fn material_for(
+        &self,
+        role: FaceRole,
+        state: BlockState,
+        ty: &BlockType,
+    ) -> Option<MaterialId> {
         // Pick selector by face role with fallback to `all`
         let pick = match role {
             FaceRole::Top => self.top.as_ref().or(self.all.as_ref()),
@@ -103,7 +114,9 @@ pub struct BlockRegistry {
 }
 
 impl BlockRegistry {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn get(&self, id: BlockId) -> Option<&BlockType> {
         self.blocks.get(id as usize)
@@ -113,15 +126,26 @@ impl BlockRegistry {
         self.by_name.get(name).copied()
     }
 
-    pub fn load_from_paths(materials_path: impl AsRef<Path>, blocks_path: impl AsRef<Path>) -> Result<Self, Box<dyn Error>> {
+    pub fn load_from_paths(
+        materials_path: impl AsRef<Path>,
+        blocks_path: impl AsRef<Path>,
+    ) -> Result<Self, Box<dyn Error>> {
         let materials = MaterialCatalog::from_path(materials_path)?;
         let blocks_toml = fs::read_to_string(blocks_path)?;
         let blocks_cfg: BlocksConfig = toml::from_str(&blocks_toml)?;
         Self::from_configs(materials, blocks_cfg)
     }
 
-    pub fn from_configs(materials: MaterialCatalog, cfg: BlocksConfig) -> Result<Self, Box<dyn Error>> {
-        let mut reg = BlockRegistry { materials, blocks: Vec::new(), by_name: HashMap::new(), unknown_block_id: None };
+    pub fn from_configs(
+        materials: MaterialCatalog,
+        cfg: BlocksConfig,
+    ) -> Result<Self, Box<dyn Error>> {
+        let mut reg = BlockRegistry {
+            materials,
+            blocks: Vec::new(),
+            by_name: HashMap::new(),
+            unknown_block_id: None,
+        };
         let unknown_name = cfg.unknown_block.clone();
         let profiles: HashMap<String, LightProfile> = cfg
             .lighting
@@ -138,12 +162,35 @@ impl BlockRegistry {
             let propagates_light = def.propagates_light.unwrap_or(false);
             let emission = def.emission.unwrap_or(0);
             // Resolve lighting behavior: inline spec > profile reference > default omni(atten=32)
-            let light: CompiledLight = match def.light.or_else(|| def.light_profile.as_ref().and_then(|n| profiles.get(n).cloned())) {
-                Some(LightProfile::Omni { attenuation, max_range }) =>
-                    CompiledLight::Omni { attenuation, max_range },
-                Some(LightProfile::Beam { straight_cost, turn_cost, vertical_cost, source_dirs, max_range }) =>
-                    CompiledLight::Beam { straight_cost, turn_cost, vertical_cost, source_dirs, max_range },
-                None => CompiledLight::Omni { attenuation: 32, max_range: None },
+            let light: CompiledLight = match def.light.or_else(|| {
+                def.light_profile
+                    .as_ref()
+                    .and_then(|n| profiles.get(n).cloned())
+            }) {
+                Some(LightProfile::Omni {
+                    attenuation,
+                    max_range,
+                }) => CompiledLight::Omni {
+                    attenuation,
+                    max_range,
+                },
+                Some(LightProfile::Beam {
+                    straight_cost,
+                    turn_cost,
+                    vertical_cost,
+                    source_dirs,
+                    max_range,
+                }) => CompiledLight::Beam {
+                    straight_cost,
+                    turn_cost,
+                    vertical_cost,
+                    source_dirs,
+                    max_range,
+                },
+                None => CompiledLight::Omni {
+                    attenuation: 32,
+                    max_range: None,
+                },
             };
             let shape = compile_shape(def.shape);
             let mats = compile_materials(&reg.materials, def.materials);
@@ -165,20 +212,26 @@ impl BlockRegistry {
                 prop_index,
             };
             if reg.blocks.len() <= id as usize {
-                reg.blocks.resize(id as usize + 1, BlockType {
-                    id,
-                    name: String::new(),
-                    solid: false,
-                    blocks_skylight: false,
-                    propagates_light: false,
-                    emission: 0,
-                    light: CompiledLight::Omni { attenuation: 32, max_range: None },
-                    shape: Shape::None,
-                    materials: CompiledMaterials::default(),
-                    state_schema: HashMap::new(),
-                    state_fields: Vec::new(),
-                    prop_index: HashMap::new(),
-                });
+                reg.blocks.resize(
+                    id as usize + 1,
+                    BlockType {
+                        id,
+                        name: String::new(),
+                        solid: false,
+                        blocks_skylight: false,
+                        propagates_light: false,
+                        emission: 0,
+                        light: CompiledLight::Omni {
+                            attenuation: 32,
+                            max_range: None,
+                        },
+                        shape: Shape::None,
+                        materials: CompiledMaterials::default(),
+                        state_schema: HashMap::new(),
+                        state_fields: Vec::new(),
+                        prop_index: HashMap::new(),
+                    },
+                );
             }
             reg.blocks[id as usize] = ty.clone();
             reg.by_name.insert(ty.name.clone(), id);
@@ -193,8 +246,19 @@ impl BlockRegistry {
 
 #[derive(Clone, Debug)]
 pub enum CompiledLight {
-    Omni { attenuation: u8, #[allow(dead_code)] max_range: Option<u16> },
-    Beam { straight_cost: u8, turn_cost: u8, vertical_cost: u8, source_dirs: SourceDirs, #[allow(dead_code)] max_range: Option<u16> },
+    Omni {
+        attenuation: u8,
+        #[allow(dead_code)]
+        max_range: Option<u16>,
+    },
+    Beam {
+        straight_cost: u8,
+        turn_cost: u8,
+        vertical_cost: u8,
+        source_dirs: SourceDirs,
+        #[allow(dead_code)]
+        max_range: Option<u16>,
+    },
 }
 
 fn compile_shape(shape: Option<ShapeConfig>) -> Shape {
@@ -204,12 +268,23 @@ fn compile_shape(shape: Option<ShapeConfig>) -> Shape {
             "cube" => Shape::Cube,
             _ => Shape::None,
         },
-        Some(ShapeConfig::Detailed(ShapeDetailed { kind, axis, half, facing })) => match kind.as_str() {
+        Some(ShapeConfig::Detailed(ShapeDetailed {
+            kind,
+            axis,
+            half,
+            facing,
+        })) => match kind.as_str() {
             "cube" => Shape::Cube,
-            "axis_cube" => Shape::AxisCube { axis_from: axis.map(|p| p.from).unwrap_or_else(|| "axis".to_string()) },
-            "slab" => Shape::Slab { half_from: half.map(|p| p.from).unwrap_or_else(|| "half".to_string()) },
+            "axis_cube" => Shape::AxisCube {
+                axis_from: axis.map(|p| p.from).unwrap_or_else(|| "axis".to_string()),
+            },
+            "slab" => Shape::Slab {
+                half_from: half.map(|p| p.from).unwrap_or_else(|| "half".to_string()),
+            },
             "stairs" => Shape::Stairs {
-                facing_from: facing.map(|p| p.from).unwrap_or_else(|| "facing".to_string()),
+                facing_from: facing
+                    .map(|p| p.from)
+                    .unwrap_or_else(|| "facing".to_string()),
                 half_from: half.map(|p| p.from).unwrap_or_else(|| "half".to_string()),
             },
             _ => Shape::None,
@@ -218,7 +293,10 @@ fn compile_shape(shape: Option<ShapeConfig>) -> Shape {
 }
 
 fn compile_materials(matcat: &MaterialCatalog, mats: Option<MaterialsDef>) -> CompiledMaterials {
-    fn resolve_selector(matcat: &MaterialCatalog, sel: &MaterialSelector) -> Option<ResolvedSelector> {
+    fn resolve_selector(
+        matcat: &MaterialCatalog,
+        sel: &MaterialSelector,
+    ) -> Option<ResolvedSelector> {
         match sel {
             MaterialSelector::Key(k) => matcat.get_id(k).map(ResolvedSelector::Fixed),
             MaterialSelector::By { by, map } => {
@@ -228,22 +306,35 @@ fn compile_materials(matcat: &MaterialCatalog, mats: Option<MaterialsDef>) -> Co
                         out.insert(k.clone(), id);
                     }
                 }
-                Some(ResolvedSelector::By { by: by.clone(), map: out })
+                Some(ResolvedSelector::By {
+                    by: by.clone(),
+                    map: out,
+                })
             }
         }
     }
 
     let mut out = CompiledMaterials::default();
     if let Some(m) = mats {
-        if let Some(ref all) = m.all { out.all = resolve_selector(matcat, all); }
-        if let Some(ref top) = m.top { out.top = resolve_selector(matcat, top); }
-        if let Some(ref bottom) = m.bottom { out.bottom = resolve_selector(matcat, bottom); }
-        if let Some(ref side) = m.side { out.side = resolve_selector(matcat, side); }
+        if let Some(ref all) = m.all {
+            out.all = resolve_selector(matcat, all);
+        }
+        if let Some(ref top) = m.top {
+            out.top = resolve_selector(matcat, top);
+        }
+        if let Some(ref bottom) = m.bottom {
+            out.bottom = resolve_selector(matcat, bottom);
+        }
+        if let Some(ref side) = m.side {
+            out.side = resolve_selector(matcat, side);
+        }
     }
     out
 }
 
-fn compute_state_layout(schema: &HashMap<String, Vec<String>>) -> (Vec<StateField>, HashMap<String, usize>) {
+fn compute_state_layout(
+    schema: &HashMap<String, Vec<String>>,
+) -> (Vec<StateField>, HashMap<String, usize>) {
     if schema.is_empty() {
         return (Vec::new(), HashMap::new());
     }
@@ -254,8 +345,17 @@ fn compute_state_layout(schema: &HashMap<String, Vec<String>>) -> (Vec<StateFiel
     for k in keys {
         let vals = schema.get(k).cloned().unwrap_or_default();
         let vlen = vals.len() as u32;
-        let bits: u32 = if vlen <= 1 { 0 } else { 32 - (vlen - 1).leading_zeros() };
-        fields.push(StateField { name: k.to_string(), values: vals, bits, offset });
+        let bits: u32 = if vlen <= 1 {
+            0
+        } else {
+            32 - (vlen - 1).leading_zeros()
+        };
+        fields.push(StateField {
+            name: k.to_string(),
+            values: vals,
+            bits,
+            offset,
+        });
         offset = offset.saturating_add(bits);
     }
     let mut index: HashMap<String, usize> = HashMap::with_capacity(fields.len());
@@ -267,12 +367,22 @@ fn compute_state_layout(schema: &HashMap<String, Vec<String>>) -> (Vec<StateFiel
 
 // Convenience helpers that mirror the future Block API; these delegate to BlockType
 impl BlockType {
-    pub fn is_solid(&self, _state: BlockState) -> bool { self.solid }
-    pub fn blocks_skylight(&self, _state: BlockState) -> bool { self.blocks_skylight }
-    pub fn propagates_light(&self, _state: BlockState) -> bool { self.propagates_light }
-    pub fn light_emission(&self, _state: BlockState) -> u8 { self.emission }
+    pub fn is_solid(&self, _state: BlockState) -> bool {
+        self.solid
+    }
+    pub fn blocks_skylight(&self, _state: BlockState) -> bool {
+        self.blocks_skylight
+    }
+    pub fn propagates_light(&self, _state: BlockState) -> bool {
+        self.propagates_light
+    }
+    pub fn light_emission(&self, _state: BlockState) -> u8 {
+        self.emission
+    }
     #[allow(dead_code)]
-    pub fn debug_name(&self) -> &str { &self.name }
+    pub fn debug_name(&self) -> &str {
+        &self.name
+    }
 
     pub fn light_is_beam(&self) -> bool {
         matches!(self.light, CompiledLight::Beam { .. })
@@ -287,8 +397,13 @@ impl BlockType {
 
     pub fn beam_params(&self) -> (u8, u8, u8, SourceDirs) {
         match self.light {
-            CompiledLight::Beam { straight_cost, turn_cost, vertical_cost, source_dirs, .. } =>
-                (straight_cost, turn_cost, vertical_cost, source_dirs),
+            CompiledLight::Beam {
+                straight_cost,
+                turn_cost,
+                vertical_cost,
+                source_dirs,
+                ..
+            } => (straight_cost, turn_cost, vertical_cost, source_dirs),
             _ => (1, 32, 32, SourceDirs::Horizontal),
         }
     }
@@ -305,7 +420,11 @@ impl BlockType {
         if f.bits == 0 {
             return f.values.first().map(|s| s.as_str());
         }
-        let mask: u32 = if f.bits >= 32 { u32::MAX } else { (1u32 << f.bits) - 1 };
+        let mask: u32 = if f.bits >= 32 {
+            u32::MAX
+        } else {
+            (1u32 << f.bits) - 1
+        };
         let idx: usize = (((state as u32) >> f.offset) & mask) as usize;
         f.values.get(idx).map(|s| s.as_str())
     }
@@ -322,7 +441,9 @@ impl BlockType {
         }
         let mut acc: u32 = 0;
         for f in &self.state_fields {
-            if f.bits == 0 { continue; }
+            if f.bits == 0 {
+                continue;
+            }
             let sel_idx: u32 = match props.get(&f.name) {
                 Some(val) => f.values.iter().position(|s| s == val).unwrap_or(0) as u32,
                 None => 0,

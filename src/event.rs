@@ -1,10 +1,10 @@
 use std::collections::{BTreeMap, VecDeque};
 
+use crate::blocks::Block;
 use crate::chunkbuf::ChunkBuf;
 use crate::lighting::LightBorders;
 use crate::mesher::{ChunkMeshCPU, NeighborsLoaded};
 use crate::structure::StructureId;
-use crate::blocks::Block;
 use raylib::prelude::Vector3;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -255,9 +255,7 @@ impl EventQueue {
     }
 
     // Debug helpers: count queued events by kind across all future ticks (including current)
-    pub fn queued_counts(
-        &self,
-    ) -> (usize, std::collections::BTreeMap<&'static str, usize>) {
+    pub fn queued_counts(&self) -> (usize, std::collections::BTreeMap<&'static str, usize>) {
         let mut total: usize = 0;
         let mut by: std::collections::BTreeMap<&'static str, usize> = Default::default();
         for q in self.by_tick.values() {

@@ -1,7 +1,7 @@
-use fastnoise_lite::{FastNoiseLite, NoiseType};
 use crate::blocks::{Block as RtBlock, BlockRegistry};
-use std::sync::{Arc, RwLock};
 use crate::worldgen::WorldGenParams;
+use fastnoise_lite::{FastNoiseLite, NoiseType};
+use std::sync::{Arc, RwLock};
 
 pub struct World {
     pub chunk_size_x: usize,
@@ -59,7 +59,6 @@ impl World {
     }
 }
 
-
 // Optional reusable noise context for batch generation to avoid re-allocating per voxel
 pub struct GenCtx {
     pub terrain: FastNoiseLite,
@@ -90,8 +89,17 @@ impl World {
             m.set_noise_type(Some(NoiseType::OpenSimplex2));
             m.set_frequency(Some(b.moisture_freq));
             (Some(t), Some(m))
-        } else { (None, None) };
-        GenCtx { terrain, warp, tunnel, params, temp2d, moist2d }
+        } else {
+            (None, None)
+        };
+        GenCtx {
+            terrain,
+            warp,
+            tunnel,
+            params,
+            temp2d,
+            moist2d,
+        }
     }
 
     // Runtime worldgen: generate blocks directly via registry (no legacy enums)
@@ -154,21 +162,33 @@ impl World {
                 let cx = (wx.div_euclid(cell)) as i64;
                 let cz = (wz.div_euclid(cell)) as i64;
                 let idx = ((cx * 31 + cz * 17).rem_euclid(b.defs.len() as i64)) as usize;
-                if let Some(def) = b.defs.get(idx) { return Some(def); }
+                if let Some(def) = b.defs.get(idx) {
+                    return Some(def);
+                }
             }
             let (t, m) = climate_for(wx, wz)?;
             for def in &b.defs {
-                if t >= def.temp_min && t < def.temp_max && m >= def.moisture_min && m < def.moisture_max {
+                if t >= def.temp_min
+                    && t < def.temp_max
+                    && m >= def.moisture_min
+                    && m < def.moisture_max
+                {
                     return Some(def);
                 }
             }
             None
         };
         let top_block_for_column = |wx: i32, wz: i32, hh: i32| -> &str {
-            if hh as f32 >= self.chunk_size_y as f32 * ctx.params.snow_threshold { return &ctx.params.top_high; }
-            if hh as f32 <= self.chunk_size_y as f32 * ctx.params.sand_threshold { return &ctx.params.top_low; }
+            if hh as f32 >= self.chunk_size_y as f32 * ctx.params.snow_threshold {
+                return &ctx.params.top_high;
+            }
+            if hh as f32 <= self.chunk_size_y as f32 * ctx.params.sand_threshold {
+                return &ctx.params.top_low;
+            }
             if let Some(def) = biome_for(wx, wz) {
-                if let Some(ref tb) = def.top_block { return tb.as_str(); }
+                if let Some(ref tb) = def.top_block {
+                    return tb.as_str();
+                }
             }
             &ctx.params.top_mid
         };
@@ -204,23 +224,20 @@ impl World {
             let wy = y as f32;
             let soil = h - wy;
             if ctx.params.carvers_enable && soil > soil_min && wy > min_y {
-                let fractal3 = |n: &FastNoiseLite,
-                                x: f32,
-                                y: f32,
-                                z: f32,
-                                f: &crate::worldgen::Fractal| {
-                    let mut amp = 1.0_f32;
-                    let mut freq = 1.0_f32 / f.scale.max(0.0001);
-                    let mut sum = 0.0_f32;
-                    let mut max_amp = 0.0_f32;
-                    for _ in 0..f.octaves.max(1) {
-                        sum += n.get_noise_3d(x * freq, y * freq, z * freq) * amp;
-                        max_amp += amp;
-                        amp *= f.persistence;
-                        freq *= f.lacunarity;
-                    }
-                    if max_amp > 0.0 { sum / max_amp } else { sum }
-                };
+                let fractal3 =
+                    |n: &FastNoiseLite, x: f32, y: f32, z: f32, f: &crate::worldgen::Fractal| {
+                        let mut amp = 1.0_f32;
+                        let mut freq = 1.0_f32 / f.scale.max(0.0001);
+                        let mut sum = 0.0_f32;
+                        let mut max_amp = 0.0_f32;
+                        for _ in 0..f.octaves.max(1) {
+                            sum += n.get_noise_3d(x * freq, y * freq, z * freq) * amp;
+                            max_amp += amp;
+                            amp *= f.persistence;
+                            freq *= f.lacunarity;
+                        }
+                        if max_amp > 0.0 { sum / max_amp } else { sum }
+                    };
 
                 let uhash32 = |mut a: u32| -> u32 {
                     a ^= a >> 16;
@@ -269,7 +286,9 @@ impl World {
                                 let dy = (dy as f32 + jy) - fy;
                                 let dz = (dz as f32 + jz) - fz;
                                 let d2 = dx * dx + dy * dy + dz * dz;
-                                if d2 < min_d2 { min_d2 = d2; }
+                                if d2 < min_d2 {
+                                    min_d2 = d2;
+                                }
                             }
                         }
                     }
@@ -280,8 +299,14 @@ impl World {
                 let wy = y as f32;
                 let wz = z as f32;
                 let wxw = fractal3(&ctx.warp, wx, wy, wz, &ctx.params.warp);
-                let wyw = fractal3(&ctx.warp, wx + 133.7, wy + 71.3, wz - 19.1, &ctx.params.warp);
-                let wzw = fractal3(&ctx.warp, wx - 54.2,  wy + 29.7, wz + 88.8, &ctx.params.warp);
+                let wyw = fractal3(
+                    &ctx.warp,
+                    wx + 133.7,
+                    wy + 71.3,
+                    wz - 19.1,
+                    &ctx.params.warp,
+                );
+                let wzw = fractal3(&ctx.warp, wx - 54.2, wy + 29.7, wz + 88.8, &ctx.params.warp);
                 let xp = wx + wxw * warp_xy;
                 let yp = wy + wyw * warp_y;
                 let zp = wz + wzw * warp_xy;
@@ -306,7 +331,9 @@ impl World {
         if !ctx.params.features.is_empty() {
             let mut near_solid_cache: Option<bool> = None;
             let mut compute_near_solid = || -> bool {
-                if let Some(v) = near_solid_cache { return v; }
+                if let Some(v) = near_solid_cache {
+                    return v;
+                }
                 let mut near_solid = false;
                 let y_scale: f32 = ctx.params.y_scale;
                 let eps_base: f32 = ctx.params.eps_base;
@@ -318,23 +345,20 @@ impl World {
                 let room_thr_add: f32 = ctx.params.room_thr_add;
                 let soil_min: f32 = ctx.params.soil_min;
                 let min_y: f32 = ctx.params.min_y;
-                let fractal3 = |n: &FastNoiseLite,
-                                x: f32,
-                                y: f32,
-                                z: f32,
-                                f: &crate::worldgen::Fractal| {
-                    let mut amp = 1.0_f32;
-                    let mut freq = 1.0_f32 / f.scale.max(0.0001);
-                    let mut sum = 0.0_f32;
-                    let mut max_amp = 0.0_f32;
-                    for _ in 0..f.octaves.max(1) {
-                        sum += n.get_noise_3d(x * freq, y * freq, z * freq) * amp;
-                        max_amp += amp;
-                        amp *= f.persistence;
-                        freq *= f.lacunarity;
-                    }
-                    if max_amp > 0.0 { sum / max_amp } else { sum }
-                };
+                let fractal3 =
+                    |n: &FastNoiseLite, x: f32, y: f32, z: f32, f: &crate::worldgen::Fractal| {
+                        let mut amp = 1.0_f32;
+                        let mut freq = 1.0_f32 / f.scale.max(0.0001);
+                        let mut sum = 0.0_f32;
+                        let mut max_amp = 0.0_f32;
+                        for _ in 0..f.octaves.max(1) {
+                            sum += n.get_noise_3d(x * freq, y * freq, z * freq) * amp;
+                            max_amp += amp;
+                            amp *= f.persistence;
+                            freq *= f.lacunarity;
+                        }
+                        if max_amp > 0.0 { sum / max_amp } else { sum }
+                    };
                 let worley3_f1_norm = |x: f32, y: f32, z: f32, cell: f32| -> f32 {
                     let cell = if cell <= 0.0001 { 1.0 } else { cell };
                     let px = x / cell;
@@ -347,60 +371,144 @@ impl World {
                     let fy = py - iy as f32;
                     let fz = pz - iz as f32;
                     let mut min_d2 = f32::INFINITY;
-                    for dz in -1..=1 { for dy in -1..=1 { for dx in -1..=1 {
-                        let cx = ix + dx; let cy = iy + dy; let cz = iz + dz;
-                        let jx = ((cx ^ 0x155) as f32).sin().fract().abs();
-                        let jy = ((cy ^ 0x2a3) as f32).sin().fract().abs();
-                        let jz = ((cz ^ 0x3f1) as f32).sin().fract().abs();
-                        let dx = (dx as f32 + jx) - fx;
-                        let dy = (dy as f32 + jy) - fy;
-                        let dz = (dz as f32 + jz) - fz;
-                        let d2 = dx*dx + dy*dy + dz*dz; if d2 < min_d2 { min_d2 = d2; }
-                    }}}
+                    for dz in -1..=1 {
+                        for dy in -1..=1 {
+                            for dx in -1..=1 {
+                                let cx = ix + dx;
+                                let cy = iy + dy;
+                                let cz = iz + dz;
+                                let jx = ((cx ^ 0x155) as f32).sin().fract().abs();
+                                let jy = ((cy ^ 0x2a3) as f32).sin().fract().abs();
+                                let jz = ((cz ^ 0x3f1) as f32).sin().fract().abs();
+                                let dx = (dx as f32 + jx) - fx;
+                                let dy = (dy as f32 + jy) - fy;
+                                let dz = (dz as f32 + jz) - fz;
+                                let d2 = dx * dx + dy * dy + dz * dz;
+                                if d2 < min_d2 {
+                                    min_d2 = d2;
+                                }
+                            }
+                        }
+                    }
                     (min_d2.sqrt()).min(1.0)
                 };
-                for (dx, dy, dz) in [(-1,0,0),(1,0,0),(0,-1,0),(0,1,0),(0,0,-1),(0,0,1)].iter() {
-                    let nx = x + dx; let ny = y + dy; let nz = z + dz;
-                    if ny < 0 || ny >= self.chunk_size_y as i32 { continue; }
+                for (dx, dy, dz) in [
+                    (-1, 0, 0),
+                    (1, 0, 0),
+                    (0, -1, 0),
+                    (0, 1, 0),
+                    (0, 0, -1),
+                    (0, 0, 1),
+                ]
+                .iter()
+                {
+                    let nx = x + dx;
+                    let ny = y + dy;
+                    let nz = z + dz;
+                    if ny < 0 || ny >= self.chunk_size_y as i32 {
+                        continue;
+                    }
                     let nh = height_for(nx, nz);
-                    if ny >= nh { continue; }
-                    let wxn = nx as f32; let wyn = ny as f32; let wzn = nz as f32;
+                    if ny >= nh {
+                        continue;
+                    }
+                    let wxn = nx as f32;
+                    let wyn = ny as f32;
+                    let wzn = nz as f32;
                     let wxw_n = fractal3(&ctx.warp, wxn, wyn, wzn, &ctx.params.warp);
-                    let wyw_n = fractal3(&ctx.warp, wxn + 133.7, wyn + 71.3, wzn - 19.1, &ctx.params.warp);
-                    let wzw_n = fractal3(&ctx.warp, wxn - 54.2,  wyn + 29.7, wzn + 88.8, &ctx.params.warp);
-                    let nxp = wxn + wxw_n * warp_xy; let nyp = wyn + wyw_n * warp_y; let nzp = wzn + wzw_n * warp_xy;
+                    let wyw_n = fractal3(
+                        &ctx.warp,
+                        wxn + 133.7,
+                        wyn + 71.3,
+                        wzn - 19.1,
+                        &ctx.params.warp,
+                    );
+                    let wzw_n = fractal3(
+                        &ctx.warp,
+                        wxn - 54.2,
+                        wyn + 29.7,
+                        wzn + 88.8,
+                        &ctx.params.warp,
+                    );
+                    let nxp = wxn + wxw_n * warp_xy;
+                    let nyp = wyn + wyw_n * warp_y;
+                    let nzp = wzn + wzw_n * warp_xy;
                     let tn_n = fractal3(&ctx.tunnel, nxp, nyp * y_scale, nzp, &ctx.params.tunnel);
-                    let nsoil = nh as f32 - wyn; let mut n_depth = nsoil / (self.chunk_size_y as f32);
+                    let nsoil = nh as f32 - wyn;
+                    let mut n_depth = nsoil / (self.chunk_size_y as f32);
                     n_depth = n_depth.clamp(0.0, 1.0);
                     let eps_n = eps_base + eps_add * n_depth;
                     let wn_n = worley3_f1_norm(nxp, nyp, nzp, room_cell);
                     let room_thr_n = room_thr_base + room_thr_add * n_depth;
                     let neighbor_carved_air = (nsoil > soil_min && wyn > min_y)
                         && (tn_n.abs() < eps_n || wn_n < room_thr_n);
-                    if !neighbor_carved_air { near_solid = true; break; }
+                    if !neighbor_carved_air {
+                        near_solid = true;
+                        break;
+                    }
                 }
                 near_solid_cache = Some(near_solid);
                 near_solid
             };
             let hash3 = |x: i32, y: i32, z: i32, seed: u32| -> u32 {
                 let mut a = seed ^ 0x9e37_79b9;
-                let mix = |mut v: u32| { v ^= v >> 16; v = v.wrapping_mul(0x7feb_352d); v ^= v >> 15; v = v.wrapping_mul(0x846c_a68b); v ^= v >> 16; v };
-                a ^= mix(x as u32); a ^= mix(y as u32); a ^= mix(z as u32); a
+                let mix = |mut v: u32| {
+                    v ^= v >> 16;
+                    v = v.wrapping_mul(0x7feb_352d);
+                    v ^= v >> 15;
+                    v = v.wrapping_mul(0x846c_a68b);
+                    v ^= v >> 16;
+                    v
+                };
+                a ^= mix(x as u32);
+                a ^= mix(y as u32);
+                a ^= mix(z as u32);
+                a
             };
             for (ri, rule) in ctx.params.features.iter().enumerate() {
                 let w = &rule.when;
-                if !w.base_in.is_empty() && !w.base_in.iter().any(|s| s.as_str() == base) { continue; }
-                if !w.base_not_in.is_empty() && w.base_not_in.iter().any(|s| s.as_str() == base) { continue; }
-                if let Some(ymin) = w.y_min { if y < ymin { continue; } }
-                if let Some(ymax) = w.y_max { if y > ymax { continue; } }
-                if let Some(off) = w.below_height_offset { if y >= height - off { continue; } }
-                if let Some(req) = w.in_carved { if req != carved_here { continue; } }
-                if let Some(req) = w.near_solid { if req != compute_near_solid() { continue; } }
-                if let Some(p) = w.chance { if p < 1.0 {
-                    let salt = ((self.seed as u32).wrapping_add(0xC0FF_EE15)).wrapping_add(ri as u32 * 0x9E37_79B9);
-                    let h = hash3(x, y, z, salt) & 0x00FF_FFFF; let r = (h as f32) / 16_777_216.0;
-                    if r >= p { continue; }
-                }}
+                if !w.base_in.is_empty() && !w.base_in.iter().any(|s| s.as_str() == base) {
+                    continue;
+                }
+                if !w.base_not_in.is_empty() && w.base_not_in.iter().any(|s| s.as_str() == base) {
+                    continue;
+                }
+                if let Some(ymin) = w.y_min {
+                    if y < ymin {
+                        continue;
+                    }
+                }
+                if let Some(ymax) = w.y_max {
+                    if y > ymax {
+                        continue;
+                    }
+                }
+                if let Some(off) = w.below_height_offset {
+                    if y >= height - off {
+                        continue;
+                    }
+                }
+                if let Some(req) = w.in_carved {
+                    if req != carved_here {
+                        continue;
+                    }
+                }
+                if let Some(req) = w.near_solid {
+                    if req != compute_near_solid() {
+                        continue;
+                    }
+                }
+                if let Some(p) = w.chance {
+                    if p < 1.0 {
+                        let salt = ((self.seed as u32).wrapping_add(0xC0FF_EE15))
+                            .wrapping_add(ri as u32 * 0x9E37_79B9);
+                        let h = hash3(x, y, z, salt) & 0x00FF_FFFF;
+                        let r = (h as f32) / 16_777_216.0;
+                        if r >= p {
+                            continue;
+                        }
+                    }
+                }
                 base = &rule.place.block;
                 break;
             }
@@ -414,14 +522,30 @@ impl World {
                     let cx = (wx.div_euclid(cell)) as i64;
                     let cz = (wz.div_euclid(cell)) as i64;
                     let idx = ((cx * 31 + cz * 17).rem_euclid(b.defs.len() as i64)) as usize;
-                    if let Some(def) = b.defs.get(idx) { if let Some(d)=def.tree_density { return d.clamp(0.0, 1.0); } }
+                    if let Some(def) = b.defs.get(idx) {
+                        if let Some(d) = def.tree_density {
+                            return d.clamp(0.0, 1.0);
+                        }
+                    }
                 } else if let (Some(tn), Some(mn)) = (&ctx.temp2d, &ctx.moist2d) {
                     let sx = if b.scale_x == 0.0 { 1.0 } else { b.scale_x };
                     let sz = if b.scale_z == 0.0 { 1.0 } else { b.scale_z };
-                    let x = wx as f32 * sx; let z = wz as f32 * sz;
+                    let x = wx as f32 * sx;
+                    let z = wz as f32 * sz;
                     let tt = ((tn.get_noise_2d(x, z) + 1.0) * 0.5).clamp(0.0, 1.0);
                     let mm = ((mn.get_noise_2d(x, z) + 1.0) * 0.5).clamp(0.0, 1.0);
-                    for def in &b.defs { if tt >= def.temp_min && tt < def.temp_max && mm >= def.moisture_min && mm < def.moisture_max { if let Some(d)=def.tree_density { return d.clamp(0.0, 1.0); } break; } }
+                    for def in &b.defs {
+                        if tt >= def.temp_min
+                            && tt < def.temp_max
+                            && mm >= def.moisture_min
+                            && mm < def.moisture_max
+                        {
+                            if let Some(d) = def.tree_density {
+                                return d.clamp(0.0, 1.0);
+                            }
+                            break;
+                        }
+                    }
                 }
             }
             ctx.params.tree_probability
@@ -442,7 +566,11 @@ impl World {
             h
         };
         let rand01 = |ix: i32, iz: i32, salt: u32| -> f32 {
-            let h = hash2(ix, iz, ((self.seed as u32) ^ salt).wrapping_add(0x9E37_79B9));
+            let h = hash2(
+                ix,
+                iz,
+                ((self.seed as u32) ^ salt).wrapping_add(0x9E37_79B9),
+            );
             ((h & 0x00FF_FFFF) as f32) / 16_777_216.0
         };
         // species selection via biome weights or pseudo-climate fallback
@@ -450,7 +578,9 @@ impl World {
             if let Some(def) = biome_for(tx, tz) {
                 if !def.species_weights.is_empty() {
                     let mut total = 0.0_f32;
-                    for w in def.species_weights.values() { total += *w; }
+                    for w in def.species_weights.values() {
+                        total += *w;
+                    }
                     if total > 0.0 {
                         let r = rand01(tx, tz, 0xA11CE) * total;
                         let mut acc = 0.0_f32;
@@ -474,21 +604,39 @@ impl World {
             }
             let t = rand01(tx, tz, 0xBEEF01);
             let m = rand01(tx, tz, 0xC0FFEE);
-            if t < 0.22 && m > 0.65 { return "spruce"; }
-            if t > 0.78 && m > 0.45 { return "jungle"; }
-            if t > 0.75 && m < 0.32 { return "acacia"; }
-            if t > 0.65 && m < 0.25 { return "dark_oak"; }
-            if ((hash2(tx, tz, 0xDEAD_BEEF) >> 20) & 1) == 1 { "birch" } else { "oak" }
+            if t < 0.22 && m > 0.65 {
+                return "spruce";
+            }
+            if t > 0.78 && m > 0.45 {
+                return "jungle";
+            }
+            if t > 0.75 && m < 0.32 {
+                return "acacia";
+            }
+            if t > 0.65 && m < 0.25 {
+                return "dark_oak";
+            }
+            if ((hash2(tx, tz, 0xDEAD_BEEF) >> 20) & 1) == 1 {
+                "birch"
+            } else {
+                "oak"
+            }
         };
         let trunk_at = |tx: i32, tz: i32| -> Option<(i32, i32, &'static str)> {
             let surf = height_for(tx, tz) - 1;
             let surf_block = top_block_for_column(tx, tz, surf + 1);
-            if surf_block != "grass" { return None; }
-            if rand01(tx, tz, 0xA53F9) >= tree_prob { return None; }
+            if surf_block != "grass" {
+                return None;
+            }
+            if rand01(tx, tz, 0xA53F9) >= tree_prob {
+                return None;
+            }
             let span = (trunk_max - trunk_min).max(0) as u32;
             let hsel = hash2(tx, tz, 0x0051_F0A7) % (span + 1);
             let th = trunk_min + hsel as i32;
-            if surf <= 2 || surf >= (self.chunk_size_y as i32 - 6) { return None; }
+            if surf <= 2 || surf >= (self.chunk_size_y as i32 - 6) {
+                return None;
+            }
             let sp = pick_species(tx, tz);
             Some((surf, th, sp))
         };
@@ -513,10 +661,19 @@ impl World {
                     if let Some((surf, th, sp)) = trunk_at(tx, tz) {
                         let top_y = surf + th;
                         let dy = y - top_y;
-                        if !(-2..=2).contains(&dy) { continue; }
-                        let rad = if dy <= -2 || dy >= 2 { leaf_r - 1 } else { leaf_r };
-                        let dx = x - tx; let dz = z - tz;
-                        if dx == 0 && dz == 0 && dy >= 0 { continue; }
+                        if !(-2..=2).contains(&dy) {
+                            continue;
+                        }
+                        let rad = if dy <= -2 || dy >= 2 {
+                            leaf_r - 1
+                        } else {
+                            leaf_r
+                        };
+                        let dx = x - tx;
+                        let dz = z - tz;
+                        if dx == 0 && dz == 0 && dy >= 0 {
+                            continue;
+                        }
                         let man = dx.abs() + dz.abs();
                         let extra = if dy >= 1 { 0 } else { 1 };
                         if man <= rad + extra {
@@ -533,11 +690,15 @@ impl World {
                         }
                     }
                 }
-                if base.ends_with("_leaves") { break; }
+                if base.ends_with("_leaves") {
+                    break;
+                }
             }
         }
 
-        let id = reg.id_by_name(base).unwrap_or_else(|| reg.id_by_name("air").unwrap_or(0));
+        let id = reg
+            .id_by_name(base)
+            .unwrap_or_else(|| reg.id_by_name("air").unwrap_or(0));
         RtBlock { id, state: 0 }
     }
 }
@@ -580,11 +741,14 @@ impl World {
         let tt = ((t.get_noise_2d(x, z) + 1.0) * 0.5).clamp(0.0, 1.0);
         let mm = ((m.get_noise_2d(x, z) + 1.0) * 0.5).clamp(0.0, 1.0);
         for def in &b.defs {
-            if tt >= def.temp_min && tt < def.temp_max && mm >= def.moisture_min && mm < def.moisture_max {
+            if tt >= def.temp_min
+                && tt < def.temp_max
+                && mm >= def.moisture_min
+                && mm < def.moisture_max
+            {
                 return Some(def.clone());
             }
         }
         None
     }
-
 }

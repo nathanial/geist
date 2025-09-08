@@ -25,7 +25,10 @@ pub struct MaterialCatalog {
 
 impl MaterialCatalog {
     pub fn new() -> Self {
-        Self { materials: Vec::new(), by_key: HashMap::new() }
+        Self {
+            materials: Vec::new(),
+            by_key: HashMap::new(),
+        }
     }
 
     pub fn get_id(&self, key: &str) -> Option<MaterialId> {
@@ -76,5 +79,8 @@ pub enum MaterialEntry {
     Paths(Vec<String>),
     // Detailed:
     // material = { paths = ["..."], render_tag = "leaves" }
-    Detail { paths: Vec<String>, render_tag: Option<String> },
+    Detail {
+        paths: Vec<String>,
+        render_tag: Option<String>,
+    },
 }

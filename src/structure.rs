@@ -27,10 +27,26 @@ pub struct Structure {
 }
 
 impl Structure {
-    pub fn new(id: StructureId, sx: usize, sy: usize, sz: usize, pose: Pose, reg: &BlockRegistry) -> Self {
-        let air = Block { id: reg.id_by_name("air").unwrap_or(0), state: 0 };
-        let stone = Block { id: reg.id_by_name("stone").unwrap_or(0), state: 0 };
-        let beacon = Block { id: reg.id_by_name("beacon").unwrap_or(0), state: 0 };
+    pub fn new(
+        id: StructureId,
+        sx: usize,
+        sy: usize,
+        sz: usize,
+        pose: Pose,
+        reg: &BlockRegistry,
+    ) -> Self {
+        let air = Block {
+            id: reg.id_by_name("air").unwrap_or(0),
+            state: 0,
+        };
+        let stone = Block {
+            id: reg.id_by_name("stone").unwrap_or(0),
+            state: 0,
+        };
+        let beacon = Block {
+            id: reg.id_by_name("beacon").unwrap_or(0),
+            state: 0,
+        };
         let mut blocks = vec![air; sx * sy * sz];
         // Simple starter deck: stone floor slab at 1/3 height, with glow beacons for visibility
         let deck_y = (sy as f32 * 0.33) as usize;

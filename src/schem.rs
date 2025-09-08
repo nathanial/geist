@@ -1,6 +1,6 @@
+use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
-use serde::Deserialize;
 
 use crate::blocks::{Block as RtBlock, BlockRegistry};
 use crate::structure::Structure;
@@ -30,13 +30,22 @@ fn state_value<'a>(key: &'a str, name: &str) -> Option<&'a str> {
 // --- Config-driven palette translator to runtime blocks ---
 
 #[derive(Deserialize, Debug, Clone)]
-struct PaletteMapConfig { rules: Vec<PaletteRule> }
+struct PaletteMapConfig {
+    rules: Vec<PaletteRule>,
+}
 
 #[derive(Deserialize, Debug, Clone)]
-struct PaletteRule { from: String, to: ToDef }
+struct PaletteRule {
+    from: String,
+    to: ToDef,
+}
 
 #[derive(Deserialize, Debug, Clone)]
-struct ToDef { name: String, #[serde(default)] state: std::collections::HashMap<String, String> }
+struct ToDef {
+    name: String,
+    #[serde(default)]
+    state: std::collections::HashMap<String, String>,
+}
 
 fn load_palette_map() -> Option<PaletteMapConfig> {
     let path = std::path::Path::new("assets/voxels/palette_map.toml");
@@ -69,12 +78,13 @@ fn runtime_from_palette_key_with_lut(
             });
         }
         if let Some(f) = state_value(key, "facing") {
-            state.entry("facing".to_string()).or_insert_with(|| f.to_string());
+            state
+                .entry("facing".to_string())
+                .or_insert_with(|| f.to_string());
         }
     }
     reg.make_block_by_name(&to.name, Some(&state))
 }
-
 
 pub fn load_any_schematic_apply_edits(
     path: &Path,
@@ -112,10 +122,7 @@ pub fn load_sponge_schem_apply_edits(
 
     // Build a fast lookup table for palette mapping to avoid re-parsing TOML per block
     let lut: std::collections::HashMap<String, ToDef> = if let Some(cfg) = load_palette_map() {
-        cfg.rules
-            .into_iter()
-            .map(|r| (r.from, r.to))
-            .collect()
+        cfg.rules.into_iter().map(|r| (r.from, r.to)).collect()
     } else {
         std::collections::HashMap::new()
     };
@@ -138,7 +145,10 @@ pub fn load_sponge_schem_apply_edits(
                     let wy = oy + y;
                     let wz = oz + z;
                     // Fallback to configured unknown block when unmapped; panic if not configured
-                    let rt = maybe_rt.unwrap_or_else(|| RtBlock { id: reg.unknown_block_id_or_panic(), state: 0 });
+                    let rt = maybe_rt.unwrap_or_else(|| RtBlock {
+                        id: reg.unknown_block_id_or_panic(),
+                        state: 0,
+                    });
                     if rt.id != reg.id_by_name("air").unwrap_or(0) {
                         edits.set(wx, wy, wz, rt);
                     }
@@ -167,10 +177,7 @@ pub fn load_any_schematic_apply_into_structure(
     let (ox, oy, oz) = origin_local;
 
     let lut: std::collections::HashMap<String, ToDef> = if let Some(cfg) = load_palette_map() {
-        cfg.rules
-            .into_iter()
-            .map(|r| (r.from, r.to))
-            .collect()
+        cfg.rules.into_iter().map(|r| (r.from, r.to)).collect()
     } else {
         std::collections::HashMap::new()
     };
@@ -191,7 +198,10 @@ pub fn load_any_schematic_apply_into_structure(
                     let lx = ox + x;
                     let ly = oy + y;
                     let lz = oz + z;
-                    let rt = maybe_rt.unwrap_or_else(|| RtBlock { id: reg.unknown_block_id_or_panic(), state: 0 });
+                    let rt = maybe_rt.unwrap_or_else(|| RtBlock {
+                        id: reg.unknown_block_id_or_panic(),
+                        state: 0,
+                    });
                     if rt.id != reg.id_by_name("air").unwrap_or(0) {
                         st.set_local(lx, ly, lz, rt);
                     }
@@ -210,7 +220,12 @@ pub fn find_unsupported_blocks_in_file(path: &Path) -> Result<Vec<String>, Strin
 
     // Build a set of supported ids from palette_map.toml
     let rules = load_palette_map()
-        .map(|cfg| cfg.rules.into_iter().map(|r| r.from).collect::<std::collections::HashSet<String>>())
+        .map(|cfg| {
+            cfg.rules
+                .into_iter()
+                .map(|r| r.from)
+                .collect::<std::collections::HashSet<String>>()
+        })
         .unwrap_or_default();
 
     // Use full palette across all regions
@@ -274,7 +289,10 @@ pub fn list_schematics_with_size(dir: &Path) -> Result<Vec<SchematicEntry>, Stri
                     ) {
                         Ok((schem, _meta)) => {
                             let shape = schem.shape();
-                            out.push(SchematicEntry { path: p, size: (shape[0], shape[1], shape[2]) });
+                            out.push(SchematicEntry {
+                                path: p,
+                                size: (shape[0], shape[1], shape[2]),
+                            });
                         }
                         Err(e) => return Err(format!("parse schem {:?}: {}", p, e)),
                     }
@@ -285,7 +303,10 @@ pub fn list_schematics_with_size(dir: &Path) -> Result<Vec<SchematicEntry>, Stri
                     ) {
                         Ok((schem, _meta)) => {
                             let shape = schem.shape();
-                            out.push(SchematicEntry { path: p, size: (shape[0], shape[1], shape[2]) });
+                            out.push(SchematicEntry {
+                                path: p,
+                                size: (shape[0], shape[1], shape[2]),
+                            });
                         }
                         Err(e) => {
                             log::warn!("parse schem {:?}: {}", p, e);

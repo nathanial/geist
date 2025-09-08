@@ -3,15 +3,15 @@ use std::sync::Arc;
 use std::sync::mpsc;
 use std::thread;
 
+use crate::blocks::{Block, BlockRegistry};
 use crate::chunkbuf;
+use crate::event::RebuildCause;
 use crate::mesher::{self, ChunkMeshCPU, NeighborsLoaded};
-use crate::texture_cache::TextureCache;
-use raylib::prelude::{RaylibMaterial, RaylibTexture2D};
 use crate::shaders;
 use crate::structure::StructureId;
+use crate::texture_cache::TextureCache;
 use crate::voxel::World;
-use crate::blocks::{BlockRegistry, Block};
-use crate::event::RebuildCause;
+use raylib::prelude::{RaylibMaterial, RaylibTexture2D};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[derive(Clone, Debug)]
@@ -62,7 +62,7 @@ pub struct Runtime {
     res_rx: mpsc::Receiver<JobOut>,
     _edit_worker_txs: Vec<mpsc::Sender<BuildJob>>, // hold to keep senders alive
     _light_worker_txs: Vec<mpsc::Sender<BuildJob>>, // hold to keep senders alive
-    _bg_worker_txs: Vec<mpsc::Sender<BuildJob>>, // hold to keep senders alive
+    _bg_worker_txs: Vec<mpsc::Sender<BuildJob>>,   // hold to keep senders alive
     // Structure worker infra
     s_job_tx: mpsc::Sender<StructureBuildJob>,
     s_res_rx: mpsc::Receiver<StructureJobOut>,
@@ -118,27 +118,39 @@ impl Runtime {
         if watch_textures {
             let tex_tx = tex_tx.clone();
             std::thread::spawn(move || {
-                use notify::{RecursiveMode, Watcher, EventKind};
-                let mut watcher = notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-                    if let Ok(event) = res {
-                        match event.kind {
-                            EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_) | EventKind::Any => {
-                                for p in event.paths {
-                                    if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
-                                        let e = ext.to_lowercase();
-                                        if e == "png" || e == "jpg" || e == "jpeg" {
-                                            let _ = tex_tx.send(p.to_string_lossy().to_string());
+                use notify::{EventKind, RecursiveMode, Watcher};
+                let mut watcher = notify::recommended_watcher(
+                    move |res: Result<notify::Event, notify::Error>| {
+                        if let Ok(event) = res {
+                            match event.kind {
+                                EventKind::Modify(_)
+                                | EventKind::Create(_)
+                                | EventKind::Remove(_)
+                                | EventKind::Any => {
+                                    for p in event.paths {
+                                        if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
+                                            let e = ext.to_lowercase();
+                                            if e == "png" || e == "jpg" || e == "jpeg" {
+                                                let _ =
+                                                    tex_tx.send(p.to_string_lossy().to_string());
+                                            }
                                         }
                                     }
                                 }
+                                _ => {}
                             }
-                            _ => {}
                         }
-                    }
-                }).unwrap();
-                let _ = watcher.watch(std::path::Path::new("assets/blocks"), RecursiveMode::Recursive);
+                    },
+                )
+                .unwrap();
+                let _ = watcher.watch(
+                    std::path::Path::new("assets/blocks"),
+                    RecursiveMode::Recursive,
+                );
                 // Keep thread alive
-                loop { std::thread::sleep(std::time::Duration::from_secs(3600)); }
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(3600));
+                }
             });
         }
 
@@ -148,19 +160,26 @@ impl Runtime {
             let tx = wg_tx.clone();
             let path = world_config_path.clone();
             std::thread::spawn(move || {
-                use notify::{RecursiveMode, Watcher, EventKind};
-                if let Ok(mut watcher) = notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-                    if let Ok(event) = res {
-                        match event.kind {
-                            EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_) | EventKind::Any => {
-                                let _ = tx.send(());
+                use notify::{EventKind, RecursiveMode, Watcher};
+                if let Ok(mut watcher) =
+                    notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+                        if let Ok(event) = res {
+                            match event.kind {
+                                EventKind::Modify(_)
+                                | EventKind::Create(_)
+                                | EventKind::Remove(_)
+                                | EventKind::Any => {
+                                    let _ = tx.send(());
+                                }
+                                _ => {}
                             }
-                            _ => {}
                         }
-                    }
-                }) {
+                    })
+                {
                     let _ = watcher.watch(std::path::Path::new(&path), RecursiveMode::NonRecursive);
-                    loop { std::thread::sleep(std::time::Duration::from_secs(3600)); }
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(3600));
+                    }
                 }
             });
         }
@@ -186,7 +205,11 @@ impl Runtime {
         let mut light_worker_txs: Vec<mpsc::Sender<BuildJob>> = Vec::with_capacity(w_light);
         let mut bg_worker_txs: Vec<mpsc::Sender<BuildJob>> = Vec::with_capacity(w_bg);
         // Worker factory closure
-        let spawn_worker = |wrx: mpsc::Receiver<BuildJob>, tx: mpsc::Sender<JobOut>, w: Arc<World>, ls: Arc<crate::lighting::LightingStore>, reg: Arc<BlockRegistry>| {
+        let spawn_worker = |wrx: mpsc::Receiver<BuildJob>,
+                            tx: mpsc::Sender<JobOut>,
+                            w: Arc<World>,
+                            ls: Arc<crate::lighting::LightingStore>,
+                            reg: Arc<BlockRegistry>| {
             thread::spawn(move || {
                 while let Ok(job) = wrx.recv() {
                     // Start from previous buffer when provided; else regenerate from worldgen
@@ -437,9 +460,15 @@ impl Runtime {
         let mut out = Vec::new();
         for x in self.res_rx.try_iter() {
             match x.cause {
-                RebuildCause::Edit => { self.inflight_edit.fetch_sub(1, Ordering::Relaxed); }
-                RebuildCause::LightingBorder => { self.inflight_light.fetch_sub(1, Ordering::Relaxed); }
-                RebuildCause::StreamLoad => { self.inflight_bg.fetch_sub(1, Ordering::Relaxed); }
+                RebuildCause::Edit => {
+                    self.inflight_edit.fetch_sub(1, Ordering::Relaxed);
+                }
+                RebuildCause::LightingBorder => {
+                    self.inflight_light.fetch_sub(1, Ordering::Relaxed);
+                }
+                RebuildCause::StreamLoad => {
+                    self.inflight_bg.fetch_sub(1, Ordering::Relaxed);
+                }
             }
             out.push(x);
         }
@@ -505,36 +534,37 @@ impl Runtime {
                     .find(|p| std::path::Path::new(p.as_str()).exists())
                     .cloned()
                     .or_else(|| candidates.first().cloned());
-                chosen.map(|s| std::fs::canonicalize(&s)
-                    .ok()
-                    .map(|pb| pb.to_string_lossy().to_string())
-                    .unwrap_or(s))
+                chosen.map(|s| {
+                    std::fs::canonicalize(&s)
+                        .ok()
+                        .map(|pb| pb.to_string_lossy().to_string())
+                        .unwrap_or(s)
+                })
             })
         };
         // Reload any changed paths into cache
         for path in changed.iter() {
             // Attempt to load; if fails, skip
             if let Ok(tex) = rl.load_texture(thread, path) {
-                tex.set_texture_filter(
-                    thread,
-                    raylib::consts::TextureFilter::TEXTURE_FILTER_POINT,
-                );
-                tex.set_texture_wrap(
-                    thread,
-                    raylib::consts::TextureWrap::TEXTURE_WRAP_REPEAT,
-                );
+                tex.set_texture_filter(thread, raylib::consts::TextureFilter::TEXTURE_FILTER_POINT);
+                tex.set_texture_wrap(thread, raylib::consts::TextureWrap::TEXTURE_WRAP_REPEAT);
                 self.tex_cache.replace_loaded(path.clone(), tex);
                 log::debug!("reloaded texture {}", path);
             } else {
                 log::warn!("failed to reload texture {}", path);
             }
         }
-        let mut rebound: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut rebound: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
         // Rebind textures on existing chunk renders
         for (_k, cr) in self.renders.iter_mut() {
             for (mid, model) in cr.parts.iter_mut() {
-                let Some(path) = choose_path(*mid) else { continue };
-                if !changed.contains(&path) { continue; }
+                let Some(path) = choose_path(*mid) else {
+                    continue;
+                };
+                if !changed.contains(&path) {
+                    continue;
+                }
                 if let Some(mat) = {
                     use raylib::prelude::RaylibModel;
                     model.materials_mut().get_mut(0)
@@ -569,8 +599,12 @@ impl Runtime {
         // Rebind for structure renders as well
         for (_id, cr) in self.structure_renders.iter_mut() {
             for (mid, model) in cr.parts.iter_mut() {
-                let Some(path) = choose_path(*mid) else { continue };
-                if !changed.contains(&path) { continue; }
+                let Some(path) = choose_path(*mid) else {
+                    continue;
+                };
+                if !changed.contains(&path) {
+                    continue;
+                }
                 if let Some(mat) = {
                     use raylib::prelude::RaylibModel;
                     model.materials_mut().get_mut(0)
@@ -613,8 +647,12 @@ impl Runtime {
 
     pub fn process_worldgen_file_events(&mut self) {
         let mut changed = false;
-        for _ in self.worldgen_event_rx.try_iter() { changed = true; }
-        if !changed { return; }
+        for _ in self.worldgen_event_rx.try_iter() {
+            changed = true;
+        }
+        if !changed {
+            return;
+        }
         let path = std::path::Path::new(&self.world_config_path);
         if !path.exists() {
             log::warn!("worldgen config missing: {}", self.world_config_path);
@@ -628,7 +666,11 @@ impl Runtime {
                 self.worldgen_dirty = true;
             }
             Err(e) => {
-                log::warn!("worldgen config reload failed ({}): {}", self.world_config_path, e);
+                log::warn!(
+                    "worldgen config reload failed ({}): {}",
+                    self.world_config_path,
+                    e
+                );
             }
         }
     }
@@ -637,6 +679,8 @@ impl Runtime {
         if self.worldgen_dirty {
             self.worldgen_dirty = false;
             true
-        } else { false }
+        } else {
+            false
+        }
     }
 }

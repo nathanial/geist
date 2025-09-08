@@ -1,4 +1,3 @@
-
 #[cfg(not(feature = "mcworld"))]
 pub fn load_mcworlds_in_dir(
     _dir: &std::path::Path,

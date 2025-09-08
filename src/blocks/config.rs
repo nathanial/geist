@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use serde::Deserialize;
+use std::collections::HashMap;
 
 // Top-level blocks config file
 #[derive(Deserialize, Debug)]
@@ -85,7 +85,11 @@ pub struct MaterialsDef {
 #[serde(untagged)]
 pub enum MaterialSelector {
     Key(String),
-    By { by: String, #[serde(default)] map: HashMap<String, String> },
+    By {
+        by: String,
+        #[serde(default)]
+        map: HashMap<String, String>,
+    },
 }
 
 // Top-level lighting config with reusable profiles
@@ -99,15 +103,22 @@ pub struct LightingConfig {
 #[serde(tag = "mode", rename_all = "lowercase")]
 pub enum LightProfile {
     Omni {
-        #[serde(default = "default_omni_atten")] attenuation: u8,
-        #[serde(default)] max_range: Option<u16>,
+        #[serde(default = "default_omni_atten")]
+        attenuation: u8,
+        #[serde(default)]
+        max_range: Option<u16>,
     },
     Beam {
-        #[serde(default = "default_beam_straight")] straight_cost: u8,
-        #[serde(default = "default_beam_turn")] turn_cost: u8,
-        #[serde(default = "default_beam_vertical")] vertical_cost: u8,
-        #[serde(default = "default_source_dirs")] source_dirs: SourceDirs,
-        #[serde(default)] max_range: Option<u16>,
+        #[serde(default = "default_beam_straight")]
+        straight_cost: u8,
+        #[serde(default = "default_beam_turn")]
+        turn_cost: u8,
+        #[serde(default = "default_beam_vertical")]
+        vertical_cost: u8,
+        #[serde(default = "default_source_dirs")]
+        source_dirs: SourceDirs,
+        #[serde(default)]
+        max_range: Option<u16>,
     },
 }
 
@@ -119,8 +130,18 @@ pub enum SourceDirs {
     Any,
 }
 
-fn default_omni_atten() -> u8 { 32 }
-fn default_beam_straight() -> u8 { 1 }
-fn default_beam_turn() -> u8 { 32 }
-fn default_beam_vertical() -> u8 { 32 }
-fn default_source_dirs() -> SourceDirs { SourceDirs::Horizontal }
+fn default_omni_atten() -> u8 {
+    32
+}
+fn default_beam_straight() -> u8 {
+    1
+}
+fn default_beam_turn() -> u8 {
+    32
+}
+fn default_beam_vertical() -> u8 {
+    32
+}
+fn default_source_dirs() -> SourceDirs {
+    SourceDirs::Horizontal
+}

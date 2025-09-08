@@ -1,6 +1,6 @@
 use crate::blocks::Block;
-use crate::voxel::World;
 use crate::blocks::BlockRegistry;
+use crate::voxel::World;
 
 #[derive(Clone, Debug)]
 pub struct ChunkBuf {
@@ -88,7 +88,8 @@ pub fn generate_chunk_buffer(world: &World, cx: i32, cz: i32, reg: &BlockRegistr
                 let wx = x0 + x as i32;
                 let wy = y as i32;
                 let wz = z0 + z as i32;
-                blocks[(y * sz + z) * sx + x] = world.block_at_runtime_with(reg, &mut ctx, wx, wy, wz);
+                blocks[(y * sz + z) * sx + x] =
+                    world.block_at_runtime_with(reg, &mut ctx, wx, wy, wz);
             }
         }
     }
