@@ -226,6 +226,28 @@ impl EventQueue {
         self.now = self.now.wrapping_add(1);
     }
 
+    // Debug: count events that are in past ticks (< now). These will never be processed.
+    pub fn count_stale_events(&self) -> usize {
+        let mut total = 0usize;
+        for (tick, q) in &self.by_tick {
+            if *tick < self.now {
+                total += q.len();
+            }
+        }
+        total
+    }
+
+    // Debug: list per-tick counts for stale buckets (< now)
+    pub fn stale_summary(&self) -> Vec<(u64, usize)> {
+        let mut v = Vec::new();
+        for (tick, q) in &self.by_tick {
+            if *tick < self.now {
+                v.push((*tick, q.len()));
+            }
+        }
+        v
+    }
+
     // Debug helpers: count queued events by kind across all future ticks (including current)
     pub fn queued_counts(
         &self,

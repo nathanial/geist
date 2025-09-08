@@ -27,6 +27,8 @@ pub struct App {
     // Session-wide processed event stats
     evt_processed_total: usize,
     evt_processed_by: HashMap<String, usize>,
+    // Coalesced rebuild/load intents (priority-scheduled per frame)
+    intents: HashMap<(i32, i32), IntentEntry>,
 }
 
 #[derive(Default)]
@@ -45,7 +47,100 @@ pub struct DebugStats {
     pub processed_events_by: Vec<(String, usize)>,
 }
 
+// Internal prioritization cause for scheduling
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
+enum IntentCause { Edit = 0, Light = 1, StreamLoad = 2, HotReload = 3 }
+
+#[derive(Clone, Copy, Debug)]
+struct IntentEntry {
+    rev: u64,
+    cause: IntentCause,
+    last_tick: u64,
+}
+
 impl App {
+    fn record_intent(&mut self, cx: i32, cz: i32, cause: IntentCause) {
+        // Skip recording if already rendered and no rebuild needed
+        let cur_rev = self.gs.edits.get_rev(cx, cz);
+        let now = self.gs.tick;
+        self.intents
+            .entry((cx, cz))
+            .and_modify(|e| {
+                if cur_rev > e.rev { e.rev = cur_rev; }
+                // Keep strongest cause (lower enum value = higher priority)
+                if cause < e.cause { e.cause = cause; }
+                e.last_tick = now;
+            })
+            .or_insert(IntentEntry { rev: cur_rev, cause, last_tick: now });
+    }
+
+    fn flush_intents(&mut self) {
+        if self.intents.is_empty() { return; }
+        // Compute priorities
+        let ccx = (self.cam.position.x / self.gs.world.chunk_size_x as f32).floor() as i32;
+        let ccz = (self.cam.position.z / self.gs.world.chunk_size_z as f32).floor() as i32;
+        let now = self.gs.tick;
+        let mut items: Vec<((i32,i32), IntentEntry, u32, i32)> = Vec::with_capacity(self.intents.len());
+        for (&key, &ent) in self.intents.iter() {
+            let (cx, cz) = key;
+            let dx = cx - ccx;
+            let dz = cz - ccz;
+            let d2 = (dx as i32).saturating_mul(dx as i32) + (dz as i32).saturating_mul(dz as i32);
+            // Distance buckets in chunk units (0: <=1, 1: <=4, 2: else)
+            let dist_bucket: u32 = if d2 <= 1 { 0 } else if d2 <= 4 { 1 } else { 2 };
+            // Age: older gets a small boost (negative weight)
+            let age = now.saturating_sub(ent.last_tick);
+            let age_boost: i32 = if age > 180 { -2 } else if age > 60 { -1 } else { 0 }; // ~1-3 seconds at 60Hz
+            items.push((key, ent, dist_bucket, age_boost));
+        }
+        items.sort_by(|a, b| {
+            // (cause asc, dist asc, age_boost asc (more negative first))
+            a.1.cause.cmp(&b.1.cause)
+                .then(a.2.cmp(&b.2))
+                .then(a.3.cmp(&b.3))
+        });
+
+        // Cap submissions per frame
+        let worker_n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(8);
+        let cap = (worker_n * 2).max(8); // allow some burst but bounded
+        let mut submitted = 0usize;
+
+        for (key, ent, _db, _ab) in items.into_iter() {
+            if submitted >= cap { break; }
+            let (cx, cz) = key;
+            // inflight gating: skip if same/newer already in flight
+            // Skip only if an inflight entry exists and is already at or above this rev
+            if self
+                .gs
+                .inflight_rev
+                .get(&key)
+                .map(|v| *v >= ent.rev)
+                .unwrap_or(false)
+            {
+                continue;
+            }
+            // If chunk is not loaded, treat as load intent; else rebuild intent
+            let neighbors = self.neighbor_mask(cx, cz);
+            let rev = ent.rev;
+            let job_id = Self::job_hash(cx, cz, rev, neighbors);
+            // Visibility gating (lightweight): do not block edits
+            let is_loaded = self.runtime.renders.contains_key(&key);
+            match ent.cause {
+                IntentCause::Edit | IntentCause::Light => {
+                    if !is_loaded { continue; } // rebuild only if loaded
+                }
+                IntentCause::StreamLoad | IntentCause::HotReload => {
+                    if is_loaded { /* already loaded; schedule rebuild only if HotReload */ }
+                }
+            }
+            // Emit job request
+            // Submit for next tick to avoid stranding events after we've finished this tick's loop
+            self.queue.emit_after(1, Event::BuildChunkJobRequested { cx, cz, neighbors, rev, job_id });
+            self.gs.inflight_rev.insert(key, rev);
+            submitted += 1;
+        }
+        self.intents.clear();
+    }
     fn load_hotbar(reg: &BlockRegistry) -> Vec<Block> {
         let path = std::path::Path::new("assets/voxels/hotbar.toml");
         if !path.exists() { return Vec::new(); }
@@ -351,6 +446,7 @@ impl App {
             hotbar,
             evt_processed_total: 0,
             evt_processed_by: HashMap::new(),
+            intents: HashMap::new(),
         }
     }
 
@@ -619,21 +715,9 @@ impl App {
             Event::EnsureChunkLoaded { cx, cz } => {
                 if self.runtime.renders.contains_key(&(cx, cz))
                     || self.gs.inflight_rev.contains_key(&(cx, cz))
-                {
-                    return;
-                }
-                let neighbors = self.neighbor_mask(cx, cz);
-                let rev = self.gs.edits.get_rev(cx, cz);
-                let job_id = Self::job_hash(cx, cz, rev, neighbors);
-                self.queue.emit_now(Event::BuildChunkJobRequested {
-                    cx,
-                    cz,
-                    neighbors,
-                    rev,
-                    job_id,
-                });
-                // Track newest inflight rev
-                self.gs.inflight_rev.insert((cx, cz), rev);
+                { return; }
+                // Record load intent; scheduler will cap and prioritize
+                self.record_intent(cx, cz, IntentCause::StreamLoad);
             }
             Event::BuildChunkJobRequested {
                 cx,
@@ -825,23 +909,15 @@ impl App {
                     }
                 }
             }
-            Event::ChunkRebuildRequested { cx, cz, cause: _ } => {
-                if !self.runtime.renders.contains_key(&(cx, cz))
-                    || self.gs.inflight_rev.contains_key(&(cx, cz))
-                {
-                    return;
-                }
-                let neighbors = self.neighbor_mask(cx, cz);
-                let rev = self.gs.edits.get_rev(cx, cz);
-                let job_id = Self::job_hash(cx, cz, rev, neighbors);
-                self.queue.emit_now(Event::BuildChunkJobRequested {
-                    cx,
-                    cz,
-                    neighbors,
-                    rev,
-                    job_id,
-                });
-                self.gs.inflight_rev.insert((cx, cz), rev);
+            Event::ChunkRebuildRequested { cx, cz, cause } => {
+                if !self.runtime.renders.contains_key(&(cx, cz)) { return; }
+                // Record rebuild intent; scheduler will cap and prioritize
+                let ic = match cause {
+                    RebuildCause::Edit => IntentCause::Edit,
+                    RebuildCause::LightingBorder => IntentCause::Light,
+                    RebuildCause::StreamLoad => IntentCause::StreamLoad,
+                };
+                self.record_intent(cx, cz, ic);
             }
             Event::RaycastEditRequested { place, block } => {
                 // Perform world + structure raycast and emit edit events
@@ -1390,8 +1466,25 @@ impl App {
                 break;
             }
         }
+        // After handling events for this tick, flush prioritized intents.
+        self.flush_intents();
         self.gs.tick = self.gs.tick.wrapping_add(1);
         self.queue.advance_tick();
+        // Sanity check: events left in past ticks will never be processed; warn if detected
+        let stale = self.queue.count_stale_events();
+        if stale > 0 {
+            let mut details = String::new();
+            for (t, n) in self.queue.stale_summary() {
+                use std::fmt::Write as _;
+                let _ = write!(&mut details, "[t={} n={}] ", t, n);
+            }
+            log::error!(
+                target: "events",
+                "Detected {} stale event(s) in past tick buckets; details: {}",
+                stale,
+                details
+            );
+        }
     }
 
     pub fn render(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread) {
