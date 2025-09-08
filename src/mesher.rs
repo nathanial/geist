@@ -1,11 +1,12 @@
 use crate::chunkbuf::ChunkBuf;
 use crate::lighting::{LightBorders, LightGrid, LightingStore};
+use crate::texture_cache::TextureCache;
 use crate::voxel::World;
 use raylib::core::math::BoundingBox;
 use raylib::prelude::*;
 use std::collections::HashMap as StdHashMap;
-use std::collections::HashMap;
-use crate::blocks::{BlockRegistry, FaceRole, MaterialCatalog, MaterialId, Block};
+use crate::blocks::{BlockRegistry, MaterialCatalog, MaterialId, Block};
+use crate::meshutil::{Face, is_full_cube};
 
 // Visual-only lighting floor to avoid pitch-black faces in darkness.
 // Does not affect logical light propagation.
@@ -77,58 +78,57 @@ impl MeshBuild {
     #[inline]
     pub(crate) fn add_face_rect(
         &mut self,
-        face: usize,
+        face: Face,
         origin: Vector3,
         u1: f32,
         v1: f32,
         flip_v: bool,
         rgba: [u8; 4],
     ) {
-        let n = face_normal(face);
+        let n = face.normal();
         let (a, b, c, d) = match face {
             // +Y: origin=(x,y,z), u is +X, v is +Z
-            0 => (
+            Face::PosY => (
                 Vector3::new(origin.x, origin.y, origin.z),
                 Vector3::new(origin.x + u1, origin.y, origin.z),
                 Vector3::new(origin.x + u1, origin.y, origin.z + v1),
                 Vector3::new(origin.x, origin.y, origin.z + v1),
             ),
             // -Y: origin=(x,y,z), u is +X, v is +Z but flipped on Z
-            1 => (
+            Face::NegY => (
                 Vector3::new(origin.x, origin.y, origin.z + v1),
                 Vector3::new(origin.x + u1, origin.y, origin.z + v1),
                 Vector3::new(origin.x + u1, origin.y, origin.z),
                 Vector3::new(origin.x, origin.y, origin.z),
             ),
             // +X: origin=(x,y,z), u is +Z, v is +Y
-            2 => (
+            Face::PosX => (
                 Vector3::new(origin.x, origin.y + v1, origin.z + u1),
                 Vector3::new(origin.x, origin.y + v1, origin.z),
                 Vector3::new(origin.x, origin.y, origin.z),
                 Vector3::new(origin.x, origin.y, origin.z + u1),
             ),
             // -X: origin=(x,y,z), u is +Z, v is +Y
-            3 => (
+            Face::NegX => (
                 Vector3::new(origin.x, origin.y + v1, origin.z),
                 Vector3::new(origin.x, origin.y + v1, origin.z + u1),
                 Vector3::new(origin.x, origin.y, origin.z + u1),
                 Vector3::new(origin.x, origin.y, origin.z),
             ),
             // +Z: origin=(x,y,z), u is +X, v is +Y
-            4 => (
+            Face::PosZ => (
                 Vector3::new(origin.x + u1, origin.y + v1, origin.z),
                 Vector3::new(origin.x, origin.y + v1, origin.z),
                 Vector3::new(origin.x, origin.y, origin.z),
                 Vector3::new(origin.x + u1, origin.y, origin.z),
             ),
             // -Z: origin=(x,y,z), u is +X, v is +Y
-            5 => (
+            Face::NegZ => (
                 Vector3::new(origin.x, origin.y + v1, origin.z),
                 Vector3::new(origin.x + u1, origin.y + v1, origin.z),
                 Vector3::new(origin.x + u1, origin.y, origin.z),
                 Vector3::new(origin.x, origin.y, origin.z),
             ),
-            _ => unreachable!(),
         };
         self.add_quad(a, b, c, d, n, u1, v1, flip_v, rgba);
     }
@@ -140,64 +140,24 @@ fn unknown_material_id(reg: &BlockRegistry) -> MaterialId {
 }
 
 #[inline]
-fn registry_material_for(block: Block, face: usize, reg: &BlockRegistry) -> Option<MaterialId> {
+fn registry_material_for(block: Block, face: Face, reg: &BlockRegistry) -> Option<MaterialId> {
     let ty = reg.get(block.id)?;
-    let role = face_to_role(face);
+    let role = face.role();
     ty.materials.material_for(role, block.state, ty)
 }
 
 #[inline]
-fn registry_material_for_or_unknown(block: Block, face: usize, reg: &BlockRegistry) -> MaterialId {
+fn registry_material_for_or_unknown(block: Block, face: Face, reg: &BlockRegistry) -> MaterialId {
     registry_material_for(block, face, reg).unwrap_or_else(|| unknown_material_id(reg))
 }
 
-#[inline]
-fn face_to_role(face: usize) -> FaceRole {
-    match face {
-        0 => FaceRole::Top,
-        1 => FaceRole::Bottom,
-        _ => FaceRole::Side,
-    }
-}
-
-#[inline]
-fn neighbor_delta(face: usize) -> (i32, i32, i32) {
-    match face {
-        0 => (0, 1, 0),   // +Y
-        1 => (0, -1, 0),  // -Y
-        2 => (1, 0, 0),   // +X
-        3 => (-1, 0, 0),  // -X
-        4 => (0, 0, 1),   // +Z
-        5 => (0, 0, -1),  // -Z
-        _ => (0, 0, 0),
-    }
-}
-
-#[inline]
-fn face_normal(face: usize) -> Vector3 {
-    match face {
-        0 => Vector3::new(0.0, 1.0, 0.0),
-        1 => Vector3::new(0.0, -1.0, 0.0),
-        2 => Vector3::new(1.0, 0.0, 0.0),
-        3 => Vector3::new(-1.0, 0.0, 0.0),
-        4 => Vector3::new(0.0, 0.0, 1.0),
-        5 => Vector3::new(0.0, 0.0, -1.0),
-        _ => Vector3::zero(),
-    }
-}
-
-#[inline]
-fn is_full_cube(reg: &BlockRegistry, nb: Block) -> bool {
-    reg.get(nb.id)
-        .map(|t| matches!(t.shape, crate::blocks::Shape::Cube | crate::blocks::Shape::AxisCube { .. }))
-        .unwrap_or(false)
-}
+// Face helpers moved to crate::meshutil
 
 #[inline]
 fn emit_face_rect_for(
     builds: &mut std::collections::HashMap<MaterialId, MeshBuild>,
     mid: MaterialId,
-    face: usize,
+    face: Face,
     origin: Vector3,
     u1: f32,
     v1: f32,
@@ -213,15 +173,15 @@ fn sample_neighbor_half_light(
     x: usize,
     y: usize,
     z: usize,
-    face: usize,
+    face: Face,
     draw_top_half: bool,
     sy: usize,
 ) -> u8 {
-    let l0 = light.sample_face_local(x, y, z, face);
+    let l0 = light.sample_face_local(x, y, z, face.index());
     let ladd = if draw_top_half {
-        if y + 1 < sy { light.sample_face_local(x, y + 1, z, face) } else { l0 }
+        if y + 1 < sy { light.sample_face_local(x, y + 1, z, face.index()) } else { l0 }
     } else {
-        if y > 0 { light.sample_face_local(x, y - 1, z, face) } else { l0 }
+        if y > 0 { light.sample_face_local(x, y - 1, z, face.index()) } else { l0 }
     };
     l0.max(ladd).max(VISUAL_LIGHT_MIN)
 }
@@ -282,11 +242,11 @@ fn emit_box_faces(
     builds: &mut std::collections::HashMap<MaterialId, MeshBuild>,
     min: Vector3,
     max: Vector3,
-    mut choose: impl FnMut(usize) -> Option<(MaterialId, [u8; 4])>,
+    mut choose: impl FnMut(Face) -> Option<(MaterialId, [u8; 4])>,
 )
 {
-    // 0 = +Y
-    if let Some((mid, rgba)) = choose(0) {
+    // +Y
+    if let Some((mid, rgba)) = choose(Face::PosY) {
         let mb = builds.entry(mid).or_default();
         mb.add_quad(
             Vector3::new(min.x, max.y, min.z),
@@ -300,8 +260,8 @@ fn emit_box_faces(
             rgba,
         );
     }
-    // 1 = -Y
-    if let Some((mid, rgba)) = choose(1) {
+    // -Y
+    if let Some((mid, rgba)) = choose(Face::NegY) {
         let mb = builds.entry(mid).or_default();
         mb.add_quad(
             Vector3::new(min.x, min.y, max.z),
@@ -315,8 +275,8 @@ fn emit_box_faces(
             rgba,
         );
     }
-    // 2 = +X
-    if let Some((mid, rgba)) = choose(2) {
+    // +X
+    if let Some((mid, rgba)) = choose(Face::PosX) {
         let mb = builds.entry(mid).or_default();
         mb.add_quad(
             Vector3::new(max.x, max.y, max.z),
@@ -330,8 +290,8 @@ fn emit_box_faces(
             rgba,
         );
     }
-    // 3 = -X
-    if let Some((mid, rgba)) = choose(3) {
+    // -X
+    if let Some((mid, rgba)) = choose(Face::NegX) {
         let mb = builds.entry(mid).or_default();
         mb.add_quad(
             Vector3::new(min.x, max.y, min.z),
@@ -345,8 +305,8 @@ fn emit_box_faces(
             rgba,
         );
     }
-    // 4 = +Z
-    if let Some((mid, rgba)) = choose(4) {
+    // +Z
+    if let Some((mid, rgba)) = choose(Face::PosZ) {
         let mb = builds.entry(mid).or_default();
         mb.add_quad(
             Vector3::new(min.x, max.y, max.z),
@@ -360,8 +320,8 @@ fn emit_box_faces(
             rgba,
         );
     }
-    // 5 = -Z
-    if let Some((mid, rgba)) = choose(5) {
+    // -Z
+    if let Some((mid, rgba)) = choose(Face::NegZ) {
         let mb = builds.entry(mid).or_default();
         mb.add_quad(
             Vector3::new(max.x, max.y, min.z),
@@ -391,7 +351,7 @@ fn emit_box(
     z: usize,
     base_x: i32,
     base_z: i32,
-    fm_for_face: &dyn Fn(usize) -> MaterialId,
+    fm_for_face: &dyn Fn(Face) -> MaterialId,
     min: Vector3,
     max: Vector3,
 ) {
@@ -400,12 +360,12 @@ fn emit_box(
     let gz = base_z + z as i32;
     let here = buf.get_local(x, y, z);
     emit_box_faces(builds, min, max, |face| {
-        let (dx, dy, dz) = neighbor_delta(face);
+        let (dx, dy, dz) = face.delta();
         let (nx, ny, nz) = (gx + dx, gy + dy, gz + dz);
         if is_occluder(buf, world, edits, neighbors, reg, here, face, nx, ny, nz) {
             return None;
         }
-        let mut lv = light.sample_face_local(x, y, z, face);
+        let mut lv = light.sample_face_local(x, y, z, face.index());
         lv = lv.max(VISUAL_LIGHT_MIN);
         let rgba = [lv, lv, lv, 255];
         let mid = fm_for_face(face);
@@ -431,7 +391,7 @@ fn is_occluder(
     nmask: NeighborsLoaded,
     reg: &BlockRegistry,
     here: Block,
-    face: usize,
+    face: Face,
     nx: i32,
     ny: i32,
     nz: i32,
@@ -484,23 +444,23 @@ fn is_occluder(
 }
 
 #[inline]
-fn occludes_face(nb: Block, face: usize, reg: &BlockRegistry) -> bool {
+fn occludes_face(nb: Block, face: Face, reg: &BlockRegistry) -> bool {
     // Slab/stairs: occlusion based on half
     if let Some(ty) = reg.get(nb.id) {
         match &ty.shape {
             crate::blocks::Shape::Slab { half_from } => {
                 let is_top = ty.state_prop_is_value(nb.state, half_from, "top");
                 return match face {
-                    0 => !is_top, // above occluded by bottom slab
-                    1 => is_top,  // below occluded by top slab
+                    Face::PosY => !is_top, // above occluded by bottom slab
+                    Face::NegY => is_top,  // below occluded by top slab
                     _ => true,
                 };
             }
             crate::blocks::Shape::Stairs { half_from, .. } => {
                 let is_top = ty.state_prop_is_value(nb.state, half_from, "top");
                 return match face {
-                    0 => !is_top,
-                    1 => is_top,
+                    Face::PosY => !is_top,
+                    Face::NegY => is_top,
                     _ => true,
                 };
             }
@@ -556,7 +516,7 @@ pub fn build_chunk_greedy_cpu_buf(
         base_z,
         flip_v,
         Some(VISUAL_LIGHT_MIN),
-        |x, y, z, face, here| {
+        |x, y, z, face: Face, here| {
             if !is_solid_runtime(here, reg) {
                 return None;
             }
@@ -572,21 +532,14 @@ pub fn build_chunk_greedy_cpu_buf(
             let gx = base_x + x as i32;
             let gy = y as i32;
             let gz = base_z + z as i32;
-            let (nx, ny, nz) = match face {
-                0 => (gx, gy + 1, gz),
-                1 => (gx, gy - 1, gz),
-                2 => (gx + 1, gy, gz),
-                3 => (gx - 1, gy, gz),
-                4 => (gx, gy, gz + 1),
-                5 => (gx, gy, gz - 1),
-                _ => unreachable!(),
-            };
+            let (dx, dy, dz) = face.delta();
+            let (nx, ny, nz) = (gx + dx, gy + dy, gz + dz);
             if is_occluder(buf, world, edits, neighbors, reg, here, face, nx, ny, nz) {
                 return None;
             }
             // Resolve material via registry; fallback to unknown when unmapped
-            let mut l = light.sample_face_local(x, y, z, face);
-            if face == 0 {
+            let mut l = light.sample_face_local(x, y, z, face.index());
+            if matches!(face, Face::PosY) {
                 if buf.contains_world(nx, ny, nz) && ny >= 0 && (ny as usize) < sy {
                     let lx = (nx - base_x) as usize;
                     let ly = ny as usize;
@@ -594,10 +547,10 @@ pub fn build_chunk_greedy_cpu_buf(
             let nb = buf.get_local(lx, ly, lz);
             if is_top_half_shape(nb, reg) {
                     let l2 = light
-                        .sample_face_local(x, y, z, 2)
-                        .max(light.sample_face_local(x, y, z, 3))
-                        .max(light.sample_face_local(x, y, z, 4))
-                        .max(light.sample_face_local(x, y, z, 5));
+                        .sample_face_local(x, y, z, Face::PosX.index())
+                        .max(light.sample_face_local(x, y, z, Face::NegX.index()))
+                        .max(light.sample_face_local(x, y, z, Face::PosZ.index()))
+                        .max(light.sample_face_local(x, y, z, Face::NegZ.index()));
                     l = l.max(l2);
             }
                 }
@@ -635,7 +588,7 @@ pub fn build_chunk_greedy_cpu_buf(
                             base_x,
                             base_z,
                             &|face| {
-                                let role = face_to_role(face);
+                                let role = face.role();
                                 ty.materials
                                     .material_for(role, b.state, ty)
                                     .unwrap_or_else(|| unknown_material_id(reg))
@@ -653,11 +606,11 @@ pub fn build_chunk_greedy_cpu_buf(
                             let nb = buf.get_local(x - 1, y, z);
                             if is_full_cube(reg, nb) {
                                 let draw_top_half = !is_top;
-                                let lv = sample_neighbor_half_light(&light, x - 1, y, z, 2, draw_top_half, sy);
+                                let lv = sample_neighbor_half_light(&light, x - 1, y, z, Face::PosX, draw_top_half, sy);
                                 let rgba = [lv, lv, lv, 255];
-                                let mid = registry_material_for_or_unknown(nb, 2, reg);
+                                let mid = registry_material_for_or_unknown(nb, Face::PosX, reg);
                                 let origin = Vector3::new(fx, vis_y0, fz);
-                                emit_face_rect_for(&mut builds, mid, 2, origin, 1.0, vis_y1 - vis_y0, rgba);
+                                emit_face_rect_for(&mut builds, mid, Face::PosX, origin, 1.0, vis_y1 - vis_y0, rgba);
                             }
                         }
                         // East neighbor (-X face on neighbor)
@@ -665,11 +618,11 @@ pub fn build_chunk_greedy_cpu_buf(
                             let nb = buf.get_local(x + 1, y, z);
                             if is_full_cube(reg, nb) {
                                 let draw_top_half = !is_top;
-                                let lv = sample_neighbor_half_light(&light, x + 1, y, z, 3, draw_top_half, sy);
+                                let lv = sample_neighbor_half_light(&light, x + 1, y, z, Face::NegX, draw_top_half, sy);
                                 let rgba = [lv, lv, lv, 255];
-                                let mid = registry_material_for_or_unknown(nb, 3, reg);
+                                let mid = registry_material_for_or_unknown(nb, Face::NegX, reg);
                                 let origin = Vector3::new(fx + 1.0, vis_y0, fz);
-                                emit_face_rect_for(&mut builds, mid, 3, origin, 1.0, vis_y1 - vis_y0, rgba);
+                                emit_face_rect_for(&mut builds, mid, Face::NegX, origin, 1.0, vis_y1 - vis_y0, rgba);
                             }
                         }
                         // North neighbor (+Z face on neighbor)
@@ -677,11 +630,11 @@ pub fn build_chunk_greedy_cpu_buf(
                             let nb = buf.get_local(x, y, z - 1);
                             if is_full_cube(reg, nb) {
                                 let draw_top_half = !is_top;
-                                let lv = sample_neighbor_half_light(&light, x, y, z - 1, 4, draw_top_half, sy);
+                                let lv = sample_neighbor_half_light(&light, x, y, z - 1, Face::PosZ, draw_top_half, sy);
                                 let rgba = [lv, lv, lv, 255];
-                                let mid = registry_material_for_or_unknown(nb, 4, reg);
+                                let mid = registry_material_for_or_unknown(nb, Face::PosZ, reg);
                                 let origin = Vector3::new(fx, vis_y0, fz);
-                                emit_face_rect_for(&mut builds, mid, 4, origin, 1.0, vis_y1 - vis_y0, rgba);
+                                emit_face_rect_for(&mut builds, mid, Face::PosZ, origin, 1.0, vis_y1 - vis_y0, rgba);
                             }
                         }
                         // South neighbor (-Z face on neighbor)
@@ -689,11 +642,11 @@ pub fn build_chunk_greedy_cpu_buf(
                             let nb = buf.get_local(x, y, z + 1);
                             if is_full_cube(reg, nb) {
                                 let draw_top_half = !is_top;
-                                let lv = sample_neighbor_half_light(&light, x, y, z + 1, 5, draw_top_half, sy);
+                                let lv = sample_neighbor_half_light(&light, x, y, z + 1, Face::NegZ, draw_top_half, sy);
                                 let rgba = [lv, lv, lv, 255];
-                                let mid = registry_material_for_or_unknown(nb, 5, reg);
+                                let mid = registry_material_for_or_unknown(nb, Face::NegZ, reg);
                                 let origin = Vector3::new(fx, vis_y0, fz + 1.0);
-                                emit_face_rect_for(&mut builds, mid, 5, origin, 1.0, vis_y1 - vis_y0, rgba);
+                                emit_face_rect_for(&mut builds, mid, Face::NegZ, origin, 1.0, vis_y1 - vis_y0, rgba);
                             }
                         }
                         }
@@ -709,8 +662,8 @@ pub fn build_chunk_greedy_cpu_buf(
                             } else {
                                 (Vector3::new(fx, fy, fz), Vector3::new(fx + 1.0, fy + 0.5, fz + 1.0))
                             };
-                            let face_material = |face: usize| {
-                                let role = face_to_role(face);
+                            let face_material = |face: Face| {
+                                let role = face.role();
                                 ty.materials
                                     .material_for(role, b.state, ty)
                                     .unwrap_or_else(|| unknown_material_id(reg))
@@ -772,13 +725,13 @@ pub fn build_chunk_greedy_cpu_buf(
                             if x > 0 {
                                 let nb = buf.get_local(x - 1, y, z);
                                 if is_full_cube(reg, nb) {
-                                    let lv = sample_neighbor_half_light(&light, x - 1, y, z, 2, draw_top, sy);
+                                    let lv = sample_neighbor_half_light(&light, x - 1, y, z, Face::PosX, draw_top, sy);
                                     let rgba = [lv, lv, lv, 255];
-                                    let mid = registry_material_for_or_unknown(nb, 2, reg);
+                                    let mid = registry_material_for_or_unknown(nb, Face::PosX, reg);
                                     if let Some((z0, z1)) = stair_segs_for_x_neighbor(facing, fz, true) {
                                         if z1 > z0 {
                                             let origin = Vector3::new(fx, y0, z0);
-                                            emit_face_rect_for(&mut builds, mid, 2, origin, z1 - z0, y1 - y0, rgba);
+                                            emit_face_rect_for(&mut builds, mid, Face::PosX, origin, z1 - z0, y1 - y0, rgba);
                                         }
                                     }
                                 }
@@ -787,13 +740,13 @@ pub fn build_chunk_greedy_cpu_buf(
                             if x + 1 < sx {
                                 let nb = buf.get_local(x + 1, y, z);
                                 if is_full_cube(reg, nb) {
-                                    let lv = sample_neighbor_half_light(&light, x + 1, y, z, 3, draw_top, sy);
+                                    let lv = sample_neighbor_half_light(&light, x + 1, y, z, Face::NegX, draw_top, sy);
                                     let rgba = [lv, lv, lv, 255];
-                                    let mid = registry_material_for_or_unknown(nb, 3, reg);
+                                    let mid = registry_material_for_or_unknown(nb, Face::NegX, reg);
                                     if let Some((z0, z1)) = stair_segs_for_x_neighbor(facing, fz, false) {
                                         if z1 > z0 {
                                             let origin = Vector3::new(fx + 1.0, y0, z0);
-                                            emit_face_rect_for(&mut builds, mid, 3, origin, z1 - z0, y1 - y0, rgba);
+                                            emit_face_rect_for(&mut builds, mid, Face::NegX, origin, z1 - z0, y1 - y0, rgba);
                                         }
                                     }
                                 }
@@ -802,13 +755,13 @@ pub fn build_chunk_greedy_cpu_buf(
                             if z > 0 {
                                 let nb = buf.get_local(x, y, z - 1);
                                 if is_full_cube(reg, nb) {
-                                    let lv = sample_neighbor_half_light(&light, x, y, z - 1, 4, draw_top, sy);
+                                    let lv = sample_neighbor_half_light(&light, x, y, z - 1, Face::PosZ, draw_top, sy);
                                     let rgba = [lv, lv, lv, 255];
-                                    let mid = registry_material_for_or_unknown(nb, 4, reg);
+                                    let mid = registry_material_for_or_unknown(nb, Face::PosZ, reg);
                                     if let Some((x0f, x1f)) = stair_segs_for_z_neighbor(facing, fx, true) {
                                         if x1f > x0f {
                                             let origin = Vector3::new(x0f, y0, fz);
-                                            emit_face_rect_for(&mut builds, mid, 4, origin, x1f - x0f, y1 - y0, rgba);
+                                            emit_face_rect_for(&mut builds, mid, Face::PosZ, origin, x1f - x0f, y1 - y0, rgba);
                                         }
                                     }
                                 }
@@ -817,13 +770,13 @@ pub fn build_chunk_greedy_cpu_buf(
                             if z + 1 < sz {
                                 let nb = buf.get_local(x, y, z + 1);
                                 if is_full_cube(reg, nb) {
-                                    let lv = sample_neighbor_half_light(&light, x, y, z + 1, 5, draw_top, sy);
+                                    let lv = sample_neighbor_half_light(&light, x, y, z + 1, Face::NegZ, draw_top, sy);
                                     let rgba = [lv, lv, lv, 255];
-                                    let mid = registry_material_for_or_unknown(nb, 5, reg);
+                                    let mid = registry_material_for_or_unknown(nb, Face::NegZ, reg);
                                     if let Some((x0f, x1f)) = stair_segs_for_z_neighbor(facing, fx, false) {
                                         if x1f > x0f {
                                             let origin = Vector3::new(x0f, y0, fz + 1.0);
-                                            emit_face_rect_for(&mut builds, mid, 5, origin, x1f - x0f, y1 - y0, rgba);
+                                            emit_face_rect_for(&mut builds, mid, Face::NegZ, origin, x1f - x0f, y1 - y0, rgba);
                                         }
                                     }
                                 }
@@ -988,18 +941,14 @@ pub fn upload_chunk_mesh(
 // Purged world-based synchronous build path; buffer-based pipeline is authoritative.
 
 // Simple per-app texture cache keyed by file path; loads each texture once and reuses it across chunks.
-pub struct TextureCache {
-    map: HashMap<String, raylib::core::texture::Texture2D>,
-}
-
 // Local-body mesher: emits vertices in local-space [0..sx, 0..sz], no world/lighting deps.
 pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry) -> ChunkMeshCPU {
     // Unified path via meshing_core + special-shapes pass to match world mesher
     #[inline]
-    fn face_light(face: usize, ambient: u8) -> u8 {
+    fn face_light(face: Face, ambient: u8) -> u8 {
         match face {
-            0 => ambient.saturating_add(40).min(255),
-            1 => ambient.saturating_sub(60),
+            Face::PosY => ambient.saturating_add(40).min(255),
+            Face::NegY => ambient.saturating_sub(60),
             _ => ambient,
         }
     }
@@ -1008,7 +957,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
     let flip_v = [false, false, false, false, false, false];
 
     // Skip non-cubic shapes in greedy pass; they are emitted below
-    let mut builds = crate::meshing_core::build_mesh_core(buf, 0, 0, flip_v, None, |x, y, z, face, here| {
+    let mut builds = crate::meshing_core::build_mesh_core(buf, 0, 0, flip_v, None, |x, y, z, face: Face, here| {
         if !is_solid_runtime(here, reg) {
             return None;
         }
@@ -1020,7 +969,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                 _ => {}
             }
         }
-        let (dx, dy, dz) = neighbor_delta(face);
+        let (dx, dy, dz) = face.delta();
         let (nx, ny, nz) = (x as i32 + dx, y as i32 + dy, z as i32 + dz);
         // Local occlusion: only cull when an in-bounds neighbor truly occludes this face.
         if nx >= 0 && ny >= 0 && nz >= 0 {
@@ -1039,7 +988,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
 
     // Helpers for special-shapes pass
     #[inline]
-    fn occludes_local(buf: &ChunkBuf, x: i32, y: i32, z: i32, face: usize, reg: &BlockRegistry) -> bool {
+    fn occludes_local(buf: &ChunkBuf, x: i32, y: i32, z: i32, face: Face, reg: &BlockRegistry) -> bool {
         if x < 0 || y < 0 || z < 0 {
             return false;
         }
@@ -1059,7 +1008,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
         x: usize,
         y: usize,
         z: usize,
-        face_material: &dyn Fn(usize) -> MaterialId,
+        face_material: &dyn Fn(Face) -> MaterialId,
         min: Vector3,
         max: Vector3,
         ambient: u8,
@@ -1068,7 +1017,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
         let gy = y as i32;
         let gz = z as i32;
         emit_box_faces(builds, min, max, |face| {
-            let (dx, dy, dz) = neighbor_delta(face);
+            let (dx, dy, dz) = face.delta();
             let (nx, ny, nz) = (gx + dx, gy + dy, gz + dz);
             if occludes_local(buf, nx, ny, nz, face, reg) {
                 return None;
@@ -1098,8 +1047,8 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             let (y0, y1) = if is_top { (fy + 0.5, fy + 1.0) } else { (fy, fy + 0.5) };
                             let min = Vector3::new(fx, y0, fz);
                             let max = Vector3::new(fx + 1.0, y1, fz + 1.0);
-                            let face_material = |face: usize| {
-                                let role = face_to_role(face);
+                            let face_material = |face: Face| {
+                                let role = face.role();
                                 ty.materials
                                     .material_for(role, b.state, ty)
                                     .unwrap_or_else(|| unknown_material_id(reg))
@@ -1113,44 +1062,44 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             if x > 0 {
                                 let nb = buf.get_local(x - 1, y, z);
                                 if is_full_cube(reg, nb) {
-                                    let lv = face_light(2, ambient);
+                                    let lv = face_light(Face::PosX, ambient);
                                     let rgba = [lv, lv, lv, 255];
-                                    let mid = registry_material_for_or_unknown(nb, 2, reg);
+                                    let mid = registry_material_for_or_unknown(nb, Face::PosX, reg);
                                     let origin = Vector3::new(fx, vis_y0, fz);
-                                    emit_face_rect_for(&mut builds, mid, 2, origin, 1.0, vis_y1 - vis_y0, rgba);
+                                    emit_face_rect_for(&mut builds, mid, Face::PosX, origin, 1.0, vis_y1 - vis_y0, rgba);
                                 }
                             }
                             // East neighbor (-X face on neighbor)
                             if x + 1 < sx {
                                 let nb = buf.get_local(x + 1, y, z);
                                 if is_full_cube(reg, nb) {
-                                    let lv = face_light(3, ambient);
+                                    let lv = face_light(Face::NegX, ambient);
                                     let rgba = [lv, lv, lv, 255];
-                                    let mid = registry_material_for_or_unknown(nb, 3, reg);
+                                    let mid = registry_material_for_or_unknown(nb, Face::NegX, reg);
                                     let origin = Vector3::new(fx + 1.0, vis_y0, fz);
-                                    emit_face_rect_for(&mut builds, mid, 3, origin, 1.0, vis_y1 - vis_y0, rgba);
+                                    emit_face_rect_for(&mut builds, mid, Face::NegX, origin, 1.0, vis_y1 - vis_y0, rgba);
                                 }
                             }
                             // North neighbor (+Z face on neighbor)
                             if z > 0 {
                                 let nb = buf.get_local(x, y, z - 1);
                                 if is_full_cube(reg, nb) {
-                                    let lv = face_light(4, ambient);
+                                    let lv = face_light(Face::PosZ, ambient);
                                     let rgba = [lv, lv, lv, 255];
-                                    let mid = registry_material_for_or_unknown(nb, 4, reg);
+                                    let mid = registry_material_for_or_unknown(nb, Face::PosZ, reg);
                                     let origin = Vector3::new(fx, vis_y0, fz);
-                                    emit_face_rect_for(&mut builds, mid, 4, origin, 1.0, vis_y1 - vis_y0, rgba);
+                                    emit_face_rect_for(&mut builds, mid, Face::PosZ, origin, 1.0, vis_y1 - vis_y0, rgba);
                                 }
                             }
                             // South neighbor (-Z face on neighbor)
                             if z + 1 < sz {
                                 let nb = buf.get_local(x, y, z + 1);
                                 if is_full_cube(reg, nb) {
-                                    let lv = face_light(5, ambient);
+                                    let lv = face_light(Face::NegZ, ambient);
                                     let rgba = [lv, lv, lv, 255];
-                                    let mid = registry_material_for_or_unknown(nb, 5, reg);
+                                    let mid = registry_material_for_or_unknown(nb, Face::NegZ, reg);
                                     let origin = Vector3::new(fx, vis_y0, fz + 1.0);
-                                    emit_face_rect_for(&mut builds, mid, 5, origin, 1.0, vis_y1 - vis_y0, rgba);
+                                    emit_face_rect_for(&mut builds, mid, Face::NegZ, origin, 1.0, vis_y1 - vis_y0, rgba);
                                 }
                             }
                         }
@@ -1166,8 +1115,8 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             } else {
                                 (Vector3::new(fx, fy, fz), Vector3::new(fx + 1.0, fy + 0.5, fz + 1.0))
                             };
-                            let face_material = |face: usize| {
-                                let role = face_to_role(face);
+                            let face_material = |face: Face| {
+                                let role = face.role();
                                 ty.materials
                                     .material_for(role, b.state, ty)
                                     .unwrap_or_else(|| unknown_material_id(reg))
@@ -1198,13 +1147,13 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             if x > 0 {
                                 let nb = buf.get_local(x - 1, y, z);
                                 if is_full_cube(reg, nb) {
-                                    let lv = face_light(2, ambient);
+                                    let lv = face_light(Face::PosX, ambient);
                                     let rgba = [lv, lv, lv, 255];
-                                    let mid = registry_material_for_or_unknown(nb, 2, reg);
+                                    let mid = registry_material_for_or_unknown(nb, Face::PosX, reg);
                                     if let Some((z0, z1)) = stair_segs_for_x_neighbor(facing, fz, true) {
                                         if z1 > z0 {
                                             let origin = Vector3::new(fx, y0, z0);
-                                            emit_face_rect_for(&mut builds, mid, 2, origin, z1 - z0, y1 - y0, rgba);
+                                            emit_face_rect_for(&mut builds, mid, Face::PosX, origin, z1 - z0, y1 - y0, rgba);
                                         }
                                     }
                                 }
@@ -1213,13 +1162,13 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             if x + 1 < sx {
                                 let nb = buf.get_local(x + 1, y, z);
                                 if is_full_cube(reg, nb) {
-                                    let lv = face_light(3, ambient);
+                                    let lv = face_light(Face::NegX, ambient);
                                     let rgba = [lv, lv, lv, 255];
-                                    let mid = registry_material_for_or_unknown(nb, 3, reg);
+                                    let mid = registry_material_for_or_unknown(nb, Face::NegX, reg);
                                     if let Some((z0, z1)) = stair_segs_for_x_neighbor(facing, fz, false) {
                                         if z1 > z0 {
                                             let origin = Vector3::new(fx + 1.0, y0, z0);
-                                            emit_face_rect_for(&mut builds, mid, 3, origin, z1 - z0, y1 - y0, rgba);
+                                            emit_face_rect_for(&mut builds, mid, Face::NegX, origin, z1 - z0, y1 - y0, rgba);
                                         }
                                     }
                                 }
@@ -1228,13 +1177,13 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             if z > 0 {
                                 let nb = buf.get_local(x, y, z - 1);
                                 if is_full_cube(reg, nb) {
-                                    let lv = face_light(4, ambient);
+                                    let lv = face_light(Face::PosZ, ambient);
                                     let rgba = [lv, lv, lv, 255];
-                                    let mid = registry_material_for_or_unknown(nb, 4, reg);
+                                    let mid = registry_material_for_or_unknown(nb, Face::PosZ, reg);
                                     if let Some((x0f, x1f)) = stair_segs_for_z_neighbor(facing, fx, true) {
                                         if x1f > x0f {
                                             let origin = Vector3::new(x0f, y0, fz);
-                                            emit_face_rect_for(&mut builds, mid, 4, origin, x1f - x0f, y1 - y0, rgba);
+                                            emit_face_rect_for(&mut builds, mid, Face::PosZ, origin, x1f - x0f, y1 - y0, rgba);
                                         }
                                     }
                                 }
@@ -1243,13 +1192,13 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             if z + 1 < sz {
                                 let nb = buf.get_local(x, y, z + 1);
                                 if is_full_cube(reg, nb) {
-                                    let lv = face_light(5, ambient);
+                                    let lv = face_light(Face::NegZ, ambient);
                                     let rgba = [lv, lv, lv, 255];
-                                    let mid = registry_material_for_or_unknown(nb, 5, reg);
+                                    let mid = registry_material_for_or_unknown(nb, Face::NegZ, reg);
                                     if let Some((x0f, x1f)) = stair_segs_for_z_neighbor(facing, fx, false) {
                                         if x1f > x0f {
                                             let origin = Vector3::new(x0f, y0, fz + 1.0);
-                                            emit_face_rect_for(&mut builds, mid, 5, origin, x1f - x0f, y1 - y0, rgba);
+                                            emit_face_rect_for(&mut builds, mid, Face::NegZ, origin, x1f - x0f, y1 - y0, rgba);
                                         }
                                     }
                                 }
@@ -1274,47 +1223,3 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
     }
 }
 
-impl TextureCache {
-    pub fn new() -> Self {
-        Self {
-            map: HashMap::new(),
-        }
-    }
-
-    // Legacy API removed; prefer get_ref + insert_from_path
-
-    pub fn get_ref(&self, key: &str) -> Option<&raylib::core::texture::Texture2D> {
-        self.map.get(key)
-    }
-
-    pub fn insert_from_path<'a>(
-        &'a mut self,
-        rl: &mut RaylibHandle,
-        thread: &RaylibThread,
-        key: &str,
-    ) -> Option<&'a raylib::core::texture::Texture2D> {
-        if let Ok(t) = rl.load_texture(thread, key) {
-            t.set_texture_filter(
-                thread,
-                raylib::consts::TextureFilter::TEXTURE_FILTER_POINT,
-            );
-            t.set_texture_wrap(
-                thread,
-                raylib::consts::TextureWrap::TEXTURE_WRAP_REPEAT,
-            );
-            self.map.insert(key.to_string(), t);
-            return self.map.get(key);
-        }
-        None
-    }
-
-    pub fn replace_loaded(
-        &mut self,
-        key: String,
-        tex: raylib::core::texture::Texture2D,
-    ) {
-        self.map.insert(key, tex);
-    }
-
-    // Note: higher-level helpers operate on a single chosen path to avoid borrow issues
-}

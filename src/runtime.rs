@@ -5,6 +5,7 @@ use std::thread;
 
 use crate::chunkbuf;
 use crate::mesher::{self, ChunkMeshCPU, NeighborsLoaded};
+use crate::texture_cache::TextureCache;
 use raylib::prelude::{RaylibMaterial, RaylibModel, RaylibTexture2D};
 use crate::shaders;
 use crate::structure::StructureId;
@@ -42,7 +43,7 @@ pub struct Runtime {
     // Rendering resources
     pub leaves_shader: Option<shaders::LeavesShader>,
     pub fog_shader: Option<shaders::FogShader>,
-    pub tex_cache: mesher::TextureCache,
+    pub tex_cache: TextureCache,
     pub reg: std::sync::Arc<BlockRegistry>,
     tex_event_rx: mpsc::Receiver<String>,
     worldgen_event_rx: mpsc::Receiver<()>,
@@ -110,7 +111,7 @@ impl Runtime {
         use std::sync::mpsc;
         let leaves_shader = shaders::LeavesShader::load(rl, thread);
         let fog_shader = shaders::FogShader::load(rl, thread);
-        let tex_cache = mesher::TextureCache::new();
+        let tex_cache = TextureCache::new();
         // File watcher for texture changes under assets/blocks
         let (tex_tx, tex_rx) = mpsc::channel::<String>();
         if watch_textures {

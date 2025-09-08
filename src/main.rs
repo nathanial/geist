@@ -8,6 +8,7 @@ mod lighting;
 mod mcworld;
 mod mesher;
 mod meshing_core;
+mod meshutil;
 mod player;
 mod raycast;
 mod runtime;
@@ -17,6 +18,7 @@ mod structure;
 mod voxel;
 mod blocks;
 mod worldgen;
+mod texture_cache;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use raylib::prelude::*;

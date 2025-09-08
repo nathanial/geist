@@ -1,5 +1,6 @@
 use crate::chunkbuf::ChunkBuf;
 use crate::mesher::MeshBuild;
+use crate::meshutil::Face;
 use raylib::prelude::*;
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -63,7 +64,7 @@ pub fn build_mesh_core<K, F>(
 ) -> HashMap<K, MeshBuild>
 where
     K: Copy + Eq + Hash,
-    F: FnMut(usize, usize, usize, usize, crate::blocks::Block) -> Option<(K, u8)>,
+    F: FnMut(usize, usize, usize, Face, crate::blocks::Block) -> Option<(K, u8)>,
 {
     let sx = buf.sx;
     let sy = buf.sy;
@@ -76,7 +77,7 @@ where
         for z in 0..sz {
             for x in 0..sx {
                 let here = buf.get_local(x, y, z);
-                if let Some((fm, l)) = face_info(x, y, z, 0, here) {
+                if let Some((fm, l)) = face_info(x, y, z, Face::PosY, here) {
                     mask[z * sx + x] = Some((fm, l));
                 }
             }
@@ -90,7 +91,7 @@ where
             let mb = builds.entry(codev.0).or_default();
             let lv = apply_min_light(codev.1, min_light);
             let rgba = [lv, lv, lv, 255];
-            mb.add_face_rect(0, Vector3::new(fx, fy, fz), u1, v1, flip_v[0], rgba);
+            mb.add_face_rect(Face::PosY, Vector3::new(fx, fy, fz), u1, v1, flip_v[Face::PosY.index()], rgba);
         });
     }
 
@@ -100,7 +101,7 @@ where
         for z in 0..sz {
             for x in 0..sx {
                 let here = buf.get_local(x, y, z);
-                if let Some((fm, l)) = face_info(x, y, z, 1, here) {
+                if let Some((fm, l)) = face_info(x, y, z, Face::NegY, here) {
                     mask[z * sx + x] = Some((fm, l));
                 }
             }
@@ -114,7 +115,7 @@ where
             let mb = builds.entry(codev.0).or_default();
             let lv = apply_min_light(codev.1, min_light);
             let rgba = [lv, lv, lv, 255];
-            mb.add_face_rect(1, Vector3::new(fx, fy, fz), u1, v1, flip_v[1], rgba);
+            mb.add_face_rect(Face::NegY, Vector3::new(fx, fy, fz), u1, v1, flip_v[Face::NegY.index()], rgba);
         });
     }
 
@@ -125,7 +126,7 @@ where
             for z in 0..sz {
                 for y in 0..sy {
                     let here = buf.get_local(x, y, z);
-                    let face = if pos { 2 } else { 3 };
+                    let face = if pos { Face::PosX } else { Face::NegX };
                     if let Some((fm, l)) = face_info(x, y, z, face, here) {
                         mask[y * sz + z] = Some((fm, l));
                     }
@@ -140,8 +141,8 @@ where
                 let mb = builds.entry(codev.0).or_default();
                 let lv = apply_min_light(codev.1, min_light);
                 let rgba = [lv, lv, lv, 255];
-                let face = if pos { 2 } else { 3 };
-                mb.add_face_rect(face, Vector3::new(fx, fy, fz), u1, v1, flip_v[face], rgba);
+                let face = if pos { Face::PosX } else { Face::NegX };
+                mb.add_face_rect(face, Vector3::new(fx, fy, fz), u1, v1, flip_v[face.index()], rgba);
             });
         }
     }
@@ -153,7 +154,7 @@ where
             for x in 0..sx {
                 for y in 0..sy {
                     let here = buf.get_local(x, y, z);
-                    let face = if pos { 4 } else { 5 };
+                    let face = if pos { Face::PosZ } else { Face::NegZ };
                     if let Some((fm, l)) = face_info(x, y, z, face, here) {
                         mask[y * sx + x] = Some((fm, l));
                     }
@@ -168,8 +169,8 @@ where
                 let mb = builds.entry(codev.0).or_default();
                 let lv = apply_min_light(codev.1, min_light);
                 let rgba = [lv, lv, lv, 255];
-                let face = if pos { 4 } else { 5 };
-                mb.add_face_rect(face, Vector3::new(fx, fy, fz), u1, v1, flip_v[face], rgba);
+                let face = if pos { Face::PosZ } else { Face::NegZ };
+                mb.add_face_rect(face, Vector3::new(fx, fy, fz), u1, v1, flip_v[face.index()], rgba);
             });
         }
     }
