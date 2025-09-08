@@ -2098,6 +2098,36 @@ impl App {
                         d.draw_text(text, x, y, font_size, Color::WHITE);
                     }
                 }
+
+                // Stairs cluster labels (adjacency scenarios)
+                let stair_base_z = cz + 3; // matches worldgen placement
+                let placements = crate::voxel::build_showcase_stairs_cluster(&self.runtime.reg);
+                if !placements.is_empty() {
+                    let max_dx = placements.iter().map(|p| p.dx).max().unwrap_or(0);
+                    let cluster_w = max_dx + 1;
+                    let cx = (self.gs.world.world_size_x() as i32) / 2;
+                    let start_x = cx - cluster_w / 2;
+                    let font_size = 14;
+                    for p in &placements {
+                        let bx = start_x + p.dx;
+                        let bz = stair_base_z + p.dz;
+                        if bx < 0
+                            || bx >= self.gs.world.world_size_x() as i32
+                            || bz < 0
+                            || bz >= self.gs.world.world_size_z() as i32
+                        {
+                            continue;
+                        }
+                        let pos3 = Vector3::new(bx as f32 + 0.5, row_y as f32 + 1.25, bz as f32 + 0.5);
+                        let sp = d.get_world_to_screen(pos3, camera3d);
+                        let text = p.label.as_str();
+                        let w = d.measure_text(text, font_size);
+                        let x = (sp.x as i32) - (w / 2);
+                        let y = (sp.y as i32) - (font_size + 2);
+                        d.draw_text(text, x + 1, y + 1, font_size, Color::BLACK);
+                        d.draw_text(text, x, y, font_size, Color::WHITE);
+                    }
+                }
             }
         }
 

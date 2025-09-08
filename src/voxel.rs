@@ -9,6 +9,14 @@ pub struct ShowcaseEntry {
     pub label: String,
 }
 
+#[derive(Clone, Debug)]
+pub struct ShowcasePlacement {
+    pub dx: i32,
+    pub dz: i32,
+    pub block: RtBlock,
+    pub label: String,
+}
+
 // Build the list of showcase entries (blocks to place and their labels).
 // Expands material variants for generic slabs and stairs; others appear once.
 pub fn build_showcase_entries(reg: &BlockRegistry) -> Vec<ShowcaseEntry> {
@@ -65,6 +73,81 @@ pub fn build_showcase_entries(reg: &BlockRegistry) -> Vec<ShowcaseEntry> {
             label: ty.name.clone(),
         });
     }
+    out
+}
+
+// Build a dedicated stairs cluster: singles of each facing and several adjacency scenarios.
+// Returns placements with local offsets (dx along X from cluster start, dz row index starting at 0).
+pub fn build_showcase_stairs_cluster(reg: &BlockRegistry) -> Vec<ShowcasePlacement> {
+    let mut out: Vec<ShowcasePlacement> = Vec::new();
+    let stairs = match reg.blocks.iter().find(|t| t.name == "stairs") {
+        Some(t) => t,
+        None => return out,
+    };
+    // Choose a representative material: prefer stone_bricks if available; else first
+    let mats = stairs
+        .state_schema
+        .get("material")
+        .cloned()
+        .unwrap_or_default();
+    let material = if mats.iter().any(|m| m == "stone_bricks") {
+        "stone_bricks"
+    } else {
+        mats.first().map(|s| s.as_str()).unwrap_or("smooth_stone")
+    };
+    // Helper to pack a stair with given half and facing
+    let mut make = |half: &str, facing: &str| -> RtBlock {
+        let mut props = std::collections::HashMap::new();
+        props.insert("half".to_string(), half.to_string());
+        props.insert("facing".to_string(), facing.to_string());
+        props.insert("material".to_string(), material.to_string());
+        let state = stairs.pack_state(&props);
+        RtBlock { id: stairs.id, state }
+    };
+
+    let mut x = 0i32;
+    let dz0 = 0i32;
+    // Singles: all facings (bottom)
+    for (f, lbl) in [
+        ("north", "N"),
+        ("east", "E"),
+        ("south", "S"),
+        ("west", "W"),
+    ] {
+        out.push(ShowcasePlacement {
+            dx: x,
+            dz: dz0,
+            block: make("bottom", f),
+            label: format!("stairs({},bottom,{})", material, lbl),
+        });
+        x += 2; // gap between singles
+    }
+    x += 1; // extra spacer between singles and pairs
+
+    // Pair: bottom east + bottom east (inline)
+    out.push(ShowcasePlacement { dx: x, dz: dz0, block: make("bottom", "east"), label: format!("stairs({},bottom,E)", material) });
+    out.push(ShowcasePlacement { dx: x + 1, dz: dz0, block: make("bottom", "east"), label: format!("stairs({},bottom,E)", material) });
+    x += 3; // gap after pair
+
+    // Pair: bottom east + top (upside-down) east
+    out.push(ShowcasePlacement { dx: x, dz: dz0, block: make("bottom", "east"), label: format!("stairs({},bottom,E)", material) });
+    out.push(ShowcasePlacement { dx: x + 1, dz: dz0, block: make("top", "east"), label: format!("stairs({},top,E)", material) });
+    x += 3;
+
+    // Pair: bottom east + bottom west (face-to-face)
+    out.push(ShowcasePlacement { dx: x, dz: dz0, block: make("bottom", "east"), label: format!("stairs({},bottom,E)", material) });
+    out.push(ShowcasePlacement { dx: x + 1, dz: dz0, block: make("bottom", "west"), label: format!("stairs({},bottom,W)", material) });
+    x += 3;
+
+    // Z-adjacency row: bottom north + bottom north stacked in Z
+    let dz1 = 1i32;
+    out.push(ShowcasePlacement { dx: 0, dz: dz1, block: make("bottom", "south"), label: format!("stairs({},bottom,S)", material) });
+    out.push(ShowcasePlacement { dx: 0, dz: dz1 + 1, block: make("bottom", "south"), label: format!("stairs({},bottom,S)", material) });
+
+    // Z-adjacency mixed halves: bottom south + top south
+    out.push(ShowcasePlacement { dx: 2, dz: dz1, block: make("bottom", "south"), label: format!("stairs({},bottom,S)", material) });
+    out.push(ShowcasePlacement { dx: 2, dz: dz1 + 1, block: make("top", "south"), label: format!("stairs({},top,S)", material) });
+
     out
 }
 
@@ -189,7 +272,7 @@ impl World {
             let id = reg.id_by_name("air").unwrap_or(0);
             return RtBlock { id, state: 0 };
         }
-        // Showcase world: place every block type in a row with air between
+        // Showcase world: feature rows for entries and specialized clusters
         if let WorldGenMode::Showcase = self.mode {
             let air = RtBlock { id: reg.id_by_name("air").unwrap_or(0), state: 0 };
             // Compute a comfortable showcase height using platform params
@@ -200,33 +283,57 @@ impl World {
             if y != row_y {
                 return air;
             }
-            // Center Z row
             let cz = (self.world_size_z() as i32) / 2;
-            if z != cz {
+
+            // Primary row: all block types with air gaps
+            if z == cz {
+                let entries = build_showcase_entries(reg);
+                if entries.is_empty() {
+                    return air;
+                }
+                let spacing = 2;
+                let row_len = (entries.len() as i32) * spacing - 1;
+                let cx = (self.world_size_x() as i32) / 2;
+                let start_x = cx - row_len / 2;
+                if x < start_x || x >= start_x + row_len {
+                    return air;
+                }
+                let dx = x - start_x;
+                if dx % spacing != 0 {
+                    return air;
+                }
+                let idx = (dx / spacing) as usize;
+                return entries.get(idx).map(|e| e.block).unwrap_or(air);
+            }
+
+            // Stairs cluster rows: compact scenarios with adjacency along X and Z
+            let stair_base_z = cz + 3; // place a few rows south of the main row
+            if z >= stair_base_z && z <= stair_base_z + 4 {
+                let placements = build_showcase_stairs_cluster(reg);
+                if placements.is_empty() {
+                    return air;
+                }
+                // Compute cluster width (max dx + 1) and center it on X
+                let max_dx = placements.iter().map(|p| p.dx).max().unwrap_or(0);
+                let cluster_w = max_dx + 1;
+                let cx = (self.world_size_x() as i32) / 2;
+                let start_x = cx - cluster_w / 2;
+                // Local coords within cluster
+                let dx = x - start_x;
+                if dx < 0 || dx >= cluster_w {
+                    return air;
+                }
+                let dz = z - stair_base_z;
+                for p in &placements {
+                    if p.dx == dx && p.dz == dz {
+                        return p.block;
+                    }
+                }
                 return air;
             }
-            // Build entries (expands slabs/stairs variants)
-            let entries = build_showcase_entries(reg);
-            if entries.is_empty() {
-                return air;
-            }
-            // Layout: spacing=2 (air between), centered on world X
-            let spacing = 2;
-            let row_len = (entries.len() as i32) * spacing - 1; // blocks separated by single air
-            let cx = (self.world_size_x() as i32) / 2;
-            let start_x = cx - row_len / 2;
-            if x < start_x || x >= start_x + row_len {
-                return air;
-            }
-            let dx = x - start_x;
-            if dx % spacing != 0 {
-                return air;
-            }
-            let idx = (dx / spacing) as usize; // 0..entries.len()-1
-            return entries
-                .get(idx)
-                .map(|e| e.block)
-                .unwrap_or(air);
+
+            // Other Z: air
+            return air;
         }
         // Flat world shortcut
         if let WorldGenMode::Flat { thickness } = self.mode {
