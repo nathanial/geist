@@ -471,11 +471,11 @@ from = "minecraft:red_sandstone_stairs"
 to = { name = "stairs", state = { material = "red_sandstone" } }
 [[rules]]
 from = "minecraft:oak_fence"
-to = { name = "oak_fence" }
+to = { name = "fence", state = { material = "planks_oak" } }
 
 [[rules]]
 from = "minecraft:oak_fence_gate"
-to = { name = "oak_fence_gate" }
+to = { name = "fence_gate", state = { material = "planks_oak" } }
 
 [[rules]]
 from = "minecraft:white_carpet"
@@ -543,40 +543,40 @@ to = { name = "carpet", state = { color = "black" } }
 
 [[rules]]
 from = "minecraft:birch_fence"
-to = { name = "oak_fence" }
+to = { name = "fence", state = { material = "planks_birch" } }
 
 [[rules]]
 from = "minecraft:spruce_fence"
-to = { name = "oak_fence" }
+to = { name = "fence", state = { material = "planks_spruce" } }
 
 [[rules]]
 from = "minecraft:jungle_fence"
-to = { name = "oak_fence" }
+to = { name = "fence", state = { material = "planks_jungle" } }
 
 [[rules]]
 from = "minecraft:acacia_fence"
-to = { name = "oak_fence" }
+to = { name = "fence", state = { material = "planks_acacia" } }
 
 [[rules]]
 from = "minecraft:dark_oak_fence"
-to = { name = "oak_fence" }
+to = { name = "fence", state = { material = "planks_dark_oak" } }
 
 [[rules]]
 from = "minecraft:birch_fence_gate"
-to = { name = "oak_fence_gate" }
+to = { name = "fence_gate", state = { material = "planks_birch" } }
 
 [[rules]]
 from = "minecraft:spruce_fence_gate"
-to = { name = "oak_fence_gate" }
+to = { name = "fence_gate", state = { material = "planks_spruce" } }
 
 [[rules]]
 from = "minecraft:jungle_fence_gate"
-to = { name = "oak_fence_gate" }
+to = { name = "fence_gate", state = { material = "planks_jungle" } }
 
 [[rules]]
 from = "minecraft:acacia_fence_gate"
-to = { name = "oak_fence_gate" }
+to = { name = "fence_gate", state = { material = "planks_acacia" } }
 
 [[rules]]
 from = "minecraft:dark_oak_fence_gate"
-to = { name = "oak_fence_gate" }
+to = { name = "fence_gate", state = { material = "planks_dark_oak" } }

@@ -559,26 +559,47 @@ blocks_skylight = true
 emission = 0
 shape = "pane"
 materials = { all = "glass" }
-seam = "dont_occlude_same"
+seam = { dont_occlude_same = true, dont_project_fixups = true }
 
-# Oak fence (post with arms)
+# Generic fence (material-param)
 [[blocks]]
-name = "oak_fence"
+name = "fence"
 solid = false
 blocks_skylight = true
 emission = 0
 shape = "fence"
-materials = { all = "oak_planks" }
+state_schema = { material = [
+  "planks_oak","planks_birch","planks_spruce","planks_jungle","planks_acacia","planks_dark_oak"
+] }
+[blocks.materials.all]
+by = "material"
+[blocks.materials.all.map]
+planks_oak = "oak_planks"
+planks_birch = "birch_planks"
+planks_spruce = "spruce_planks"
+planks_jungle = "jungle_planks"
+planks_acacia = "acacia_planks"
+planks_dark_oak = "oak_planks"
 
-# Oak fence gate
+# Generic fence gate (material-param)
 [[blocks]]
-name = "oak_fence_gate"
+name = "fence_gate"
 solid = false
 blocks_skylight = true
 emission = 0
 shape = { kind = "gate", facing = { from = "facing" }, open = { from = "open" } }
-state_schema = { facing = ["north","south","west","east"], open = ["false","true"] }
-materials = { all = "oak_planks" }
+state_schema = { facing = ["north","south","west","east"], open = ["false","true"], material = [
+  "planks_oak","planks_birch","planks_spruce","planks_jungle","planks_acacia","planks_dark_oak"
+] }
+[blocks.materials.all]
+by = "material"
+[blocks.materials.all.map]
+planks_oak = "oak_planks"
+planks_birch = "birch_planks"
+planks_spruce = "spruce_planks"
+planks_jungle = "jungle_planks"
+planks_acacia = "acacia_planks"
+planks_dark_oak = "oak_planks"
 
 # Carpet (color variants)
 [[blocks]]
