@@ -2061,6 +2061,53 @@ impl App {
             }
         }
 
+        // Showcase labels: draw block type names above each showcased block
+        if matches!(self.gs.world.mode, crate::voxel::WorldGenMode::Showcase) {
+            // Snapshot params
+            let params = { self.gs.world.gen_params.read().map(|g| g.clone()).ok() };
+            if let Some(p) = params {
+                // Compute showcase row Y and Z
+                let mut row_y = (self.gs.world.chunk_size_y as f32 * p.platform_y_ratio
+                    + p.platform_y_offset)
+                    .round() as i32;
+                row_y = row_y.clamp(1, self.gs.world.chunk_size_y as i32 - 2);
+                let cz = (self.gs.world.world_size_z() as i32) / 2;
+                // Gather non-air blocks
+                let air_id = self.runtime.reg.id_by_name("air").unwrap_or(0);
+                let non_air: Vec<&crate::blocks::registry::BlockType> = self
+                    .runtime
+                    .reg
+                    .blocks
+                    .iter()
+                    .filter(|b| b.id != air_id)
+                    .collect();
+                if !non_air.is_empty() {
+                    let spacing = 2i32; // air gap of 1 block between entries
+                    let row_len = (non_air.len() as i32) * spacing - 1;
+                    let cx = (self.gs.world.world_size_x() as i32) / 2;
+                    let start_x = cx - row_len / 2;
+                    // Draw each label
+                    let font_size = 16;
+                    for (i, b) in non_air.iter().enumerate() {
+                        let bx = start_x + (i as i32) * spacing;
+                        if bx < 0 || bx >= self.gs.world.world_size_x() as i32 {
+                            continue;
+                        }
+                        let pos3 = Vector3::new(bx as f32 + 0.5, row_y as f32 + 1.25, cz as f32 + 0.5);
+                        // Project to screen and draw text centered
+                        let sp = d.get_world_to_screen(pos3, camera3d);
+                        let text = b.name.as_str();
+                        let w = d.measure_text(text, font_size);
+                        let x = (sp.x as i32) - (w / 2);
+                        let y = (sp.y as i32) - (font_size + 2);
+                        // Shadow + main for readability
+                        d.draw_text(text, x + 1, y + 1, font_size, Color::BLACK);
+                        d.draw_text(text, x, y, font_size, Color::WHITE);
+                    }
+                }
+            }
+        }
+
         // Debug overlay (lower left)
         let fps = d.get_fps();
         let mut debug_text = format!(

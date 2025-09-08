@@ -131,6 +131,7 @@ enum WorldKind {
     #[default]
     Normal,
     Flat,
+    Showcase,
     SchemOnly,
 }
 
@@ -291,6 +292,7 @@ fn run_app(run: RunArgs) {
         WorldKind::Flat => WorldGenMode::Flat {
             thickness: run.flat_thickness.unwrap_or(1),
         },
+        WorldKind::Showcase => WorldGenMode::Showcase,
         WorldKind::Normal => WorldGenMode::Normal,
     };
     let world = Arc::new(World::new(

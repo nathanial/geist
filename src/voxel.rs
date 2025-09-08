@@ -19,6 +19,8 @@ pub enum WorldGenMode {
     Normal,
     // An infinite flat slab of stone of given thickness from y=0 upwards
     Flat { thickness: i32 },
+    // Showcase all block types in a centered row with air gaps
+    Showcase,
 }
 
 // Legacy enums removed; all worldgen is runtime-config driven.
@@ -121,6 +123,58 @@ impl World {
         if y < 0 || y >= self.chunk_size_y as i32 {
             let id = reg.id_by_name("air").unwrap_or(0);
             return RtBlock { id, state: 0 };
+        }
+        // Showcase world: place every block type in a row with air between
+        if let WorldGenMode::Showcase = self.mode {
+            let air = RtBlock { id: reg.id_by_name("air").unwrap_or(0), state: 0 };
+            // Compute a comfortable showcase height using platform params
+            let mut row_y = (self.chunk_size_y as f32 * ctx.params.platform_y_ratio
+                + ctx.params.platform_y_offset)
+                .round() as i32;
+            row_y = row_y.clamp(1, self.chunk_size_y as i32 - 2);
+            if y != row_y {
+                return air;
+            }
+            // Center Z row
+            let cz = (self.world_size_z() as i32) / 2;
+            if z != cz {
+                return air;
+            }
+            // Count non-air blocks
+            let air_id = reg.id_by_name("air").unwrap_or(0);
+            let total_non_air = reg
+                .blocks
+                .iter()
+                .filter(|b| b.id != air_id)
+                .count() as i32;
+            if total_non_air <= 0 {
+                return air;
+            }
+            // Layout: spacing=2 (air between), centered on world X
+            let spacing = 2;
+            let row_len = total_non_air * spacing - 1; // blocks separated by single air
+            let cx = (self.world_size_x() as i32) / 2;
+            let start_x = cx - row_len / 2;
+            if x < start_x || x >= start_x + row_len {
+                return air;
+            }
+            let dx = x - start_x;
+            if dx % spacing != 0 {
+                return air;
+            }
+            let idx = dx / spacing; // 0..total_non_air-1
+            // Pick idx-th non-air block by registry order
+            let mut nth = 0i32;
+            for (i, b) in reg.blocks.iter().enumerate() {
+                if b.id == air_id {
+                    continue;
+                }
+                if nth == idx {
+                    return RtBlock { id: i as u16, state: 0 };
+                }
+                nth += 1;
+            }
+            return air;
         }
         // Flat world shortcut
         if let WorldGenMode::Flat { thickness } = self.mode {
