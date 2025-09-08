@@ -21,13 +21,24 @@ pub fn build_showcase_entries(reg: &BlockRegistry) -> Vec<ShowcaseEntry> {
         if ty.name == "slab" {
             if let Some(mats) = ty.state_schema.get("material") {
                 for m in mats {
+                    // Bottom-half slab
                     let mut props = std::collections::HashMap::new();
                     props.insert("half".to_string(), "bottom".to_string());
                     props.insert("material".to_string(), m.clone());
                     let state = ty.pack_state(&props);
                     out.push(ShowcaseEntry {
                         block: RtBlock { id: ty.id, state },
-                        label: format!("slab({})", m),
+                        label: format!("slab({},bottom)", m),
+                    });
+
+                    // Top-half slab
+                    let mut props_top = std::collections::HashMap::new();
+                    props_top.insert("half".to_string(), "top".to_string());
+                    props_top.insert("material".to_string(), m.clone());
+                    let state_top = ty.pack_state(&props_top);
+                    out.push(ShowcaseEntry {
+                        block: RtBlock { id: ty.id, state: state_top },
+                        label: format!("slab({},top)", m),
                     });
                 }
                 continue;
