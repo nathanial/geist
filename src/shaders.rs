@@ -11,7 +11,6 @@ pub struct LeavesShader {
     pub loc_palette2: i32,
     pub loc_palette3: i32,
     pub loc_strength: i32,
-    pub loc_alpha_cutoff: i32,
 }
 
 impl LeavesShader {
@@ -30,7 +29,6 @@ impl LeavesShader {
         let loc_palette2 = shader.get_shader_location("palette2");
         let loc_palette3 = shader.get_shader_location("palette3");
         let loc_strength = shader.get_shader_location("autumnStrength");
-        let loc_alpha_cutoff = shader.get_shader_location("alphaCutoff");
         let mut s = Self {
             shader,
             loc_fog_color,
@@ -42,7 +40,6 @@ impl LeavesShader {
             loc_palette2,
             loc_palette3,
             loc_strength,
-            loc_alpha_cutoff,
         };
         // Default palette from old code
         s.set_autumn_palette(
@@ -52,9 +49,6 @@ impl LeavesShader {
             [0.431, 0.231, 0.039],
             1.0,
         );
-        // Default alpha cutoff to clip transparent texels in leaf textures
-        // Keep low to preserve anti-aliased edges
-        s.set_alpha_cutoff(0.1);
         Some(s)
     }
 
@@ -80,12 +74,6 @@ impl LeavesShader {
         }
         if self.loc_strength >= 0 {
             self.shader.set_shader_value(self.loc_strength, strength);
-        }
-    }
-
-    pub fn set_alpha_cutoff(&mut self, cutoff: f32) {
-        if self.loc_alpha_cutoff >= 0 {
-            self.shader.set_shader_value(self.loc_alpha_cutoff, cutoff);
         }
     }
 
