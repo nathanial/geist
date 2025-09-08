@@ -42,6 +42,10 @@ pub struct BlockDef {
 
     #[serde(default)]
     pub state_schema: Option<HashMap<String, Vec<String>>>,
+
+    // Optional seam policy for meshing across neighbors
+    #[serde(default)]
+    pub seam: Option<SeamPolicyCfg>,
 }
 
 // Shape config supports either a simple string ("cube") or a detailed table
@@ -61,6 +65,8 @@ pub struct ShapeDetailed {
     pub half: Option<PropertyFrom>,
     #[serde(default)]
     pub facing: Option<PropertyFrom>,
+    #[serde(default)]
+    pub open: Option<PropertyFrom>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -128,6 +134,15 @@ pub enum SourceDirs {
     Horizontal,
     Vertical,
     Any,
+}
+
+// Configurable seam policies for neighbor occlusion/fixups
+#[derive(Deserialize, Debug, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+pub enum SeamPolicyCfg {
+    Default,
+    DontOccludeSame,
+    DontProjectFixups,
 }
 
 fn default_omni_atten() -> u8 {

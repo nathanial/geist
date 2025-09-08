@@ -559,6 +559,7 @@ blocks_skylight = true
 emission = 0
 shape = "pane"
 materials = { all = "glass" }
+seam = "dont_occlude_same"
 
 # Oak fence (post with arms)
 [[blocks]]
@@ -568,3 +569,44 @@ blocks_skylight = true
 emission = 0
 shape = "fence"
 materials = { all = "oak_planks" }
+
+# Oak fence gate
+[[blocks]]
+name = "oak_fence_gate"
+solid = false
+blocks_skylight = true
+emission = 0
+shape = { kind = "gate", facing = { from = "facing" }, open = { from = "open" } }
+state_schema = { facing = ["north","south","west","east"], open = ["false","true"] }
+materials = { all = "oak_planks" }
+
+# Carpet (color variants)
+[[blocks]]
+name = "carpet"
+solid = false
+blocks_skylight = true
+emission = 0
+shape = "carpet"
+state_schema = { color = [
+  "white","light_gray","gray","black","red","orange","yellow","lime","green",
+  "light_blue","cyan","blue","purple","magenta","pink","brown"
+] }
+[blocks.materials.all]
+by = "color"
+[blocks.materials.all.map]
+white = "wool_colored_white"
+light_gray = "wool_colored_silver"
+gray = "wool_colored_gray"
+black = "wool_colored_black"
+red = "wool_colored_red"
+orange = "wool_colored_orange"
+yellow = "wool_colored_yellow"
+lime = "wool_colored_lime"
+green = "wool_colored_green"
+light_blue = "wool_colored_light_blue"
+cyan = "wool_colored_cyan"
+blue = "wool_colored_blue"
+purple = "wool_colored_purple"
+magenta = "wool_colored_magenta"
+pink = "wool_colored_pink"
+brown = "wool_colored_brown"

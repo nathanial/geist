@@ -472,3 +472,15 @@ to = { name = "stairs", state = { material = "red_sandstone" } }
 [[rules]]
 from = "minecraft:oak_fence"
 to = { name = "oak_fence" }
+
+[[rules]]
+from = "minecraft:oak_fence_gate"
+to = { name = "oak_fence_gate" }
+
+[[rules]]
+from = "minecraft:white_carpet"
+to = { name = "carpet", state = { color = "white" } }
+
+[[rules]]
+from = "minecraft:red_carpet"
+to = { name = "carpet", state = { color = "red" } }

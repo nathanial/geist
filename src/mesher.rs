@@ -924,6 +924,69 @@ pub fn build_chunk_greedy_cpu_buf(
                                     );
                                 }
                             }
+                            crate::blocks::registry::DynamicShape::Gate => {
+                                // fence gate: two rails; orientation depends on facing/open
+                                let mut along_x = true; // rails extend along X when closed facing N/S
+                                if let crate::blocks::Shape::Gate { facing_from, open_from } = &ty.shape {
+                                    let facing = ty.state_prop_value(b.state, facing_from).unwrap_or("north");
+                                    along_x = matches!(facing, "north" | "south");
+                                    if ty.state_prop_is_value(b.state, open_from, "true") {
+                                        along_x = !along_x; // swing open 90°
+                                    }
+                                }
+                                let t = 0.125f32; // rail thickness
+                                let y0 = 0.375f32;
+                                let y1 = 0.625f32;
+                                let mut boxes: Vec<(Vector3, Vector3)> = Vec::new();
+                                if along_x {
+                                    boxes.push((Vector3::new(fx + 0.0, fy + y0, fz + 0.5 - t), Vector3::new(fx + 1.0, fy + y0 + t, fz + 0.5 + t)));
+                                    boxes.push((Vector3::new(fx + 0.0, fy + y1, fz + 0.5 - t), Vector3::new(fx + 1.0, fy + y1 + t, fz + 0.5 + t)));
+                                } else {
+                                    boxes.push((Vector3::new(fx + 0.5 - t, fy + y0, fz + 0.0), Vector3::new(fx + 0.5 + t, fy + y0 + t, fz + 1.0)));
+                                    boxes.push((Vector3::new(fx + 0.5 - t, fy + y1, fz + 0.0), Vector3::new(fx + 0.5 + t, fy + y1 + t, fz + 1.0)));
+                                }
+                                for (min, max) in boxes {
+                                    emit_box_generic(
+                                        &mut builds,
+                                        min,
+                                        max,
+                                        &face_material,
+                                        |face| {
+                                            let (dx, dy, dz) = face.delta();
+                                            let (nx, ny, nz) = (gx + dx, gy + dy, gz + dz);
+                                            is_occluder(
+                                                buf, world, edits, neighbors, reg, here, face, nx, ny, nz,
+                                            )
+                                        },
+                                        |face| {
+                                            let lv = light.sample_face_local(x, y, z, face.index());
+                                            lv.max(VISUAL_LIGHT_MIN)
+                                        },
+                                    );
+                                }
+                            }
+                            crate::blocks::registry::DynamicShape::Carpet => {
+                                let h = 0.0625f32; // 1/16
+                                let min = Vector3::new(fx, fy, fz);
+                                let max = Vector3::new(fx + 1.0, fy + h, fz + 1.0);
+                                emit_box_generic(
+                                    &mut builds,
+                                    min,
+                                    max,
+                                    &face_material,
+                                    |face| {
+                                        let (dx, dy, dz) = face.delta();
+                                        let (nx, ny, nz) = (gx + dx, gy + dy, gz + dz);
+                                        is_occluder(
+                                            buf, world, edits, neighbors, reg, here, face, nx, ny, nz,
+                                        )
+                                    },
+                                    |face| {
+                                        let lv = light.sample_face_local(x, y, z, face.index());
+                                        lv.max(VISUAL_LIGHT_MIN)
+                                    },
+                                );
+                            }
                         }
                     }
                 }
@@ -1249,9 +1312,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                                 let mut mask: u8 = 0;
                                 let dirs = [(-1, 0, 0u8), (1, 0, 1u8), (0, -1, 2u8), (0, 1, 3u8)];
                                 for (dx, dz, bit) in dirs {
-                                    let nx = x as i32 + dx;
-                                    let nz = z as i32 + dz;
-                                    let ny = y as i32;
+                                    let nx = x as i32 + dx; let nz = z as i32 + dz; let ny = y as i32;
                                     if nx < 0 || nz < 0 || ny < 0 { continue; }
                                     let xu = nx as usize; let yu = ny as usize; let zu = nz as usize;
                                     if xu >= buf.sx || yu >= buf.sy || zu >= buf.sz { continue; }
@@ -1292,6 +1353,29 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                                 if (mask & (1 << 2)) != 0 { boxes.push((Vector3::new(fx + 0.5 - t * 0.5, fy + mid_y0, fz + 0.0), Vector3::new(fx + 0.5 + t * 0.5, fy + mid_y1, fz + 0.5))); }
                                 if (mask & (1 << 3)) != 0 { boxes.push((Vector3::new(fx + 0.5 - t * 0.5, fy + mid_y0, fz + 0.5), Vector3::new(fx + 0.5 + t * 0.5, fy + mid_y1, fz + 1.0))); }
                                 for (min, max) in boxes { emit_box_local(&mut builds, buf, reg, x, y, z, &face_material, min, max, ambient); }
+                            }
+                            crate::blocks::registry::DynamicShape::Gate => {
+                                let mut along_x = true;
+                                if let crate::blocks::Shape::Gate { facing_from, open_from } = &ty.shape {
+                                    let facing = ty.state_prop_value(b.state, facing_from).unwrap_or("north");
+                                    along_x = matches!(facing, "north" | "south");
+                                    if ty.state_prop_is_value(b.state, open_from, "true") { along_x = !along_x; }
+                                }
+                                let t = 0.125f32; let y0 = 0.375f32; let y1 = 0.625f32;
+                                let mut boxes: Vec<(Vector3, Vector3)> = Vec::new();
+                                if along_x {
+                                    boxes.push((Vector3::new(fx + 0.0, fy + y0, fz + 0.5 - t), Vector3::new(fx + 1.0, fy + y0 + t, fz + 0.5 + t)));
+                                    boxes.push((Vector3::new(fx + 0.0, fy + y1, fz + 0.5 - t), Vector3::new(fx + 1.0, fy + y1 + t, fz + 0.5 + t)));
+                                } else {
+                                    boxes.push((Vector3::new(fx + 0.5 - t, fy + y0, fz + 0.0), Vector3::new(fx + 0.5 + t, fy + y0 + t, fz + 1.0)));
+                                    boxes.push((Vector3::new(fx + 0.5 - t, fy + y1, fz + 0.0), Vector3::new(fx + 0.5 + t, fy + y1 + t, fz + 1.0)));
+                                }
+                                for (min, max) in boxes { emit_box_local(&mut builds, buf, reg, x, y, z, &face_material, min, max, ambient); }
+                            }
+                            crate::blocks::registry::DynamicShape::Carpet => {
+                                let h = 0.0625f32;
+                                let min = Vector3::new(fx, fy, fz); let max = Vector3::new(fx + 1.0, fy + h, fz + 1.0);
+                                emit_box_local(&mut builds, buf, reg, x, y, z, &face_material, min, max, ambient);
                             }
                         }
                     }

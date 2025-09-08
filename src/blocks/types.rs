@@ -44,5 +44,10 @@ pub enum Shape {
     },
     Pane,
     Fence,
+    Gate {
+        facing_from: String,
+        open_from: String,
+    },
+    Carpet,
     None,
 }

@@ -300,6 +300,20 @@ impl BlockRegistry {
                                 dynamic: Some(DynamicShape::Fence),
                             },
                         ),
+                        Shape::Gate { .. } => (
+                            0,
+                            ShapeVariant {
+                                occupancy: None,
+                                dynamic: Some(DynamicShape::Gate),
+                            },
+                        ),
+                        Shape::Carpet => (
+                            0,
+                            ShapeVariant {
+                                occupancy: None,
+                                dynamic: Some(DynamicShape::Carpet),
+                            },
+                        ),
                         _ => {
                             if ty.is_solid(state) {
                                 (
@@ -415,6 +429,7 @@ fn compile_shape(shape: Option<ShapeConfig>) -> Shape {
             axis,
             half,
             facing,
+            open,
         })) => match kind.as_str() {
             "cube" => Shape::Cube,
             "axis_cube" => Shape::AxisCube {
@@ -431,6 +446,15 @@ fn compile_shape(shape: Option<ShapeConfig>) -> Shape {
             },
             "pane" => Shape::Pane,
             "fence" => Shape::Fence,
+            "gate" => Shape::Gate {
+                facing_from: facing
+                    .map(|p| p.from)
+                    .unwrap_or_else(|| "facing".to_string()),
+                open_from: open
+                    .map(|p| p.from)
+                    .unwrap_or_else(|| "open".to_string()),
+            },
+            "carpet" => Shape::Carpet,
             _ => Shape::None,
         },
     }
@@ -471,6 +495,8 @@ fn occ_stairs(facing: Facing, is_top: bool) -> u8 {
 pub enum DynamicShape {
     Pane,
     Fence,
+    Gate,
+    Carpet,
 }
 
 fn compile_materials(matcat: &MaterialCatalog, mats: Option<MaterialsDef>) -> CompiledMaterials {
