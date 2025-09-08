@@ -1,7 +1,7 @@
 use crate::blocks::{Block, BlockRegistry, MaterialCatalog, MaterialId};
 use crate::chunkbuf::ChunkBuf;
 use crate::lighting::{LightBorders, LightGrid, LightingStore};
-use crate::meshutil::{Face, is_full_cube};
+use crate::meshutil::{Face, Facing, SIDE_NEIGHBORS, is_full_cube};
 use crate::texture_cache::TextureCache;
 use crate::voxel::World;
 use raylib::core::math::BoundingBox;
@@ -190,51 +190,43 @@ fn sample_neighbor_half_light(
     l0.max(ladd).max(VISUAL_LIGHT_MIN)
 }
 
+// --- Table-driven neighbor fixups (shared by world/local) ----------------------
+
+const SLAB_Y_SPANS: [(f32, f32); 2] = [(0.0, 0.5), (0.5, 1.0)]; // [bottom, top]
+
 #[inline]
-fn restore_neighbor_faces_slab(
+fn emit_neighbor_fixups_slab_generic(
     builds: &mut std::collections::HashMap<MaterialId, MeshBuild>,
     buf: &ChunkBuf,
     reg: &BlockRegistry,
-    light: &LightGrid,
     x: usize,
     y: usize,
     z: usize,
-    sx: usize,
-    sy: usize,
-    sz: usize,
     fx: f32,
     fy: f32,
     fz: f32,
     is_top: bool,
+    mut light_for_neighbor: impl FnMut(usize, usize, usize, Face, bool) -> u8,
 ) {
-    let (vis_y0, vis_y1) = if is_top {
-        (fy, fy + 0.5)
+    let (v0, v1) = if is_top {
+        SLAB_Y_SPANS[0]
     } else {
-        (fy + 0.5, fy + 1.0)
+        SLAB_Y_SPANS[1]
     };
     let draw_top_half = !is_top;
+    let vis_y0 = fy + v0;
+    let vis_y1 = fy + v1;
 
-    const NEIGHBORS: [(i32, i32, Face, f32, f32); 4] = [
-        (-1, 0, Face::PosX, 0.0, 0.0), // West
-        (1, 0, Face::NegX, 1.0, 0.0),  // East
-        (0, -1, Face::PosZ, 0.0, 0.0), // North
-        (0, 1, Face::NegZ, 0.0, 1.0),  // South
-    ];
+    let sx = buf.sx as i32;
+    let sz = buf.sz as i32;
 
-    for &(dx, dz, face, x_off, z_off) in &NEIGHBORS {
-        let (nx, nz) = (x as i32 + dx, z as i32 + dz);
-        if nx >= 0 && nx < sx as i32 && nz >= 0 && nz < sz as i32 {
+    for &(dx, dz, face, x_off, z_off) in &SIDE_NEIGHBORS {
+        let nx = x as i32 + dx;
+        let nz = z as i32 + dz;
+        if nx >= 0 && nx < sx && nz >= 0 && nz < sz {
             let nb = buf.get_local(nx as usize, y, nz as usize);
             if is_full_cube(reg, nb) {
-                let lv = sample_neighbor_half_light(
-                    light,
-                    nx as usize,
-                    y,
-                    nz as usize,
-                    face,
-                    draw_top_half,
-                    sy,
-                );
+                let lv = light_for_neighbor(nx as usize, y, nz as usize, face, draw_top_half);
                 let rgba = [lv, lv, lv, 255];
                 let mid = registry_material_for_or_unknown(nb, face, reg);
                 let origin = Vector3::new(fx + x_off, vis_y0, fz + z_off);
@@ -245,47 +237,59 @@ fn restore_neighbor_faces_slab(
 }
 
 #[inline]
-fn restore_neighbor_faces_stairs(
+fn stairs_span_for_x_neighbor(facing: Facing) -> (f32, f32) {
+    // Restrict along Z when neighbor is along X
+    match facing {
+        Facing::North => (0.5, 1.0),
+        Facing::South => (0.0, 0.5),
+        Facing::West | Facing::East => (0.0, 1.0),
+    }
+}
+
+#[inline]
+fn stairs_span_for_z_neighbor(facing: Facing) -> (f32, f32) {
+    // Restrict along X when neighbor is along Z
+    match facing {
+        Facing::East => (0.5, 1.0),
+        Facing::West => (0.0, 0.5),
+        Facing::North | Facing::South => (0.0, 1.0),
+    }
+}
+
+#[inline]
+fn emit_neighbor_fixups_stairs_generic(
     builds: &mut std::collections::HashMap<MaterialId, MeshBuild>,
     buf: &ChunkBuf,
     reg: &BlockRegistry,
-    light: &LightGrid,
     x: usize,
     y: usize,
     z: usize,
-    sx: usize,
-    sy: usize,
-    sz: usize,
     fx: f32,
     fy: f32,
     fz: f32,
     is_top: bool,
-    facing: &str,
+    facing: Facing,
+    mut light_for_neighbor: impl FnMut(usize, usize, usize, Face, bool) -> u8,
 ) {
     let draw_top = !is_top;
-    let y0 = if draw_top { fy + 0.5 } else { fy };
-    let y1 = if draw_top { fy + 1.0 } else { fy + 0.5 };
+    let (y0, y1) = if draw_top { (fy + 0.5, fy + 1.0) } else { (fy, fy + 0.5) };
 
-    // X-axis neighbors
-    for (dx, face, x_off, is_west) in [
-        (-1i32, Face::PosX, 0.0f32, true),
-        (1, Face::NegX, 1.0, false),
-    ] {
+    let sx = buf.sx as i32;
+    let sz = buf.sz as i32;
+
+    // X-axis neighbors: restrict Z
+    for (dx, face, x_off, is_west) in [(-1i32, Face::PosX, 0.0f32, true), (1, Face::NegX, 1.0, false)] {
         let nx = x as i32 + dx;
-        if nx >= 0 && nx < sx as i32 {
+        if nx >= 0 && nx < sx {
             let nb = buf.get_local(nx as usize, y, z);
             if is_full_cube(reg, nb) {
-                if let Some((z0, z1)) = stair_segments(facing, fz, true, is_west) {
+                // Mimic legacy skip behavior: when facing West, skip West neighbor trim;
+                // when facing East, include full span for X neighbors.
+                let z_span = stairs_span_for_x_neighbor(facing);
+                if !(facing == Facing::West && is_west) {
+                    let (z0, z1) = (fz + z_span.0, fz + z_span.1);
                     if z1 > z0 {
-                        let lv = sample_neighbor_half_light(
-                            light,
-                            nx as usize,
-                            y,
-                            z,
-                            face,
-                            draw_top,
-                            sy,
-                        );
+                        let lv = light_for_neighbor(nx as usize, y, z, face, draw_top);
                         let rgba = [lv, lv, lv, 255];
                         let mid = registry_material_for_or_unknown(nb, face, reg);
                         emit_face_rect_for(
@@ -303,26 +307,18 @@ fn restore_neighbor_faces_stairs(
         }
     }
 
-    // Z-axis neighbors
-    for (dz, face, z_off, is_north) in [
-        (-1i32, Face::PosZ, 0.0f32, true),
-        (1, Face::NegZ, 1.0, false),
-    ] {
+    // Z-axis neighbors: restrict X
+    for (dz, face, z_off, is_north) in [(-1i32, Face::PosZ, 0.0f32, true), (1, Face::NegZ, 1.0, false)] {
         let nz = z as i32 + dz;
-        if nz >= 0 && nz < sz as i32 {
+        if nz >= 0 && nz < sz {
             let nb = buf.get_local(x, y, nz as usize);
             if is_full_cube(reg, nb) {
-                if let Some((x0, x1)) = stair_segments(facing, fx, false, is_north) {
+                // Mimic legacy skip behavior: when facing North, skip North neighbor trim.
+                let x_span = stairs_span_for_z_neighbor(facing);
+                if !(facing == Facing::North && is_north) {
+                    let (x0, x1) = (fx + x_span.0, fx + x_span.1);
                     if x1 > x0 {
-                        let lv = sample_neighbor_half_light(
-                            light,
-                            x,
-                            y,
-                            nz as usize,
-                            face,
-                            draw_top,
-                            sy,
-                        );
+                        let lv = light_for_neighbor(x, y, nz as usize, face, draw_top);
                         let rgba = [lv, lv, lv, 255];
                         let mid = registry_material_for_or_unknown(nb, face, reg);
                         emit_face_rect_for(
@@ -341,61 +337,43 @@ fn restore_neighbor_faces_stairs(
     }
 }
 
-#[inline]
-fn stair_segments(facing: &str, coord: f32, is_x: bool, is_negative: bool) -> Option<(f32, f32)> {
-    const SEGS: &[(&str, bool, bool, bool, (f32, f32))] = &[
-        ("north", true, false, false, (0.5, 1.0)),
-        ("south", true, false, false, (0.0, 0.5)),
-        ("west", true, false, true, (0.0, 1.0)),
-        ("east", true, false, false, (0.0, 1.0)),
-        ("east", false, false, false, (0.5, 1.0)),
-        ("west", false, false, false, (0.0, 0.5)),
-        ("north", false, true, false, (0.0, 1.0)),
-        ("south", false, false, false, (0.0, 1.0)),
-    ];
-    SEGS.iter()
-        .find(|(f, x, neg, skip, _)| f == &facing && *x == is_x && (*neg == is_negative || !*skip))
-        .and_then(|(_, _, neg, skip, (s, e))| {
-            if *skip && *neg != is_negative {
-                None
-            } else {
-                Some((coord + s, coord + e))
-            }
-        })
-}
+// Replaced by table helpers above.
 
 #[inline]
-fn stair_secondary_box(
+fn stairs_boxes(
     fx: f32,
     fy: f32,
     fz: f32,
-    facing: &str,
+    facing: Facing,
     is_top: bool,
-) -> (Vector3, Vector3) {
-    let (y0, y1) = if is_top {
-        (fy, fy + 0.5)
+) -> [(Vector3, Vector3); 2] {
+    // Big half-height slab
+    let (min_a, max_a) = if is_top {
+        (Vector3::new(fx, fy + 0.5, fz), Vector3::new(fx + 1.0, fy + 1.0, fz + 1.0))
     } else {
-        (fy + 0.5, fy + 1.0)
+        (Vector3::new(fx, fy, fz), Vector3::new(fx + 1.0, fy + 0.5, fz + 1.0))
     };
-    match facing {
-        "north" => (
-            Vector3::new(fx, y0, fz + if is_top { 0.0 } else { 0.0 }),
+    // Smaller riser occupies the opposite Y half
+    let (y0, y1) = if is_top { (fy, fy + 0.5) } else { (fy + 0.5, fy + 1.0) };
+    let (min_b, max_b) = match facing {
+        Facing::North => (
+            Vector3::new(fx, y0, fz),
             Vector3::new(fx + 1.0, y1, fz + 0.5),
         ),
-        "south" => (
+        Facing::South => (
             Vector3::new(fx, y0, fz + 0.5),
             Vector3::new(fx + 1.0, y1, fz + 1.0),
         ),
-        "west" => (
+        Facing::West => (
             Vector3::new(fx, y0, fz),
             Vector3::new(fx + 0.5, y1, fz + 1.0),
         ),
-        "east" => (
+        Facing::East => (
             Vector3::new(fx + 0.5, y0, fz),
             Vector3::new(fx + 1.0, y1, fz + 1.0),
         ),
-        _ => (Vector3::new(fx, fy, fz), Vector3::new(fx, fy, fz)),
-    }
+    };
+    [(min_a, max_a), (min_b, max_b)]
 }
 
 #[inline]
@@ -420,128 +398,9 @@ fn is_top_half_shape(b: Block, reg: &BlockRegistry) -> bool {
 
 // Legacy world mapping removed; mesher queries runtime worldgen directly when needed.
 
-#[inline]
-fn restore_neighbor_faces_slab_local(
-    builds: &mut std::collections::HashMap<MaterialId, MeshBuild>,
-    buf: &ChunkBuf,
-    reg: &BlockRegistry,
-    x: usize,
-    y: usize,
-    z: usize,
-    sx: usize,
-    sz: usize,
-    fx: f32,
-    fy: f32,
-    fz: f32,
-    is_top: bool,
-    ambient: u8,
-) {
-    let (vis_y0, vis_y1) = if is_top {
-        (fy, fy + 0.5)
-    } else {
-        (fy + 0.5, fy + 1.0)
-    };
+// Local path uses the same generic slab fixups with a different light function.
 
-    const NEIGHBORS: [(i32, i32, Face, f32, f32); 4] = [
-        (-1, 0, Face::PosX, 0.0, 0.0),
-        (1, 0, Face::NegX, 1.0, 0.0),
-        (0, -1, Face::PosZ, 0.0, 0.0),
-        (0, 1, Face::NegZ, 0.0, 1.0),
-    ];
-
-    for &(dx, dz, face, x_off, z_off) in &NEIGHBORS {
-        let (nx, nz) = (x as i32 + dx, z as i32 + dz);
-        if nx >= 0 && nx < sx as i32 && nz >= 0 && nz < sz as i32 {
-            let nb = buf.get_local(nx as usize, y, nz as usize);
-            if is_full_cube(reg, nb) {
-                let lv = face_light(face, ambient);
-                let rgba = [lv, lv, lv, 255];
-                let mid = registry_material_for_or_unknown(nb, face, reg);
-                let origin = Vector3::new(fx + x_off, vis_y0, fz + z_off);
-                emit_face_rect_for(builds, mid, face, origin, 1.0, vis_y1 - vis_y0, rgba);
-            }
-        }
-    }
-}
-
-#[inline]
-fn restore_neighbor_faces_stairs_local(
-    builds: &mut std::collections::HashMap<MaterialId, MeshBuild>,
-    buf: &ChunkBuf,
-    reg: &BlockRegistry,
-    x: usize,
-    y: usize,
-    z: usize,
-    sx: usize,
-    sz: usize,
-    fx: f32,
-    fy: f32,
-    fz: f32,
-    is_top: bool,
-    facing: &str,
-    ambient: u8,
-) {
-    let y0 = if is_top { fy + 0.5 } else { fy };
-    let y1 = if is_top { fy + 1.0 } else { fy + 0.5 };
-
-    // X-axis neighbors
-    for (dx, face, x_off, is_west) in [
-        (-1i32, Face::PosX, 0.0f32, true),
-        (1, Face::NegX, 1.0, false),
-    ] {
-        let nx = x as i32 + dx;
-        if nx >= 0 && nx < sx as i32 {
-            let nb = buf.get_local(nx as usize, y, z);
-            if is_full_cube(reg, nb) {
-                if let Some((z0, z1)) = stair_segments(facing, fz, true, is_west) {
-                    if z1 > z0 {
-                        let lv = face_light(face, ambient);
-                        let rgba = [lv, lv, lv, 255];
-                        let mid = registry_material_for_or_unknown(nb, face, reg);
-                        emit_face_rect_for(
-                            builds,
-                            mid,
-                            face,
-                            Vector3::new(fx + x_off, y0, z0),
-                            z1 - z0,
-                            y1 - y0,
-                            rgba,
-                        );
-                    }
-                }
-            }
-        }
-    }
-
-    // Z-axis neighbors
-    for (dz, face, z_off, is_north) in [
-        (-1i32, Face::PosZ, 0.0f32, true),
-        (1, Face::NegZ, 1.0, false),
-    ] {
-        let nz = z as i32 + dz;
-        if nz >= 0 && nz < sz as i32 {
-            let nb = buf.get_local(x, y, nz as usize);
-            if is_full_cube(reg, nb) {
-                if let Some((x0, x1)) = stair_segments(facing, fx, false, is_north) {
-                    if x1 > x0 {
-                        let lv = face_light(face, ambient);
-                        let rgba = [lv, lv, lv, 255];
-                        let mid = registry_material_for_or_unknown(nb, face, reg);
-                        emit_face_rect_for(
-                            builds,
-                            mid,
-                            face,
-                            Vector3::new(x0, y0, fz + z_off),
-                            x1 - x0,
-                            y1 - y0,
-                            rgba,
-                        );
-                    }
-                }
-            }
-        }
-    }
-}
+// Local path uses the generic stairs fixups with a different light function.
 
 #[inline]
 fn face_light(face: Face, ambient: u8) -> u8 {
@@ -857,21 +716,22 @@ pub fn build_chunk_greedy_cpu_buf(
                                 max,
                             );
 
-                            restore_neighbor_faces_slab(
+                            emit_neighbor_fixups_slab_generic(
                                 &mut builds,
                                 buf,
                                 reg,
-                                &light,
                                 x,
                                 y,
                                 z,
-                                sx,
-                                sy,
-                                sz,
                                 fx,
                                 fy,
                                 fz,
                                 is_top,
+                                |nx, ny, nz, face, draw_top| {
+                                    sample_neighbor_half_light(
+                                        &light, nx, ny, nz, face, draw_top, sy,
+                                    )
+                                },
                             );
                         }
                         crate::blocks::Shape::Stairs {
@@ -882,8 +742,9 @@ pub fn build_chunk_greedy_cpu_buf(
                             let fy = y as f32;
                             let fz = base_z as f32 + z as f32;
                             let is_top = ty.state_prop_is_value(b.state, half_from, "top");
-                            let facing =
-                                ty.state_prop_value(b.state, facing_from).unwrap_or("north");
+                            let facing = Facing::from_str(
+                                ty.state_prop_value(b.state, facing_from).unwrap_or("north"),
+                            );
                             // Big half-height slab depending on half
                             let (min_a, max_a) = if is_top {
                                 (
@@ -919,43 +780,46 @@ pub fn build_chunk_greedy_cpu_buf(
                                 min_a,
                                 max_a,
                             );
-                            let (min_b, max_b) = stair_secondary_box(fx, fy, fz, facing, is_top);
-                            if max_b.x > min_b.x || max_b.y > min_b.y || max_b.z > min_b.z {
-                                emit_box(
-                                    &mut builds,
-                                    buf,
-                                    world,
-                                    edits,
-                                    neighbors,
-                                    reg,
-                                    &light,
-                                    x,
-                                    y,
-                                    z,
-                                    base_x,
-                                    base_z,
-                                    &face_material,
-                                    min_b,
-                                    max_b,
-                                );
+                            let boxes = stairs_boxes(fx, fy, fz, facing, is_top);
+                            for (min_b, max_b) in boxes.into_iter().skip(1) {
+                                if max_b.x > min_b.x && max_b.y > min_b.y && max_b.z > min_b.z {
+                                    emit_box(
+                                        &mut builds,
+                                        buf,
+                                        world,
+                                        edits,
+                                        neighbors,
+                                        reg,
+                                        &light,
+                                        x,
+                                        y,
+                                        z,
+                                        base_x,
+                                        base_z,
+                                        &face_material,
+                                        min_b,
+                                        max_b,
+                                    );
+                                }
                             }
 
-                            restore_neighbor_faces_stairs(
+                            emit_neighbor_fixups_stairs_generic(
                                 &mut builds,
                                 buf,
                                 reg,
-                                &light,
                                 x,
                                 y,
                                 z,
-                                sx,
-                                sy,
-                                sz,
                                 fx,
                                 fy,
                                 fz,
                                 is_top,
                                 facing,
+                                |nx, ny, nz, face, draw_top| {
+                                    sample_neighbor_half_light(
+                                        &light, nx, ny, nz, face, draw_top, sy,
+                                    )
+                                },
                             );
                         }
                         _ => {}
@@ -1273,20 +1137,18 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                                 ambient,
                             );
 
-                            restore_neighbor_faces_slab_local(
+                            emit_neighbor_fixups_slab_generic(
                                 &mut builds,
                                 buf,
                                 reg,
                                 x,
                                 y,
                                 z,
-                                sx,
-                                sz,
                                 fx,
                                 fy,
                                 fz,
                                 is_top,
-                                ambient,
+                                |_, _, _, face, _| face_light(face, ambient),
                             );
                         }
                         crate::blocks::Shape::Stairs {
@@ -1297,8 +1159,9 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             let fy = y as f32;
                             let fz = z as f32;
                             let is_top = ty.state_prop_is_value(b.state, half_from, "top");
-                            let facing =
-                                ty.state_prop_value(b.state, facing_from).unwrap_or("north");
+                            let facing = Facing::from_str(
+                                ty.state_prop_value(b.state, facing_from).unwrap_or("north"),
+                            );
                             // Big half-height slab
                             let (min_a, max_a) = if is_top {
                                 (
@@ -1329,37 +1192,37 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                                 max_a,
                                 ambient,
                             );
-                            let (min_b, max_b) = stair_secondary_box(fx, fy, fz, facing, is_top);
-                            if max_b.x > min_b.x || max_b.y > min_b.y || max_b.z > min_b.z {
-                                emit_box_local(
-                                    &mut builds,
-                                    buf,
-                                    reg,
-                                    x,
-                                    y,
-                                    z,
-                                    &face_material,
-                                    min_b,
-                                    max_b,
-                                    ambient,
-                                );
+                            let boxes = stairs_boxes(fx, fy, fz, facing, is_top);
+                            for (min_b, max_b) in boxes.into_iter().skip(1) {
+                                if max_b.x > min_b.x && max_b.y > min_b.y && max_b.z > min_b.z {
+                                    emit_box_local(
+                                        &mut builds,
+                                        buf,
+                                        reg,
+                                        x,
+                                        y,
+                                        z,
+                                        &face_material,
+                                        min_b,
+                                        max_b,
+                                        ambient,
+                                    );
+                                }
                             }
 
-                            restore_neighbor_faces_stairs_local(
+                            emit_neighbor_fixups_stairs_generic(
                                 &mut builds,
                                 buf,
                                 reg,
                                 x,
                                 y,
                                 z,
-                                sx,
-                                sz,
                                 fx,
                                 fy,
                                 fz,
                                 is_top,
                                 facing,
-                                ambient,
+                                |_, _, _, face, _| face_light(face, ambient),
                             );
                         }
                         _ => {}

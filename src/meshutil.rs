@@ -66,9 +66,50 @@ impl Face {
     }
 }
 
+/// Ordered list of all faces; useful for compact table iteration.
+pub const ALL_FACES: [Face; 6] = [
+    Face::PosY,
+    Face::NegY,
+    Face::PosX,
+    Face::NegX,
+    Face::PosZ,
+    Face::NegZ,
+];
+
+/// The four horizontal neighbor sides (west/east/north/south) with their face and local offsets.
+/// Tuple: (dx, dz, face_to_draw_on_neighbor, x_offset, z_offset)
+pub const SIDE_NEIGHBORS: [(i32, i32, Face, f32, f32); 4] = [
+    (-1, 0, Face::PosX, 0.0, 0.0), // West neighbor, draw on its +X face
+    (1, 0, Face::NegX, 1.0, 0.0),  // East neighbor, draw on its -X face
+    (0, -1, Face::PosZ, 0.0, 0.0), // North neighbor, draw on its +Z face
+    (0, 1, Face::NegZ, 0.0, 1.0),  // South neighbor, draw on its -Z face
+];
+
 #[inline]
 pub fn is_full_cube(reg: &BlockRegistry, nb: Block) -> bool {
     reg.get(nb.id)
         .map(|t| matches!(t.shape, Shape::Cube | Shape::AxisCube { .. }))
         .unwrap_or(false)
+}
+
+/// Simple cardinal facing used by stairs and similar shapes.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub enum Facing {
+    North,
+    South,
+    West,
+    East,
+}
+
+impl Facing {
+    #[inline]
+    pub fn from_str(s: &str) -> Facing {
+        match s {
+            "north" => Facing::North,
+            "south" => Facing::South,
+            "west" => Facing::West,
+            "east" => Facing::East,
+            _ => Facing::North,
+        }
+    }
 }
