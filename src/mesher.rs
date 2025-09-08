@@ -339,44 +339,7 @@ fn emit_neighbor_fixups_stairs_generic(
     }
 }
 
-// Replaced by table helpers above.
-
-#[inline]
-fn stairs_boxes(
-    fx: f32,
-    fy: f32,
-    fz: f32,
-    facing: Facing,
-    is_top: bool,
-) -> [(Vector3, Vector3); 2] {
-    // Big half-height slab
-    let (min_a, max_a) = if is_top {
-        (Vector3::new(fx, fy + 0.5, fz), Vector3::new(fx + 1.0, fy + 1.0, fz + 1.0))
-    } else {
-        (Vector3::new(fx, fy, fz), Vector3::new(fx + 1.0, fy + 0.5, fz + 1.0))
-    };
-    // Smaller riser occupies the opposite Y half
-    let (y0, y1) = if is_top { (fy, fy + 0.5) } else { (fy + 0.5, fy + 1.0) };
-    let (min_b, max_b) = match facing {
-        Facing::North => (
-            Vector3::new(fx, y0, fz),
-            Vector3::new(fx + 1.0, y1, fz + 0.5),
-        ),
-        Facing::South => (
-            Vector3::new(fx, y0, fz + 0.5),
-            Vector3::new(fx + 1.0, y1, fz + 1.0),
-        ),
-        Facing::West => (
-            Vector3::new(fx, y0, fz),
-            Vector3::new(fx + 0.5, y1, fz + 1.0),
-        ),
-        Facing::East => (
-            Vector3::new(fx + 0.5, y0, fz),
-            Vector3::new(fx + 1.0, y1, fz + 1.0),
-        ),
-    };
-    [(min_a, max_a), (min_b, max_b)]
-}
+// Replaced by micro-grid boxes above.
 
 #[inline]
 fn is_solid_runtime(b: Block, reg: &BlockRegistry) -> bool {
@@ -484,6 +447,98 @@ fn emit_box_generic(
 }
 
 // world-based occluder test removed; occlusion uses only local chunk buffers.
+
+// --- 2x2x2 micro-grid shapes -------------------------------------------------
+
+#[inline]
+fn micro_bit(x: usize, y: usize, z: usize) -> u8 {
+    // index bits: x (bit0), z (bit1), y (bit2) => idx = (y<<2) | (z<<1) | x
+    1u8 << (((y & 1) << 2) | ((z & 1) << 1) | (x & 1))
+}
+
+#[inline]
+fn micro_occupancy_slab(is_top: bool) -> u8 {
+    // Fill top or bottom y-layer fully (4 cells)
+    let y = if is_top { 1 } else { 0 };
+    micro_bit(0, y, 0)
+        | micro_bit(1, y, 0)
+        | micro_bit(0, y, 1)
+        | micro_bit(1, y, 1)
+}
+
+#[inline]
+fn micro_occupancy_stairs(facing: Facing, is_top: bool) -> u8 {
+    // Major half-slab on chosen y, plus riser on opposite y occupying a half-plane along facing.
+    let y_major = if is_top { 1 } else { 0 };
+    let y_minor = 1 - y_major;
+    let full_layer = micro_bit(0, y_major, 0)
+        | micro_bit(1, y_major, 0)
+        | micro_bit(0, y_major, 1)
+        | micro_bit(1, y_major, 1);
+    let half_minor = match facing {
+        Facing::North => micro_bit(0, y_minor, 0) | micro_bit(1, y_minor, 0),
+        Facing::South => micro_bit(0, y_minor, 1) | micro_bit(1, y_minor, 1),
+        Facing::West => micro_bit(0, y_minor, 0) | micro_bit(0, y_minor, 1),
+        Facing::East => micro_bit(1, y_minor, 0) | micro_bit(1, y_minor, 1),
+    };
+    full_layer | half_minor
+}
+
+#[inline]
+fn microgrid_boxes(fx: f32, fy: f32, fz: f32, occ: u8) -> Vec<(Vector3, Vector3)> {
+    // Greedy 2D merge per y-layer on a 2x2 grid; each rect becomes an AABB of height 0.5.
+    let mut out = Vec::new();
+    let cell = 0.5f32;
+    for y in 0..2 {
+        let mut grid = [[false; 2]; 2]; // [z][x]
+        for z in 0..2 {
+            for x in 0..2 {
+                let bit = micro_bit(x, y, z);
+                grid[z][x] = (occ & bit) != 0;
+            }
+        }
+        let mut used = [[false; 2]; 2];
+        for z in 0..2 {
+            for x in 0..2 {
+                if !grid[z][x] || used[z][x] {
+                    continue;
+                }
+                // Try expand in X
+                let w = if x == 0 && grid[z][1] && !used[z][1] { 2 } else { 1 };
+                // Try expand in Z with width `w`
+                let h = if z == 0 {
+                    let mut ok = true;
+                    for xi in x..(x + w) {
+                        if !grid[1][xi] || used[1][xi] {
+                            ok = false;
+                            break;
+                        }
+                    }
+                    if ok { 2 } else { 1 }
+                } else {
+                    1
+                };
+                for dz in 0..h {
+                    for dx in 0..w {
+                        used[z + dz][x + dx] = true;
+                    }
+                }
+                let min = Vector3::new(
+                    fx + (x as f32) * cell,
+                    fy + (y as f32) * cell,
+                    fz + (z as f32) * cell,
+                );
+                let max = Vector3::new(
+                    fx + ((x + w) as f32) * cell,
+                    fy + ((y + 1) as f32) * cell,
+                    fz + ((z + h) as f32) * cell,
+                );
+                out.push((min, max));
+            }
+        }
+    }
+    out
+}
 
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NeighborsLoaded {
@@ -694,35 +749,31 @@ pub fn build_chunk_greedy_cpu_buf(
                             let fy = y as f32;
                             let fz = base_z as f32 + z as f32;
                             let is_top = ty.state_prop_is_value(b.state, half_from, "top");
-                            let (y0, y1) = if is_top {
-                                (fy + 0.5, fy + 1.0)
-                            } else {
-                                (fy, fy + 0.5)
-                            };
-                            let min = Vector3::new(fx, y0, fz);
-                            let max = Vector3::new(fx + 1.0, y1, fz + 1.0);
+                            let occ = micro_occupancy_slab(is_top);
                             let gx = base_x + x as i32;
                             let gy = y as i32;
                             let gz = base_z + z as i32;
                             let here = buf.get_local(x, y, z);
                             let face_material = |face: Face| ty.material_for_cached(face.role(), b.state);
-                            emit_box_generic(
-                                &mut builds,
-                                min,
-                                max,
-                                &face_material,
-                                |face| {
-                                    let (dx, dy, dz) = face.delta();
-                                    let (nx, ny, nz) = (gx + dx, gy + dy, gz + dz);
-                                    is_occluder(
-                                        buf, world, edits, neighbors, reg, here, face, nx, ny, nz,
-                                    )
-                                },
-                                |face| {
-                                    let mut lv = light.sample_face_local(x, y, z, face.index());
-                                    lv.max(VISUAL_LIGHT_MIN)
-                                },
-                            );
+                            for (min, max) in microgrid_boxes(fx, fy, fz, occ) {
+                                emit_box_generic(
+                                    &mut builds,
+                                    min,
+                                    max,
+                                    &face_material,
+                                    |face| {
+                                        let (dx, dy, dz) = face.delta();
+                                        let (nx, ny, nz) = (gx + dx, gy + dy, gz + dz);
+                                        is_occluder(
+                                            buf, world, edits, neighbors, reg, here, face, nx, ny, nz,
+                                        )
+                                    },
+                                    |face| {
+                                        let lv = light.sample_face_local(x, y, z, face.index());
+                                        lv.max(VISUAL_LIGHT_MIN)
+                                    },
+                                );
+                            }
 
                             emit_neighbor_fixups_slab_generic(
                                 &mut builds,
@@ -753,75 +804,30 @@ pub fn build_chunk_greedy_cpu_buf(
                             let facing = Facing::from_str(
                                 ty.state_prop_value(b.state, facing_from).unwrap_or("north"),
                             );
-                            // Big half-height slab depending on half
-                            let (min_a, max_a) = if is_top {
-                                (
-                                    Vector3::new(fx, fy + 0.5, fz),
-                                    Vector3::new(fx + 1.0, fy + 1.0, fz + 1.0),
-                                )
-                            } else {
-                                (
-                                    Vector3::new(fx, fy, fz),
-                                    Vector3::new(fx + 1.0, fy + 0.5, fz + 1.0),
-                                )
-                            };
-                            let face_material = |face: Face| ty.material_for_cached(face.role(), b.state);
+                            let occ = micro_occupancy_stairs(facing, is_top);
                             let gx = base_x + x as i32;
                             let gy = y as i32;
                             let gz = base_z + z as i32;
                             let here = buf.get_local(x, y, z);
-                            emit_box_generic(
-                                &mut builds,
-                                min_a,
-                                max_a,
-                                &face_material,
-                                |face| {
-                                    let (dx, dy, dz) = face.delta();
-                                    let (nx, ny, nz) = (gx + dx, gy + dy, gz + dz);
-                                    is_occluder(
-                                        buf, world, edits, neighbors, reg, here, face, nx, ny, nz,
-                                    )
-                                },
-                                |face| {
-                                    let mut lv = light.sample_face_local(x, y, z, face.index());
-                                    lv.max(VISUAL_LIGHT_MIN)
-                                },
-                            );
-                            let boxes = stairs_boxes(fx, fy, fz, facing, is_top);
-                            for (min_b, max_b) in boxes.into_iter().skip(1) {
-                                if max_b.x > min_b.x && max_b.y > min_b.y && max_b.z > min_b.z {
-                                    let gx = base_x + x as i32;
-                                    let gy = y as i32;
-                                    let gz = base_z + z as i32;
-                                    let here = buf.get_local(x, y, z);
-                                    emit_box_generic(
-                                        &mut builds,
-                                        min_b,
-                                        max_b,
-                                        &face_material,
-                                        |face| {
-                                            let (dx, dy, dz) = face.delta();
-                                            let (nx, ny, nz) = (gx + dx, gy + dy, gz + dz);
-                                            is_occluder(
-                                                buf,
-                                                world,
-                                                edits,
-                                                neighbors,
-                                                reg,
-                                                here,
-                                                face,
-                                                nx,
-                                                ny,
-                                                nz,
-                                            )
-                                        },
-                                        |face| {
-                                            let mut lv =
-                                                light.sample_face_local(x, y, z, face.index());
-                                            lv.max(VISUAL_LIGHT_MIN)
-                                        },
-                                    );
-                                }
+                            let face_material = |face: Face| ty.material_for_cached(face.role(), b.state);
+                            for (min, max) in microgrid_boxes(fx, fy, fz, occ) {
+                                emit_box_generic(
+                                    &mut builds,
+                                    min,
+                                    max,
+                                    &face_material,
+                                    |face| {
+                                        let (dx, dy, dz) = face.delta();
+                                        let (nx, ny, nz) = (gx + dx, gy + dy, gz + dz);
+                                        is_occluder(
+                                            buf, world, edits, neighbors, reg, here, face, nx, ny, nz,
+                                        )
+                                    },
+                                    |face| {
+                                        let lv = light.sample_face_local(x, y, z, face.index());
+                                        lv.max(VISUAL_LIGHT_MIN)
+                                    },
+                                );
                             }
 
                             emit_neighbor_fixups_stairs_generic(
@@ -1132,26 +1138,22 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             let fy = y as f32;
                             let fz = z as f32;
                             let is_top = ty.state_prop_is_value(b.state, half_from, "top");
-                            let (y0, y1) = if is_top {
-                                (fy + 0.5, fy + 1.0)
-                            } else {
-                                (fy, fy + 0.5)
-                            };
-                            let min = Vector3::new(fx, y0, fz);
-                            let max = Vector3::new(fx + 1.0, y1, fz + 1.0);
+                            let occ = micro_occupancy_slab(is_top);
                             let face_material = |face: Face| ty.material_for_cached(face.role(), b.state);
-                            emit_box_local(
-                                &mut builds,
-                                buf,
-                                reg,
-                                x,
-                                y,
-                                z,
-                                &face_material,
-                                min,
-                                max,
-                                ambient,
-                            );
+                            for (min, max) in microgrid_boxes(fx, fy, fz, occ) {
+                                emit_box_local(
+                                    &mut builds,
+                                    buf,
+                                    reg,
+                                    x,
+                                    y,
+                                    z,
+                                    &face_material,
+                                    min,
+                                    max,
+                                    ambient,
+                                );
+                            }
 
                             emit_neighbor_fixups_slab_generic(
                                 &mut builds,
@@ -1178,52 +1180,21 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             let facing = Facing::from_str(
                                 ty.state_prop_value(b.state, facing_from).unwrap_or("north"),
                             );
-                            // Big half-height slab
-                            let (min_a, max_a) = if is_top {
-                                (
-                                    Vector3::new(fx, fy + 0.5, fz),
-                                    Vector3::new(fx + 1.0, fy + 1.0, fz + 1.0),
-                                )
-                            } else {
-                                (
-                                    Vector3::new(fx, fy, fz),
-                                    Vector3::new(fx + 1.0, fy + 0.5, fz + 1.0),
-                                )
-                            };
-                            let face_material = |face: Face| {
-                                let role = face.role();
-                                ty.materials
-                                    .material_for(role, b.state, ty)
-                                    .unwrap_or_else(|| unknown_material_id(reg))
-                            };
-                            emit_box_local(
-                                &mut builds,
-                                buf,
-                                reg,
-                                x,
-                                y,
-                                z,
-                                &face_material,
-                                min_a,
-                                max_a,
-                                ambient,
-                            );
-                            let boxes = stairs_boxes(fx, fy, fz, facing, is_top);
-                            for (min_b, max_b) in boxes.into_iter().skip(1) {
-                                if max_b.x > min_b.x && max_b.y > min_b.y && max_b.z > min_b.z {
-                                    emit_box_local(
-                                        &mut builds,
-                                        buf,
-                                        reg,
-                                        x,
-                                        y,
-                                        z,
-                                        &face_material,
-                                        min_b,
-                                        max_b,
-                                        ambient,
-                                    );
-                                }
+                            let occ = micro_occupancy_stairs(facing, is_top);
+                            let face_material = |face: Face| ty.material_for_cached(face.role(), b.state);
+                            for (min, max) in microgrid_boxes(fx, fy, fz, occ) {
+                                emit_box_local(
+                                    &mut builds,
+                                    buf,
+                                    reg,
+                                    x,
+                                    y,
+                                    z,
+                                    &face_material,
+                                    min,
+                                    max,
+                                    ambient,
+                                );
                             }
 
                             emit_neighbor_fixups_stairs_generic(
