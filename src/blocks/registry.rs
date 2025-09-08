@@ -4,8 +4,8 @@ use std::fs;
 use std::path::Path;
 
 use super::config::{
-    BlocksConfig, LightProfile, MaterialSelector, MaterialsDef, ShapeConfig, ShapeDetailed,
-    SourceDirs,
+    BlocksConfig, LightProfile, MaterialSelector, MaterialsDef, SeamPolicyCfg, SeamPolicyFlagsCfg,
+    SeamPolicySimple, ShapeConfig, ShapeDetailed, SourceDirs,
 };
 use super::material::MaterialCatalog;
 use super::types::{Block, BlockId, BlockState, FaceRole, MaterialId, Shape};
@@ -223,7 +223,12 @@ impl BlockRegistry {
                 pre_mat_side: Vec::new(),
                 pre_occ_mask: Vec::new(),
                 pre_shape_variants: Vec::new(),
-                seam: SeamPolicy::Default,
+                seam: match def.seam {
+                    Some(SeamPolicyCfg::Simple(SeamPolicySimple::DontOccludeSame)) => SeamPolicy { dont_occlude_same: true, dont_project_fixups: false },
+                    Some(SeamPolicyCfg::Simple(SeamPolicySimple::DontProjectFixups)) => SeamPolicy { dont_occlude_same: false, dont_project_fixups: true },
+                    Some(SeamPolicyCfg::Simple(SeamPolicySimple::Default)) | None => SeamPolicy { dont_occlude_same: false, dont_project_fixups: false },
+                    Some(SeamPolicyCfg::Flags(SeamPolicyFlagsCfg { dont_occlude_same, dont_project_fixups })) => SeamPolicy { dont_occlude_same, dont_project_fixups },
+                },
                 state_schema,
                 state_fields,
                 prop_index,
@@ -371,7 +376,7 @@ impl BlockRegistry {
                         pre_mat_side: vec![MaterialId(0)],
                         pre_occ_mask: vec![0],
                         pre_shape_variants: vec![ShapeVariant { occupancy: None, dynamic: None }],
-                        seam: SeamPolicy::Default,
+                        seam: SeamPolicy { dont_occlude_same: false, dont_project_fixups: false },
                         state_schema: HashMap::new(),
                         state_fields: Vec::new(),
                         prop_index: HashMap::new(),
@@ -407,14 +412,9 @@ pub enum CompiledLight {
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-#[allow(dead_code)]
-pub enum SeamPolicy {
-    // Default behavior: occlude based on occlusion mask; project fixups normally.
-    Default,
-    // Do not occlude faces against neighbors of the same block id (optional for transparent blocks).
-    DontOccludeAgainstSameType,
-    // Do not project micro-grid neighbor fixups for this block.
-    DontProjectFixups,
+pub struct SeamPolicy {
+    pub dont_occlude_same: bool,
+    pub dont_project_fixups: bool,
 }
 
 fn compile_shape(shape: Option<ShapeConfig>) -> Shape {

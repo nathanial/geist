@@ -1,5 +1,4 @@
 use crate::blocks::{Block, BlockRegistry, MaterialCatalog, MaterialId};
-use crate::blocks::registry::SeamPolicy;
 use crate::chunkbuf::ChunkBuf;
 use crate::lighting::{LightBorders, LightGrid, LightingStore};
 use crate::meshutil::{Face, SIDE_NEIGHBORS, is_full_cube};
@@ -508,7 +507,7 @@ fn is_occluder(
         let nb = buf.get_local(lx, ly, lz);
         // Seam policy: optionally avoid occluding against the same type
         if let (Some(h), Some(_n)) = (reg.get(here.id), reg.get(nb.id)) {
-            if matches!(h.seam, SeamPolicy::DontOccludeAgainstSameType) && here.id == nb.id {
+            if h.seam.dont_occlude_same && here.id == nb.id {
                 return false;
             }
         }
@@ -543,7 +542,7 @@ fn is_occluder(
         world.block_at_runtime(reg, nx, ny, nz)
     };
     if let (Some(h), Some(_n)) = (reg.get(here.id), reg.get(nb.id)) {
-        if matches!(h.seam, SeamPolicy::DontOccludeAgainstSameType) && here.id == nb.id {
+        if h.seam.dont_occlude_same && here.id == nb.id {
             return false;
         }
     }
@@ -698,7 +697,7 @@ pub fn build_chunk_greedy_cpu_buf(
                             fy,
                             fz,
                             occ,
-                            !matches!(ty.seam, SeamPolicy::DontProjectFixups),
+                            !ty.seam.dont_project_fixups,
                             |nx, ny, nz, face, draw_top| {
                                 sample_neighbor_half_light(
                                     &light, nx, ny, nz, face, draw_top, sy,
@@ -1299,7 +1298,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             fy,
                             fz,
                             occ,
-                            !matches!(ty.seam, SeamPolicy::DontProjectFixups),
+                            !ty.seam.dont_project_fixups,
                             |_, _, _, face, _| face_light(face, ambient),
                         );
                     } else if let Some(dyns) = var.dynamic {

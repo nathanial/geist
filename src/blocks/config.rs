@@ -137,12 +137,28 @@ pub enum SourceDirs {
 }
 
 // Configurable seam policies for neighbor occlusion/fixups
+// Seam policy can be a simple keyword or a flags table
+#[derive(Deserialize, Debug, Clone, Copy)]
+#[serde(untagged)]
+pub enum SeamPolicyCfg {
+    Simple(SeamPolicySimple),
+    Flags(SeamPolicyFlagsCfg),
+}
+
 #[derive(Deserialize, Debug, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
-pub enum SeamPolicyCfg {
+pub enum SeamPolicySimple {
     Default,
     DontOccludeSame,
     DontProjectFixups,
+}
+
+#[derive(Deserialize, Debug, Clone, Copy, Default)]
+pub struct SeamPolicyFlagsCfg {
+    #[serde(default)]
+    pub dont_occlude_same: bool,
+    #[serde(default)]
+    pub dont_project_fixups: bool,
 }
 
 fn default_omni_atten() -> u8 {
