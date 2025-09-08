@@ -9,7 +9,7 @@ use super::config::{
 };
 use super::material::MaterialCatalog;
 use super::types::{Block, BlockId, BlockState, FaceRole, MaterialId, Shape};
-use crate::meshutil::Face;
+use crate::meshutil::{Face, Facing};
 
 #[derive(Clone, Debug)]
 pub struct BlockType {
@@ -29,6 +29,8 @@ pub struct BlockType {
     pub pre_mat_side: Vec<MaterialId>,
     // Precomputed occlusion mask per state (6 bits in Face order)
     pub pre_occ_mask: Vec<u8>,
+    // Precomputed shape variant per state (for micro-grid based shapes)
+    pub pre_shape_variants: Vec<ShapeVariant>,
     #[allow(dead_code)]
     pub state_schema: HashMap<String, Vec<String>>, // property name -> allowed values
     // Precomputed, sorted layout for fast state packing/unpacking
@@ -218,12 +220,13 @@ impl BlockRegistry {
                 pre_mat_bottom: Vec::new(),
                 pre_mat_side: Vec::new(),
                 pre_occ_mask: Vec::new(),
+                pre_shape_variants: Vec::new(),
                 state_schema,
                 state_fields,
                 prop_index,
             };
             // Precompute face materials per state for fast lookup
-            let (pre_top, pre_bottom, pre_side, pre_occ) = {
+            let (pre_top, pre_bottom, pre_side, pre_occ, pre_vars) = {
                 let total_bits: u32 = ty.state_fields.iter().map(|f| f.bits).sum();
                 let states_len: usize = if total_bits == 0 {
                     1
@@ -248,41 +251,56 @@ impl BlockRegistry {
                     v
                 };
                 let mut occ = Vec::with_capacity(states_len);
+                let mut vars: Vec<ShapeVariant> = Vec::with_capacity(states_len);
                 for s in 0..states_len {
                     let state = s as BlockState;
-                    let m = match &ty.shape {
+                    let (m, var) = match &ty.shape {
                         Shape::Slab { half_from } | Shape::Stairs { half_from, .. } => {
                             let is_top = ty.state_prop_is_value(state, half_from, "top");
                             let posy = (!is_top) as u8;
                             let negy = (is_top) as u8;
-                            (posy << Face::PosY.index())
+                            let occ_mask = (posy << Face::PosY.index())
                                 | (negy << Face::NegY.index())
                                 | (1 << Face::PosX.index())
                                 | (1 << Face::NegX.index())
                                 | (1 << Face::PosZ.index())
-                                | (1 << Face::NegZ.index())
+                                | (1 << Face::NegZ.index());
+                            let occ8 = match &ty.shape {
+                                Shape::Slab { .. } => Some(occ_slab(is_top)),
+                                Shape::Stairs { facing_from, .. } => {
+                                    let facing = Facing::from_str(
+                                        ty.state_prop_value(state, facing_from).unwrap_or("north"),
+                                    );
+                                    Some(occ_stairs(facing, is_top))
+                                }
+                                _ => None,
+                            };
+                            (occ_mask, ShapeVariant { occupancy: occ8 })
                         }
                         _ => {
                             if ty.is_solid(state) {
-                                0b11_1111
+                                (0b11_1111, ShapeVariant { occupancy: None })
                             } else {
-                                0
+                                (0, ShapeVariant { occupancy: None })
                             }
                         }
                     };
                     occ.push(m);
+                    vars.push(var);
                 }
                 (
                     fill_role(FaceRole::Top),
                     fill_role(FaceRole::Bottom),
                     fill_role(FaceRole::Side),
                     occ,
+                    vars,
                 )
             };
             ty.pre_mat_top = pre_top;
             ty.pre_mat_bottom = pre_bottom;
             ty.pre_mat_side = pre_side;
             ty.pre_occ_mask = pre_occ;
+            ty.pre_shape_variants = pre_vars;
             if reg.blocks.len() <= id as usize {
                 reg.blocks.resize(
                     id as usize + 1,
@@ -303,6 +321,7 @@ impl BlockRegistry {
                         pre_mat_bottom: vec![MaterialId(0)],
                         pre_mat_side: vec![MaterialId(0)],
                         pre_occ_mask: vec![0],
+                        pre_shape_variants: vec![ShapeVariant { occupancy: None }],
                         state_schema: HashMap::new(),
                         state_fields: Vec::new(),
                         prop_index: HashMap::new(),
@@ -366,6 +385,36 @@ fn compile_shape(shape: Option<ShapeConfig>) -> Shape {
             _ => Shape::None,
         },
     }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct ShapeVariant {
+    pub occupancy: Option<u8>, // 2×2×2 micro-grid occupancy; None for greedy-cube shapes
+}
+
+#[inline]
+fn bit2(x: usize, y: usize, z: usize) -> u8 {
+    1u8 << (((y & 1) << 2) | ((z & 1) << 1) | (x & 1))
+}
+
+#[inline]
+fn occ_slab(is_top: bool) -> u8 {
+    let y = if is_top { 1 } else { 0 };
+    bit2(0, y, 0) | bit2(1, y, 0) | bit2(0, y, 1) | bit2(1, y, 1)
+}
+
+#[inline]
+fn occ_stairs(facing: Facing, is_top: bool) -> u8 {
+    let y_major = if is_top { 1 } else { 0 };
+    let y_minor = 1 - y_major;
+    let full_layer = bit2(0, y_major, 0) | bit2(1, y_major, 0) | bit2(0, y_major, 1) | bit2(1, y_major, 1);
+    let half_minor = match facing {
+        Facing::North => bit2(0, y_minor, 0) | bit2(1, y_minor, 0),
+        Facing::South => bit2(0, y_minor, 1) | bit2(1, y_minor, 1),
+        Facing::West => bit2(0, y_minor, 0) | bit2(0, y_minor, 1),
+        Facing::East => bit2(1, y_minor, 0) | bit2(1, y_minor, 1),
+    };
+    full_layer | half_minor
 }
 
 fn compile_materials(matcat: &MaterialCatalog, mats: Option<MaterialsDef>) -> CompiledMaterials {
@@ -555,6 +604,12 @@ impl BlockType {
     pub fn occlusion_mask_cached(&self, state: BlockState) -> u8 {
         let len = self.pre_occ_mask.len();
         self.pre_occ_mask[state as usize & (len - 1)]
+    }
+
+    #[inline]
+    pub fn variant(&self, state: BlockState) -> &ShapeVariant {
+        let len = self.pre_shape_variants.len();
+        &self.pre_shape_variants[state as usize & (len - 1)]
     }
 }
 
