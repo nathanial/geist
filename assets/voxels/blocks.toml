@@ -556,6 +556,7 @@ materials = { all = "oak_planks" }
 name = "glass_pane"
 solid = false
 blocks_skylight = true
+propagates_light = true
 emission = 0
 shape = "pane"
 materials = { all = "glass" }
@@ -565,7 +566,8 @@ seam = { dont_occlude_same = true, dont_project_fixups = true }
 [[blocks]]
 name = "fence"
 solid = false
-blocks_skylight = true
+blocks_skylight = false
+propagates_light = true
 emission = 0
 shape = "fence"
 state_schema = { material = [
@@ -585,7 +587,8 @@ planks_dark_oak = "oak_planks"
 [[blocks]]
 name = "fence_gate"
 solid = false
-blocks_skylight = true
+blocks_skylight = false
+propagates_light = true
 emission = 0
 shape = { kind = "gate", facing = { from = "facing" }, open = { from = "open" } }
 state_schema = { facing = ["north","south","west","east"], open = ["false","true"], material = [
@@ -606,6 +609,7 @@ planks_dark_oak = "oak_planks"
 name = "carpet"
 solid = false
 blocks_skylight = true
+propagates_light = true
 emission = 0
 shape = "carpet"
 state_schema = { color = [

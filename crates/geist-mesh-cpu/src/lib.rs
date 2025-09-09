@@ -846,7 +846,7 @@ pub fn build_chunk_wcc_cpu_buf(
                                     )
                                 },
                                 |face| {
-                                    let lv = light.sample_face_local(x, y, z, face.index());
+                                    let lv = light.sample_face_local_s2(buf, reg, x, y, z, face.index());
                                     lv.max(VISUAL_LIGHT_MIN)
                                 },
                             );
@@ -947,7 +947,7 @@ pub fn build_chunk_wcc_cpu_buf(
                             if connect[3] { // zp
                                 let min = Vec3 { x: fx + 0.5 - t, y: fy + 0.375, z: fz + 0.5 };
                                 let max = Vec3 { x: fx + 0.5 + t, y: fy + 0.625, z: fz + 1.0 };
-                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local(x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
                             }
                             let _ = arm; // silence
                         }
