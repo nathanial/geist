@@ -546,17 +546,15 @@ impl App {
                                     }
                                 }
                             } else {
-                                // Non-flat: place schematics onto a flying castle platform sized to fit them
-                                // 1) Decide target platform footprint by packing into rows near-square
+                                // Non-flat: place schematics directly on terrain surface near world center.
+                                // 1) Pack placements into a near-square footprint (same as before, but no platform).
                                 let margin: i32 = 4;
                                 let total_area: i64 = list
                                     .iter()
                                     .map(|e| (e.size.0 as i64) * (e.size.2 as i64))
                                     .sum();
-                                let target_w: i32 =
-                                    (((total_area as f64).sqrt()).ceil() as i32).max(32);
+                                let target_w: i32 = (((total_area as f64).sqrt()).ceil() as i32).max(32);
                                 let row_width_limit: i32 = target_w;
-                                // Pack placements in local (0,0) space first
                                 let mut placements: Vec<(
                                     std::path::PathBuf,
                                     (i32, i32),
@@ -565,28 +563,20 @@ impl App {
                                 let mut cur_x: i32 = 0;
                                 let mut cur_z: i32 = 0;
                                 let mut row_depth: i32 = 0;
-                                let mut max_h: i32 = 0;
                                 for ent in &list {
-                                    let (sx, sy, sz) = ent.size;
+                                    let (sx, _sy, sz) = ent.size;
                                     if cur_x > 0 && cur_x + sx > row_width_limit {
                                         cur_x = 0;
                                         cur_z += row_depth;
                                         row_depth = 0;
                                     }
-                                    placements.push((
-                                        ent.path.clone(),
-                                        (cur_x, cur_z),
-                                        (sx, sy, sz),
-                                    ));
+                                    placements.push((ent.path.clone(), (cur_x, cur_z), ent.size));
                                     cur_x += sx + margin;
                                     row_depth = row_depth.max(sz + margin);
-                                    max_h = max_h.max(sy);
                                 }
-                                // Compute layout extents
-                                let mut min_x = i32::MAX;
-                                let mut max_x = i32::MIN;
-                                let mut min_z = i32::MAX;
-                                let mut max_z = i32::MIN;
+                                // 2) Center the layout horizontally in world space.
+                                let (mut min_x, mut max_x, mut min_z, mut max_z) =
+                                    (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
                                 for (_p, (lx, lz), (sx, _sy, sz)) in &placements {
                                     min_x = min_x.min(*lx);
                                     min_z = min_z.min(*lz);
@@ -599,88 +589,66 @@ impl App {
                                     min_z = 0;
                                     max_z = 0;
                                 }
-                                let layout_w = (max_x - min_x).max(1);
-                                let layout_d = (max_z - min_z).max(1);
-                                // Add an outer border margin around platform
-                                let edge: i32 = 6;
-                                let st_sx = (layout_w + edge * 2) as usize;
-                                let st_sz = (layout_d + edge * 2) as usize;
-                                // Choose sy so deck has space below and schematics + clearance above
-                                let mut st_sy: usize = 24; // minimum height
-                                let clearance_above: i32 = 4;
-                                let below_space: i32 = 2;
-                                loop {
-                                    let deck_y = ((st_sy as f32) * 0.33) as i32;
-                                    let above = (st_sy as i32) - (deck_y + 1);
-                                    if deck_y >= below_space && above >= max_h + clearance_above {
-                                        break;
+                                let layout_cx = (min_x + max_x) / 2;
+                                let layout_cz = (min_z + max_z) / 2;
+                                let world_cx = (world.world_size_x() as i32) / 2;
+                                let world_cz = (world.world_size_z() as i32) / 2;
+                                let shift_x = world_cx - layout_cx;
+                                let shift_z = world_cz - layout_cz;
+
+                                // Helper: find terrain surface y given a world (x,z).
+                                let find_surface_y = |wx: i32, wz: i32| -> i32 {
+                                    let mut y = world.world_size_y() as i32 - 2;
+                                    while y >= 1 {
+                                        let b = world.block_at_runtime(&reg, wx, y, wz);
+                                        if reg.get(b.id).map(|t| t.is_solid(b.state)).unwrap_or(false) {
+                                            return (y + 1).clamp(1, world.world_size_y() as i32 - 1);
+                                        }
+                                        y -= 1;
                                     }
-                                    st_sy += 1;
-                                    if st_sy > 128 {
-                                        break;
-                                    }
-                                }
-                                // Spawn or replace the flying castle structure sized to fit
-                                let castle_id: StructureId = 1;
-                                // Center the platform near world center at a comfortable altitude
-                                let world_center_x = (world.world_size_x() as f32) * 0.5;
-                                let world_center_z = (world.world_size_z() as f32) * 0.5;
-                                let params = { world.gen_params.read().unwrap().clone() };
-                                let platform_y = (world.world_size_y() as f32)
-                                    * params.platform_y_ratio
-                                    + params.platform_y_offset;
-                                let pose = Pose {
-                                    pos: Vec3 { x: world_center_x + 0.0, y: platform_y + 0.0, z: world_center_z + 40.0 },
-                                    yaw_deg: 0.0,
+                                    1
                                 };
-                                let mut st =
-                                    Structure::new(castle_id, st_sx, st_sy, st_sz, pose, &reg);
-                                // Compute deck_y consistent with Structure::new()
-                                let deck_y = ((st_sy as f32) * 0.33) as i32;
-                                // Center layout on platform: shift so layout bbox lands in middle with edge border
-                                let shift_x =
-                                    edge - min_x + ((st_sx as i32 - (layout_w + edge * 2)) / 2);
-                                let shift_z =
-                                    edge - min_z + ((st_sz as i32 - (layout_d + edge * 2)) / 2);
-                                // Stamp each schematic onto the platform one block above the deck
-                                for (p, (lx, lz), (_sx, _sy, _sz)) in placements {
-                                    let ox = lx + shift_x;
-                                    let oy = deck_y + 1;
-                                    let oz = lz + shift_z;
-                                    match geist_io::load_any_schematic_apply_into_structure(
+
+                                // 3) For each schematic, compute base world (x,z), choose a terrain height, and stamp.
+                                for (p, (lx, lz), (sx, _sy, sz)) in placements {
+                                    let wx0 = lx + shift_x;
+                                    let wz0 = lz + shift_z;
+                                    // Use max surface Y among the four corners to avoid burying edges.
+                                    let corners = [
+                                        (wx0, wz0),
+                                        (wx0 + sx - 1, wz0),
+                                        (wx0, wz0 + sz - 1),
+                                        (wx0 + sx - 1, wz0 + sz - 1),
+                                    ];
+                                    let mut wy = i32::MIN;
+                                    for (cx, cz) in corners { wy = wy.max(find_surface_y(cx, cz)); }
+                                    // Clamp so the schematic fits vertically within world bounds.
+                                    let world_y_top = world.world_size_y() as i32 - 2;
+                                    let wy = wy.min(world_y_top);
+
+                                    match geist_io::load_any_schematic_apply_edits(
                                         &p,
-                                        (ox, oy, oz),
-                                        &mut st,
+                                        (wx0, wy, wz0),
+                                        &mut gs.edits,
                                         &reg,
                                     ) {
                                         Ok((sx, sy, sz)) => {
                                             log::info!(
-                                                "Loaded schem {:?} onto platform at local ({},{},{}) ({}x{}x{})",
+                                                "Loaded schem {:?} at terrain ({},{},{}) ({}x{}x{})",
                                                 p,
-                                                ox,
-                                                oy,
-                                                oz,
+                                                wx0,
+                                                wy,
+                                                wz0,
                                                 sx,
                                                 sy,
                                                 sz
                                             );
                                         }
                                         Err(e) => {
-                                            log::warn!(
-                                                "Failed loading schem {:?} into structure: {}",
-                                                p,
-                                                e
-                                            );
+                                            log::warn!("Failed loading schem {:?}: {}", p, e);
                                         }
                                     }
                                 }
-                                // Install/replace structure and request a build at its current dirty rev
-                                let rev = st.dirty_rev;
-                                gs.structures.insert(castle_id, st);
-                                queue.emit_now(Event::StructureBuildRequested {
-                                    id: castle_id,
-                                    rev,
-                                });
                             }
                         }
                     }
