@@ -2,6 +2,27 @@
 
 This document describes how to split the current single‑crate Geist project into a multi‑crate Cargo workspace with clear ownership boundaries, minimal coupling, and a safe incremental migration path.
 
+Status Summary
+
+- Completed
+  - Phase 0: Workspace scaffolded; crates created under `crates/` for all planned packages.
+  - Phase 1: `blocks/` moved to `geist-blocks`; `voxel.rs` and `worldgen/` moved to `geist-world`.
+  - Worldgen parity restored in `geist-world`: biomes, cave carving, features, tree placement, and config loader (`load_params_from_path`).
+  - Root app compiles via compatibility shims (`src/blocks/`, `src/worldgen/`, `src/voxel.rs` re-export new crates).
+  - `cargo check` passes for the workspace.
+
+- Temporary shims (to remove in Phase 7)
+  - `src/blocks/mod.rs` re-exports `geist-blocks` (and preserves `crate::blocks::{registry,material,config,types}` paths).
+  - `src/worldgen/mod.rs` re-exports `geist-world::worldgen`.
+  - `src/voxel.rs` re-exports `geist-world::voxel`.
+
+- Not yet done (future phases)
+  - Extract chunk + lighting crates.
+  - Split mesher CPU/GPU and add `geist-render-raylib` logic.
+  - Slim `runtime` (move GPU bits out).
+  - Extract edits, IO, and structures.
+  - Final import cleanup and shim removal.
+
 Goals
 
 - Separate CPU “engine” from GPU/Raylib concerns.
@@ -150,7 +171,7 @@ members = [
 resolver = "2"
 
 [workspace.package]
-edition = "2021" # or keep the current edition if desired
+edition = "2024" # keep current edition
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -193,20 +214,42 @@ Phase 1: Extract Blocks + World
 - Move `src/worldgen/` and `src/voxel.rs` → `geist-world`.
 - Update imports where needed; keep re‑exports during the transition.
 
+Done in repo:
+- `geist-blocks` now contains `config`, `material`, `registry`, `types` (with re-exports in `lib.rs`).
+- `geist-world` now contains `worldgen` and `voxel` with full parity features (biomes, trees, caves, features) and `load_params_from_path`.
+- Root app re-exports preserve old paths; app worldgen config reload continues to work.
+
 Phase 2: Extract Chunk + Lighting
 - Move `src/chunkbuf.rs` → `geist-chunk`.
 - Move `src/lighting.rs` → `geist-lighting`.
 - Update users: mesher, runtime, app.
+
+Proposed concrete steps:
+- Add `geist-chunk` and `geist-lighting` dependencies to root and any crates needing them.
+- Move code and wire public APIs:
+  - `geist-chunk`: `ChunkBuf` + helpers; `generate_chunk_buffer(world, cx, cz, reg)`.
+  - `geist-lighting`: `LightGrid`, `LightBorders`, `LightingStore` (+ neighbor border planes).
+- Update imports in `mesher.rs`, `runtime.rs`, `snapshowcase.rs`, and any CPU workers.
+- Keep shims for `crate::chunkbuf` and `crate::lighting` if needed to minimize churn.
+- `cargo check` and quick run to validate visuals and lighting borders across chunk seams.
 
 Phase 3: Introduce engine math (remove Raylib from engine types)
 - Add `geist-geom` with `Vec3` and `Aabb` equivalents.
 - Replace `raylib::Vector3/BoundingBox` usages inside CPU engine code (meshing/structure) with `geist-geom` types.
 - Keep conversions inside `geist-render-raylib` when uploading meshes.
 
+Notes:
+- `geist-geom` crate already exists with initial `Vec3`/`Aabb` types; integration pending.
+
 Phase 4: Split Mesher
 - Move CPU meshing into `geist-mesh-cpu` (including `microgrid_tables.rs`).
 - Add `geist-render-raylib` that owns `ChunkRender`, shader wrappers, `TextureCache`, and `upload_chunk_mesh`.
 - Remove Raylib model types from the CPU path.
+
+Proposed concrete steps:
+- Extract CPU-only meshing structures (`MeshBuild`, `ChunkMeshCPU`, `NeighborsLoaded`) into `geist-mesh-cpu`.
+- Keep `microgrid_tables.rs` with static tables in `geist-mesh-cpu`.
+- Introduce `geist-render-raylib` for `ChunkRender`, shader wrappers, texture cache and mesh upload, plus conversions from `geist-geom`.
 
 Phase 5: Slim Runtime
 - Move GPU/texture/file‑watch logic out of `runtime.rs` into `geist-render-raylib` and/or the app.
@@ -220,6 +263,13 @@ Phase 6: Extract Edits + IO + Structures
 Phase 7: Wire the App
 - Update `geist-app` to depend on new crates and remove all temporary re‑exports.
 - Keep CLI and HUD unchanged; adopt new crate APIs for queue sizes and debug counters where applicable.
+
+Validation checkpoints (per phase)
+
+- Build: `cargo check`/`cargo build --workspace` must pass.
+- Smoke run: `cargo run -- run` should render world parity (biomes, trees, caves intact).
+- Imports: root `src/` should reference new crates or shims only; remove shims at Phase 7.
+
 
 Build/Run After Split
 
@@ -253,4 +303,3 @@ Optional Follow‑ups
 - Consider a small `geist-events` crate if `event.rs` becomes a reusable boundary, otherwise keep it in the app.
 - Add crate‑level README files summarizing each module’s purpose and public API.
 - Add CI jobs: `cargo fmt --all`, `cargo clippy --workspace -D warnings`, and a minimal run smoke test.
-
