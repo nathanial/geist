@@ -6,3 +6,9 @@ edition = "2024"
 [lib]
 path = "src/lib.rs"
 
+[dependencies]
+geist-blocks = { path = "../geist-blocks" }
+geist-world = { path = "../geist-world" }
+geist-chunk = { path = "../geist-chunk" }
+geist-lighting = { path = "../geist-lighting" }
+geist-mesh-cpu = { path = "../geist-mesh-cpu" }

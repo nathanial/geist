@@ -355,9 +355,9 @@ fn run_app(run: RunArgs) {
     while !rl.window_should_close() {
         let dt = rl.get_frame_time();
         // Hot-reload textures modified under assets/blocks
-        app.runtime.process_texture_file_events(&mut rl, &thread);
+        app.process_texture_file_events(&mut rl, &thread);
         // Hot-reload worldgen params when config changes
-        app.runtime.process_worldgen_file_events();
+        app.process_worldgen_file_events();
         app.step(&mut rl, &thread, dt);
         app.render(&mut rl, &thread);
     }

@@ -517,6 +517,7 @@ dependencies = [
  "geist-lighting",
  "geist-mesh-cpu",
  "geist-render-raylib",
+ "geist-runtime",
  "geist-world",
  "log",
  "mc_schem",
@@ -588,6 +589,13 @@ dependencies = [
 [[package]]
 name = "geist-runtime"
 version = "0.1.0"
+dependencies = [
+ "geist-blocks",
+ "geist-chunk",
+ "geist-lighting",
+ "geist-mesh-cpu",
+ "geist-world",
+]
 
 [[package]]
 name = "geist-structures"

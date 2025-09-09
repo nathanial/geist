@@ -23,6 +23,7 @@ geist-chunk = { path = "crates/geist-chunk" }
 geist-lighting = { path = "crates/geist-lighting" }
 geist-render-raylib = { path = "crates/geist-render-raylib" }
 geist-mesh-cpu = { path = "crates/geist-mesh-cpu" }
+geist-runtime = { path = "crates/geist-runtime" }
 
 [features]
 default = []

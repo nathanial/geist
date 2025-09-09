@@ -10,6 +10,7 @@ use crate::event::{Event, EventEnvelope, EventQueue, RebuildCause};
 use crate::gamestate::{ChunkEntry, GameState};
 use crate::lighting::LightingStore;
 use crate::mesher::{NeighborsLoaded, upload_chunk_mesh};
+use crate::texture_cache::TextureCache;
 use crate::raycast;
 use crate::runtime::{BuildJob, JobOut, Runtime, StructureBuildJob};
 use crate::structure::{Pose, Structure, StructureId, rotate_yaw, rotate_yaw_inv};
@@ -33,11 +34,24 @@ pub struct App {
     pub cam: crate::camera::FlyCamera,
     pub debug_stats: DebugStats,
     hotbar: Vec<Block>,
+    // Renderer-side resources (moved from runtime in Phase 5)
+    pub leaves_shader: Option<crate::shaders::LeavesShader>,
+    pub fog_shader: Option<crate::shaders::FogShader>,
+    pub tex_cache: TextureCache,
+    pub renders: HashMap<(i32, i32), crate::mesher::ChunkRender>,
+    pub structure_renders: HashMap<StructureId, crate::mesher::ChunkRender>,
+    pub reg: std::sync::Arc<BlockRegistry>,
     // Session-wide processed event stats
     evt_processed_total: usize,
     evt_processed_by: HashMap<String, usize>,
     // Coalesced rebuild/load intents (priority-scheduled per frame)
     intents: HashMap<(i32, i32), IntentEntry>,
+    // File watchers (moved from runtime in Phase 5)
+    tex_event_rx: std::sync::mpsc::Receiver<String>,
+    worldgen_event_rx: std::sync::mpsc::Receiver<()>,
+    world_config_path: String,
+    pub rebuild_on_worldgen: bool,
+    worldgen_dirty: bool,
 }
 
 #[derive(Default)]
@@ -170,7 +184,7 @@ impl App {
             let rev = ent.rev;
             let job_id = Self::job_hash(cx, cz, rev, neighbors);
             // Visibility gating (lightweight): do not block edits
-            let is_loaded = self.runtime.renders.contains_key(&key);
+            let is_loaded = self.renders.contains_key(&key);
             match ent.cause {
                 IntentCause::Edit => {
                     // Schedule even if not loaded: acts as a high-priority load+rebuild
@@ -312,8 +326,8 @@ impl App {
             let ly = (local.y - 0.08).floor() as i32;
             let lz = local.z.floor() as i32;
             // Be robust to tiny clearance/step resolution by also checking one cell below
-            if Self::structure_block_solid_at_local(&self.runtime.reg, st, lx, ly, lz)
-                || Self::structure_block_solid_at_local(&self.runtime.reg, st, lx, ly - 1, lz)
+            if Self::structure_block_solid_at_local(&self.reg, st, lx, ly, lz)
+                || Self::structure_block_solid_at_local(&self.reg, st, lx, ly - 1, lz)
             {
                 return true;
             }
@@ -349,16 +363,70 @@ impl App {
         };
         let cam = crate::camera::FlyCamera::new(spawn + Vector3::new(0.0, 5.0, 20.0));
 
+        // Renderer-side resources and file watchers (moved from Runtime in Phase 5)
+        let leaves_shader = crate::shaders::LeavesShader::load(rl, thread);
+        let fog_shader = crate::shaders::FogShader::load(rl, thread);
+        let tex_cache = TextureCache::new();
+        // File watcher for textures under assets/blocks
+        let (tex_tx, tex_rx) = std::sync::mpsc::channel::<String>();
+        if watch_textures {
+            let tex_tx = tex_tx.clone();
+            std::thread::spawn(move || {
+                use notify::{EventKind, RecursiveMode, Watcher};
+                let mut watcher = notify::recommended_watcher(
+                    move |res: Result<notify::Event, notify::Error>| {
+                        if let Ok(event) = res {
+                            match event.kind {
+                                EventKind::Modify(_)
+                                | EventKind::Create(_)
+                                | EventKind::Remove(_)
+                                | EventKind::Any => {
+                                    for p in event.paths {
+                                        if let Some(e) = p.extension().and_then(|e| e.to_str()) {
+                                            let e = e.to_lowercase();
+                                            if e == "png" || e == "jpg" || e == "jpeg" {
+                                                let _ = tex_tx.send(p.to_string_lossy().to_string());
+                                            }
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                    },
+                )
+                .unwrap();
+                let _ = watcher.watch(std::path::Path::new("assets/blocks"), RecursiveMode::Recursive);
+                loop { std::thread::sleep(std::time::Duration::from_secs(3600)); }
+            });
+        }
+        // File watcher for worldgen config
+        let (wg_tx, wg_rx) = std::sync::mpsc::channel::<()>();
+        if watch_worldgen {
+            let tx = wg_tx.clone();
+            let path = world_config_path.clone();
+            std::thread::spawn(move || {
+                use notify::{EventKind, RecursiveMode, Watcher};
+                if let Ok(mut watcher) = notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+                    if let Ok(event) = res {
+                        match event.kind {
+                            EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_) | EventKind::Any => {
+                                let _ = tx.send(());
+                            }
+                            _ => {}
+                        }
+                    }
+                }) {
+                    let _ = watcher.watch(std::path::Path::new(&path), RecursiveMode::NonRecursive);
+                    loop { std::thread::sleep(std::time::Duration::from_secs(3600)); }
+                }
+            });
+        }
+
         let runtime = Runtime::new(
-            rl,
-            thread,
             world.clone(),
             lighting.clone(),
             reg.clone(),
-            watch_textures,
-            watch_worldgen,
-            world_config_path,
-            rebuild_on_worldgen,
         );
         let mut gs = GameState::new(world.clone(), edits, lighting.clone(), cam.position);
         let mut queue = EventQueue::new();
@@ -667,7 +735,7 @@ impl App {
         queue.emit_now(Event::ViewCenterChanged { ccx, ccz });
         // Do not spawn a default platform in non-flat: schematics drive platform creation now.
         // Default place_type: stone
-        if let Some(id) = runtime.reg.id_by_name("stone") {
+        if let Some(id) = reg.id_by_name("stone") {
             gs.place_type = Block { id, state: 0 };
         }
 
@@ -678,18 +746,29 @@ impl App {
             cam,
             debug_stats: DebugStats::default(),
             hotbar,
+            leaves_shader,
+            fog_shader,
+            tex_cache,
+            renders: HashMap::new(),
+            structure_renders: HashMap::new(),
+            reg: reg.clone(),
             evt_processed_total: 0,
             evt_processed_by: HashMap::new(),
             intents: HashMap::new(),
+            tex_event_rx: tex_rx,
+            worldgen_event_rx: wg_rx,
+            world_config_path,
+            rebuild_on_worldgen,
+            worldgen_dirty: false,
         }
     }
 
     fn neighbor_mask(&self, cx: i32, cz: i32) -> NeighborsLoaded {
         NeighborsLoaded {
-            neg_x: self.runtime.renders.contains_key(&(cx - 1, cz)),
-            pos_x: self.runtime.renders.contains_key(&(cx + 1, cz)),
-            neg_z: self.runtime.renders.contains_key(&(cx, cz - 1)),
-            pos_z: self.runtime.renders.contains_key(&(cx, cz + 1)),
+            neg_x: self.renders.contains_key(&(cx - 1, cz)),
+            pos_x: self.renders.contains_key(&(cx + 1, cz)),
+            neg_z: self.renders.contains_key(&(cx, cz - 1)),
+            pos_z: self.renders.contains_key(&(cx, cz + 1)),
         }
     }
 
@@ -785,7 +864,7 @@ impl App {
                             self.gs.ground_attach = None;
                         }
                     }
-                    let reg = &self.runtime.reg;
+                    let reg = &self.reg;
                     let sampler = |wx: i32, wy: i32, wz: i32| -> Block {
                         // Check dynamic structures first
                         for st in self.gs.structures.values() {
@@ -830,7 +909,7 @@ impl App {
                         rl,
                         &sampler,
                         &self.gs.world,
-                        &self.runtime.reg,
+                        &self.reg,
                         (dt_ms as f32) / 1000.0,
                         yaw,
                         None, // No platform velocity needed - we handle movement via teleportation
@@ -916,7 +995,7 @@ impl App {
                     }
                 }
                 // Unload far ones
-                let current: Vec<(i32, i32)> = self.runtime.renders.keys().cloned().collect();
+                let current: Vec<(i32, i32)> = self.renders.keys().cloned().collect();
                 for key in current {
                     if !desired.contains(&key) {
                         self.queue.emit_now(Event::EnsureChunkUnloaded {
@@ -943,7 +1022,7 @@ impl App {
                 }
                 // Load new ones
                 for key in desired {
-                    if !self.runtime.renders.contains_key(&key)
+                    if !self.renders.contains_key(&key)
                         && !self.gs.inflight_rev.contains_key(&key)
                     {
                         self.queue.emit_now(Event::EnsureChunkLoaded {
@@ -954,7 +1033,7 @@ impl App {
                 }
             }
             Event::EnsureChunkUnloaded { cx, cz } => {
-                self.runtime.renders.remove(&(cx, cz));
+                self.renders.remove(&(cx, cz));
                 self.gs.chunks.remove(&(cx, cz));
                 self.gs.loaded.remove(&(cx, cz));
                 self.gs.inflight_rev.remove(&(cx, cz));
@@ -962,7 +1041,7 @@ impl App {
                 self.gs.lighting.clear_chunk(cx, cz);
             }
             Event::EnsureChunkLoaded { cx, cz } => {
-                if self.runtime.renders.contains_key(&(cx, cz))
+                if self.renders.contains_key(&(cx, cz))
                     || self.gs.inflight_rev.contains_key(&(cx, cz))
                 {
                     return;
@@ -997,7 +1076,6 @@ impl App {
                     chunk_edits,
                     region_edits,
                     prev_buf,
-                    cause,
                 };
                 match cause {
                     RebuildCause::Edit => {
@@ -1031,20 +1109,19 @@ impl App {
                     rl,
                     thread,
                     cpu,
-                    &mut self.runtime.tex_cache,
-                    &self.runtime.reg.materials,
+                    &mut self.tex_cache,
+                    &self.reg.materials,
                 ) {
                     for (mid, model) in &mut cr.parts {
                         if let Some(mat) = model.materials_mut().get_mut(0) {
                             let leaves = self
-                                .runtime
                                 .reg
                                 .materials
                                 .get(*mid)
                                 .and_then(|m| m.render_tag.as_deref())
                                 == Some("leaves");
                             if leaves {
-                                if let Some(ref ls) = self.runtime.leaves_shader {
+                                if let Some(ref ls) = self.leaves_shader {
                                     let dest = mat.shader_mut();
                                     let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
                                     let src_ptr: *const raylib::ffi::Shader = ls.shader.as_ref();
@@ -1052,7 +1129,7 @@ impl App {
                                         std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1);
                                     }
                                 }
-                            } else if let Some(ref fs) = self.runtime.fog_shader {
+                            } else if let Some(ref fs) = self.fog_shader {
                                 let dest = mat.shader_mut();
                                 let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
                                 let src_ptr: *const raylib::ffi::Shader = fs.shader.as_ref();
@@ -1062,7 +1139,7 @@ impl App {
                             }
                         }
                     }
-                    self.runtime.structure_renders.insert(id, cr);
+                    self.structure_renders.insert(id, cr);
                 }
                 if let Some(st) = self.gs.structures.get_mut(&id) {
                     st.built_rev = rev;
@@ -1114,8 +1191,8 @@ impl App {
                     rl,
                     thread,
                     cpu,
-                    &mut self.runtime.tex_cache,
-                    &self.runtime.reg.materials,
+                    &mut self.tex_cache,
+                    &self.reg.materials,
                 ) {
                     // Assign biome-based leaf tint for this chunk (center sample)
                     let sx = self.gs.world.chunk_size_x as i32;
@@ -1131,14 +1208,13 @@ impl App {
                     for (mid, model) in &mut cr.parts {
                         if let Some(mat) = model.materials_mut().get_mut(0) {
                             let leaves = self
-                                .runtime
                                 .reg
                                 .materials
                                 .get(*mid)
                                 .and_then(|m| m.render_tag.as_deref())
                                 == Some("leaves");
                             if leaves {
-                                if let Some(ref ls) = self.runtime.leaves_shader {
+                                if let Some(ref ls) = self.leaves_shader {
                                     let dest = mat.shader_mut();
                                     let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
                                     let src_ptr: *const raylib::ffi::Shader = ls.shader.as_ref();
@@ -1146,7 +1222,7 @@ impl App {
                                         std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1);
                                     }
                                 }
-                            } else if let Some(ref fs) = self.runtime.fog_shader {
+                            } else if let Some(ref fs) = self.fog_shader {
                                 let dest = mat.shader_mut();
                                 let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
                                 let src_ptr: *const raylib::ffi::Shader = fs.shader.as_ref();
@@ -1156,7 +1232,7 @@ impl App {
                             }
                         }
                     }
-                    self.runtime.renders.insert((cx, cz), cr);
+                    self.renders.insert((cx, cz), cr);
                 }
                 // Update CPU buf & built rev
                 self.gs.chunks.insert(
@@ -1179,7 +1255,7 @@ impl App {
                 }
             }
             Event::ChunkRebuildRequested { cx, cz, cause } => {
-                if !self.runtime.renders.contains_key(&(cx, cz)) {
+                if !self.renders.contains_key(&(cx, cz)) {
                     return;
                 }
                 // Record rebuild intent; scheduler will cap and prioritize
@@ -1196,7 +1272,7 @@ impl App {
                 let dir = self.cam.forward();
                 let sx = self.gs.world.chunk_size_x as i32;
                 let sz = self.gs.world.chunk_size_z as i32;
-                let reg = self.runtime.reg.clone();
+                let reg = self.reg.clone();
                 let sampler = |wx: i32, wy: i32, wz: i32| -> Block {
                     if let Some(b) = self.gs.edits.get(wx, wy, wz) {
                         return b;
@@ -1220,8 +1296,7 @@ impl App {
                 let world_hit =
                     raycast::raycast_first_hit_with_face(org, dir, 8.0 * 32.0, |x, y, z| {
                         let b = sampler(x, y, z);
-                        self.runtime
-                            .reg
+                        self.reg
                             .get(b.id)
                             .map(|ty| ty.is_solid(b.state))
                             .unwrap_or(false)
@@ -1242,15 +1317,13 @@ impl App {
                         }
                         if let Some(b) = st.edits.get(lx, ly, lz) {
                             return self
-                                .runtime
                                 .reg
                                 .get(b.id)
                                 .map(|ty| ty.is_solid(b.state))
                                 .unwrap_or(false);
                         }
                         let b = st.blocks[st.idx(lxu, lyu, lzu)];
-                        self.runtime
-                            .reg
+                        self.reg
                             .get(b.id)
                             .map(|ty| ty.is_solid(b.state))
                             .unwrap_or(false)
@@ -1326,7 +1399,6 @@ impl App {
                         let wz = hit.bz;
                         let prev = sampler(wx, wy, wz);
                         if self
-                            .runtime
                             .reg
                             .get(prev.id)
                             .map(|t| t.is_solid(prev.state))
@@ -1362,14 +1434,12 @@ impl App {
             Event::BlockPlaced { wx, wy, wz, block } => {
                 self.gs.edits.set(wx, wy, wz, block);
                 let em = self
-                    .runtime
                     .reg
                     .get(block.id)
                     .map(|t| t.light_emission(block.state))
                     .unwrap_or(0);
                 if em > 0 {
                     let is_beacon = self
-                        .runtime
                         .reg
                         .get(block.id)
                         .map(|t| t.light_is_beam())
@@ -1385,7 +1455,7 @@ impl App {
                 let _ = self.gs.edits.bump_region_around(wx, wz);
                 // Rebuild edited chunk and any boundary-adjacent neighbors that are loaded
                 for (cx, cz) in self.gs.edits.get_affected_chunks(wx, wz) {
-                    if self.runtime.renders.contains_key(&(cx, cz)) {
+                    if self.renders.contains_key(&(cx, cz)) {
                         self.queue.emit_now(Event::ChunkRebuildRequested {
                             cx,
                             cz,
@@ -1398,7 +1468,7 @@ impl App {
                 // Determine previous block to update lighting
                 let sx = self.gs.world.chunk_size_x as i32;
                 let sz = self.gs.world.chunk_size_z as i32;
-                let reg = &self.runtime.reg;
+                let reg = &self.reg;
                 let sampler = |wx: i32, wy: i32, wz: i32| -> Block {
                     if let Some(b) = self.gs.edits.get(wx, wy, wz) {
                         return b;
@@ -1414,7 +1484,6 @@ impl App {
                 };
                 let prev = sampler(wx, wy, wz);
                 let prev_em = self
-                    .runtime
                     .reg
                     .get(prev.id)
                     .map(|t| t.light_emission(prev.state))
@@ -1426,7 +1495,7 @@ impl App {
                 self.gs.edits.set(wx, wy, wz, Block::AIR);
                 let _ = self.gs.edits.bump_region_around(wx, wz);
                 for (cx, cz) in self.gs.edits.get_affected_chunks(wx, wz) {
-                    if self.runtime.renders.contains_key(&(cx, cz)) {
+                    if self.renders.contains_key(&(cx, cz)) {
                         self.queue.emit_now(Event::ChunkRebuildRequested {
                             cx,
                             cz,
@@ -1480,7 +1549,7 @@ impl App {
                     if ring > r_gate {
                         continue;
                     }
-                    if self.runtime.renders.contains_key(&(nx, nz))
+                    if self.renders.contains_key(&(nx, nz))
                         && !self.gs.inflight_rev.contains_key(&(nx, nz))
                     {
                         self.queue.emit_now(Event::ChunkRebuildRequested {
@@ -1534,14 +1603,14 @@ impl App {
     pub fn step(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread, dt: f32) {
         // Handle worldgen hot-reload
         // Always invalidate previous CPU buffers on change; optionally schedule rebuilds
-        if self.runtime.take_worldgen_dirty() {
-            let keys: Vec<(i32, i32)> = self.runtime.renders.keys().cloned().collect();
+        if self.take_worldgen_dirty() {
+            let keys: Vec<(i32, i32)> = self.renders.keys().cloned().collect();
             for (cx, cz) in keys.iter().copied() {
                 if let Some(ent) = self.gs.chunks.get_mut(&(cx, cz)) {
                     ent.buf = None; // prevent reuse across worldgen param changes
                 }
             }
-            if self.runtime.rebuild_on_worldgen {
+            if self.rebuild_on_worldgen {
                 for (cx, cz) in keys.iter().copied() {
                     self.queue.emit_now(Event::ChunkRebuildRequested {
                         cx,
@@ -1606,7 +1675,7 @@ impl App {
                 }
             }
         } else {
-            let id_of = |name: &str| self.runtime.reg.id_by_name(name).unwrap_or(0);
+            let id_of = |name: &str| self.reg.id_by_name(name).unwrap_or(0);
             if rl.is_key_pressed(KeyboardKey::KEY_ONE) {
                 self.queue.emit_now(Event::PlaceTypeSelected {
                     block: Block {
@@ -1891,14 +1960,14 @@ impl App {
             // Diminish fog: push start/end farther out
             let fog_start = 64.0f32;
             let fog_end = 512.0f32 * 0.9;
-            if let Some(ref mut ls) = self.runtime.leaves_shader {
+            if let Some(ref mut ls) = self.leaves_shader {
                 ls.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end);
             }
-            if let Some(ref mut fs) = self.runtime.fog_shader {
+            if let Some(ref mut fs) = self.fog_shader {
                 fs.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end);
             }
 
-            for cr in self.runtime.renders.values() {
+            for cr in self.renders.values() {
                 // Check if chunk is within frustum
                 if self.gs.frustum_culling_enabled && !frustum.contains_bounding_box(&cr.bbox) {
                     self.debug_stats.chunks_culled += 1;
@@ -1907,7 +1976,7 @@ impl App {
 
                 self.debug_stats.chunks_rendered += 1;
                 // Set biome-based leaf palette per chunk if available
-                if let Some(ref mut ls) = self.runtime.leaves_shader {
+                if let Some(ref mut ls) = self.leaves_shader {
                     if let Some(t) = cr.leaf_tint {
                         let p0 = t;
                         let p1 = [t[0] * 0.85, t[1] * 0.85, t[2] * 0.85];
@@ -1943,7 +2012,7 @@ impl App {
             }
 
             // Draw structures with transform (translation + yaw)
-            for (id, cr) in &self.runtime.structure_renders {
+            for (id, cr) in &self.structure_renders {
                 if let Some(st) = self.gs.structures.get(id) {
                     // Translate bounding box to structure position for frustum check
                     let translated_bbox = raylib::core::math::BoundingBox {
@@ -1993,14 +2062,11 @@ impl App {
                         return buf.get_world(wx, wy, wz).unwrap_or(Block::AIR);
                     }
                 }
-                self.gs
-                    .world
-                    .block_at_runtime(&self.runtime.reg, wx, wy, wz)
+                self.gs.world.block_at_runtime(&self.reg, wx, wy, wz)
             };
             let is_solid = |wx: i32, wy: i32, wz: i32| -> bool {
                 let b = sampler(wx, wy, wz);
-                self.runtime
-                    .reg
+                self.reg
                     .get(b.id)
                     .map(|ty| ty.is_solid(b.state))
                     .unwrap_or(false)
@@ -2048,7 +2114,7 @@ impl App {
 
             if self.gs.show_chunk_bounds {
                 let col = Color::new(255, 64, 32, 200);
-                for cr in self.runtime.renders.values() {
+                for cr in self.renders.values() {
                     let min = cr.bbox.min;
                     let max = cr.bbox.max;
                     let center = Vector3::new(
@@ -2078,7 +2144,7 @@ impl App {
                 row_y = row_y.clamp(1, self.gs.world.chunk_size_y as i32 - 2);
                 let cz = (self.gs.world.world_size_z() as i32) / 2;
                 // Build showcase entries (mirrors worldgen layout)
-                let entries = crate::voxel::build_showcase_entries(&self.runtime.reg);
+                let entries = crate::voxel::build_showcase_entries(&self.reg);
                 if !entries.is_empty() {
                     let spacing = 2i32; // air gap of 1 block between entries
                     let row_len = (entries.len() as i32) * spacing - 1;
@@ -2106,7 +2172,7 @@ impl App {
 
                 // Stairs cluster labels (adjacency scenarios)
                 let stair_base_z = cz + 3; // matches worldgen placement
-                let placements = crate::voxel::build_showcase_stairs_cluster(&self.runtime.reg);
+                let placements = crate::voxel::build_showcase_stairs_cluster(&self.reg);
                 if !placements.is_empty() {
                     let max_dx = placements.iter().map(|p| p.dx).max().unwrap_or(0);
                     let cluster_w = max_dx + 1;
@@ -2378,8 +2444,7 @@ impl App {
                 if let Some(b) = st.edits.get(lx, ly, lz) {
                     (
                         format!("id:{} state:{} (edit)", b.id, b.state),
-                        self.runtime
-                            .reg
+                        self.reg
                             .get(b.id)
                             .map(|ty| ty.is_solid(b.state))
                             .unwrap_or(false),
@@ -2390,8 +2455,7 @@ impl App {
                     let b = st.blocks[idx];
                     (
                         format!("id:{} state:{}", b.id, b.state),
-                        self.runtime
-                            .reg
+                        self.reg
                             .get(b.id)
                             .map(|ty| ty.is_solid(b.state))
                             .unwrap_or(false),
@@ -2438,8 +2502,7 @@ impl App {
                     if let Some(b) = st.edits.get(lx, by, lz) {
                         (
                             format!("id:{} state:{} (edit)", b.id, b.state),
-                            self.runtime
-                                .reg
+                            self.reg
                                 .get(b.id)
                                 .map(|ty| ty.is_solid(b.state))
                                 .unwrap_or(false),
@@ -2449,8 +2512,7 @@ impl App {
                         let b = st.blocks[idx];
                         (
                             format!("id:{} state:{}", b.id, b.state),
-                            self.runtime
-                                .reg
+                            self.reg
                                 .get(b.id)
                                 .map(|ty| ty.is_solid(b.state))
                                 .unwrap_or(false),
@@ -2639,5 +2701,135 @@ impl App {
                 log::debug!(target: "events", "[tick {}] LightBordersUpdated ({}, {})", tick, cx, cz);
             }
         }
+    }
+}
+
+impl App {
+    // Process file watcher events: reload changed textures and rebind them on existing models.
+    pub fn process_texture_file_events(
+        &mut self,
+        rl: &mut raylib::prelude::RaylibHandle,
+        thread: &raylib::prelude::RaylibThread,
+    ) {
+        use std::collections::HashSet;
+        let mut changed: HashSet<String> = HashSet::new();
+        for p in self.tex_event_rx.try_iter() {
+            let canon = std::fs::canonicalize(&p)
+                .ok()
+                .map(|pb| pb.to_string_lossy().to_string())
+                .unwrap_or(p);
+            changed.insert(canon);
+        }
+        if changed.is_empty() {
+            return;
+        }
+        log::info!("Texture changes detected: {} file(s)", changed.len());
+        for p in &changed { log::debug!(" - {}", p); }
+        // Helper to choose material path like upload path
+        let choose_path = |mid: crate::blocks::MaterialId| -> Option<String> {
+            self.reg.materials.get(mid).and_then(|mdef| {
+                let candidates: Vec<String> = mdef
+                    .texture_candidates
+                    .iter()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect();
+                let chosen = candidates
+                    .iter()
+                    .find(|p| std::path::Path::new(p.as_str()).exists())
+                    .cloned()
+                    .or_else(|| candidates.first().cloned());
+                chosen.map(|s| {
+                    std::fs::canonicalize(&s)
+                        .ok()
+                        .map(|pb| pb.to_string_lossy().to_string())
+                        .unwrap_or(s)
+                })
+            })
+        };
+        // Reload any changed paths into cache
+        for path in changed.iter() {
+            if let Ok(tex) = rl.load_texture(thread, path) {
+                tex.set_texture_filter(thread, raylib::consts::TextureFilter::TEXTURE_FILTER_POINT);
+                tex.set_texture_wrap(thread, raylib::consts::TextureWrap::TEXTURE_WRAP_REPEAT);
+                self.tex_cache.replace_loaded(path.clone(), tex);
+                log::debug!("reloaded texture {}", path);
+            } else {
+                log::warn!("failed to reload texture {}", path);
+            }
+        }
+        let mut rebound: std::collections::HashMap<String, usize> = Default::default();
+        // Rebind textures on existing chunk renders
+        for (_k, cr) in self.renders.iter_mut() {
+            for (mid, model) in cr.parts.iter_mut() {
+                let Some(path) = choose_path(*mid) else { continue; };
+                if !changed.contains(&path) { continue; }
+                if let Some(mat) = { use raylib::prelude::RaylibModel; model.materials_mut().get_mut(0) } {
+                    if let Some(tex) = self.tex_cache.get_ref(&path) {
+                        mat.set_material_texture(raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO, tex);
+                        *rebound.entry(path.clone()).or_insert(0) += 1;
+                    } else if let Ok(t) = rl.load_texture(thread, &path) {
+                        t.set_texture_filter(thread, raylib::consts::TextureFilter::TEXTURE_FILTER_POINT);
+                        t.set_texture_wrap(thread, raylib::consts::TextureWrap::TEXTURE_WRAP_REPEAT);
+                        self.tex_cache.replace_loaded(path.clone(), t);
+                        if let Some(tex) = self.tex_cache.get_ref(&path) {
+                            mat.set_material_texture(raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO, tex);
+                            *rebound.entry(path.clone()).or_insert(0) += 1;
+                        }
+                    }
+                }
+            }
+        }
+        // Rebind for structure renders as well
+        for (_id, cr) in self.structure_renders.iter_mut() {
+            for (mid, model) in cr.parts.iter_mut() {
+                let Some(path) = choose_path(*mid) else { continue; };
+                if !changed.contains(&path) { continue; }
+                if let Some(mat) = { use raylib::prelude::RaylibModel; model.materials_mut().get_mut(0) } {
+                    if let Some(tex) = self.tex_cache.get_ref(&path) {
+                        mat.set_material_texture(raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO, tex);
+                        *rebound.entry(path.clone()).or_insert(0) += 1;
+                    } else if let Ok(t) = rl.load_texture(thread, &path) {
+                        t.set_texture_filter(thread, raylib::consts::TextureFilter::TEXTURE_FILTER_POINT);
+                        t.set_texture_wrap(thread, raylib::consts::TextureWrap::TEXTURE_WRAP_REPEAT);
+                        self.tex_cache.replace_loaded(path.clone(), t);
+                        if let Some(tex) = self.tex_cache.get_ref(&path) {
+                            mat.set_material_texture(raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO, tex);
+                            *rebound.entry(path.clone()).or_insert(0) += 1;
+                        }
+                    }
+                }
+            }
+        }
+        if rebound.is_empty() {
+            log::info!("Texture reload complete; no active models referenced changed textures");
+        } else {
+            for (p, n) in rebound { log::info!("Rebound {} on {} material(s)", p, n); }
+        }
+    }
+
+    pub fn process_worldgen_file_events(&mut self) {
+        let mut changed = false;
+        for _ in self.worldgen_event_rx.try_iter() { changed = true; }
+        if !changed { return; }
+        let path = std::path::Path::new(&self.world_config_path);
+        if !path.exists() {
+            log::warn!("worldgen config missing: {}", self.world_config_path);
+            return;
+        }
+        match crate::worldgen::load_params_from_path(path) {
+            Ok(params) => {
+                self.gs.world.update_worldgen_params(params);
+                log::info!("worldgen config reloaded from {}", self.world_config_path);
+                log::info!("Existing chunks unchanged; new gen uses updated params");
+                self.worldgen_dirty = true;
+            }
+            Err(e) => {
+                log::warn!("worldgen config reload failed ({}): {}", self.world_config_path, e);
+            }
+        }
+    }
+
+    pub fn take_worldgen_dirty(&mut self) -> bool {
+        if self.worldgen_dirty { self.worldgen_dirty = false; true } else { false }
     }
 }

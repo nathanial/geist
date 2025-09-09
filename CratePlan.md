@@ -33,11 +33,18 @@ This plan tracks the migration of Geist from a single crate to a multi‑crate C
       - `src/shaders.rs` and `src/texture_cache.rs` re-export from `geist-render-raylib`.
       - Removed `src/microgrid_tables.rs`; removed `mod microgrid_tables;` from `src/main.rs`.
     - Workspace builds with `cargo check` (warnings remain; behavior unchanged).
-  - Shims in root keep paths stable (`src/blocks/`, `src/worldgen/`, `src/voxel.rs`).
+  - Phase 5: Slim runtime; renderer/app own GPU + file-watch.
+    - Implemented `crates/geist-runtime` with job lanes only (edit/light/bg + structures), counters, submit/drain APIs.
+    - Removed GPU resources and file watchers from runtime; moved to app:
+      - App now owns `TextureCache`, `LeavesShader`, `FogShader`, chunk `renders`, and `structure_renders`.
+      - Texture hot-reload and worldgen config watchers run in app; `process_*_file_events()` live on `App`.
+    - Root `src/runtime.rs` is a shim re-exporting `geist-runtime` types.
+    - Adjusted `App` to use `self.reg` instead of `runtime.reg` for renderer logic.
+    - Lanes/inflight counters maintained in runtime without needing `RebuildCause` (track by `job_id` → lane).
+  - Shims in root keep paths stable (`src/blocks/`, `src/worldgen/`, `src/voxel.rs`, `src/runtime.rs`).
   - `cargo check` passes for the workspace.
 
 - Pending (next phases)
-  - Phase 5: Slim runtime by moving GPU/texture/file‑watch to renderer/app; keep job lanes and results in `geist-runtime`.
   - Phase 6: Extract edits, IO, structures into `geist-edit`, `geist-io`, `geist-structures`.
   - Phase 7: Wire app fully to new crates, remove shims, clean imports.
 
@@ -111,11 +118,12 @@ Phase 3: Engine math
 - Add `geist-geom` and refactor engine code to use it instead of Raylib types.
 - Add Raylib↔geom conversions in `geist-render-raylib`.
 
-Phase 4: Split Mesher (next)
-- Done in this change.
+Phase 4: Split Mesher
+- Done in prior change.
 
-Phase 5: Slim Runtime (next)
+Phase 5: Slim Runtime
 - Move GPU/texture/file‑watch out of runtime; keep lanes, queues, results only.
+- Implemented in this change as described above.
 
 Phase 6: Edits, IO, Structures (next)
 - Move `edit.rs` → `geist-edit`, `schem.rs`/`mcworld.rs` → `geist-io`, `structure.rs` → `geist-structures`.
