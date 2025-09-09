@@ -515,6 +515,7 @@ dependencies = [
  "geist-chunk",
  "geist-geom",
  "geist-lighting",
+ "geist-mesh-cpu",
  "geist-render-raylib",
  "geist-world",
  "log",
@@ -566,12 +567,21 @@ dependencies = [
 [[package]]
 name = "geist-mesh-cpu"
 version = "0.1.0"
+dependencies = [
+ "geist-blocks",
+ "geist-chunk",
+ "geist-geom",
+ "geist-lighting",
+ "geist-world",
+]
 
 [[package]]
 name = "geist-render-raylib"
 version = "0.1.0"
 dependencies = [
+ "geist-blocks",
  "geist-geom",
+ "geist-mesh-cpu",
  "raylib",
 ]
 

@@ -18,11 +18,25 @@ This plan tracks the migration of Geist from a single crate to a multi‑crate C
     - `src/structure.rs`: uses `geist_geom::Vec3` for `Pose` and helpers.
     - `src/mesher.rs`: `ChunkMeshCPU.bbox` now `geist_geom::Aabb` and converted at upload boundary.
     - App sites updated with explicit conversions.
+  - Phase 4: Split mesher CPU/GPU.
+    - Added `crates/geist-mesh-cpu` and moved CPU mesher there:
+      - Types: `Face`, `MeshBuild`, `NeighborsLoaded`, `ChunkMeshCPU`.
+      - Builders: `build_mesh_core`, `build_chunk_greedy_cpu_buf`, `build_voxel_body_cpu_buf`.
+      - Tables: `microgrid_tables` (2x2x2 occupancy and 2x2 rect greedies).
+      - No Raylib usage; now uses `geist-geom::Vec3/Aabb` exclusively.
+    - Expanded `crates/geist-render-raylib` with GPU parts:
+      - `TextureCache`, `LeavesShader`, `FogShader`.
+      - `ChunkRender` and `upload_chunk_mesh` (Raylib mesh upload + texture binding).
+      - Kept `conv` helpers.
+    - Root shims for stable imports:
+      - `src/mesher.rs` now re-exports CPU (`geist-mesh-cpu`) and GPU (`geist-render-raylib`) APIs.
+      - `src/shaders.rs` and `src/texture_cache.rs` re-export from `geist-render-raylib`.
+      - Removed `src/microgrid_tables.rs`; removed `mod microgrid_tables;` from `src/main.rs`.
+    - Workspace builds with `cargo check` (warnings remain; behavior unchanged).
   - Shims in root keep paths stable (`src/blocks/`, `src/worldgen/`, `src/voxel.rs`).
   - `cargo check` passes for the workspace.
 
 - Pending (next phases)
-  - Phase 4: Split mesher CPU/GPU; move GPU upload to `geist-render-raylib`; isolate CPU mesh in `geist-mesh-cpu` (incl. `microgrid_tables.rs`).
   - Phase 5: Slim runtime by moving GPU/texture/file‑watch to renderer/app; keep job lanes and results in `geist-runtime`.
   - Phase 6: Extract edits, IO, structures into `geist-edit`, `geist-io`, `geist-structures`.
   - Phase 7: Wire app fully to new crates, remove shims, clean imports.
@@ -98,8 +112,7 @@ Phase 3: Engine math
 - Add Raylib↔geom conversions in `geist-render-raylib`.
 
 Phase 4: Split Mesher (next)
-- Extract CPU mesher (`MeshBuild`, `ChunkMeshCPU`, `NeighborsLoaded`, `microgrid_tables`) into `geist-mesh-cpu`.
-- Move `ChunkRender`, texture/shader management, and mesh upload into `geist-render-raylib`.
+- Done in this change.
 
 Phase 5: Slim Runtime (next)
 - Move GPU/texture/file‑watch out of runtime; keep lanes, queues, results only.
@@ -160,4 +173,3 @@ Phase 7: App wiring and cleanup (next)
 - Phase 3
   - `geist-geom` added with `Vec3`/`Aabb`; engine code refactored (structures + mesher bbox).
   - `geist-render-raylib` gained conversion helpers for clean boundaries.
-
