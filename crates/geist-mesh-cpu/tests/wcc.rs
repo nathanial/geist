@@ -4,7 +4,8 @@ use geist_blocks::BlockRegistry;
 use geist_blocks::types::Block;
 use geist_chunk::ChunkBuf;
 use geist_lighting::{LightGrid, LightingStore};
-use geist_mesh_cpu::{ChunkMeshCPU, WccMesher};
+use geist_mesh_cpu::{ChunkMeshCPU, WccMesher, NeighborsLoaded};
+use geist_world::{World, WorldGenMode};
 
 fn load_registry() -> BlockRegistry {
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -97,7 +98,9 @@ fn parity_area_random_full_cubes_s1() {
     let buf = make_buf(0, 0, sx, sy, sz, blocks.clone());
     let store = LightingStore::new(sx, sy, sz);
     let light = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
-    let mut wm = WccMesher::new(&buf, &light, &reg, 1, 0, 0);
+    // Minimal world; neighbors disabled so seam logic does not run
+    let world = World::new(1, 1, sx, sy, sz, 0, WorldGenMode::Flat { thickness: 0 });
+    let mut wm = WccMesher::new(&buf, &light, &reg, 1, 0, 0, &world, None, NeighborsLoaded { neg_x: false, pos_x: false, neg_z: false, pos_z: false });
     for z in 0..sz { for y in 0..sy { for x in 0..sx {
         let b = blocks[(y * sz + z) * sx + x];
         if reg.get(b.id).map(|t| t.is_solid(b.state)).unwrap_or(false) {
@@ -130,8 +133,10 @@ fn seam_stitch_no_faces_on_shared_plane_s1() {
     let store = LightingStore::new(sx, sy, sz);
     let light_a = LightGrid::compute_with_borders_buf(&buf_a, &store, &reg);
     let light_b = LightGrid::compute_with_borders_buf(&buf_b, &store, &reg);
-    let mut wa = WccMesher::new(&buf_a, &light_a, &reg, 1, 0, 0);
-    let mut wb = WccMesher::new(&buf_b, &light_b, &reg, 1, sx as i32, 0);
+    let world = World::new(2, 1, sx, sy, sz, 0, WorldGenMode::Flat { thickness: 0 });
+    // Indicate neighbor presence along X so stitch logic is active
+    let mut wa = WccMesher::new(&buf_a, &light_a, &reg, 1, 0, 0, &world, None, NeighborsLoaded { neg_x: false, pos_x: true, neg_z: false, pos_z: false });
+    let mut wb = WccMesher::new(&buf_b, &light_b, &reg, 1, sx as i32, 0, &world, None, NeighborsLoaded { neg_x: true, pos_x: false, neg_z: false, pos_z: false });
     for z in 0..sz { for y in 0..sy { for x in 0..sx {
         let a = buf_a.get_local(x, y, z);
         if reg.get(a.id).map(|t| t.is_solid(a.state)).unwrap_or(false) { wa.add_cube(x, y, z, a); }
@@ -175,7 +180,8 @@ fn merge_reduces_triangles_on_slab() {
     let buf = make_buf(0, 0, sx, sy, sz, blocks.clone());
     let store = LightingStore::new(sx, sy, sz);
     let light = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
-    let mut wm = WccMesher::new(&buf, &light, &reg, 1, 0, 0);
+    let world = World::new(1, 1, sx, sy, sz, 0, WorldGenMode::Flat { thickness: 0 });
+    let mut wm = WccMesher::new(&buf, &light, &reg, 1, 0, 0, &world, None, NeighborsLoaded { neg_x: false, pos_x: false, neg_z: false, pos_z: false });
     for z in 0..sz { for y in 0..sy { for x in 0..sx {
         let b = blocks[(y * sz + z) * sx + x];
         if reg.get(b.id).map(|t| t.is_solid(b.state)).unwrap_or(false) { wm.add_cube(x, y, z, b); }
@@ -190,4 +196,3 @@ fn merge_reduces_triangles_on_slab() {
     let naive_total = naive_top + naive_bottom + naive_sides;
     assert!(tris < naive_total, "expected fewer triangles than naive cover: tris={} naive={}", tris, naive_total);
 }
-

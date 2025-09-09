@@ -1140,6 +1140,133 @@ impl<'a> WccMesher<'a> {
         }
     }
     #[inline]
+    fn local_micro_touches_negx(&self, here: Block, iym: usize, izm: usize) -> bool {
+        if let Some(h) = self.reg.get(here.id) {
+            // Full cubes cover entire micro column on -X boundary
+            if h.is_solid(here.state)
+                && matches!(h.shape, geist_blocks::types::Shape::Cube | geist_blocks::types::Shape::AxisCube { .. })
+            {
+                return true;
+            }
+            if let Some(occ) = h.variant(here.state).occupancy {
+                for b in crate::microgrid_tables::occ8_to_boxes(occ) {
+                    let x0 = b[0] as usize;
+                    let y0 = b[1] as usize;
+                    let y1 = b[4] as usize;
+                    let z0 = b[2] as usize;
+                    let z1 = b[5] as usize;
+                    // Touches -X plane if min x is 0
+                    if x0 == 0 {
+                        if iym >= y0 && iym < y1 && izm >= z0 && izm < z1 {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+    #[inline]
+    fn local_micro_touches_negz(&self, here: Block, ixm: usize, iym: usize) -> bool {
+        if let Some(h) = self.reg.get(here.id) {
+            if h.is_solid(here.state)
+                && matches!(h.shape, geist_blocks::types::Shape::Cube | geist_blocks::types::Shape::AxisCube { .. })
+            {
+                return true;
+            }
+            if let Some(occ) = h.variant(here.state).occupancy {
+                for b in crate::microgrid_tables::occ8_to_boxes(occ) {
+                    let z0 = b[2] as usize;
+                    let x0 = b[0] as usize;
+                    let x1 = b[3] as usize;
+                    let y0 = b[1] as usize;
+                    let y1 = b[4] as usize;
+                    // Touches -Z plane if min z is 0
+                    if z0 == 0 {
+                        if ixm >= x0 && ixm < x1 && iym >= y0 && iym < y1 {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        false
+    }
+    #[inline]
+    fn neighbor_face_info_negx(&self, ly: usize, iym: usize, lz: usize, izm: usize) -> Option<(MaterialId, u8)> {
+        // Sample neighbor block one voxel to -X; if it occupies this micro YZ cell at its +X boundary, emit PosX face
+        let nx = self.base_x - 1;
+        let ny = ly as i32;
+        let nz = self.base_z + lz as i32;
+        let nb = self.world_block(nx, ny, nz);
+        if let Some(n) = self.reg.get(nb.id) {
+            // Respect seam policy for identical blocks: if configured not to occlude, also don't emit from neighbor
+            if let Some(h) = self.reg.get(nb.id) {
+                if h.seam.dont_occlude_same {
+                    // When both sides are same solid, we expect cancellation; emission only when local side is empty (checked by caller)
+                }
+            }
+            if n.is_solid(nb.state)
+                && matches!(n.shape, geist_blocks::types::Shape::Cube | geist_blocks::types::Shape::AxisCube { .. })
+            {
+                let mid = registry_material_for_or_unknown(nb, Face::PosX, self.reg);
+                let l = self.light_bin(0, ly, lz, Face::PosX);
+                return Some((mid, l));
+            }
+            if let Some(occ) = n.variant(nb.state).occupancy {
+                for b in crate::microgrid_tables::occ8_to_boxes(occ) {
+                    let x1 = b[3] as usize; // neighbor box touches +X boundary when x1==S
+                    let y0 = b[1] as usize;
+                    let y1 = b[4] as usize;
+                    let z0 = b[2] as usize;
+                    let z1 = b[5] as usize;
+                    if x1 == self.S {
+                        if iym >= y0 && iym < y1 && izm >= z0 && izm < z1 {
+                            let mid = registry_material_for_or_unknown(nb, Face::PosX, self.reg);
+                            let l = self.light_bin(0, ly, lz, Face::PosX);
+                            return Some((mid, l));
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+    #[inline]
+    fn neighbor_face_info_negz(&self, lx: usize, ixm: usize, ly: usize, iym: usize) -> Option<(MaterialId, u8)> {
+        // Sample neighbor block one voxel to -Z; if it occupies this micro X Y cell at its +Z boundary, emit PosZ face
+        let nx = self.base_x + lx as i32;
+        let ny = ly as i32;
+        let nz = self.base_z - 1;
+        let nb = self.world_block(nx, ny, nz);
+        if let Some(n) = self.reg.get(nb.id) {
+            if n.is_solid(nb.state)
+                && matches!(n.shape, geist_blocks::types::Shape::Cube | geist_blocks::types::Shape::AxisCube { .. })
+            {
+                let mid = registry_material_for_or_unknown(nb, Face::PosZ, self.reg);
+                let l = self.light_bin(lx, ly, 0, Face::PosZ);
+                return Some((mid, l));
+            }
+            if let Some(occ) = n.variant(nb.state).occupancy {
+                for b in crate::microgrid_tables::occ8_to_boxes(occ) {
+                    let z1 = b[5] as usize; // neighbor box touches +Z boundary when z1==S
+                    let x0 = b[0] as usize;
+                    let x1 = b[3] as usize;
+                    let y0 = b[1] as usize;
+                    let y1 = b[4] as usize;
+                    if z1 == self.S {
+                        if ixm >= x0 && ixm < x1 && iym >= y0 && iym < y1 {
+                            let mid = registry_material_for_or_unknown(nb, Face::PosZ, self.reg);
+                            let l = self.light_bin(lx, ly, 0, Face::PosZ);
+                            return Some((mid, l));
+                        }
+                    }
+                }
+            }
+        }
+        None
+    }
+    #[inline]
     fn world_block(&self, nx: i32, ny: i32, nz: i32) -> Block {
         if let Some(es) = self.edits {
             es.get(&(nx, ny, nz))
@@ -1315,6 +1442,25 @@ impl<'a> WccMesher<'a> {
                     }
                 }
             }
+            // Ownership of the shared plane: if this is the -X boundary (ix==0), also add faces coming
+            // from the negative neighbor when our local side is empty at this micro cell.
+            if ix == 0 {
+                for iy in 0..height_x {
+                    for iz in 0..width_x {
+                        let mi = iy * width_x + iz;
+                        if mask[mi].is_some() { continue; }
+                        let ly = iy / self.S; let iym = iy % self.S;
+                        let lz = iz / self.S; let izm = iz % self.S;
+                        if ly >= sy || lz >= sz { continue; }
+                        let here = self.buf.get_local(0, ly, lz);
+                        // If local block already occupies this micro cell at -X, do not add neighbor faces
+                        if self.local_micro_touches_negx(here, iym, izm) { continue; }
+                        if let Some((mid, l)) = self.neighbor_face_info_negx(ly, iym, lz, izm) {
+                            mask[mi] = Some(((mid, true), l)); // emit as +X-facing on our -X plane
+                        }
+                    }
+                }
+            }
             greedy_rects(width_x, height_x, &mut mask, |u0, v0, w, h, codev| {
                 let ((mid, pos), l) = codev;
                 let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN));
@@ -1375,6 +1521,23 @@ impl<'a> WccMesher<'a> {
                         if ly >= sy || lx >= sx { continue; }
                         let here = self.buf.get_local(lx, ly, 0);
                         if self.neighbor_micro_occludes_negz(here, lx, ixm, ly, iym) { mask[mi] = None; }
+                    }
+                }
+            }
+            // Ownership for shared -Z plane: add faces from negative neighbor when local side is empty.
+            if iz == 0 {
+                for iy in 0..height_z {
+                    for ix in 0..width_z {
+                        let mi = iy * width_z + ix;
+                        if mask[mi].is_some() { continue; }
+                        let ly = iy / self.S; let iym = iy % self.S;
+                        let lx = ix / self.S; let ixm = ix % self.S;
+                        if ly >= sy || lx >= sx { continue; }
+                        let here = self.buf.get_local(lx, ly, 0);
+                        if self.local_micro_touches_negz(here, ixm, iym) { continue; }
+                        if let Some((mid, l)) = self.neighbor_face_info_negz(lx, ixm, ly, iym) {
+                            mask[mi] = Some(((mid, true), l)); // emit as +Z-facing on our -Z plane
+                        }
                     }
                 }
             }
