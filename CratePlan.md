@@ -224,14 +224,15 @@ Phase 2: Extract Chunk + Lighting
 - Move `src/lighting.rs` → `geist-lighting`.
 - Update users: mesher, runtime, app.
 
-Proposed concrete steps:
-- Add `geist-chunk` and `geist-lighting` dependencies to root and any crates needing them.
-- Move code and wire public APIs:
-  - `geist-chunk`: `ChunkBuf` + helpers; `generate_chunk_buffer(world, cx, cz, reg)`.
-  - `geist-lighting`: `LightGrid`, `LightBorders`, `LightingStore` (+ neighbor border planes).
-- Update imports in `mesher.rs`, `runtime.rs`, `snapshowcase.rs`, and any CPU workers.
-- Keep shims for `crate::chunkbuf` and `crate::lighting` if needed to minimize churn.
-- `cargo check` and quick run to validate visuals and lighting borders across chunk seams.
+Done in repo:
+- `geist-chunk` now provides `ChunkBuf` and `generate_chunk_buffer()`; root `src/chunkbuf.rs` re-exports it.
+- `geist-lighting` now provides `LightGrid`, `LightBorders`, `NeighborBorders`, `LightingStore` with the same APIs (including `sample_face_local` used by mesher); root `src/lighting.rs` re-exports it.
+- Root `Cargo.toml` depends on `geist-chunk` and `geist-lighting`.
+- Workspace builds (`cargo check`): OK.
+
+Notes:
+- `LightGrid::sample_face_local` restored so mesher compiles unchanged.
+- Neighbor border handling is preserved; dynamic emitters remain in `LightingStore`.
 
 Phase 3: Introduce engine math (remove Raylib from engine types)
 - Add `geist-geom` with `Vec3` and `Aabb` equivalents.

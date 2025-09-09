@@ -18,6 +18,8 @@ toml = "0.8"
 notify = "6"
 geist-blocks = { path = "crates/geist-blocks" }
 geist-world = { path = "crates/geist-world" }
+geist-chunk = { path = "crates/geist-chunk" }
+geist-lighting = { path = "crates/geist-lighting" }
 
 [features]
 default = []

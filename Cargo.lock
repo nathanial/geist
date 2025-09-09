@@ -512,6 +512,8 @@ dependencies = [
  "fastnoise-lite",
  "flate2 1.1.2",
  "geist-blocks",
+ "geist-chunk",
+ "geist-lighting",
  "geist-world",
  "log",
  "mc_schem",
@@ -534,6 +536,10 @@ dependencies = [
 [[package]]
 name = "geist-chunk"
 version = "0.1.0"
+dependencies = [
+ "geist-blocks",
+ "geist-world",
+]
 
 [[package]]
 name = "geist-edit"
@@ -550,6 +556,10 @@ version = "0.1.0"
 [[package]]
 name = "geist-lighting"
 version = "0.1.0"
+dependencies = [
+ "geist-blocks",
+ "geist-chunk",
+]
 
 [[package]]
 name = "geist-mesh-cpu"
