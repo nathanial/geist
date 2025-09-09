@@ -1,30 +1,18 @@
 mod app;
-mod blocks;
 mod camera;
-mod chunkbuf;
-mod edit;
 mod event;
 mod gamestate;
-mod lighting;
-mod mesher;
 mod player;
 mod raycast;
-mod runtime;
-mod schem;
-mod shaders;
-mod structure;
-mod texture_cache;
-mod voxel;
-mod worldgen;
 #[cfg(test)]
 mod stairs_tests;
 mod snapshowcase;
 
-use crate::blocks::BlockRegistry;
+use geist_blocks::BlockRegistry;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 use std::sync::Arc;
-use voxel::{World, WorldGenMode};
+use geist_world::voxel::{World, WorldGenMode};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -206,7 +194,7 @@ fn main() {
                 .clone()
                 .unwrap_or_else(|| PathBuf::from("schematics/anvilstead.schem"));
             if args.counts {
-                match crate::schem::count_blocks_in_file(std::path::Path::new(&schem_path)) {
+                match geist_io::count_blocks_in_file(std::path::Path::new(&schem_path)) {
                     Ok(mut entries) => {
                         entries.sort_by(|a, b| b.1.cmp(&a.1));
                         println!("Block counts in {:?} (excluding air):", schem_path);
@@ -220,7 +208,7 @@ fn main() {
                     }
                 }
             } else {
-                match crate::schem::find_unsupported_blocks_in_file(std::path::Path::new(
+                match geist_io::find_unsupported_blocks_in_file(std::path::Path::new(
                     &schem_path,
                 )) {
                     Ok(list) => {
@@ -311,7 +299,7 @@ fn run_app(run: RunArgs) {
     {
         let cfg_path = std::path::Path::new(&run.world_config);
         if cfg_path.exists() {
-            match crate::worldgen::load_params_from_path(cfg_path) {
+            match geist_world::worldgen::load_params_from_path(cfg_path) {
                 Ok(params) => {
                     world.update_worldgen_params(params);
                     log::info!("Loaded worldgen config from {}", run.world_config);
@@ -327,12 +315,12 @@ fn run_app(run: RunArgs) {
             );
         }
     }
-    let lighting_store = Arc::new(lighting::LightingStore::new(
+    let lighting_store = Arc::new(geist_lighting::LightingStore::new(
         chunk_size_x,
         chunk_size_y,
         chunk_size_z,
     ));
-    let edit_store = edit::EditStore::new(
+    let edit_store = geist_edit::EditStore::new(
         chunk_size_x as i32,
         chunk_size_y as i32,
         chunk_size_z as i32,

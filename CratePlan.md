@@ -50,8 +50,12 @@ This plan tracks the migration of Geist from a single crate to a multi‑crate C
     - Removed Bedrock `.mcworld` codepaths and features.
     - Root shims now re-export these crates: `src/edit.rs`, `src/structure.rs`, `src/schem.rs`.
 
+- Phase 7: Wired app to crates; removed shims.
+  - Replaced all `crate::{blocks,voxel,worldgen,chunkbuf,lighting,mesher,runtime,schem,shaders,structure,texture_cache}` paths with direct `geist-*` crate imports.
+  - Deleted shim files under `src/` and removed module declarations.
+  - Workspace builds; behavior unchanged.
+
 - Pending (next phases)
-  - Phase 7: Wire app fully to new crates, remove shims, clean imports.
 
 ## Workspace Overview
 

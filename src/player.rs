@@ -1,7 +1,7 @@
 use raylib::prelude::*;
 
-use crate::blocks::{Block, BlockRegistry};
-use crate::voxel::World;
+use geist_blocks::{Block, BlockRegistry};
+use geist_world::voxel::World;
 
 #[derive(Debug)]
 pub struct Walker {

@@ -1,10 +1,10 @@
 use std::collections::{BTreeMap, VecDeque};
 
-use crate::blocks::Block;
-use crate::chunkbuf::ChunkBuf;
-use crate::lighting::LightBorders;
-use crate::mesher::{ChunkMeshCPU, NeighborsLoaded};
-use crate::structure::StructureId;
+use geist_blocks::types::Block;
+use geist_chunk::ChunkBuf;
+use geist_lighting::LightBorders;
+use geist_mesh_cpu::{ChunkMeshCPU, NeighborsLoaded};
+use geist_structures::StructureId;
 use raylib::prelude::Vector3;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

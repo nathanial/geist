@@ -1,9 +1,9 @@
-use crate::blocks::{Block, BlockRegistry};
-use crate::chunkbuf::generate_chunk_buffer;
-use crate::lighting::{LightBorders, LightingStore};
-use crate::mesher::{build_chunk_greedy_cpu_buf, upload_chunk_mesh, ChunkMeshCPU, NeighborsLoaded};
-use crate::texture_cache::TextureCache;
-use crate::voxel::{build_showcase_entries, build_showcase_stairs_cluster, World, WorldGenMode};
+use geist_blocks::{Block, BlockRegistry};
+use geist_chunk::generate_chunk_buffer;
+use geist_lighting::{LightBorders, LightingStore};
+use geist_mesh_cpu::{build_chunk_greedy_cpu_buf, ChunkMeshCPU, NeighborsLoaded};
+use geist_render_raylib::{upload_chunk_mesh, ChunkRender, TextureCache};
+use geist_world::voxel::{build_showcase_entries, build_showcase_stairs_cluster, World, WorldGenMode};
 use raylib::prelude::*;
 use std::collections::HashMap;
 use std::fs;
@@ -14,7 +14,7 @@ use crate::SnapArgs;
 
 struct CpuGpuChunk {
     cpu: ChunkMeshCPU,
-    gpu: crate::mesher::ChunkRender,
+    gpu: ChunkRender,
 }
 
 #[derive(Clone)]
@@ -57,7 +57,7 @@ pub fn run_showcase_snapshots(args: SnapArgs) {
     ));
     // Load worldgen config if present
     if Path::new(&args.world_config).exists() {
-        match crate::worldgen::load_params_from_path(Path::new(&args.world_config)) {
+        match geist_world::worldgen::load_params_from_path(Path::new(&args.world_config)) {
             Ok(p) => world.update_worldgen_params(p),
             Err(e) => log::warn!("Failed to load worldgen config {}: {}", args.world_config, e),
         }
@@ -89,7 +89,7 @@ pub fn run_showcase_snapshots(args: SnapArgs) {
                 &reg,
             ) {
                 // Keep a CPU copy for geometry dump
-                let cpu_copy = crate::mesher::ChunkMeshCPU { cx: cpu.cx, cz: cpu.cz, bbox: cpu.bbox, parts: cpu.parts.clone() };
+                let cpu_copy = ChunkMeshCPU { cx: cpu.cx, cz: cpu.cz, bbox: cpu.bbox, parts: cpu.parts.clone() };
                 if let Some(cr) = upload_chunk_mesh(&mut rl, &thread, cpu, &mut tex_cache, &reg.materials) {
                     if let Some(b) = lb { borders_to_publish.push(((cx, cz), b)); }
                     chunks.insert((cx, cz), CpuGpuChunk { cpu: cpu_copy, gpu: cr });

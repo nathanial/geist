@@ -4,17 +4,17 @@ use raylib::prelude::*;
 use geist_geom::Vec3;
 use geist_render_raylib::conv::{vec3_from_rl, vec3_to_rl};
 
-use crate::blocks::Block;
-use crate::blocks::BlockRegistry;
+use geist_blocks::{Block, BlockRegistry};
 use crate::event::{Event, EventEnvelope, EventQueue, RebuildCause};
 use crate::gamestate::{ChunkEntry, GameState};
-use crate::lighting::LightingStore;
-use crate::mesher::{NeighborsLoaded, upload_chunk_mesh};
-use crate::texture_cache::TextureCache;
+use geist_lighting::LightingStore;
+use geist_mesh_cpu::NeighborsLoaded;
+use geist_render_raylib::{upload_chunk_mesh, TextureCache, LeavesShader, FogShader, ChunkRender};
 use crate::raycast;
-use crate::runtime::{BuildJob, JobOut, Runtime, StructureBuildJob};
-use crate::structure::{Pose, Structure, StructureId, rotate_yaw, rotate_yaw_inv};
-use crate::voxel::World;
+use geist_edit::EditStore;
+use geist_runtime::{BuildJob, JobOut, Runtime, StructureBuildJob};
+use geist_structures::{Pose, Structure, StructureId, rotate_yaw, rotate_yaw_inv};
+use geist_world::voxel::{World, WorldGenMode};
 use serde::Deserialize;
 
 // Scheduling/queue tuning knobs
@@ -35,11 +35,11 @@ pub struct App {
     pub debug_stats: DebugStats,
     hotbar: Vec<Block>,
     // Renderer-side resources (moved from runtime in Phase 5)
-    pub leaves_shader: Option<crate::shaders::LeavesShader>,
-    pub fog_shader: Option<crate::shaders::FogShader>,
+    pub leaves_shader: Option<LeavesShader>,
+    pub fog_shader: Option<FogShader>,
     pub tex_cache: TextureCache,
-    pub renders: HashMap<(i32, i32), crate::mesher::ChunkRender>,
-    pub structure_renders: HashMap<StructureId, crate::mesher::ChunkRender>,
+    pub renders: HashMap<(i32, i32), ChunkRender>,
+    pub structure_renders: HashMap<StructureId, ChunkRender>,
     pub reg: std::sync::Arc<BlockRegistry>,
     // Session-wide processed event stats
     evt_processed_total: usize,
@@ -279,8 +279,8 @@ impl App {
     }
     #[inline]
     fn structure_block_solid_at_local(
-        reg: &crate::blocks::BlockRegistry,
-        st: &crate::structure::Structure,
+        reg: &BlockRegistry,
+        st: &Structure,
         lx: i32,
         ly: i32,
         lz: i32,
@@ -304,7 +304,7 @@ impl App {
             .unwrap_or(false)
     }
 
-    fn is_feet_on_structure(&self, st: &crate::structure::Structure, feet_world: Vector3) -> bool {
+    fn is_feet_on_structure(&self, st: &Structure, feet_world: Vector3) -> bool {
         let rx = (self.gs.walker.radius * 0.85).max(0.05);
         let offsets = [
             Vector3::new(0.0, 0.0, 0.0),
@@ -321,7 +321,7 @@ impl App {
             let p = feet_world + *off;
             let pv = vec3_from_rl(p);
             let diff = Vec3 { x: pv.x - st.pose.pos.x, y: pv.y - st.pose.pos.y, z: pv.z - st.pose.pos.z };
-            let local = crate::structure::rotate_yaw_inv(diff, st.pose.yaw_deg);
+            let local = rotate_yaw_inv(diff, st.pose.yaw_deg);
             let lx = local.x.floor() as i32;
             let ly = (local.y - 0.08).floor() as i32;
             let lz = local.z.floor() as i32;
@@ -340,7 +340,7 @@ impl App {
         thread: &RaylibThread,
         world: std::sync::Arc<World>,
         lighting: std::sync::Arc<LightingStore>,
-        edits: crate::edit::EditStore,
+        edits: EditStore,
         reg: std::sync::Arc<BlockRegistry>,
         watch_textures: bool,
         watch_worldgen: bool,
@@ -364,8 +364,8 @@ impl App {
         let cam = crate::camera::FlyCamera::new(spawn + Vector3::new(0.0, 5.0, 20.0));
 
         // Renderer-side resources and file watchers (moved from Runtime in Phase 5)
-        let leaves_shader = crate::shaders::LeavesShader::load(rl, thread);
-        let fog_shader = crate::shaders::FogShader::load(rl, thread);
+        let leaves_shader = LeavesShader::load(rl, thread);
+        let fog_shader = FogShader::load(rl, thread);
         let tex_cache = TextureCache::new();
         // File watcher for textures under assets/blocks
         let (tex_tx, tex_rx) = std::sync::mpsc::channel::<String>();
@@ -439,7 +439,7 @@ impl App {
             use std::path::Path;
             let dir = Path::new("schematics");
             if dir.exists() {
-                match crate::schem::list_schematics_with_size(dir) {
+                match geist_io::list_schematics_with_size(dir) {
                     Ok(mut list) => {
                         if list.is_empty() {
                             log::info!("No .schem files found under {:?}", dir);
@@ -462,7 +462,7 @@ impl App {
                             if is_flat {
                                 // Flat placement (existing behavior)
                                 let base_y: i32 = match world.mode {
-                                    crate::voxel::WorldGenMode::Flat { thickness } => {
+                                    WorldGenMode::Flat { thickness } => {
                                         if thickness > 0 {
                                             1
                                         } else {
@@ -522,7 +522,7 @@ impl App {
                                     let wx = lx + shift_x;
                                     let wy = ly;
                                     let wz = lz + shift_z;
-                                    match crate::schem::load_any_schematic_apply_edits(
+                                    match geist_io::load_any_schematic_apply_edits(
                                         &p,
                                         (wx, wy, wz),
                                         &mut gs.edits,
@@ -647,7 +647,7 @@ impl App {
                                     let ox = lx + shift_x;
                                     let oy = deck_y + 1;
                                     let oz = lz + shift_z;
-                                    match crate::schem::load_any_schematic_apply_into_structure(
+                                    match geist_io::load_any_schematic_apply_into_structure(
                                         &p,
                                         (ox, oy, oz),
                                         &mut st,
@@ -2098,7 +2098,7 @@ impl App {
         }
 
         // Showcase labels: draw block (or variant) names above each showcased block
-        if matches!(self.gs.world.mode, crate::voxel::WorldGenMode::Showcase) {
+        if matches!(self.gs.world.mode, WorldGenMode::Showcase) {
             // Snapshot params
             let params = { self.gs.world.gen_params.read().map(|g| g.clone()).ok() };
             if let Some(p) = params {
@@ -2109,7 +2109,7 @@ impl App {
                 row_y = row_y.clamp(1, self.gs.world.chunk_size_y as i32 - 2);
                 let cz = (self.gs.world.world_size_z() as i32) / 2;
                 // Build showcase entries (mirrors worldgen layout)
-                let entries = crate::voxel::build_showcase_entries(&self.reg);
+                let entries = geist_world::voxel::build_showcase_entries(&self.reg);
                 if !entries.is_empty() {
                     let spacing = 2i32; // air gap of 1 block between entries
                     let row_len = (entries.len() as i32) * spacing - 1;
@@ -2137,7 +2137,7 @@ impl App {
 
                 // Stairs cluster labels (adjacency scenarios)
                 let stair_base_z = cz + 3; // matches worldgen placement
-                let placements = crate::voxel::build_showcase_stairs_cluster(&self.reg);
+                let placements = geist_world::voxel::build_showcase_stairs_cluster(&self.reg);
                 if !placements.is_empty() {
                     let max_dx = placements.iter().map(|p| p.dx).max().unwrap_or(0);
                     let cluster_w = max_dx + 1;
@@ -2691,7 +2691,7 @@ impl App {
         log::info!("Texture changes detected: {} file(s)", changed.len());
         for p in &changed { log::debug!(" - {}", p); }
         // Helper to choose material path like upload path
-        let choose_path = |mid: crate::blocks::MaterialId| -> Option<String> {
+        let choose_path = |mid: geist_blocks::types::MaterialId| -> Option<String> {
             self.reg.materials.get(mid).and_then(|mdef| {
                 let candidates: Vec<String> = mdef
                     .texture_candidates
@@ -2781,7 +2781,7 @@ impl App {
             log::warn!("worldgen config missing: {}", self.world_config_path);
             return;
         }
-        match crate::worldgen::load_params_from_path(path) {
+        match geist_world::worldgen::load_params_from_path(path) {
             Ok(params) => {
                 self.gs.world.update_worldgen_params(params);
                 log::info!("worldgen config reloaded from {}", self.world_config_path);
