@@ -11,8 +11,15 @@ glowstone = ["assets/blocks/glowstone.png"]
 beacon = ["assets/blocks/beacon.png"]
 cobblestone = ["assets/blocks/cobblestone.png"]
 mossy_cobblestone = ["assets/blocks/cobblestone_mossy.png"]
-stone_bricks = ["assets/blocks/stone_brick.png", "assets/blocks/stone_bricks.png"]
-mossy_stone_bricks = ["assets/blocks/stone_bricks_mossy.png"]
+stone_bricks = [
+  "assets/blocks/stonebrick.png",
+  "assets/blocks/stone_bricks.png",
+  "assets/blocks/stone_brick.png"
+]
+mossy_stone_bricks = [
+  "assets/blocks/stonebrick_mossy.png",
+  "assets/blocks/stone_bricks_mossy.png"
+]
 brick = ["assets/blocks/brick.png"]
 granite = ["assets/blocks/granite.png"]
 diorite = ["assets/blocks/diorite.png"]

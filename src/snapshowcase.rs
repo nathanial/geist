@@ -297,8 +297,11 @@ fn collect_block_faces(
     out: &mut Vec<(String, [f32; 3], [[f32; 3]; 4])>,
 ) {
     let eps = 1.0e-4f32;
-    let min = [wx - eps, wy - eps, wz - eps];
-    let max = [wx + 1.0 + eps, wy + 1.0 + eps, wz + 1.0 + eps];
+    let bx = [wx, wx + 1.0];
+    let by = [wy, wy + 1.0];
+    let bz = [wz, wz + 1.0];
+    let nearly_eq = |a: f32, b: f32| (a - b).abs() <= 1.0e-3;
+    let overlaps = |a0: f32, a1: f32, b0: f32, b1: f32| a0.min(a1) <= b1 + eps && a1.max(a0) >= b0 - eps;
     for (mid, mb) in &cpu.parts {
         let mat_key = reg
             .materials
@@ -310,17 +313,58 @@ fn collect_block_faces(
         let total_quads = verts.len() / (3 * 4);
         for i in 0..total_quads {
             let vbase = i * 4 * 3;
-            let nbase = i * 4 * 3;
             let v = [
                 [verts[vbase + 0], verts[vbase + 1], verts[vbase + 2]],
                 [verts[vbase + 3], verts[vbase + 4], verts[vbase + 5]],
                 [verts[vbase + 6], verts[vbase + 7], verts[vbase + 8]],
                 [verts[vbase + 9], verts[vbase + 10], verts[vbase + 11]],
             ];
-            let inside = v.iter().all(|p| p[0] >= min[0] && p[0] <= max[0] && p[1] >= min[1] && p[1] <= max[1] && p[2] >= min[2] && p[2] <= max[2]);
-            if !inside { continue; }
-            // Average normal (they should be equal)
+            let nbase = i * 4 * 3;
             let n = [norms[nbase + 0], norms[nbase + 1], norms[nbase + 2]];
+            // Determine primary axis by normal
+            let ax = n[0].abs();
+            let ay = n[1].abs();
+            let az = n[2].abs();
+            let axis = if ax > ay && ax > az { 0 } else if ay > az { 1 } else { 2 };
+            // Compute rectangle bounds on the two non-normal axes
+            let mut x_min = f32::INFINITY;
+            let mut x_max = f32::NEG_INFINITY;
+            let mut y_min = f32::INFINITY;
+            let mut y_max = f32::NEG_INFINITY;
+            let mut z_min = f32::INFINITY;
+            let mut z_max = f32::NEG_INFINITY;
+            for p in &v {
+                if p[0] < x_min { x_min = p[0]; }
+                if p[0] > x_max { x_max = p[0]; }
+                if p[1] < y_min { y_min = p[1]; }
+                if p[1] > y_max { y_max = p[1]; }
+                if p[2] < z_min { z_min = p[2]; }
+                if p[2] > z_max { z_max = p[2]; }
+            }
+            // Plane coordinate to check coincidence with block face plane
+            let plane_ok = match axis {
+                0 => {
+                    // X-constant plane; must match either wx or wx+1
+                    let x0 = (v[0][0] + v[1][0] + v[2][0] + v[3][0]) * 0.25;
+                    nearly_eq(x0, bx[0]) || nearly_eq(x0, bx[1])
+                }
+                1 => {
+                    let y0 = (v[0][1] + v[1][1] + v[2][1] + v[3][1]) * 0.25;
+                    nearly_eq(y0, by[0]) || nearly_eq(y0, by[1])
+                }
+                _ => {
+                    let z0 = (v[0][2] + v[1][2] + v[2][2] + v[3][2]) * 0.25;
+                    nearly_eq(z0, bz[0]) || nearly_eq(z0, bz[1])
+                }
+            };
+            if !plane_ok { continue; }
+            // Overlap test in the other two axes
+            let intersects = match axis {
+                0 => overlaps(y_min, y_max, by[0], by[1]) && overlaps(z_min, z_max, bz[0], bz[1]),
+                1 => overlaps(x_min, x_max, bx[0], bx[1]) && overlaps(z_min, z_max, bz[0], bz[1]),
+                _ => overlaps(x_min, x_max, bx[0], bx[1]) && overlaps(y_min, y_max, by[0], by[1]),
+            };
+            if !intersects { continue; }
             out.push((mat_key.clone(), n, v));
         }
     }
