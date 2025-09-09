@@ -240,7 +240,8 @@ impl LightGrid {
                 let nb = buf.get_local(nx as usize, ny as usize, nz as usize);
                 if !skylight_transparent_s2(nb, reg) { return; }
                 let idx = lg.idx(nx as usize, ny as usize, nz as usize);
-                let v = (level as i32) - 1; if v > 0 { let v8 = v as u8; if lg.skylight[idx] < v8 { lg.skylight[idx] = v8; q_sky.push_back((nx as usize, ny as usize, nz as usize, v8)); }}
+                let sky_att: i32 = 32;
+                let v = (level as i32) - sky_att; if v > 0 { let v8 = v as u8; if lg.skylight[idx] < v8 { lg.skylight[idx] = v8; q_sky.push_back((nx as usize, ny as usize, nz as usize, v8)); }}
             };
             try_push(x as i32 + 1, y as i32, z as i32, 2); // +X
             try_push(x as i32 - 1, y as i32, z as i32, 3); // -X
