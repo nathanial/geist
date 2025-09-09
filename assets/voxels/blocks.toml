@@ -471,7 +471,7 @@ materials = { top = "oak_log_top", bottom = "oak_log_top", side = "oak_log" }
 [[blocks]]
 name = "oak_leaves"
 solid = true
-blocks_skylight = false
+blocks_skylight = true
 emission = 0
 shape = "cube"
 materials = { all = "oak_leaves" }
@@ -479,7 +479,7 @@ materials = { all = "oak_leaves" }
 [[blocks]]
 name = "birch_leaves"
 solid = true
-blocks_skylight = false
+blocks_skylight = true
 emission = 0
 shape = "cube"
 materials = { all = "birch_leaves" }
@@ -487,7 +487,7 @@ materials = { all = "birch_leaves" }
 [[blocks]]
 name = "spruce_leaves"
 solid = true
-blocks_skylight = false
+blocks_skylight = true
 emission = 0
 shape = "cube"
 materials = { all = "spruce_leaves" }
@@ -495,7 +495,7 @@ materials = { all = "spruce_leaves" }
 [[blocks]]
 name = "jungle_leaves"
 solid = true
-blocks_skylight = false
+blocks_skylight = true
 emission = 0
 shape = "cube"
 materials = { all = "jungle_leaves" }
@@ -503,7 +503,7 @@ materials = { all = "jungle_leaves" }
 [[blocks]]
 name = "acacia_leaves"
 solid = true
-blocks_skylight = false
+blocks_skylight = true
 emission = 0
 shape = "cube"
 materials = { all = "acacia_leaves" }
