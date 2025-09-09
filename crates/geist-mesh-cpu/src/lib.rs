@@ -995,6 +995,17 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                     .get(here.id)
                     .map(|ty| ty.material_for_cached(face.role(), here.state))
                     .unwrap_or_else(|| unknown_material_id(reg));
+                // Prefer microgrid occupancy for shapes like slabs/stairs
+                if let Some(ty) = reg.get(here.id) {
+                    let var = ty.variant(here.state);
+                    if let Some(occ) = var.occupancy {
+                        let face_material = |face: Face| ty.material_for_cached(face.role(), here.state);
+                        for (min, max) in microgrid_boxes(fx, fy, fz, occ) {
+                            emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |_face| ambient);
+                        }
+                        continue;
+                    }
+                }
                 match reg.get(here.id).map(|t| &t.shape) {
                     Some(geist_blocks::types::Shape::Cube) | Some(geist_blocks::types::Shape::AxisCube { .. }) => {
                         let min = Vec3 { x: fx, y: fy, z: fz };
