@@ -154,33 +154,6 @@ fn emit_face_rect_for(
 }
 
 #[inline]
-fn sample_neighbor_half_light(
-    light: &LightGrid,
-    x: usize,
-    y: usize,
-    z: usize,
-    face: Face,
-    draw_top_half: bool,
-    sy: usize,
-) -> u8 {
-    let l0 = light.sample_face_local(x, y, z, face.index());
-    let ladd = if draw_top_half {
-        if y + 1 < sy {
-            light.sample_face_local(x, y + 1, z, face.index())
-        } else {
-            l0
-        }
-    } else if y > 0 {
-        light.sample_face_local(x, y - 1, z, face.index())
-    } else {
-        l0
-    };
-    l0.max(ladd).max(VISUAL_LIGHT_MIN)
-}
-
-// Legacy micro neighbor fixups removed with greedy mesher
-
-#[inline]
 fn is_solid_runtime(b: Block, reg: &BlockRegistry) -> bool {
     reg.get(b.id)
         .map(|ty| ty.is_solid(b.state))
@@ -196,17 +169,6 @@ fn is_top_half_shape(b: Block, reg: &BlockRegistry) -> bool {
         }
         _ => false,
     })
-}
-
-const LOCAL_FACE_LIGHT: [i16; 6] = [40, -60, 0, 0, 0, 0];
-
-fn face_light(face: Face, ambient: u8) -> u8 {
-    let bias = LOCAL_FACE_LIGHT[face.index()];
-    if bias >= 0 {
-        ambient.saturating_add(bias as u8)
-    } else {
-        ambient.saturating_sub((-bias) as u8)
-    }
 }
 
 #[inline]
@@ -268,11 +230,6 @@ fn emit_box_generic(
         let mid = fm_for_face(face);
         Some((mid, rgba))
     });
-}
-
-#[inline]
-fn micro_bit(x: usize, y: usize, z: usize) -> u8 {
-    1u8 << (((y & 1) << 2) | ((z & 1) << 1) | (x & 1))
 }
 
 #[inline]
@@ -1479,124 +1436,3 @@ fn greedy_rects<K: Copy + Eq + Hash>(
 #[inline]
 fn apply_min_light(l: u8, min: Option<u8>) -> u8 { if let Some(m) = min { l.max(m) } else { l } }
 
-/* Legacy helper for greedy mesher (removed)
-pub fn build_mesh_core<K, F>(
-    buf: &ChunkBuf,
-    base_x: i32,
-    base_z: i32,
-    flip_v: [bool; 6],
-    min_light: Option<u8>,
-    mut face_info: F,
-) -> HashMap<K, MeshBuild>
-where
-    K: Copy + Eq + Hash,
-    F: FnMut(usize, usize, usize, Face, Block) -> Option<(K, u8)>,
-{
-    let sx = buf.sx;
-    let sy = buf.sy;
-    let sz = buf.sz;
-    let mut builds: HashMap<K, MeshBuild> = HashMap::new();
-
-    for y in 0..sy {
-        let mut mask: Vec<Option<(K, u8)>> = vec![None; sx * sz];
-        for z in 0..sz {
-            for x in 0..sx {
-                let here = buf.get_local(x, y, z);
-                if let Some((fm, l)) = face_info(x, y, z, Face::PosY, here) {
-                    mask[z * sx + x] = Some((fm, l));
-                }
-            }
-        }
-        greedy_rects(sx, sz, &mut mask, |x, z, w, h, codev| {
-            let fx = (base_x + x as i32) as f32;
-            let fz = (base_z + z as i32) as f32;
-            let fy = (y as f32) + 1.0;
-            let u1 = w as f32;
-            let v1 = h as f32;
-            let mb = builds.entry(codev.0).or_default();
-            let lv = apply_min_light(codev.1, min_light);
-            let rgba = [lv, lv, lv, 255];
-            mb.add_face_rect(Face::PosY, Vec3 { x: fx, y: fy, z: fz }, u1, v1, flip_v[Face::PosY.index()], rgba);
-        });
-    }
-
-    for y in 0..sy {
-        let mut mask: Vec<Option<(K, u8)>> = vec![None; sx * sz];
-        for z in 0..sz {
-            for x in 0..sx {
-                let here = buf.get_local(x, y, z);
-                if let Some((fm, l)) = face_info(x, y, z, Face::NegY, here) {
-                    mask[z * sx + x] = Some((fm, l));
-                }
-            }
-        }
-        greedy_rects(sx, sz, &mut mask, |x, z, w, h, codev| {
-            let fx = (base_x + x as i32) as f32;
-            let fz = (base_z + z as i32) as f32;
-            let fy = y as f32;
-            let u1 = w as f32;
-            let v1 = h as f32;
-            let mb = builds.entry(codev.0).or_default();
-            let lv = apply_min_light(codev.1, min_light);
-            let rgba = [lv, lv, lv, 255];
-            mb.add_face_rect(Face::NegY, Vec3 { x: fx, y: fy, z: fz }, u1, v1, flip_v[Face::NegY.index()], rgba);
-        });
-    }
-
-    for x in 0..sx {
-        for &pos in &[false, true] {
-            let mut mask: Vec<Option<(K, u8)>> = vec![None; sz * sy];
-            for z in 0..sz {
-                for y in 0..sy {
-                    let here = buf.get_local(x, y, z);
-                    let face = if pos { Face::PosX } else { Face::NegX };
-                    if let Some((fm, l)) = face_info(x, y, z, face, here) {
-                        mask[y * sz + z] = Some((fm, l));
-                    }
-                }
-            }
-            greedy_rects(sz, sy, &mut mask, |z, y, w, h, codev| {
-                let fx = (base_x + x as i32) as f32 + if pos { 1.0 } else { 0.0 };
-                let fy = y as f32;
-                let fz = (base_z + z as i32) as f32;
-                let u1 = w as f32;
-                let v1 = h as f32;
-                let mb = builds.entry(codev.0).or_default();
-                let lv = apply_min_light(codev.1, min_light);
-                let rgba = [lv, lv, lv, 255];
-                let face = if pos { Face::PosX } else { Face::NegX };
-                mb.add_face_rect(face, Vec3 { x: fx, y: fy, z: fz }, u1, v1, flip_v[face.index()], rgba);
-            });
-        }
-    }
-
-    for z in 0..sz {
-        for &pos in &[false, true] {
-            let mut mask: Vec<Option<(K, u8)>> = vec![None; sx * sy];
-            for x in 0..sx {
-                for y in 0..sy {
-                    let here = buf.get_local(x, y, z);
-                    let face = if pos { Face::PosZ } else { Face::NegZ };
-                    if let Some((fm, l)) = face_info(x, y, z, face, here) {
-                        mask[y * sx + x] = Some((fm, l));
-                    }
-                }
-            }
-            greedy_rects(sx, sy, &mut mask, |x, y, w, h, codev| {
-                let fx = (base_x + x as i32) as f32;
-                let fy = y as f32;
-                let fz = (base_z + z as i32) as f32 + if pos { 1.0 } else { 0.0 };
-                let u1 = w as f32;
-                let v1 = h as f32;
-                let mb = builds.entry(codev.0).or_default();
-                let lv = apply_min_light(codev.1, min_light);
-                let rgba = [lv, lv, lv, 255];
-                let face = if pos { Face::PosZ } else { Face::NegZ };
-                mb.add_face_rect(face, Vec3 { x: fx, y: fy, z: fz }, u1, v1, flip_v[face.index()], rgba);
-            });
-        }
-    }
-
-    builds
-}
-*/
