@@ -1025,6 +1025,213 @@ pub fn build_chunk_wcc_cpu_buf(
     let mut builds: HashMap<MaterialId, MeshBuild> = HashMap::new();
     wm.emit_into(&mut builds);
 
+    // Phase 3: thin dynamic shapes (pane, fence, gate, carpet)
+    // Emit via thin-box pass reusing existing shape logic and occluder checks.
+    for z in 0..sz {
+        for y in 0..sy {
+            for x in 0..sx {
+                let here = buf.get_local(x, y, z);
+                let fx = (base_x + x as i32) as f32;
+                let fy = y as f32;
+                let fz = (base_z + z as i32) as f32;
+                if let Some(ty) = reg.get(here.id) {
+                    // Skip occupancy-driven shapes; those already went through WCC.
+                    if ty.variant(here.state).occupancy.is_some() {
+                        continue;
+                    }
+                    match &ty.shape {
+                        geist_blocks::types::Shape::Pane => {
+                            let face_material = |face: Face| ty.material_for_cached(face.role(), here.state);
+                            let t = 0.0625f32;
+                            let min = Vec3 { x: fx + 0.5 - t, y: fy, z: fz };
+                            let max = Vec3 { x: fx + 0.5 + t, y: fy + 1.0, z: fz + 1.0 };
+                            emit_box_generic(
+                                &mut builds,
+                                min,
+                                max,
+                                &face_material,
+                                |face| {
+                                    let (dx, dy, dz) = face.delta();
+                                    let (nx, ny, nz) = (fx as i32 + dx, fy as i32 + dy, fz as i32 + dz);
+                                    is_occluder(
+                                        buf, world, edits, neighbors, reg, here, face, nx, ny, nz,
+                                    )
+                                },
+                                |face| {
+                                    let lv = light.sample_face_local(x, y, z, face.index());
+                                    lv.max(VISUAL_LIGHT_MIN)
+                                },
+                            );
+                            // Add side connectors to adjacent panes
+                            let mut connect_xn = false;
+                            let mut connect_xp = false;
+                            let mut connect_zn = false;
+                            let mut connect_zp = false;
+                            {
+                                let (dx, dy, dz) = Face::PosZ.delta();
+                                if let Some(nb) = buf.get_world((fx as i32) + dx, (fy as i32) + dy, (fz as i32) + dz) {
+                                    if let Some(nb_ty) = reg.get(nb.id) {
+                                        if nb_ty.shape == geist_blocks::types::Shape::Pane { connect_zp = true; }
+                                    }
+                                }
+                            }
+                            {
+                                let (dx, dy, dz) = Face::NegZ.delta();
+                                if let Some(nb) = buf.get_world((fx as i32) + dx, (fy as i32) + dy, (fz as i32) + dz) {
+                                    if let Some(nb_ty) = reg.get(nb.id) {
+                                        if nb_ty.shape == geist_blocks::types::Shape::Pane { connect_zn = true; }
+                                    }
+                                }
+                            }
+                            {
+                                let (dx, dy, dz) = Face::PosX.delta();
+                                if let Some(nb) = buf.get_world((fx as i32) + dx, (fy as i32) + dy, (fz as i32) + dz) {
+                                    if let Some(nb_ty) = reg.get(nb.id) {
+                                        if nb_ty.shape == geist_blocks::types::Shape::Pane { connect_xp = true; }
+                                    }
+                                }
+                            }
+                            {
+                                let (dx, dy, dz) = Face::NegX.delta();
+                                if let Some(nb) = buf.get_world((fx as i32) + dx, (fy as i32) + dy, (fz as i32) + dz) {
+                                    if let Some(nb_ty) = reg.get(nb.id) {
+                                        if nb_ty.shape == geist_blocks::types::Shape::Pane { connect_xn = true; }
+                                    }
+                                }
+                            }
+                            let t = 0.0625f32;
+                            if connect_xn {
+                                let min = Vec3 { x: fx + 0.0, y: fy, z: fz + 0.5 - t };
+                                let max = Vec3 { x: fx + 0.5 - t, y: fy + 1.0, z: fz + 0.5 + t };
+                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local(x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                            }
+                            if connect_xp {
+                                let min = Vec3 { x: fx + 0.5 + t, y: fy, z: fz + 0.5 - t };
+                                let max = Vec3 { x: fx + 1.0, y: fy + 1.0, z: fz + 0.5 + t };
+                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local(x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                            }
+                            if connect_zn {
+                                let min = Vec3 { x: fx + 0.5 - t, y: fy, z: fz + 0.0 };
+                                let max = Vec3 { x: fx + 0.5 + t, y: fy + 1.0, z: fz + 0.5 - t };
+                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local(x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                            }
+                            if connect_zp {
+                                let min = Vec3 { x: fx + 0.5 - t, y: fy, z: fz + 0.5 + t };
+                                let max = Vec3 { x: fx + 0.5 + t, y: fy + 1.0, z: fz + 1.0 };
+                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local(x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                            }
+                        }
+                        geist_blocks::types::Shape::Fence => {
+                            // Posts + arms where connected to neighbors (fence/pane/gate)
+                            let face_material = |face: Face| ty.material_for_cached(face.role(), here.state);
+                            let mut connect = [false; 4]; // xn,xp,zn,zp
+                            for (i, (dx, dz)) in [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().enumerate() {
+                                if let Some(nb) = buf.get_world((fx as i32) + dx, fy as i32, (fz as i32) + dz) {
+                                    if let Some(nb_ty) = reg.get(nb.id) {
+                                        connect[i] = nb_ty.shape == geist_blocks::types::Shape::Fence
+                                            || nb_ty.shape == geist_blocks::types::Shape::Pane
+                                            || matches!(nb_ty.shape, geist_blocks::types::Shape::Gate { .. });
+                                    }
+                                }
+                            }
+                            // Central post
+                            let t = 0.125f32; // post half-width
+                            let min = Vec3 { x: fx + 0.5 - t, y: fy, z: fz + 0.5 - t };
+                            let max = Vec3 { x: fx + 0.5 + t, y: fy + 1.0, z: fz + 0.5 + t };
+                            emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local(x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                            // Arms
+                            let t = 0.125f32; let arm = 0.5f32 - t;
+                            if connect[0] { // xn
+                                let min = Vec3 { x: fx + 0.0, y: fy + 0.375, z: fz + 0.5 - t };
+                                let max = Vec3 { x: fx + 0.5, y: fy + 0.625, z: fz + 0.5 + t };
+                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local(x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                            }
+                            if connect[1] { // xp
+                                let min = Vec3 { x: fx + 0.5, y: fy + 0.375, z: fz + 0.5 - t };
+                                let max = Vec3 { x: fx + 1.0, y: fy + 0.625, z: fz + 0.5 + t };
+                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local(x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                            }
+                            if connect[2] { // zn
+                                let min = Vec3 { x: fx + 0.5 - t, y: fy + 0.375, z: fz + 0.0 };
+                                let max = Vec3 { x: fx + 0.5 + t, y: fy + 0.625, z: fz + 0.5 };
+                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local(x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                            }
+                            if connect[3] { // zp
+                                let min = Vec3 { x: fx + 0.5 - t, y: fy + 0.375, z: fz + 0.5 };
+                                let max = Vec3 { x: fx + 0.5 + t, y: fy + 0.625, z: fz + 1.0 };
+                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local(x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                            }
+                            let _ = arm; // silence
+                        }
+                        geist_blocks::types::Shape::Gate { .. } => {
+                            let mut along_x = true;
+                            if let geist_blocks::types::Shape::Gate { facing_from, open_from } = &ty.shape {
+                                let facing = ty.state_prop_value(here.state, facing_from).unwrap_or("north");
+                                along_x = matches!(facing, "north" | "south");
+                                if ty.state_prop_is_value(here.state, open_from, "true") {
+                                    along_x = !along_x;
+                                }
+                            }
+                            let t = 0.125f32; let y0 = 0.375f32; let y1 = 0.625f32;
+                            let mut boxes: Vec<(Vec3, Vec3)> = Vec::new();
+                            if along_x {
+                                boxes.push((Vec3 { x: fx + 0.0, y: fy + y0, z: fz + 0.5 - t }, Vec3 { x: fx + 1.0, y: fy + y0 + t, z: fz + 0.5 + t }));
+                                boxes.push((Vec3 { x: fx + 0.0, y: fy + y1, z: fz + 0.5 - t }, Vec3 { x: fx + 1.0, y: fy + y1 + t, z: fz + 0.5 + t }));
+                            } else {
+                                boxes.push((Vec3 { x: fx + 0.5 - t, y: fy + y0, z: fz + 0.0 }, Vec3 { x: fx + 0.5 + t, y: fy + y0 + t, z: fz + 1.0 }));
+                                boxes.push((Vec3 { x: fx + 0.5 - t, y: fy + y1, z: fz + 0.0 }, Vec3 { x: fx + 0.5 + t, y: fy + y1 + t, z: fz + 1.0 }));
+                            }
+                            let face_material = |face: Face| ty.material_for_cached(face.role(), here.state);
+                            for (min, max) in boxes {
+                                emit_box_generic(
+                                    &mut builds,
+                                    min,
+                                    max,
+                                    &face_material,
+                                    |face| {
+                                        let (dx, dy, dz) = face.delta();
+                                        let (nx, ny, nz) = (fx as i32 + dx, fy as i32 + dy, fz as i32 + dz);
+                                        is_occluder(
+                                            buf, world, edits, neighbors, reg, here, face, nx, ny, nz,
+                                        )
+                                    },
+                                    |face| {
+                                        let lv = light.sample_face_local(x, y, z, face.index());
+                                        lv.max(VISUAL_LIGHT_MIN)
+                                    },
+                                );
+                            }
+                        }
+                        geist_blocks::types::Shape::Carpet => {
+                            let h = 0.0625f32;
+                            let min = Vec3 { x: fx, y: fy, z: fz };
+                            let max = Vec3 { x: fx + 1.0, y: fy + h, z: fz + 1.0 };
+                            let face_material = |face: Face| ty.material_for_cached(face.role(), here.state);
+                            emit_box_generic(
+                                &mut builds,
+                                min,
+                                max,
+                                &face_material,
+                                |face| {
+                                    let (dx, dy, dz) = face.delta();
+                                    let (nx, ny, nz) = (fx as i32 + dx, fy as i32 + dy, fz as i32 + dz);
+                                    is_occluder(
+                                        buf, world, edits, neighbors, reg, here, face, nx, ny, nz,
+                                    )
+                                },
+                                |face| {
+                                    let lv = light.sample_face_local(x, y, z, face.index());
+                                    lv.max(VISUAL_LIGHT_MIN)
+                                },
+                            );
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
     let bbox = Aabb { min: Vec3 { x: base_x as f32, y: 0.0, z: base_z as f32 }, max: Vec3 { x: base_x as f32 + sx as f32, y: sy as f32, z: base_z as f32 + sz as f32 } };
     let light_borders = Some(LightBorders::from_grid(&light));
     Some((ChunkMeshCPU { cx, cz, bbox, parts: builds }, light_borders))

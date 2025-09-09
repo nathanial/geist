@@ -1,8 +1,8 @@
 # MesherPlan — Watertight Cubical Complex (WCC)
 
-Goal: Replace per-face occlusion + greedy quads with a robust boundary-of-solids mesher based on XOR parity on faces, then greedy rectangle merging. Must be crack-free at chunk seams, match or improve full-cube output, and be extendable to micro-shapes.
+Goal: Replace per-face occlusion + greedy quads with a robust boundary-of-solids mesher based on XOR parity on faces, then greedy rectangle merging. Must be crack-free at chunk seams, match or improve full-cube output, and be extendable to micro-shapes and thin dynamics.
 
-- Feature flag: `Rastergeist.mesh.wcc = true` to select WCC path
+- Feature flag: `Rastergeist.mesh.wcc = true` (design). Current implementation uses env var `RASTERGEIST_MESH_WCC=1` to enable the WCC path.
 - Target crates: `geist-mesh-cpu` (implementation), `geist-lighting` (sampling), `geist-world`/`geist-chunk` (inputs)
 - Entry point: `build_chunk_wcc_cpu_buf(...) -> (ChunkMeshCPU, Option<LightBorders>)`
 
@@ -10,17 +10,17 @@ Goal: Replace per-face occlusion + greedy quads with a robust boundary-of-solids
 
 ## Phases
 
-1) Phase 1 — Full cubes (S=1)
-- Implement WCC at voxel resolution S=1 for full-cube solids.
-- Keep current micro/dynamic paths unchanged.
+1) Phase 1 — Full cubes (S=1) [COMPLETED]
+- WCC at voxel resolution S=1 for full-cube solids.
 - Parity accumulation + greedy rect emission; half-open seam rule.
 
-2) Phase 2 — Micro grid (S=2)
-- Integrate 2×2×2 micro occupancy via scaled integer coords.
-- Feed micro boxes through the same toggler; remove micro projection fixups.
+2) Phase 2 — Micro grid (S=2) [COMPLETED]
+- Integrated 2×2×2 micro occupancy via scaled integer coords.
+- Micro boxes go through the same WCC toggler; micro projection fixups removed under WCC.
 
-3) Phase 3 — Thin dynamics (later)
-- Route panes/fences/gates/carpets via WCC with a common micro scale (e.g., S=4) or axis-dependent scales; or keep a separate thin pass temporarily.
+3) Phase 3 — Thin dynamics [COMPLETED (Hybrid)]
+- Practical hybrid: panes/fences/gates/carpets are emitted via a thin‑box pass alongside WCC output. This avoids the memory overhead that a large uniform S (or Sy=16) would introduce.
+- Optional future upgrade: route thin shapes through WCC using a common S (e.g., S=4) or axis-dependent scales (e.g., Sy=16 for carpets) with on‑the‑fly plane masks.
 
 ---
 
@@ -33,7 +33,7 @@ Face grids sized for scale `S` and chunk dims `(sx, sy, sz)`:
 - Y faces: `(S*sx) × (S*sy + 1) × (S*sz)`
 - Z faces: `(S*sx) × (S*sy) × (S*sz + 1)`
 
-Represent parity as bitsets; store key indices (u32) in parallel arrays pointing into a compact table of distinct `(MaterialId, LightBin)` pairs.
+Represent parity as bitsets; optionally store an orientation bit (true for the positive face) and key indices (u16) in parallel arrays pointing into a compact table of distinct `(MaterialId, LightBin)` pairs.
 
 Indexers: `idx_x(ix, iy, iz)`, `idx_y(ix, iy, iz)`, `idx_z(ix, iy, iz)` computed by row-major strides per axis.
 
@@ -109,6 +109,9 @@ For each axis and each allowed plane (respect half-open rule):
 2) Run `greedy_rects(width, height, &mut mask, emit)`.
 3) In `emit`, map plane coord and rect `(u0,v0,w,h)` back to world, scaling by `1/S`, then call `add_face_rect(axis_face, origin, u_size, v_size, ...)` with existing UV orientation rules.
 
+Thin shapes (Phase 3, hybrid):
+- Emit thin volumes (pane/fence/gate/carpet) via a legacy thin‑box pass using shape rules and occluder checks, and append results to the same MeshBuild. These do not use the WCC parity grids and therefore do not require additional face grids or large S.
+
 ---
 
 ## Integration Points
@@ -119,7 +122,7 @@ For each axis and each allowed plane (respect half-open rule):
   - Keep `build_chunk_greedy_cpu_buf` intact; WCC selected by feature flag.
 
 - `geist-runtime` job selection:
-  - Plumb config `Rastergeist.mesh.wcc` (bool) into the meshing job and call the appropriate builder.
+  - Plumb config `Rastergeist.mesh.wcc` (bool) into the meshing job (design). Current implementation uses an env var `RASTERGEIST_MESH_WCC` to choose WCC vs legacy greedy.
 
 - Inputs:
   - Use `ChunkBuf` and shape/solid queries from `geist-chunk`/`geist-blocks` to decide “full solid” and to get micro occupancy for Phase 2.
@@ -141,6 +144,7 @@ Unit tests (crates/geist-mesh-cpu/tests/wcc.rs):
 1) Random binary chunks (full cubes): WCC face counts match naive boundary counts per axis.
 2) Seam stitching: two adjacent chunks with same pattern → stitch outputs and verify no duplicates/holes on shared plane.
 3) Merge stability: checkerboard patterns → ensure greedy reduces count and produces no T-junctions.
+4) Thin-shape seams (hybrid): connectors crossing chunk borders (pane/fence/gate/carpet) should not produce duplicate faces or gaps.
 
 Visual regression:
 - Spin camera around terraced terrain; compare silhouette and check for cracks vs legacy mesher.
@@ -151,11 +155,11 @@ Visual regression:
 
 - S=1 face grids on 32×256×32 chunks are small (on the order of a few thousand cells per axis).
 - S=2 roughly doubles each dimension; still modest.
-- Use bitsets for parity; compact `u32` indices into a small `(MaterialId, LightBin)` table.
+- Use bitsets for parity; compact key indices (`u16` is sufficient) into a small `(MaterialId, LightBin)` table.
 - Toggle spans row-wise; consider `memxor` for whole rows.
 
 Note on keys at S=2 (memory-friendly):
-- To keep memory modest at higher S, avoid a global per-cell key array. Instead, when traversing a plane for emission, compute `(MaterialId, LightBin)` on-the-fly for only the cells on that plane to build the 2-D mask. You can also store a compact per-plane key table (u16 indices) rather than a crate-wide table. This keeps peak RAM close to the mask size and avoids scaling issues as S grows.
+- To keep memory modest at higher S, avoid a global per-face-cell key array. Instead, when traversing a plane for emission, compute `(MaterialId, LightBin)` on-the-fly for only the cells on that plane to build the 2-D mask. You can also store a compact per-plane key table (u16 indices) rather than a crate-wide table. This keeps peak RAM close to the mask size and avoids scaling issues as S grows. The current implementation uses a compact global key table with u16 indices; moving to per-plane tables is a drop-in improvement if needed.
 
 ---
 
@@ -165,6 +169,9 @@ Note on keys at S=2 (memory-friendly):
   - If drawn in the opaque pass, include them in WCC with translucent materials; otherwise, exclude and draw in a separate transparent pass.
 - “Don’t occlude same” flags: no longer needed for seams; parity removes interior faces by design.
 - Prevent over-merging: keep `LightBin` (and AO if folded) in the merge key.
+
+Thin shapes (hybrid) seam policy:
+- Thin shapes are not routed through WCC parity; they rely on occluder checks to avoid duplicate faces. This is robust because their thin volumes do not create shared coplanar interior faces across chunk borders. If needed, unify them under WCC using axis-dependent scales.
 
 ---
 
@@ -178,21 +185,22 @@ pub fn build_chunk_wcc_cpu_buf(
     base_x: i32,
     base_z: i32,
 ) -> (ChunkMeshCPU, Option<LightBorders>) {
-    let S = 1usize; // Phase 1
+    let S = 2usize; // Phase 2 default (S=1 for full-cube-only)
     let mut mesher = WccMesher::new(buf, lights, registry, S, base_x, base_z);
 
-    // Phase 1: full cubes only
+    // Full cubes
     for z in 0..buf.sz() {
         for y in 0..buf.sy() {
             for x in 0..buf.sx() {
                 let b = buf.get(x, y, z);
-                if registry.is_full_cube(b) { mesher.add_cube(x, y, z, b); }
+                if registry.is_full_cube(b) {
+                    mesher.add_cube(x, y, z, b);
+                }
             }
         }
     }
 
-    // Phase 2: micro occupancy (S=2) — later
-    // for each block with micro occ: add boxes with scaled coords
+    // Micro occupancy (S=2): add half-step boxes via occ8_to_boxes
 
     let parts = mesher.emit();
     (ChunkMeshCPU { parts, ..Default::default() }, None)
@@ -234,7 +242,16 @@ struct WccMesher<'a> {
 
 - Replace simple greedy with maximal-rectangle cover per plane for fewer quads.
 - Incremental updates: toggle boxes on edits and re-greedy only affected planes.
-- Unify thin shapes under WCC at a higher global micro scale (e.g., S=4) or axis-dependent (Sy=16 for carpets).
+- Unify thin shapes under WCC at a higher global micro scale (e.g., S=4) or axis-dependent (Sy=16 for carpets), implemented with on‑the‑fly plane masks to keep memory modest.
+
+---
+
+## Current Implementation Summary
+
+- WCC mesher exists in `geist-mesh-cpu::build_chunk_wcc_cpu_buf`.
+- S=2 WCC covers full cubes and micro-grid occupancy; half-open ownership rule enforced at emission.
+- Thin dynamics (pane/fence/gate/carpet) are emitted via a thin-box pass (legacy logic) appended to the WCC output.
+- Env flag `RASTERGEIST_MESH_WCC=1` enables WCC; otherwise the legacy greedy mesher runs.
 
 ---
 
