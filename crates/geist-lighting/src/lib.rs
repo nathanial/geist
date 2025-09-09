@@ -238,7 +238,7 @@ impl LightGrid {
                 // Require the crossing plane to be open at S=2, and the target voxel to be skylight transparent
                 if !can_cross_face_s2(buf, reg, x, y, z, face) { return; }
                 let nb = buf.get_local(nx as usize, ny as usize, nz as usize);
-                if !skylight_transparent(nb, reg) { return; }
+                if !skylight_transparent_s2(nb, reg) { return; }
                 let idx = lg.idx(nx as usize, ny as usize, nz as usize);
                 let v = (level as i32) - 1; if v > 0 { let v8 = v as u8; if lg.skylight[idx] < v8 { lg.skylight[idx] = v8; q_sky.push_back((nx as usize, ny as usize, nz as usize, v8)); }}
             };
@@ -329,6 +329,21 @@ impl LightGrid {
 #[inline]
 fn skylight_transparent(b: Block, reg: &BlockRegistry) -> bool {
     if b.id == reg.id_by_name("air").unwrap_or(0) { return true; }
+    reg.get(b.id).map(|ty| !ty.blocks_skylight(b.state)).unwrap_or(false)
+}
+
+// S=2-aware skylight transparency gate used during BFS propagation.
+// It treats micro-occupancy blocks (slab/stairs) as enterable when
+// can_cross_face_s2 has already validated the plane is open.
+#[inline]
+fn skylight_transparent_s2(b: Block, reg: &BlockRegistry) -> bool {
+    // Air is transparent
+    if b.id == reg.id_by_name("air").unwrap_or(0) { return true; }
+    // Full cubes block skylight
+    if is_full_cube(reg, b) { return false; }
+    // Micro occupancy (e.g., slabs/stairs) should not block BFS
+    if occ8_for(reg, b).is_some() { return true; }
+    // Fallback to coarse flag for other shapes
     reg.get(b.id).map(|ty| !ty.blocks_skylight(b.state)).unwrap_or(false)
 }
 
