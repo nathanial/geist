@@ -1,0 +1,13 @@
+[package]
+name = "geist-io"
+version = "0.1.0"
+edition = "2024"
+
+[features]
+default = []
+# Will forward from workspace root later
+mcworld = []
+
+[lib]
+path = "src/lib.rs"
+

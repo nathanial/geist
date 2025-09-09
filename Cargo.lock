@@ -511,6 +511,8 @@ dependencies = [
  "fastnbt",
  "fastnoise-lite",
  "flate2 1.1.2",
+ "geist-blocks",
+ "geist-world",
  "log",
  "mc_schem",
  "notify",
@@ -519,6 +521,60 @@ dependencies = [
  "simplelog",
  "toml",
  "zip",
+]
+
+[[package]]
+name = "geist-blocks"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "toml",
+]
+
+[[package]]
+name = "geist-chunk"
+version = "0.1.0"
+
+[[package]]
+name = "geist-edit"
+version = "0.1.0"
+
+[[package]]
+name = "geist-geom"
+version = "0.1.0"
+
+[[package]]
+name = "geist-io"
+version = "0.1.0"
+
+[[package]]
+name = "geist-lighting"
+version = "0.1.0"
+
+[[package]]
+name = "geist-mesh-cpu"
+version = "0.1.0"
+
+[[package]]
+name = "geist-render-raylib"
+version = "0.1.0"
+
+[[package]]
+name = "geist-runtime"
+version = "0.1.0"
+
+[[package]]
+name = "geist-structures"
+version = "0.1.0"
+
+[[package]]
+name = "geist-world"
+version = "0.1.0"
+dependencies = [
+ "fastnoise-lite",
+ "geist-blocks",
+ "serde",
+ "toml",
 ]
 
 [[package]]

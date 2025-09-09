@@ -161,18 +161,9 @@ pub struct SeamPolicyFlagsCfg {
     pub dont_project_fixups: bool,
 }
 
-fn default_omni_atten() -> u8 {
-    32
-}
-fn default_beam_straight() -> u8 {
-    1
-}
-fn default_beam_turn() -> u8 {
-    32
-}
-fn default_beam_vertical() -> u8 {
-    32
-}
-fn default_source_dirs() -> SourceDirs {
-    SourceDirs::Horizontal
-}
+fn default_omni_atten() -> u8 { 32 }
+fn default_beam_straight() -> u8 { 1 }
+fn default_beam_turn() -> u8 { 32 }
+fn default_beam_vertical() -> u8 { 32 }
+fn default_source_dirs() -> SourceDirs { SourceDirs::Horizontal }
+

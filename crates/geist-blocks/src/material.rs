@@ -25,10 +25,7 @@ pub struct MaterialCatalog {
 
 impl MaterialCatalog {
     pub fn new() -> Self {
-        Self {
-            materials: Vec::new(),
-            by_key: HashMap::new(),
-        }
+        Self { materials: Vec::new(), by_key: HashMap::new() }
     }
 
     pub fn get_id(&self, key: &str) -> Option<MaterialId> {
@@ -49,12 +46,7 @@ impl MaterialCatalog {
             };
             let id = MaterialId(catalog.materials.len() as u16);
             catalog.by_key.insert(key.clone(), id);
-            catalog.materials.push(Material {
-                id,
-                key,
-                texture_candidates: paths.into_iter().map(PathBuf::from).collect(),
-                render_tag,
-            });
+            catalog.materials.push(Material { id, key, texture_candidates: paths.into_iter().map(PathBuf::from).collect(), render_tag });
         }
         Ok(catalog)
     }
@@ -77,10 +69,7 @@ pub struct MaterialsConfig {
 pub enum MaterialEntry {
     // Simple: material = ["assets/blocks/foo.png", ...]
     Paths(Vec<String>),
-    // Detailed:
-    // material = { paths = ["..."], render_tag = "leaves" }
-    Detail {
-        paths: Vec<String>,
-        render_tag: Option<String>,
-    },
+    // Detailed: material = { paths = ["..."], render_tag = "leaves" }
+    Detail { paths: Vec<String>, render_tag: Option<String> },
 }
+
