@@ -7,6 +7,101 @@ use geist_chunk::ChunkBuf;
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+#[inline]
+fn occ_bit(occ: u8, x: usize, y: usize, z: usize) -> bool {
+    let idx = ((y & 1) << 2) | ((z & 1) << 1) | (x & 1);
+    (occ & (1u8 << idx)) != 0
+}
+
+#[inline]
+fn occ8_for(reg: &BlockRegistry, b: Block) -> Option<u8> {
+    reg.get(b.id).and_then(|ty| ty.variant(b.state).occupancy)
+}
+
+#[inline]
+fn is_full_cube(reg: &BlockRegistry, b: Block) -> bool {
+    reg.get(b.id)
+        .map(|ty| ty.is_solid(b.state) && matches!(ty.shape, geist_blocks::types::Shape::Cube | geist_blocks::types::Shape::AxisCube { .. }))
+        .unwrap_or(false)
+}
+
+// Decide if a face between (x,y,z) and its neighbor in `face` direction is open for light at S=2.
+// face indices: 0=+Y,1=-Y,2=+X,3=-X,4=+Z,5=-Z (matches registry/mesher)
+#[inline]
+fn can_cross_face_s2(buf: &ChunkBuf, reg: &BlockRegistry, x: usize, y: usize, z: usize, face: usize) -> bool {
+    let (nx, ny, nz) = match face {
+        0 => (x as i32, y as i32 + 1, z as i32),
+        1 => (x as i32, y as i32 - 1, z as i32),
+        2 => (x as i32 + 1, y as i32, z as i32),
+        3 => (x as i32 - 1, y as i32, z as i32),
+        4 => (x as i32, y as i32, z as i32 + 1),
+        5 => (x as i32, y as i32, z as i32 - 1),
+        _ => return false,
+    };
+    if nx < 0 || ny < 0 || nz < 0 || nx >= buf.sx as i32 || ny >= buf.sy as i32 || nz >= buf.sz as i32 {
+        return false;
+    }
+    let here = buf.get_local(x, y, z);
+    let nb = buf.get_local(nx as usize, ny as usize, nz as usize);
+
+    // Fast path: if neither side uses micro occupancy, fall back to legacy passability
+    let occ_a = occ8_for(reg, here);
+    let occ_b = occ8_for(reg, nb);
+    if occ_a.is_none() && occ_b.is_none() {
+        // Legacy rule: you can enter target only if target propagates light (or is air)
+        return block_light_passable(nb, reg);
+    }
+
+    // Determine if the plane is fully sealed at S=2: for all micro cells on the plane, either side touches the plane.
+    let mut sealed = true;
+    match face {
+        2 => { // +X: here x=1, nb x=0; iterate over y,z micro
+            for my in 0..2 { for mz in 0..2 {
+                let a = occ_a.map_or(false, |o| occ_bit(o, 1, my, mz)) || is_full_cube(reg, here);
+                let b = occ_b.map_or(false, |o| occ_bit(o, 0, my, mz)) || is_full_cube(reg, nb);
+                if !(a || b) { sealed = false; break; }
+            } if !sealed { break; } }
+        }
+        3 => { // -X: here x=0, nb x=1
+            for my in 0..2 { for mz in 0..2 {
+                let a = occ_a.map_or(false, |o| occ_bit(o, 0, my, mz)) || is_full_cube(reg, here);
+                let b = occ_b.map_or(false, |o| occ_bit(o, 1, my, mz)) || is_full_cube(reg, nb);
+                if !(a || b) { sealed = false; break; }
+            } if !sealed { break; } }
+        }
+        0 => { // +Y: here y=1, nb y=0; iterate x,z
+            for mx in 0..2 { for mz in 0..2 {
+                let a = occ_a.map_or(false, |o| occ_bit(o, mx, 1, mz)) || is_full_cube(reg, here);
+                let b = occ_b.map_or(false, |o| occ_bit(o, mx, 0, mz)) || is_full_cube(reg, nb);
+                if !(a || b) { sealed = false; break; }
+            } if !sealed { break; } }
+        }
+        1 => { // -Y: here y=0, nb y=1
+            for mx in 0..2 { for mz in 0..2 {
+                let a = occ_a.map_or(false, |o| occ_bit(o, mx, 0, mz)) || is_full_cube(reg, here);
+                let b = occ_b.map_or(false, |o| occ_bit(o, mx, 1, mz)) || is_full_cube(reg, nb);
+                if !(a || b) { sealed = false; break; }
+            } if !sealed { break; } }
+        }
+        4 => { // +Z: here z=1, nb z=0; iterate x,y
+            for mx in 0..2 { for my in 0..2 {
+                let a = occ_a.map_or(false, |o| occ_bit(o, mx, my, 1)) || is_full_cube(reg, here);
+                let b = occ_b.map_or(false, |o| occ_bit(o, mx, my, 0)) || is_full_cube(reg, nb);
+                if !(a || b) { sealed = false; break; }
+            } if !sealed { break; } }
+        }
+        5 => { // -Z: here z=0, nb z=1
+            for mx in 0..2 { for my in 0..2 {
+                let a = occ_a.map_or(false, |o| occ_bit(o, mx, my, 0)) || is_full_cube(reg, here);
+                let b = occ_b.map_or(false, |o| occ_bit(o, mx, my, 1)) || is_full_cube(reg, nb);
+                if !(a || b) { sealed = false; break; }
+            } if !sealed { break; } }
+        }
+        _ => {}
+    }
+    !sealed
+}
+
 pub struct LightGrid {
     pub(crate) sx: usize,
     pub(crate) sy: usize,
@@ -92,20 +187,26 @@ impl LightGrid {
         if let Some(ref plane) = nb.sk_xp { for z in 0..sz { for y in 0..sy { let v = plane[y*sz+z] as i32 - atten; if v>0 { let v8=v as u8; let xx=sx-1; let idx=lg.idx(xx,y,z); if lg.skylight[idx] < v8 { lg.skylight[idx]=v8; q_sky.push_back((xx,y,z,v8)); }}}}}
         if let Some(ref plane) = nb.sk_zn { for x in 0..sx { for y in 0..sy { let v = plane[y*sx+x] as i32 - atten; if v>0 { let v8=v as u8; let idx=lg.idx(x,y,0); if lg.skylight[idx] < v8 { lg.skylight[idx]=v8; q_sky.push_back((x,y,0,v8)); }}}}}
         if let Some(ref plane) = nb.sk_zp { for x in 0..sx { for y in 0..sy { let v = plane[y*sx+x] as i32 - atten; if v>0 { let v8=v as u8; let zz=sz-1; let idx=lg.idx(x,y,zz); if lg.skylight[idx] < v8 { lg.skylight[idx]=v8; q_sky.push_back((x,y,zz,v8)); }}}}}
-        // Propagate omni block light
+        // Propagate omni block light (face-aware at S=2 for micro occupancy)
         while let Some((x,y,z,level,atten)) = q.pop_front() {
             let level_i = level as i32; if level_i <= 1 { continue; }
-            let mut try_push = |nx: i32, ny: i32, nz: i32| {
+            let mut try_push = |nx: i32, ny: i32, nz: i32, face: usize| {
                 if nx<0 || ny<0 || nz<0 || nx>=sx as i32 || ny>=sy as i32 || nz>=sz as i32 { return; }
+                // Face-aware crossing: allow step only if crossing plane is open at S=2, or
+                // fall back to legacy passability when neither side uses micro occupancy.
                 let nb = buf.get_local(nx as usize, ny as usize, nz as usize);
                 if !block_light_passable(nb, reg) { return; }
+                if !can_cross_face_s2(buf, reg, x, y, z, face) { return; }
                 let idx = lg.idx(nx as usize, ny as usize, nz as usize);
                 let v = level_i - atten as i32;
                 if v > 0 { let v8=v as u8; if lg.block_light[idx] < v8 { lg.block_light[idx]=v8; q.push_back((nx as usize, ny as usize, nz as usize, v8, atten)); }}
             };
-            try_push(x as i32 + 1, y as i32, z as i32); try_push(x as i32 - 1, y as i32, z as i32);
-            try_push(x as i32, y as i32 + 1, z as i32); try_push(x as i32, y as i32 - 1, z as i32);
-            try_push(x as i32, y as i32, z as i32 + 1); try_push(x as i32, y as i32, z as i32 - 1);
+            try_push(x as i32 + 1, y as i32, z as i32, 2); // +X
+            try_push(x as i32 - 1, y as i32, z as i32, 3); // -X
+            try_push(x as i32, y as i32 + 1, z as i32, 0); // +Y
+            try_push(x as i32, y as i32 - 1, z as i32, 1); // -Y
+            try_push(x as i32, y as i32, z as i32 + 1, 4); // +Z
+            try_push(x as i32, y as i32, z as i32 - 1, 5); // -Z
         }
         // Propagate beacon light with direction-aware attenuation
         while let Some((x,y,z,level,dir,sc,tc,vc)) = q_beacon.pop_front() {
@@ -113,7 +214,10 @@ impl LightGrid {
             let mut push_dir = |nx:i32,ny:i32,nz:i32, step_dir:u8| {
                 if nx<0 || ny<0 || nz<0 || nx>=sx as i32 || ny>=sy as i32 || nz>=sz as i32 { return; }
                 let nb = buf.get_local(nx as usize, ny as usize, nz as usize);
+                // Face-aware crossing at S=2. Use same gating as omni.
+                let face = match step_dir { 1=>2, 2=>3, 3=>4, 4=>5, _=> if ny>y as i32 {0} else {1} };
                 if !block_light_passable(nb, reg) { return; }
+                if !can_cross_face_s2(buf, reg, x, y, z, face) { return; }
                 let idx = lg.idx(nx as usize, ny as usize, nz as usize);
                 // cost: straight vs turn vs vertical
                 let cost = if dir == 0 || dir == step_dir { sc as i32 } else if step_dir == 1 || step_dir == 2 || step_dir == 3 || step_dir == 4 { tc as i32 } else { vc as i32 };
@@ -126,19 +230,24 @@ impl LightGrid {
             push_dir(x as i32, y as i32 + 1, z as i32, 5); // vertical/non-cardinal
             push_dir(x as i32, y as i32 - 1, z as i32, 5);
         }
-        // Skylight propagation
+        // Skylight propagation (face-aware at S=2)
         while let Some((x,y,z,level)) = q_sky.pop_front() {
             if level <= 1 { continue; }
-            let mut try_push = |nx:i32,ny:i32,nz:i32| {
+            let mut try_push = |nx:i32,ny:i32,nz:i32, face: usize| {
                 if nx<0 || ny<0 || nz<0 || nx>=sx as i32 || ny>=sy as i32 || nz>=sz as i32 { return; }
+                // Require the crossing plane to be open at S=2, and the target voxel to be skylight transparent
+                if !can_cross_face_s2(buf, reg, x, y, z, face) { return; }
                 let nb = buf.get_local(nx as usize, ny as usize, nz as usize);
                 if !skylight_transparent(nb, reg) { return; }
                 let idx = lg.idx(nx as usize, ny as usize, nz as usize);
                 let v = (level as i32) - 1; if v > 0 { let v8 = v as u8; if lg.skylight[idx] < v8 { lg.skylight[idx] = v8; q_sky.push_back((nx as usize, ny as usize, nz as usize, v8)); }}
             };
-            try_push(x as i32 + 1, y as i32, z as i32); try_push(x as i32 - 1, y as i32, z as i32);
-            try_push(x as i32, y as i32 + 1, z as i32); try_push(x as i32, y as i32 - 1, z as i32);
-            try_push(x as i32, y as i32, z as i32 + 1); try_push(x as i32, y as i32, z as i32 - 1);
+            try_push(x as i32 + 1, y as i32, z as i32, 2); // +X
+            try_push(x as i32 - 1, y as i32, z as i32, 3); // -X
+            try_push(x as i32, y as i32 + 1, z as i32, 0); // +Y
+            try_push(x as i32, y as i32 - 1, z as i32, 1); // -Y
+            try_push(x as i32, y as i32, z as i32 + 1, 4); // +Z
+            try_push(x as i32, y as i32, z as i32 - 1, 5); // -Z
         }
         lg
     }
@@ -162,6 +271,58 @@ impl LightGrid {
         let local = self.skylight[i].max(self.block_light[i]).max(self.beacon_light[i]);
         let nb = self.neighbor_light_max(x, y, z, face);
         local.max(nb)
+    }
+
+    // Face-aware light sample that respects S=2 micro openings for neighbor contribution
+    pub fn sample_face_local_s2(&self, buf: &ChunkBuf, reg: &BlockRegistry, x: usize, y: usize, z: usize, face: usize) -> u8 {
+        let i = self.idx(x, y, z);
+        let local = self.skylight[i].max(self.block_light[i]).max(self.beacon_light[i]);
+        // Compute neighbor coords
+        let (nx, ny, nz) = match face { 0=> (x as i32, y as i32+1, z as i32), 1=> (x as i32, y as i32-1, z as i32), 2=> (x as i32+1, y as i32, z as i32), 3=> (x as i32-1, y as i32, z as i32), 4=> (x as i32, y as i32, z as i32+1), 5=> (x as i32, y as i32, z as i32-1), _=> return local };
+        // Out-of-bounds: fall back to border-aware neighbor max
+        if nx < 0 || ny < 0 || nz < 0 || nx >= buf.sx as i32 || ny >= buf.sy as i32 || nz >= buf.sz as i32 {
+            let nb = self.neighbor_light_max(x, y, z, face);
+            return local.max(nb);
+        }
+        // Only the neighbor's micro occupancy can seal light reaching the boundary from that side.
+        let there = buf.get_local(nx as usize, ny as usize, nz as usize);
+        if let Some(occ_b) = occ8_for(reg, there) {
+            let mut all_covered = true;
+            match face {
+                2 => { for my in 0..2 { for mz in 0..2 { if !occ_bit(occ_b, 0, my, mz) { all_covered=false; break; } } if !all_covered { break; } } }
+                3 => { for my in 0..2 { for mz in 0..2 { if !occ_bit(occ_b, 1, my, mz) { all_covered=false; break; } } if !all_covered { break; } } }
+                0 => { for mx in 0..2 { for mz in 0..2 { if !occ_bit(occ_b, mx, 0, mz) { all_covered=false; break; } } if !all_covered { break; } } }
+                1 => { for mx in 0..2 { for mz in 0..2 { if !occ_bit(occ_b, mx, 1, mz) { all_covered=false; break; } } if !all_covered { break; } } }
+                4 => { for mx in 0..2 { for my in 0..2 { if !occ_bit(occ_b, mx, my, 0) { all_covered=false; break; } } if !all_covered { break; } } }
+                5 => { for mx in 0..2 { for my in 0..2 { if !occ_bit(occ_b, mx, my, 1) { all_covered=false; break; } } if !all_covered { break; } } }
+                _ => {}
+            }
+            if all_covered { return local; }
+        } else if is_full_cube(reg, there) {
+            return local;
+        }
+        // Otherwise, approximate the face-neighbor contribution by sampling the best among the micro-adjacent voxels
+        let mut nb_max: u8 = 0;
+        let mut upd = |sx_i: i32, sy_i: i32, sz_i: i32| {
+            if sx_i>=0 && sy_i>=0 && sz_i>=0 && sx_i < buf.sx as i32 && sy_i < buf.sy as i32 && sz_i < buf.sz as i32 {
+                let idx = self.idx(sx_i as usize, sy_i as usize, sz_i as usize);
+                let v = self.skylight[idx].max(self.block_light[idx]).max(self.beacon_light[idx]);
+                if v > nb_max { nb_max = v; }
+            }
+        };
+        match face {
+            2 | 3 => { // X faces: sample around (nx,ny,nz) over Y/Z micro offsets
+                for my in 0..=1 { for mz in 0..=1 { upd(nx, ny + my, nz + mz); }}
+            }
+            0 | 1 => { // Y faces: sample around over X/Z
+                for mx in 0..=1 { for mz in 0..=1 { upd(nx + mx, ny, nz + mz); }}
+            }
+            4 | 5 => { // Z faces: sample around over X/Y
+                for mx in 0..=1 { for my in 0..=1 { upd(nx + mx, ny + my, nz); }}
+            }
+            _ => {}
+        }
+        local.max(nb_max)
     }
 }
 

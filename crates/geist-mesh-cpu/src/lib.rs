@@ -432,7 +432,7 @@ pub fn build_chunk_greedy_cpu_buf(
                                     )
                                 },
                                 |face| {
-                                    let lv = light.sample_face_local(x, y, z, face.index());
+                                    let lv = light.sample_face_local_s2(buf, reg, x, y, z, face.index());
                                     lv.max(VISUAL_LIGHT_MIN)
                                 },
                             );
@@ -891,22 +891,22 @@ pub fn build_chunk_wcc_cpu_buf(
                             if connect_xn {
                                 let min = Vec3 { x: fx + 0.0, y: fy, z: fz + 0.5 - t };
                                 let max = Vec3 { x: fx + 0.5 - t, y: fy + 1.0, z: fz + 0.5 + t };
-                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local(x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
                             }
                             if connect_xp {
                                 let min = Vec3 { x: fx + 0.5 + t, y: fy, z: fz + 0.5 - t };
                                 let max = Vec3 { x: fx + 1.0, y: fy + 1.0, z: fz + 0.5 + t };
-                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local(x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
                             }
                             if connect_zn {
                                 let min = Vec3 { x: fx + 0.5 - t, y: fy, z: fz + 0.0 };
                                 let max = Vec3 { x: fx + 0.5 + t, y: fy + 1.0, z: fz + 0.5 - t };
-                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local(x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
                             }
                             if connect_zp {
                                 let min = Vec3 { x: fx + 0.5 - t, y: fy, z: fz + 0.5 + t };
                                 let max = Vec3 { x: fx + 0.5 + t, y: fy + 1.0, z: fz + 1.0 };
-                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local(x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
                             }
                         }
                         geist_blocks::types::Shape::Fence => {
@@ -926,23 +926,23 @@ pub fn build_chunk_wcc_cpu_buf(
                             let t = 0.125f32; // post half-width
                             let min = Vec3 { x: fx + 0.5 - t, y: fy, z: fz + 0.5 - t };
                             let max = Vec3 { x: fx + 0.5 + t, y: fy + 1.0, z: fz + 0.5 + t };
-                            emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local(x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                            emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
                             // Arms
                             let t = 0.125f32; let arm = 0.5f32 - t;
                             if connect[0] { // xn
                                 let min = Vec3 { x: fx + 0.0, y: fy + 0.375, z: fz + 0.5 - t };
                                 let max = Vec3 { x: fx + 0.5, y: fy + 0.625, z: fz + 0.5 + t };
-                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local(x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
                             }
                             if connect[1] { // xp
                                 let min = Vec3 { x: fx + 0.5, y: fy + 0.375, z: fz + 0.5 - t };
                                 let max = Vec3 { x: fx + 1.0, y: fy + 0.625, z: fz + 0.5 + t };
-                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local(x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
                             }
                             if connect[2] { // zn
                                 let min = Vec3 { x: fx + 0.5 - t, y: fy + 0.375, z: fz + 0.0 };
                                 let max = Vec3 { x: fx + 0.5 + t, y: fy + 0.625, z: fz + 0.5 };
-                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local(x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
                             }
                             if connect[3] { // zp
                                 let min = Vec3 { x: fx + 0.5 - t, y: fy + 0.375, z: fz + 0.5 };
@@ -984,7 +984,7 @@ pub fn build_chunk_wcc_cpu_buf(
                                         )
                                     },
                                     |face| {
-                                        let lv = light.sample_face_local(x, y, z, face.index());
+                                        let lv = light.sample_face_local_s2(buf, reg, x, y, z, face.index());
                                         lv.max(VISUAL_LIGHT_MIN)
                                     },
                                 );
@@ -1008,7 +1008,7 @@ pub fn build_chunk_wcc_cpu_buf(
                                     )
                                 },
                                 |face| {
-                                    let lv = light.sample_face_local(x, y, z, face.index());
+                                    let lv = light.sample_face_local_s2(buf, reg, x, y, z, face.index());
                                     lv.max(VISUAL_LIGHT_MIN)
                                 },
                             );
@@ -1344,7 +1344,7 @@ impl<'a> WccMesher<'a> {
     }
     #[inline]
     fn light_bin(&self, x: usize, y: usize, z: usize, face: Face) -> u8 {
-        let l = self.light.sample_face_local(x, y, z, face.index());
+        let l = self.light.sample_face_local_s2(self.buf, self.reg, x, y, z, face.index());
         l.max(VISUAL_LIGHT_MIN)
     }
     fn toggle_box(&mut self, x: usize, y: usize, z: usize, bx: (usize, usize, usize, usize, usize, usize), mat_for: impl Fn(Face) -> MaterialId) {
