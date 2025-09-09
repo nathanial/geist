@@ -977,6 +977,111 @@ pub fn build_chunk_greedy_cpu_buf(
     ))
 }
 
+/// Build a chunk mesh using Watertight Cubical Complex (WCC) at S=1 (full cubes only).
+/// Phase 1: Only full cubes contribute; micro/dynamic shapes are ignored here.
+pub fn build_chunk_wcc_cpu_buf(
+    buf: &ChunkBuf,
+    lighting: Option<&LightingStore>,
+    world: &World,
+    edits: Option<&HashMap<(i32, i32, i32), Block>>,
+    neighbors: NeighborsLoaded,
+    cx: i32,
+    cz: i32,
+    reg: &BlockRegistry,
+) -> Option<(ChunkMeshCPU, Option<LightBorders>)> {
+    let sx = buf.sx;
+    let sy = buf.sy;
+    let sz = buf.sz;
+    let base_x = buf.cx * sx as i32;
+    let base_z = buf.cz * sz as i32;
+
+    let light = match lighting {
+        Some(store) => LightGrid::compute_with_borders_buf(buf, store, reg),
+        None => return None,
+    };
+
+    // Helper to sample a neighbor block at world coords, gated by neighbor-loaded policy.
+    let mut get_world_block = |wx: i32, wy: i32, wz: i32| -> Option<Block> {
+        if buf.contains_world(wx, wy, wz) {
+            if wy < 0 || wy >= sy as i32 { return None; }
+            let lx = (wx - base_x) as usize;
+            let ly = wy as usize;
+            let lz = (wz - base_z) as usize;
+            return Some(buf.get_local(lx, ly, lz));
+        }
+        // Determine neighbor direction to apply loaded gating
+        let x0 = base_x;
+        let z0 = base_z;
+        let x1 = x0 + sx as i32;
+        let z1 = z0 + sz as i32;
+        let mut neighbor_loaded = false;
+        if wx < x0 {
+            neighbor_loaded = neighbors.neg_x;
+        } else if wx >= x1 {
+            neighbor_loaded = neighbors.pos_x;
+        } else if wz < z0 {
+            neighbor_loaded = neighbors.neg_z;
+        } else if wz >= z1 {
+            neighbor_loaded = neighbors.pos_z;
+        }
+        if !neighbor_loaded { return None; }
+        let nb = if let Some(es) = edits {
+            es.get(&(wx, wy, wz))
+                .copied()
+                .unwrap_or_else(|| world.block_at_runtime(reg, wx, wy, wz))
+        } else {
+            world.block_at_runtime(reg, wx, wy, wz)
+        };
+        Some(nb)
+    };
+
+    // face_info closure: returns Some((MaterialId, light)) if a face exists per WCC (S=1 full cubes). 
+    let mut face_info = |x: usize, y: usize, z: usize, face: Face, here: Block| -> Option<(MaterialId, u8)> {
+        // Only full cubes participate in Phase 1.
+        if !is_full_cube(reg, here) { return None; }
+        let (dx, dy, dz) = face.delta();
+        let gx = base_x + x as i32;
+        let gy = y as i32;
+        let gz = base_z + z as i32;
+        let (nx, ny, nz) = (gx + dx, gy + dy, gz + dz);
+
+        // Ownership rule: do not emit on +X/+Y/+Z boundary planes.
+        if !buf.contains_world(nx, ny, nz) {
+            // Determine if this is a disallowed + plane; if so, skip.
+            if dx > 0 && (gx + 1) == base_x + sx as i32 { return None; }
+            if dy > 0 && (gy + 1) == sy as i32 { return None; }
+            if dz > 0 && (gz + 1) == base_z + sz as i32 { return None; }
+        }
+
+        // Determine neighbor solidity (full cube only). If neighbor outside and not loaded, treat as empty (so faces appear until neighbor arrives).
+        let nb_opt = get_world_block(nx, ny, nz);
+        let nb_solid = nb_opt.map(|b| is_full_cube(reg, b)).unwrap_or(false);
+
+        // Emit this oriented face only when 'here' is solid and neighbor is not.
+        if nb_solid { return None; }
+        let mid = registry_material_for_or_unknown(here, face, reg);
+        let l = light.sample_face_local(x, y, z, face.index());
+        Some((mid, l))
+    };
+
+    let flip_v = [false, false, false, false, false, false];
+    let mut builds = build_mesh_core(
+        buf,
+        base_x,
+        base_z,
+        flip_v,
+        Some(VISUAL_LIGHT_MIN),
+        |x, y, z, face, here| face_info(x, y, z, face, here),
+    );
+
+    let bbox = Aabb { min: Vec3 { x: base_x as f32, y: 0.0, z: base_z as f32 }, max: Vec3 { x: base_x as f32 + sx as f32, y: sy as f32, z: base_z as f32 + sz as f32 } };
+    let light_borders = Some(LightBorders::from_grid(&light));
+    Some((
+        ChunkMeshCPU { cx, cz, bbox, parts: builds },
+        light_borders,
+    ))
+}
+
 pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry) -> ChunkMeshCPU {
     let base_x = buf.cx * buf.sx as i32;
     let base_z = buf.cz * buf.sz as i32;

@@ -8,7 +8,7 @@ use std::thread;
 use geist_blocks::{Block, BlockRegistry};
 use geist_chunk as chunkbuf;
 use geist_lighting::{LightBorders, LightingStore};
-use geist_mesh_cpu::{build_chunk_greedy_cpu_buf, ChunkMeshCPU, NeighborsLoaded};
+use geist_mesh_cpu::{build_chunk_greedy_cpu_buf, build_chunk_wcc_cpu_buf, ChunkMeshCPU, NeighborsLoaded};
 use geist_world::World;
 
 #[derive(Clone, Debug)]
@@ -118,6 +118,10 @@ impl Runtime {
                             ls: Arc<LightingStore>,
                             reg: Arc<BlockRegistry>| {
             thread::spawn(move || {
+                // Feature flag (env): enable WCC mesher for full cubes (Phase 1)
+                let use_wcc = std::env::var("RASTERGEIST_MESH_WCC")
+                    .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                    .unwrap_or(false);
                 while let Ok(job) = wrx.recv() {
                     // Start from previous buffer when provided; else regenerate from worldgen
                     let mut buf = if let Some(prev) = job.prev_buf {
@@ -142,16 +146,30 @@ impl Runtime {
                     }
                     let snap_map: std::collections::HashMap<(i32, i32, i32), Block> =
                         job.region_edits.into_iter().collect();
-                    if let Some((cpu, light_borders)) = build_chunk_greedy_cpu_buf(
-                        &buf,
-                        Some(&ls),
-                        &w,
-                        Some(&snap_map),
-                        job.neighbors,
-                        job.cx,
-                        job.cz,
-                        &reg,
-                    ) {
+                    let built = if use_wcc {
+                        build_chunk_wcc_cpu_buf(
+                            &buf,
+                            Some(&ls),
+                            &w,
+                            Some(&snap_map),
+                            job.neighbors,
+                            job.cx,
+                            job.cz,
+                            &reg,
+                        )
+                    } else {
+                        build_chunk_greedy_cpu_buf(
+                            &buf,
+                            Some(&ls),
+                            &w,
+                            Some(&snap_map),
+                            job.neighbors,
+                            job.cx,
+                            job.cz,
+                            &reg,
+                        )
+                    };
+                    if let Some((cpu, light_borders)) = built {
                         let _ = tx.send(JobOut {
                             cpu,
                             buf,

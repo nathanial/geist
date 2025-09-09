@@ -154,6 +154,9 @@ Visual regression:
 - Use bitsets for parity; compact `u32` indices into a small `(MaterialId, LightBin)` table.
 - Toggle spans row-wise; consider `memxor` for whole rows.
 
+Note on keys at S=2 (memory-friendly):
+- To keep memory modest at higher S, avoid a global per-cell key array. Instead, when traversing a plane for emission, compute `(MaterialId, LightBin)` on-the-fly for only the cells on that plane to build the 2-D mask. You can also store a compact per-plane key table (u16 indices) rather than a crate-wide table. This keeps peak RAM close to the mask size and avoids scaling issues as S grows.
+
 ---
 
 ## Edge Cases & Policies
