@@ -1000,86 +1000,264 @@ pub fn build_chunk_wcc_cpu_buf(
         None => return None,
     };
 
-    // Helper to sample a neighbor block at world coords, gated by neighbor-loaded policy.
-    let mut get_world_block = |wx: i32, wy: i32, wz: i32| -> Option<Block> {
-        if buf.contains_world(wx, wy, wz) {
-            if wy < 0 || wy >= sy as i32 { return None; }
-            let lx = (wx - base_x) as usize;
-            let ly = wy as usize;
-            let lz = (wz - base_z) as usize;
-            return Some(buf.get_local(lx, ly, lz));
+    // Phase 2: Use a single WCC mesher at S=2 to cover full cubes and micro occupancy.
+    let S: usize = 2;
+    let mut wm = WccMesher::new(buf, &light, reg, S, base_x, base_z);
+
+    for z in 0..sz {
+        for y in 0..sy {
+            for x in 0..sx {
+                let b = buf.get_local(x, y, z);
+                if let Some(ty) = reg.get(b.id) {
+                    let var = ty.variant(b.state);
+                    if let Some(occ) = var.occupancy {
+                        wm.add_micro(x, y, z, b, occ);
+                        continue;
+                    }
+                }
+                if is_full_cube(reg, b) {
+                    wm.add_cube(x, y, z, b);
+                }
+            }
         }
-        // Determine neighbor direction to apply loaded gating
-        let x0 = base_x;
-        let z0 = base_z;
-        let x1 = x0 + sx as i32;
-        let z1 = z0 + sz as i32;
-        let mut neighbor_loaded = false;
-        if wx < x0 {
-            neighbor_loaded = neighbors.neg_x;
-        } else if wx >= x1 {
-            neighbor_loaded = neighbors.pos_x;
-        } else if wz < z0 {
-            neighbor_loaded = neighbors.neg_z;
-        } else if wz >= z1 {
-            neighbor_loaded = neighbors.pos_z;
-        }
-        if !neighbor_loaded { return None; }
-        let nb = if let Some(es) = edits {
-            es.get(&(wx, wy, wz))
-                .copied()
-                .unwrap_or_else(|| world.block_at_runtime(reg, wx, wy, wz))
-        } else {
-            world.block_at_runtime(reg, wx, wy, wz)
-        };
-        Some(nb)
-    };
+    }
 
-    // face_info closure: returns Some((MaterialId, light)) if a face exists per WCC (S=1 full cubes). 
-    let mut face_info = |x: usize, y: usize, z: usize, face: Face, here: Block| -> Option<(MaterialId, u8)> {
-        // Only full cubes participate in Phase 1.
-        if !is_full_cube(reg, here) { return None; }
-        let (dx, dy, dz) = face.delta();
-        let gx = base_x + x as i32;
-        let gy = y as i32;
-        let gz = base_z + z as i32;
-        let (nx, ny, nz) = (gx + dx, gy + dy, gz + dz);
-
-        // Ownership rule: do not emit on +X/+Y/+Z boundary planes.
-        if !buf.contains_world(nx, ny, nz) {
-            // Determine if this is a disallowed + plane; if so, skip.
-            if dx > 0 && (gx + 1) == base_x + sx as i32 { return None; }
-            if dy > 0 && (gy + 1) == sy as i32 { return None; }
-            if dz > 0 && (gz + 1) == base_z + sz as i32 { return None; }
-        }
-
-        // Determine neighbor solidity (full cube only). If neighbor outside and not loaded, treat as empty (so faces appear until neighbor arrives).
-        let nb_opt = get_world_block(nx, ny, nz);
-        let nb_solid = nb_opt.map(|b| is_full_cube(reg, b)).unwrap_or(false);
-
-        // Emit this oriented face only when 'here' is solid and neighbor is not.
-        if nb_solid { return None; }
-        let mid = registry_material_for_or_unknown(here, face, reg);
-        let l = light.sample_face_local(x, y, z, face.index());
-        Some((mid, l))
-    };
-
-    let flip_v = [false, false, false, false, false, false];
-    let mut builds = build_mesh_core(
-        buf,
-        base_x,
-        base_z,
-        flip_v,
-        Some(VISUAL_LIGHT_MIN),
-        |x, y, z, face, here| face_info(x, y, z, face, here),
-    );
+    let mut builds: HashMap<MaterialId, MeshBuild> = HashMap::new();
+    wm.emit_into(&mut builds);
 
     let bbox = Aabb { min: Vec3 { x: base_x as f32, y: 0.0, z: base_z as f32 }, max: Vec3 { x: base_x as f32 + sx as f32, y: sy as f32, z: base_z as f32 + sz as f32 } };
     let light_borders = Some(LightBorders::from_grid(&light));
-    Some((
-        ChunkMeshCPU { cx, cz, bbox, parts: builds },
-        light_borders,
-    ))
+    Some((ChunkMeshCPU { cx, cz, bbox, parts: builds }, light_borders))
+}
+
+// ---------------- WCC (S-scaled) implementation ----------------
+
+#[derive(Default)]
+struct KeyTable {
+    items: Vec<(MaterialId, u8)>,
+    map: std::collections::HashMap<(MaterialId, u8), u16>,
+}
+
+impl KeyTable {
+    fn new() -> Self {
+        let mut kt = KeyTable { items: Vec::new(), map: HashMap::new() };
+        // Reserve 0 as None
+        kt.items.push((MaterialId(0), 0));
+        kt
+    }
+    #[inline]
+    fn ensure(&mut self, mid: MaterialId, l: u8) -> u16 {
+        if let Some(&idx) = self.map.get(&(mid, l)) { return idx; }
+        let idx = self.items.len() as u16;
+        self.items.push((mid, l));
+        self.map.insert((mid, l), idx);
+        idx
+    }
+    #[inline]
+    fn get(&self, idx: u16) -> (MaterialId, u8) { self.items[idx as usize] }
+}
+
+struct Bitset { data: Vec<u64>, n: usize }
+impl Bitset {
+    fn new(n: usize) -> Self { let words = (n + 63) / 64; Self { data: vec![0; words], n } }
+    #[inline] fn toggle(&mut self, i: usize) { let w = i >> 6; let b = i & 63; self.data[w] ^= 1u64 << b; }
+    #[inline] fn set(&mut self, i: usize, v: bool) { let w = i >> 6; let b = i & 63; if v { self.data[w] |= 1u64 << b; } else { self.data[w] &= !(1u64 << b); } }
+    #[inline] fn get(&self, i: usize) -> bool { let w = i >> 6; let b = i & 63; (self.data[w] >> b) & 1 != 0 }
+}
+
+struct FaceGrids {
+    // Parity per face-cell (true if boundary)
+    px: Bitset, py: Bitset, pz: Bitset,
+    // Orientation bit per face-cell: true = positive face (PosX/PosY/PosZ)
+    ox: Bitset, oy: Bitset, oz: Bitset,
+    // Key indices per face-cell (0 = None)
+    kx: Vec<u16>, ky: Vec<u16>, kz: Vec<u16>,
+    // Scales and dims
+    S: usize, sx: usize, sy: usize, sz: usize,
+}
+
+impl FaceGrids {
+    fn new(S: usize, sx: usize, sy: usize, sz: usize) -> Self {
+        let nx = (S * sx + 1) * (S * sy) * (S * sz);
+        let ny = (S * sx) * (S * sy + 1) * (S * sz);
+        let nz = (S * sx) * (S * sy) * (S * sz + 1);
+        Self {
+            px: Bitset::new(nx), py: Bitset::new(ny), pz: Bitset::new(nz),
+            ox: Bitset::new(nx), oy: Bitset::new(ny), oz: Bitset::new(nz),
+            kx: vec![0; nx], ky: vec![0; ny], kz: vec![0; nz],
+            S, sx, sy, sz,
+        }
+    }
+    #[inline] fn idx_x(&self, ix: usize, iy: usize, iz: usize) -> usize {
+        let wy = self.S * self.sy; let wz = self.S * self.sz; (ix * wy + iy) * wz + iz
+    }
+    #[inline] fn idx_y(&self, ix: usize, iy: usize, iz: usize) -> usize {
+        let wx = self.S * self.sx; let wz = self.S * self.sz; (iy * wz + iz) * wx + ix
+    }
+    #[inline] fn idx_z(&self, ix: usize, iy: usize, iz: usize) -> usize {
+        let wx = self.S * self.sx; let wy = self.S * self.sy; (iz * wy + iy) * wx + ix
+    }
+}
+
+pub struct WccMesher<'a> {
+    S: usize,
+    sx: usize, sy: usize, sz: usize,
+    grids: FaceGrids,
+    keys: KeyTable,
+    reg: &'a BlockRegistry,
+    light: &'a LightGrid,
+    base_x: i32,
+    base_z: i32,
+}
+
+impl<'a> WccMesher<'a> {
+    fn new(buf: &ChunkBuf, light: &'a LightGrid, reg: &'a BlockRegistry, S: usize, base_x: i32, base_z: i32) -> Self {
+        let (sx, sy, sz) = (buf.sx, buf.sy, buf.sz);
+        Self { S, sx, sy, sz, grids: FaceGrids::new(S, sx, sy, sz), keys: KeyTable::new(), reg, light, base_x, base_z }
+    }
+    #[inline]
+    fn light_bin(&self, x: usize, y: usize, z: usize, face: Face) -> u8 {
+        let l = self.light.sample_face_local(x, y, z, face.index());
+        l.max(VISUAL_LIGHT_MIN)
+    }
+    fn toggle_box(&mut self, x: usize, y: usize, z: usize, bx: (usize, usize, usize, usize, usize, usize), mat_for: impl Fn(Face) -> MaterialId) {
+        let (x0, x1, y0, y1, z0, z1) = bx;
+        // +X at ix=x1
+        self.toggle_x(x, y, z, x1, y0, y1, z0, z1, true, mat_for(Face::PosX), self.light_bin(x, y, z, Face::PosX));
+        // -X at ix=x0
+        self.toggle_x(x, y, z, x0, y0, y1, z0, z1, false, mat_for(Face::NegX), self.light_bin(x, y, z, Face::NegX));
+        // +Y at iy=y1
+        self.toggle_y(x, y, z, y1, x0, x1, z0, z1, true, mat_for(Face::PosY), self.light_bin(x, y, z, Face::PosY));
+        // -Y at iy=y0
+        self.toggle_y(x, y, z, y0, x0, x1, z0, z1, false, mat_for(Face::NegY), self.light_bin(x, y, z, Face::NegY));
+        // +Z at iz=z1
+        self.toggle_z(x, y, z, z1, x0, x1, y0, y1, true, mat_for(Face::PosZ), self.light_bin(x, y, z, Face::PosZ));
+        // -Z at iz=z0
+        self.toggle_z(x, y, z, z0, x0, x1, y0, y1, false, mat_for(Face::NegZ), self.light_bin(x, y, z, Face::NegZ));
+    }
+    fn toggle_x(&mut self, bx: usize, by: usize, bz: usize, ix: usize, y0: usize, y1: usize, z0: usize, z1: usize, pos: bool, mid: MaterialId, l: u8) {
+        let key = self.keys.ensure(mid, l);
+        for iy in y0..y1 { for iz in z0..z1 {
+            let idx = self.grids.idx_x(ix, iy, iz);
+            self.grids.px.toggle(idx);
+            if self.grids.px.get(idx) { self.grids.kx[idx] = key; self.grids.ox.set(idx, pos); } else { self.grids.kx[idx] = 0; }
+        }}
+        let _ = (bx, by, bz); // block coords unused beyond lighting sample granularity
+    }
+    fn toggle_y(&mut self, bx: usize, by: usize, bz: usize, iy: usize, x0: usize, x1: usize, z0: usize, z1: usize, pos: bool, mid: MaterialId, l: u8) {
+        let key = self.keys.ensure(mid, l);
+        for iz in z0..z1 { for ix in x0..x1 {
+            let idx = self.grids.idx_y(ix, iy, iz);
+            self.grids.py.toggle(idx);
+            if self.grids.py.get(idx) { self.grids.ky[idx] = key; self.grids.oy.set(idx, pos); } else { self.grids.ky[idx] = 0; }
+        }}
+        let _ = (bx, by, bz);
+    }
+    fn toggle_z(&mut self, bx: usize, by: usize, bz: usize, iz: usize, x0: usize, x1: usize, y0: usize, y1: usize, pos: bool, mid: MaterialId, l: u8) {
+        let key = self.keys.ensure(mid, l);
+        for iy in y0..y1 { for ix in x0..x1 {
+            let idx = self.grids.idx_z(ix, iy, iz);
+            self.grids.pz.toggle(idx);
+            if self.grids.pz.get(idx) { self.grids.kz[idx] = key; self.grids.oz.set(idx, pos); } else { self.grids.kz[idx] = 0; }
+        }}
+        let _ = (bx, by, bz);
+    }
+
+    pub fn add_cube(&mut self, x: usize, y: usize, z: usize, b: Block) {
+        let S = self.S; let x0 = x * S; let x1 = (x + 1) * S; let y0 = y * S; let y1 = (y + 1) * S; let z0 = z * S; let z1 = (z + 1) * S;
+        let mid_for = |f: Face| registry_material_for_or_unknown(b, f, self.reg);
+        self.toggle_box(x, y, z, (x0, x1, y0, y1, z0, z1), mid_for);
+    }
+    pub fn add_micro(&mut self, x: usize, y: usize, z: usize, b: Block, occ: u8) {
+        use crate::microgrid_tables::occ8_to_boxes;
+        let S = self.S;
+        let mid_for = |f: Face| registry_material_for_or_unknown(b, f, self.reg);
+        for mb in occ8_to_boxes(occ) {
+            let bx0 = x * S + (mb[0] as usize);
+            let by0 = y * S + (mb[1] as usize);
+            let bz0 = z * S + (mb[2] as usize);
+            let bx1 = x * S + (mb[3] as usize);
+            let by1 = y * S + (mb[4] as usize);
+            let bz1 = z * S + (mb[5] as usize);
+            self.toggle_box(x, y, z, (bx0, bx1, by0, by1, bz0, bz1), mid_for);
+        }
+    }
+
+    pub fn emit_into(&self, builds: &mut HashMap<MaterialId, MeshBuild>) {
+        let S = self.S as f32; let scale = 1.0 / S;
+        let (sx, sy, sz) = (self.sx, self.sy, self.sz);
+        // X planes: ix in [0, S*sx) (skip +X at ix==S*sx)
+        let width_x = self.S * sz; let height_x = self.S * sy;
+        for ix in 0..(self.S * sx) {
+            let mut mask: Vec<Option<((MaterialId, bool), u8)>> = vec![None; width_x * height_x];
+            for iy in 0..height_x { for iz in 0..width_x {
+                let idx = self.grids.idx_x(ix, iy, iz);
+                if self.grids.px.get(idx) {
+                    let key = self.grids.kx[idx]; if key != 0 {
+                        let (mid, l) = self.keys.get(key);
+                        let pos = self.grids.ox.get(idx);
+                        mask[iy * width_x + iz] = Some(((mid, pos), l));
+                    }
+                }
+            }}
+            greedy_rects(width_x, height_x, &mut mask, |u0, v0, w, h, codev| {
+                let ((mid, pos), l) = codev;
+                let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN));
+                let rgba = [lv, lv, lv, 255];
+                let face = if pos { Face::PosX } else { Face::NegX };
+                let fx = (self.base_x as f32) + (ix as f32) * scale;
+                let origin = Vec3 { x: fx, y: (v0 as f32) * scale, z: (self.base_z as f32) + (u0 as f32) * scale };
+                let u1 = (w as f32) * scale; let v1 = (h as f32) * scale;
+                emit_face_rect_for(builds, mid, face, origin, u1, v1, rgba);
+            });
+        }
+        // Y planes
+        let width_y = self.S * sx; let height_y = self.S * sz;
+        for iy in 0..(self.S * sy) {
+            let mut mask: Vec<Option<((MaterialId, bool), u8)>> = vec![None; width_y * height_y];
+            for iz in 0..height_y { for ix in 0..width_y {
+                let idx = self.grids.idx_y(ix, iy, iz);
+                if self.grids.py.get(idx) {
+                    let key = self.grids.ky[idx]; if key != 0 {
+                        let (mid, l) = self.keys.get(key);
+                        let pos = self.grids.oy.get(idx);
+                        mask[iz * width_y + ix] = Some(((mid, pos), l));
+                    }
+                }
+            }}
+            greedy_rects(width_y, height_y, &mut mask, |u0, v0, w, h, codev| {
+                let ((mid, pos), l) = codev; let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN)); let rgba = [lv,lv,lv,255];
+                let face = if pos { Face::PosY } else { Face::NegY };
+                let fy = (iy as f32) * scale;
+                let origin = Vec3 { x: (self.base_x as f32) + (u0 as f32) * scale, y: fy, z: (self.base_z as f32) + (v0 as f32) * scale };
+                let u1 = (w as f32) * scale; let v1 = (h as f32) * scale;
+                emit_face_rect_for(builds, mid, face, origin, u1, v1, rgba);
+            });
+        }
+        // Z planes
+        let width_z = self.S * sx; let height_z = self.S * sy;
+        for iz in 0..(self.S * sz) {
+            let mut mask: Vec<Option<((MaterialId, bool), u8)>> = vec![None; width_z * height_z];
+            for iy in 0..height_z { for ix in 0..width_z {
+                let idx = self.grids.idx_z(ix, iy, iz);
+                if self.grids.pz.get(idx) {
+                    let key = self.grids.kz[idx]; if key != 0 {
+                        let (mid, l) = self.keys.get(key);
+                        let pos = self.grids.oz.get(idx);
+                        mask[iy * width_z + ix] = Some(((mid, pos), l));
+                    }
+                }
+            }}
+            greedy_rects(width_z, height_z, &mut mask, |u0, v0, w, h, codev| {
+                let ((mid, pos), l) = codev; let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN)); let rgba = [lv,lv,lv,255];
+                let face = if pos { Face::PosZ } else { Face::NegZ };
+                let fz = (self.base_z as f32) + (iz as f32) * scale;
+                let origin = Vec3 { x: (self.base_x as f32) + (u0 as f32) * scale, y: (v0 as f32) * scale, z: fz };
+                let u1 = (w as f32) * scale; let v1 = (h as f32) * scale;
+                emit_face_rect_for(builds, mid, face, origin, u1, v1, rgba);
+            });
+        }
+    }
 }
 
 pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry) -> ChunkMeshCPU {
