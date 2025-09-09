@@ -5,9 +5,17 @@ edition = "2024"
 
 [features]
 default = []
-# Will forward from workspace root later
-mcworld = []
 
 [lib]
 path = "src/lib.rs"
 
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+log = "0.4"
+mc_schem = "1.1"
+geist-blocks = { path = "../geist-blocks" }
+geist-edit = { path = "../geist-edit" }
+geist-structures = { path = "../geist-structures" }
+
+## mcworld dependencies removed

@@ -6,7 +6,6 @@ mod edit;
 mod event;
 mod gamestate;
 mod lighting;
-mod mcworld;
 mod mesher;
 mod player;
 mod raycast;

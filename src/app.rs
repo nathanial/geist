@@ -688,42 +688,7 @@ impl App {
                         log::warn!("Failed scanning schematics dir {:?}: {}", dir, e);
                     }
                 }
-                // mcworld import remains ground-stamped only in flat worlds
-                if world.is_flat() {
-                    let base_y: i32 = match world.mode {
-                        crate::voxel::WorldGenMode::Flat { thickness } => {
-                            if thickness > 0 {
-                                1
-                            } else {
-                                0
-                            }
-                        }
-                        _ => 0,
-                    };
-                    match crate::mcworld::load_mcworlds_in_dir(dir, base_y, &mut gs.edits) {
-                        Ok(list) => {
-                            for (name, (_x, _y, _z), (sx, sy, sz)) in list {
-                                log::info!(
-                                    "Loaded mcworld structure {} ({}x{}x{})",
-                                    name,
-                                    sx,
-                                    sy,
-                                    sz
-                                );
-                            }
-                        }
-                        Err(e) => {
-                            if e.contains("not enabled") {
-                                log::info!(
-                                    "{}.mcworld files present will be ignored unless built with --features mcworld",
-                                    e
-                                );
-                            } else {
-                                log::warn!("mcworld load: {}", e);
-                            }
-                        }
-                    }
-                }
+                // mcworld imports removed
             } else {
                 log::info!("Schematics dir {:?} not found; skipping.", dir);
             }

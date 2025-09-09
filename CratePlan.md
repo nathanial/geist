@@ -43,9 +43,14 @@ This plan tracks the migration of Geist from a single crate to a multi‑crate C
     - Lanes/inflight counters maintained in runtime without needing `RebuildCause` (track by `job_id` → lane).
   - Shims in root keep paths stable (`src/blocks/`, `src/worldgen/`, `src/voxel.rs`, `src/runtime.rs`).
   - `cargo check` passes for the workspace.
+  - Phase 6: Extract edits, IO, structures into `geist-edit`, `geist-io`, `geist-structures`.
+    - Implemented `crates/geist-edit` with `EditStore` (persistent world edits + revisions).
+    - Implemented `crates/geist-structures` with `Pose`, `Structure{,EditStore}`, `StructureId`, and `rotate_yaw[_inv]`.
+    - Implemented `crates/geist-io` with schematic import helpers (`load_*schem*`, `count_*`, `list_schematics_with_size`).
+    - Removed Bedrock `.mcworld` codepaths and features.
+    - Root shims now re-export these crates: `src/edit.rs`, `src/structure.rs`, `src/schem.rs`.
 
 - Pending (next phases)
-  - Phase 6: Extract edits, IO, structures into `geist-edit`, `geist-io`, `geist-structures`.
   - Phase 7: Wire app fully to new crates, remove shims, clean imports.
 
 ## Workspace Overview
@@ -90,9 +95,9 @@ This plan tracks the migration of Geist from a single crate to a multi‑crate C
   - Responsibility: Persistent world edits + revisions.
   - API: `EditStore`.
 
-- geist-io (planned)
-  - Responsibility: Import/export; schematics and Bedrock (feature‑gated).
-  - API: `schem::{...}`, mcworld (feature).
+- geist-io
+  - Responsibility: Import/export; schematics.
+  - API: `schem::{...}`.
 
 ## Dependency Direction (condensed)
 
@@ -125,8 +130,8 @@ Phase 5: Slim Runtime
 - Move GPU/texture/file‑watch out of runtime; keep lanes, queues, results only.
 - Implemented in this change as described above.
 
-Phase 6: Edits, IO, Structures (next)
-- Move `edit.rs` → `geist-edit`, `schem.rs`/`mcworld.rs` → `geist-io`, `structure.rs` → `geist-structures`.
+Phase 6: Edits, IO, Structures (done)
+- Moved `edit.rs` → `geist-edit`, `schem.rs` → `geist-io`, `structure.rs` → `geist-structures`. Removed legacy `mcworld` path.
 
 Phase 7: App wiring and cleanup (next)
 - Remove shims; update imports; finalize crate boundaries.
@@ -148,7 +153,7 @@ Phase 7: App wiring and cleanup (next)
 
 - Build all: `cargo build --workspace`
 - Run app: `cargo run` (current root bin is `geist`)
-- With Bedrock: `cargo run -F mcworld`
+  
 
 ## Guidelines
 
@@ -161,14 +166,14 @@ Phase 7: App wiring and cleanup (next)
 
 - Raylib leakage into engine crates → introduce `geist-geom` first; convert only at renderer boundary.
 - Build breakage from large moves → use phased PRs and temporary adapters.
-- Feature flag drift → centralize feature forwarding in the workspace; keep `mcworld` in `geist-io` and forward.
+  
 
 ## Acceptance Criteria
 
 - `cargo build --workspace` succeeds.
 - App renders the same scene before/after refactors.
 - No engine crate depends on `raylib`.
-- `mcworld` feature works via `geist-io`.
+  
 
 ## Appendix: Completed Phase Details
 
