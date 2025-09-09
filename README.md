@@ -1,6 +1,6 @@
-# Geist + Raylib (Rust)
+# Geist (Rust) — Voxel Viewer + Engine
 
-A minimal Rust project using the `raylib` crate to render a simple 3D scene (grid + cube) with a 2D overlay.
+A multi-crate Rust workspace that renders a voxel world using Raylib for GPU, with a clean split between CPU engine crates and a renderer crate. The root binary runs an interactive viewer with fly camera, world generation, chunk meshing, basic lighting, and schematic import tools.
 
 ## Prerequisites
 
@@ -10,13 +10,13 @@ A minimal Rust project using the `raylib` crate to render a simple 3D scene (gri
   - macOS: `brew install cmake`
   - Ubuntu/Debian: `sudo apt-get install cmake`
 
-## Run
+## Build & Run
 
-```
-cargo run
-```
+- Build the entire workspace: `cargo build --workspace`
+- Run the viewer with defaults: `cargo run`
+- Or explicitly: `cargo run -- run`
 
-This launches the voxel viewer with a fly camera using default world settings.
+The viewer launches with a fly camera using default world settings.
 
 ## CLI
 
@@ -30,7 +30,7 @@ The app now uses subcommands via Clap.
   - `--flat-thickness <N>`: Thickness for `--world flat` (default: 1).
   - `--seed <N>`: World seed (default: 1337).
   - `--chunks-x <N>`, `--chunks-z <N>`: Number of chunks (default: 4x4).
-  - `--chunk-size-x <N>`, `--chunk-size-y <N>`, `--chunk-size-z <N>`: Chunk dimensions (default: 32x48x32).
+  - `--chunk-size-x <N>`, `--chunk-size-y <N>`, `--chunk-size-z <N>`: Chunk dimensions (default: 32x256x32).
 
 - `schem report [SCHEM_PATH]`: analyze a schematic file.
   - `--counts`: Show counts per block id instead of unsupported list.
@@ -40,7 +40,7 @@ Examples
 
 ```
 # Run with defaults
-cargo run -- run
+cargo run
 
 # Flat world (1 layer)
 cargo run -- run --world flat
@@ -79,18 +79,16 @@ Migrating from legacy flags
 - `--schem-report [path]` → `schem report [path]`
 - `--schem-report --counts [path]` → `schem report [path] --counts`
 
-Bedrock .mcworld (optional)
+Bedrock .mcworld
 
-- Build with feature `mcworld` to auto-import Bedrock `.mcworld` files placed in `schematics/`.
-- Command: `cargo run --features mcworld -- run --world flat`
-- What’s imported: any `structures/*.mcstructure` files found inside the `.mcworld` archive are parsed via `bedrock-hematite-nbt` and stamped into the world (states are simplified; many special blocks still map to unknown or air).
-- Limitations: Full Bedrock chunks (LevelDB) are not imported; only `.mcstructure` exports inside the world are supported for now.
+- Support for Bedrock `.mcworld` import has been removed. Schematic tools remain available via `schem` subcommands.
 
 Highlights
 
 - Multi‑chunk world (grid) with seamless noise generation.
 - Greedy meshing per chunk (hybrid plane merging) to reduce triangles.
 - Per‑face textures for grass (top/side/bottom) with corrected side orientation.
+ - Texture and worldgen config hot‑reload (see Assets).
 
 Controls
 
@@ -103,21 +101,51 @@ Controls
 
 ## Project Layout
 
-- `src/main.rs`: App loop and voxel renderer entry point.
-- `src/voxel.rs`: Minimal voxel chunk and heightmap generation.
-- `src/camera.rs`: Simple WASD/mouse fly camera.
-- `Cargo.toml`: Rust crate manifest with the `raylib` dependency.
+- Root binary: `src/main.rs`, `src/app.rs`, `src/camera.rs`, `src/player.rs`, etc.
+- Cargo workspace managed at the repo root (`Cargo.toml`).
 
-## Assets
+Engine crates (no Raylib dependency):
+- `crates/geist-geom`: Minimal math types (`Vec3`, `Aabb`).
+- `crates/geist-blocks`: Blocks/materials/registry/config (`BlockRegistry`, `MaterialCatalog`).
+- `crates/geist-world`: World sizing, sampling, worldgen params and config I/O (`World`, `WorldGenMode`, `load_params_from_path`).
+- `crates/geist-chunk`: Chunk buffer and worldgen helpers (`ChunkBuf`, `generate_chunk_buffer`).
+- `crates/geist-lighting`: In‑chunk lighting, neighbor borders (`LightingStore`, `LightBorders`).
+- `crates/geist-mesh-cpu`: CPU meshing (`ChunkMeshCPU`, `NeighborsLoaded`, `build_*`).
+- `crates/geist-runtime`: Slim runtime with job lanes/workers and CPU results only.
+- `crates/geist-structures`: Structures (`Structure`, `Pose`, helpers).
+- `crates/geist-edit`: Persistent world edits + revisions (`EditStore`).
+- `crates/geist-io`: Import/export tools (schematics).
 
-- Place textures under `assets/` (already copied from the old C codebase).
-- The renderer will try these paths:
-  - Grass (per-face): `assets/blocks/grass_top.png` (top), `assets/blocks/grass_side.png` (sides), `assets/blocks/dirt.png` (bottom)
-  - Dirt: `assets/dirt.png` or `assets/blocks/dirt.png`
-  - Stone: `assets/stone.png` or `assets/blocks/stone.png`
-- Greedy mesher loads textures directly per material. If a texture is missing, the corresponding faces may render untextured.
+Renderer crate (Raylib boundary):
+- `crates/geist-render-raylib`: GPU upload, shaders, textures (`upload_chunk_mesh`, `ChunkRender`, `TextureCache`, `LeavesShader`, `FogShader`).
+
+Dependency direction:
+- `geist-geom` → `geist-blocks` → `geist-world` → `geist-chunk` → `geist-lighting` → `geist-mesh-cpu` → `geist-runtime` → app
+- `geist-render-raylib` depends on `raylib`, `geist-mesh-cpu`, `geist-blocks`, and converts to/from `geist-geom`.
+
+## Assets & Hot Reload
+
+- Textures: place under `assets/blocks/`.
+  - Examples: `assets/blocks/grass_top.png`, `assets/blocks/grass_side.png`, `assets/blocks/dirt.png`, `assets/blocks/stone.png`.
+  - The app hot‑reloads textures modified under `assets/blocks/` while running.
+- Voxel registry config:
+  - Materials: `assets/voxels/materials.toml`
+  - Blocks: `assets/voxels/blocks.toml`
+- Worldgen config: `assets/worldgen/worldgen.toml` (hot‑reloaded if `--watch-worldgen` is set; on by default).
+- Schematic palette mapping (for `schem` tools): `assets/voxels/palette_map.toml`.
 
 ## Notes
 
 - If you encounter build errors related to CMake or Clang/LLVM, install the prerequisites above and try again.
-- The `raylib` crate defaults to `bindgen`, which generates bindings at build time.
+- The `raylib` crate defaults to `bindgen` (generates C bindings at build time).
+- Engine crates deliberately avoid any Raylib types; conversions occur only in `geist-render-raylib`.
+
+## Snapshot Showcase
+
+Render a grid of materials and a stair cluster to images and a simple `manifest.xml`:
+
+```
+cargo run -- snapshowcase --out-dir showcase_output --width 512 --height 512 --angles 8
+```
+
+This writes images under `showcase_output/` and creates a manifest with camera metadata.
