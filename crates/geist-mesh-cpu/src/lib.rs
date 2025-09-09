@@ -178,189 +178,7 @@ fn sample_neighbor_half_light(
     l0.max(ladd).max(VISUAL_LIGHT_MIN)
 }
 
-#[inline]
-fn emit_neighbor_fixups_micro_generic(
-    builds: &mut std::collections::HashMap<MaterialId, MeshBuild>,
-    buf: &ChunkBuf,
-    reg: &BlockRegistry,
-    x: usize,
-    y: usize,
-    z: usize,
-    fx: f32,
-    fy: f32,
-    fz: f32,
-    occ: u8,
-    project_fixups: bool,
-    mut light_for_neighbor: impl FnMut(usize, usize, usize, Face, bool) -> u8,
-) {
-    use microgrid_tables::{empty4_to_rects, occ8_to_boxes};
-    if !project_fixups {
-        return;
-    }
-    let sx = buf.sx as i32;
-    let sz = buf.sz as i32;
-    let cell = 0.5f32;
-
-    for &(dx, dz, face, x_off, z_off) in &SIDE_NEIGHBORS {
-        let nx = x as i32 + dx;
-        let nz = z as i32 + dz;
-        if nx < 0 || nx >= sx || nz < 0 || nz >= sz {
-            continue;
-        }
-        let nb = buf.get_local(nx as usize, y, nz as usize);
-        let (neighbor_ok, nb_occ) = if let Some(ty) = reg.get(nb.id) {
-            let var = ty.variant(nb.state);
-            if var.occupancy.is_some() {
-                (true, var.occupancy.unwrap())
-            } else if is_full_cube(reg, nb) {
-                (true, 0xFFu8)
-            } else {
-                (false, 0)
-            }
-        } else {
-            (false, 0)
-        };
-        if !neighbor_ok {
-            continue;
-        }
-        let mid = registry_material_for_or_unknown(nb, face, reg);
-        match face {
-            Face::PosX | Face::NegX => {
-                let bx = if dx < 0 { 0 } else { 1 };
-                let nb_bx = match face {
-                    Face::PosX => 1,
-                    Face::NegX => 0,
-                    _ => bx,
-                };
-                let mut mask: u8 = 0;
-                for ly in 0..2 {
-                    for lz in 0..2 {
-                        let empty_here = (occ & micro_bit(bx, ly, lz)) == 0;
-                        let nb_has = (nb_occ & micro_bit(nb_bx, ly, lz)) != 0;
-                        if empty_here && nb_has {
-                            let bit = ((ly << 1) | lz) as u8;
-                            mask |= 1u8 << bit;
-                        }
-                    }
-                }
-                for r in empty4_to_rects(mask) {
-                    let u0 = r[0] as f32 * cell; // along Z
-                    let v0 = r[1] as f32 * cell; // along Y
-                    let du = r[2] as f32 * cell;
-                    let dv = r[3] as f32 * cell;
-                    let lv = if r[3] == 2 {
-                        let l0 = light_for_neighbor(nx as usize, y, nz as usize, face, false);
-                        let l1 = light_for_neighbor(nx as usize, y, nz as usize, face, true);
-                        l0.max(l1)
-                    } else {
-                        let draw_top = r[1] == 1; // v0==1 -> top half
-                        light_for_neighbor(nx as usize, y, nz as usize, face, draw_top)
-                    };
-                    let rgba = [lv, lv, lv, 255];
-                    let origin = Vec3 { x: fx + x_off, y: fy + v0, z: fz + u0 };
-                    emit_face_rect_for(builds, mid, face, origin, du, dv, rgba);
-                }
-            }
-            Face::PosZ | Face::NegZ => {
-                let bz = if dz < 0 { 0 } else { 1 };
-                let nb_bz = match face {
-                    Face::PosZ => 1,
-                    Face::NegZ => 0,
-                    _ => bz,
-                };
-                let mut mask: u8 = 0;
-                for ly in 0..2 {
-                    for lx in 0..2 {
-                        let empty_here = (occ & micro_bit(lx, ly, bz)) == 0;
-                        let nb_has = (nb_occ & micro_bit(lx, ly, nb_bz)) != 0;
-                        if empty_here && nb_has {
-                            let bit = ((ly << 1) | lx) as u8;
-                            mask |= 1u8 << bit;
-                        }
-                    }
-                }
-                for r in empty4_to_rects(mask) {
-                    let u0 = r[0] as f32 * cell; // along X
-                    let v0 = r[1] as f32 * cell; // along Y
-                    let du = r[2] as f32 * cell;
-                    let dv = r[3] as f32 * cell;
-                    let lv = if r[3] == 2 {
-                        let l0 = light_for_neighbor(nx as usize, y, nz as usize, face, false);
-                        let l1 = light_for_neighbor(nx as usize, y, nz as usize, face, true);
-                        l0.max(l1)
-                    } else {
-                        let draw_top = r[1] == 1;
-                        light_for_neighbor(nx as usize, y, nz as usize, face, draw_top)
-                    };
-                    let rgba = [lv, lv, lv, 255];
-                    let origin = Vec3 { x: fx + u0, y: fy + v0, z: fz + z_off };
-                    emit_face_rect_for(builds, mid, face, origin, du, dv, rgba);
-                }
-            }
-            _ => {}
-        }
-    }
-
-    let sy = buf.sy as i32;
-    for &(dy, face) in &[(-1, Face::PosY), (1, Face::NegY)] {
-        let ny = y as i32 + dy;
-        if ny < 0 || ny >= sy {
-            continue;
-        }
-        let nb = buf.get_local(x, ny as usize, z);
-        let (neighbor_ok, nb_occ) = if let Some(ty) = reg.get(nb.id) {
-            let var = ty.variant(nb.state);
-            if var.occupancy.is_some() {
-                (true, var.occupancy.unwrap())
-            } else if is_full_cube(reg, nb) {
-                (true, 0xFFu8)
-            } else {
-                (false, 0)
-            }
-        } else {
-            (false, 0)
-        };
-        if !neighbor_ok {
-            continue;
-        }
-        let mid = registry_material_for_or_unknown(nb, face, reg);
-        let by = if dy < 0 { 0 } else { 1 };
-        let nb_by = match face {
-            Face::PosY => 1,
-            Face::NegY => 0,
-            _ => by,
-        };
-        let mut mask: u8 = 0;
-        for lz in 0..2 {
-            for lx in 0..2 {
-                let empty_here = (occ & micro_bit(lx, by, lz)) == 0;
-                let nb_has = (nb_occ & micro_bit(lx, nb_by, lz)) != 0;
-                if empty_here && nb_has {
-                    let bit = ((lz << 1) | lx) as u8;
-                    mask |= 1u8 << bit;
-                }
-            }
-        }
-        for r in microgrid_tables::empty4_to_rects(mask) {
-            let u0 = r[0] as f32 * cell; // along X
-            let v0 = r[1] as f32 * cell; // along Z
-            let du = r[2] as f32 * cell;
-            let dv = r[3] as f32 * cell;
-            let y0 = if dy < 0 { fy } else { fy + 1.0 };
-            let lv = if r[3] == 2 {
-                let l0 = light_for_neighbor(x, ny as usize, z, face, false);
-                let l1 = light_for_neighbor(x, ny as usize, z, face, true);
-                l0.max(l1)
-            } else {
-                let draw_top = r[1] == 1;
-                light_for_neighbor(x, ny as usize, z, face, draw_top)
-            };
-            let rgba = [lv, lv, lv, 255];
-            let origin = Vec3 { x: fx + u0, y: y0, z: fz + v0 };
-            emit_face_rect_for(builds, mid, face, origin, du, dv, rgba);
-        }
-    }
-}
+// Legacy micro neighbor fixups removed with greedy mesher
 
 #[inline]
 fn is_solid_runtime(b: Block, reg: &BlockRegistry) -> bool {
@@ -562,6 +380,8 @@ pub struct ChunkMeshCPU {
     pub parts: std::collections::HashMap<MaterialId, MeshBuild>,
 }
 
+// Legacy greedy mesher removed; WCC is now the default.
+/*
 pub fn build_chunk_greedy_cpu_buf(
     buf: &ChunkBuf,
     lighting: Option<&LightingStore>,
@@ -976,6 +796,7 @@ pub fn build_chunk_greedy_cpu_buf(
         light_borders,
     ))
 }
+*/
 
 /// Build a chunk mesh using Watertight Cubical Complex (WCC) at S=1 (full cubes only).
 /// Phase 1: Only full cubes contribute; micro/dynamic shapes are ignored here.
@@ -1318,7 +1139,7 @@ pub struct WccMesher<'a> {
 }
 
 impl<'a> WccMesher<'a> {
-    fn new(buf: &ChunkBuf, light: &'a LightGrid, reg: &'a BlockRegistry, S: usize, base_x: i32, base_z: i32) -> Self {
+    pub fn new(buf: &ChunkBuf, light: &'a LightGrid, reg: &'a BlockRegistry, S: usize, base_x: i32, base_z: i32) -> Self {
         let (sx, sy, sz) = (buf.sx, buf.sy, buf.sz);
         Self { S, sx, sy, sz, grids: FaceGrids::new(S, sx, sy, sz), keys: KeyTable::new(), reg, light, base_x, base_z }
     }
@@ -1658,6 +1479,7 @@ fn greedy_rects<K: Copy + Eq + Hash>(
 #[inline]
 fn apply_min_light(l: u8, min: Option<u8>) -> u8 { if let Some(m) = min { l.max(m) } else { l } }
 
+/* Legacy helper for greedy mesher (removed)
 pub fn build_mesh_core<K, F>(
     buf: &ChunkBuf,
     base_x: i32,
@@ -1777,3 +1599,4 @@ where
 
     builds
 }
+*/

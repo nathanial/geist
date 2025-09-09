@@ -1,7 +1,7 @@
 use geist_blocks::{Block, BlockRegistry};
 use geist_chunk::generate_chunk_buffer;
 use geist_lighting::{LightBorders, LightingStore};
-use geist_mesh_cpu::{build_chunk_greedy_cpu_buf, ChunkMeshCPU, NeighborsLoaded};
+use geist_mesh_cpu::{build_chunk_wcc_cpu_buf, ChunkMeshCPU, NeighborsLoaded};
 use geist_render_raylib::{upload_chunk_mesh, ChunkRender, TextureCache};
 use geist_world::voxel::{build_showcase_entries, build_showcase_stairs_cluster, World, WorldGenMode};
 use raylib::prelude::*;
@@ -78,7 +78,7 @@ pub fn run_showcase_snapshots(args: SnapArgs) {
     for cz in 0..(args.chunks_z as i32) {
         for cx in 0..(args.chunks_x as i32) {
             let buf = generate_chunk_buffer(&world, cx, cz, &reg);
-            if let Some((cpu, lb)) = build_chunk_greedy_cpu_buf(
+            if let Some((cpu, lb)) = build_chunk_wcc_cpu_buf(
                 &buf,
                 Some(&lighting),
                 &world,
