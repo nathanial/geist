@@ -1,6 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
 use raylib::prelude::*;
+use geist_geom::Vec3;
+use geist_render_raylib::conv::{vec3_from_rl, vec3_to_rl};
 
 use crate::blocks::Block;
 use crate::blocks::BlockRegistry;
@@ -303,7 +305,9 @@ impl App {
         ];
         for off in &offsets {
             let p = feet_world + *off;
-            let local = crate::structure::rotate_yaw_inv(p - st.pose.pos, st.pose.yaw_deg);
+            let pv = vec3_from_rl(p);
+            let diff = Vec3 { x: pv.x - st.pose.pos.x, y: pv.y - st.pose.pos.y, z: pv.z - st.pose.pos.z };
+            let local = crate::structure::rotate_yaw_inv(diff, st.pose.yaw_deg);
             let lx = local.x.floor() as i32;
             let ly = (local.y - 0.08).floor() as i32;
             let lz = local.z.floor() as i32;
@@ -558,8 +562,7 @@ impl App {
                                     * params.platform_y_ratio
                                     + params.platform_y_offset;
                                 let pose = Pose {
-                                    pos: Vector3::new(world_center_x, platform_y, world_center_z)
-                                        + Vector3::new(0.0, 0.0, 40.0),
+                                    pos: Vec3 { x: world_center_x + 0.0, y: platform_y + 0.0, z: world_center_z + 40.0 },
                                     yaw_deg: 0.0,
                                 };
                                 let mut st =
@@ -720,15 +723,15 @@ impl App {
                 delta,
             } => {
                 if let Some(st) = self.gs.structures.get_mut(&id) {
-                    st.last_delta = delta;
-                    st.pose.pos = pos;
+                    st.last_delta = vec3_from_rl(delta);
+                    st.pose.pos = vec3_from_rl(pos);
                     st.pose.yaw_deg = yaw_deg;
                     // Keep player perfectly in sync if attached to this structure
                     if let Some(att) = self.gs.ground_attach {
                         if att.id == id {
-                            let world_from_local =
-                                rotate_yaw(att.local_offset, st.pose.yaw_deg) + st.pose.pos;
-                            self.gs.walker.pos = world_from_local;
+                            let wl = rotate_yaw(vec3_from_rl(att.local_offset), st.pose.yaw_deg);
+                            let world_from_local = Vec3 { x: wl.x + st.pose.pos.x, y: wl.y + st.pose.pos.y, z: wl.z + st.pose.pos.z };
+                            self.gs.walker.pos = vec3_to_rl(world_from_local);
                         }
                     }
                 }
@@ -751,19 +754,18 @@ impl App {
                         for (id, st) in &self.gs.structures {
                             if self.is_feet_on_structure(st, feet_world) {
                                 // Capture local feet offset and attach
-                                let local = rotate_yaw_inv(
-                                    self.gs.walker.pos - st.pose.pos,
-                                    st.pose.yaw_deg,
-                                );
+                            let p = vec3_from_rl(self.gs.walker.pos);
+                            let diff = Vec3 { x: p.x - st.pose.pos.x, y: p.y - st.pose.pos.y, z: p.z - st.pose.pos.z };
+                            let local = rotate_yaw_inv(diff, st.pose.yaw_deg);
                                 self.gs.ground_attach = Some(crate::gamestate::GroundAttach {
                                     id: *id,
                                     grace: 8,
-                                    local_offset: local,
+                                    local_offset: vec3_to_rl(local),
                                 });
                                 // Emit lifecycle event for observability
                                 self.queue.emit_now(Event::PlayerAttachedToStructure {
                                     id: *id,
-                                    local_offset: local,
+                                    local_offset: vec3_to_rl(local),
                                 });
                                 break;
                             }
@@ -774,11 +776,11 @@ impl App {
                     if let Some(att) = self.gs.ground_attach {
                         if let Some(st) = self.gs.structures.get(&att.id) {
                             // Calculate where we should be based on our local offset and the platform's current position
-                            let target_world_pos =
-                                rotate_yaw(att.local_offset, st.pose.yaw_deg) + st.pose.pos;
+                            let wl = rotate_yaw(vec3_from_rl(att.local_offset), st.pose.yaw_deg);
+                            let target_world_pos = Vec3 { x: wl.x + st.pose.pos.x, y: wl.y + st.pose.pos.y, z: wl.z + st.pose.pos.z };
 
                             // Move the player to maintain their position on the platform
-                            self.gs.walker.pos = target_world_pos;
+                            self.gs.walker.pos = vec3_to_rl(target_world_pos);
                         } else {
                             self.gs.ground_attach = None;
                         }
@@ -787,11 +789,9 @@ impl App {
                     let sampler = |wx: i32, wy: i32, wz: i32| -> Block {
                         // Check dynamic structures first
                         for st in self.gs.structures.values() {
-                            let local = rotate_yaw_inv(
-                                Vector3::new(wx as f32 + 0.5, wy as f32 + 0.5, wz as f32 + 0.5)
-                                    - st.pose.pos,
-                                st.pose.yaw_deg,
-                            );
+                            let p = vec3_from_rl(Vector3::new(wx as f32 + 0.5, wy as f32 + 0.5, wz as f32 + 0.5));
+                            let diff = Vec3 { x: p.x - st.pose.pos.x, y: p.y - st.pose.pos.y, z: p.z - st.pose.pos.z };
+                            let local = rotate_yaw_inv(diff, st.pose.yaw_deg);
                             let lx = local.x.floor() as i32;
                             let ly = local.y.floor() as i32;
                             let lz = local.z.floor() as i32;
@@ -839,8 +839,9 @@ impl App {
                     if let Some(att) = self.gs.ground_attach {
                         if let Some(st) = self.gs.structures.get(&att.id) {
                             // Calculate new local position after physics (player may have moved)
-                            let new_local =
-                                rotate_yaw_inv(self.gs.walker.pos - st.pose.pos, st.pose.yaw_deg);
+                            let p = vec3_from_rl(self.gs.walker.pos);
+                            let diff = Vec3 { x: p.x - st.pose.pos.x, y: p.y - st.pose.pos.y, z: p.z - st.pose.pos.z };
+                            let new_local = rotate_yaw_inv(diff, st.pose.yaw_deg);
 
                             // Check if we're still on the structure after physics
                             if self.is_feet_on_structure(st, self.gs.walker.pos) {
@@ -848,14 +849,14 @@ impl App {
                                 self.gs.ground_attach = Some(crate::gamestate::GroundAttach {
                                     id: att.id,
                                     grace: 8,
-                                    local_offset: new_local,
+                                    local_offset: vec3_to_rl(new_local),
                                 });
                             } else if att.grace > 0 {
                                 // We've left the structure surface but have grace period (jumping/stepping off edge)
                                 self.gs.ground_attach = Some(crate::gamestate::GroundAttach {
                                     id: att.id,
                                     grace: att.grace - 1,
-                                    local_offset: new_local,
+                                    local_offset: vec3_to_rl(new_local),
                                 });
                             } else {
                                 // Grace period expired, detach
@@ -1227,8 +1228,10 @@ impl App {
                     });
                 let mut struct_hit: Option<(StructureId, raycast::RayHit, f32)> = None;
                 for (id, st) in &self.gs.structures {
-                    let local_org = rotate_yaw_inv(org - st.pose.pos, st.pose.yaw_deg);
-                    let local_dir = rotate_yaw_inv(dir, st.pose.yaw_deg);
+                    let o = vec3_from_rl(org);
+                    let diff = Vec3 { x: o.x - st.pose.pos.x, y: o.y - st.pose.pos.y, z: o.z - st.pose.pos.z };
+                    let local_org = vec3_to_rl(rotate_yaw_inv(diff, st.pose.yaw_deg));
+                    let local_dir = vec3_to_rl(rotate_yaw_inv(vec3_from_rl(dir), st.pose.yaw_deg));
                     let is_solid_local = |lx: i32, ly: i32, lz: i32| -> bool {
                         if lx < 0 || ly < 0 || lz < 0 {
                             return false;
@@ -1263,8 +1266,10 @@ impl App {
                             hit.by as f32 + 0.5,
                             hit.bz as f32 + 0.5,
                         );
-                        let cc_world = rotate_yaw(cc_local, st.pose.yaw_deg) + st.pose.pos;
-                        let d = cc_world - org;
+                        let wl = rotate_yaw(vec3_from_rl(cc_local), st.pose.yaw_deg);
+                        let cc_world = Vec3 { x: wl.x + st.pose.pos.x, y: wl.y + st.pose.pos.y, z: wl.z + st.pose.pos.z };
+                        let cw = vec3_to_rl(cc_world);
+                        let d = Vector3::new(cw.x - org.x, cw.y - org.y, cw.z - org.z);
                         let dist2 = d.x * d.x + d.y * d.y + d.z * d.z;
                         struct_hit = Some((*id, hit, dist2));
                         break;
@@ -1722,13 +1727,13 @@ impl App {
         let step_dy = self.gs.structure_elev_speed * dt.max(0.0);
         for (id, st) in self.gs.structures.iter() {
             let prev = st.pose.pos;
-            let newp = Vector3::new(prev.x + step_dx, prev.y + step_dy, prev.z);
-            let delta = newp - prev;
+            let newp = Vec3 { x: prev.x + step_dx, y: prev.y + step_dy, z: prev.z };
+            let delta = Vector3::new(newp.x - prev.x, newp.y - prev.y, newp.z - prev.z);
             // Keep yaw fixed so collisions match visuals
             let yaw = 0.0_f32;
             self.queue.emit_now(Event::StructurePoseUpdated {
                 id: *id,
-                pos: newp,
+                pos: vec3_to_rl(newp),
                 yaw_deg: yaw,
                 delta,
             });
@@ -1942,8 +1947,8 @@ impl App {
                 if let Some(st) = self.gs.structures.get(id) {
                     // Translate bounding box to structure position for frustum check
                     let translated_bbox = raylib::core::math::BoundingBox {
-                        min: cr.bbox.min + st.pose.pos,
-                        max: cr.bbox.max + st.pose.pos,
+                        min: cr.bbox.min + vec3_to_rl(st.pose.pos),
+                        max: cr.bbox.max + vec3_to_rl(st.pose.pos),
                     };
 
                     // Check if structure is within frustum
@@ -1965,7 +1970,7 @@ impl App {
                         self.debug_stats.draw_calls += 1;
 
                         // Yaw is ignored here if draw_model_ex isn't available; translation still applies
-                        d3.draw_model(model, st.pose.pos, 1.0, Color::WHITE);
+                        d3.draw_model(model, vec3_to_rl(st.pose.pos), 1.0, Color::WHITE);
                     }
                 }
             }
@@ -2339,7 +2344,9 @@ impl App {
             debug_y += 18;
 
             // Show detailed detection info
-            let local = rotate_yaw_inv(self.gs.walker.pos - st.pose.pos, st.pose.yaw_deg);
+            let p = vec3_from_rl(self.gs.walker.pos);
+            let diff = Vec3 { x: p.x - st.pose.pos.x, y: p.y - st.pose.pos.y, z: p.z - st.pose.pos.z };
+            let local = rotate_yaw_inv(diff, st.pose.yaw_deg);
             let test_y = local.y - 0.08;
             let lx = local.x.floor() as i32;
             let ly = test_y.floor() as i32;

@@ -513,7 +513,9 @@ dependencies = [
  "flate2 1.1.2",
  "geist-blocks",
  "geist-chunk",
+ "geist-geom",
  "geist-lighting",
+ "geist-render-raylib",
  "geist-world",
  "log",
  "mc_schem",
@@ -568,6 +570,10 @@ version = "0.1.0"
 [[package]]
 name = "geist-render-raylib"
 version = "0.1.0"
+dependencies = [
+ "geist-geom",
+ "raylib",
+]
 
 [[package]]
 name = "geist-runtime"

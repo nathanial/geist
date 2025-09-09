@@ -1,4 +1,4 @@
-use raylib::prelude::Vector3;
+use geist_geom::Vec3;
 use std::collections::HashMap;
 
 use crate::blocks::Block;
@@ -8,7 +8,7 @@ pub type StructureId = u32;
 
 #[derive(Clone)]
 pub struct Pose {
-    pub pos: Vector3,
+    pub pos: Vec3,
     pub yaw_deg: f32,
 }
 
@@ -21,7 +21,7 @@ pub struct Structure {
     pub blocks: Vec<Block>,
     pub edits: StructureEditStore,
     pub pose: Pose,
-    pub last_delta: Vector3,
+    pub last_delta: Vec3,
     pub dirty_rev: u64,
     pub built_rev: u64,
 }
@@ -71,7 +71,7 @@ impl Structure {
             blocks,
             edits: StructureEditStore::new(),
             pose,
-            last_delta: Vector3::zero(),
+            last_delta: Vec3::ZERO,
             dirty_rev: 1,
             built_rev: 0,
         }
@@ -137,13 +137,13 @@ impl StructureEditStore {
 
 // Utility: rotate a vector by yaw degrees (Y axis), preserving Y
 #[inline]
-pub fn rotate_yaw(v: Vector3, yaw_deg: f32) -> Vector3 {
+pub fn rotate_yaw(v: Vec3, yaw_deg: f32) -> Vec3 {
     let r = yaw_deg.to_radians();
     let (s, c) = r.sin_cos();
-    Vector3::new(v.x * c - v.z * s, v.y, v.x * s + v.z * c)
+    Vec3 { x: v.x * c - v.z * s, y: v.y, z: v.x * s + v.z * c }
 }
 
 #[inline]
-pub fn rotate_yaw_inv(v: Vector3, yaw_deg: f32) -> Vector3 {
+pub fn rotate_yaw_inv(v: Vec3, yaw_deg: f32) -> Vec3 {
     rotate_yaw(v, -yaw_deg)
 }

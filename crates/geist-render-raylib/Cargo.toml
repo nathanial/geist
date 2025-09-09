@@ -6,3 +6,6 @@ edition = "2024"
 [lib]
 path = "src/lib.rs"
 
+[dependencies]
+raylib = "5.5.1"
+geist-geom = { path = "../geist-geom" }

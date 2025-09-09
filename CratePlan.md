@@ -1,306 +1,163 @@
 # CratePlan: Splitting Geist into a Cargo Workspace
 
-This document describes how to split the current single‑crate Geist project into a multi‑crate Cargo workspace with clear ownership boundaries, minimal coupling, and a safe incremental migration path.
+This plan tracks the migration of Geist from a single crate to a multi‑crate Cargo workspace with clear engine vs. renderer boundaries, stable APIs, and incremental checkpoints.
 
-Status Summary
+## Current Status
 
 - Completed
-  - Phase 0: Workspace scaffolded; crates created under `crates/` for all planned packages.
-  - Phase 1: `blocks/` moved to `geist-blocks`; `voxel.rs` and `worldgen/` moved to `geist-world`.
-  - Worldgen parity restored in `geist-world`: biomes, cave carving, features, tree placement, and config loader (`load_params_from_path`).
-  - Root app compiles via compatibility shims (`src/blocks/`, `src/worldgen/`, `src/voxel.rs` re-export new crates).
+  - Phase 0: Workspace scaffolded; crates created under `crates/` for planned packages; resolver = "2".
+  - Phase 1: Blocks + World extracted.
+    - `blocks/` moved to `crates/geist-blocks` (config, material, registry, types).
+    - `voxel.rs` and `worldgen/` moved to `crates/geist-world` with worldgen parity (biomes, trees, caves, features) and `load_params_from_path`.
+  - Phase 2: Chunk + Lighting extracted.
+    - `crates/geist-chunk` provides `ChunkBuf` and `generate_chunk_buffer()`.
+    - `crates/geist-lighting` provides `LightGrid`, `LightBorders`, `NeighborBorders`, `LightingStore` (includes `sample_face_local`).
+  - Phase 3: Engine math introduced; Raylib removed from CPU engine code.
+    - `crates/geist-geom`: `Vec3` (ops) and `Aabb`.
+    - `crates/geist-render-raylib`: conversion helpers `conv::{vec3_to_rl, vec3_from_rl, aabb_to_rl, aabb_from_rl}`.
+    - `src/structure.rs`: uses `geist_geom::Vec3` for `Pose` and helpers.
+    - `src/mesher.rs`: `ChunkMeshCPU.bbox` now `geist_geom::Aabb` and converted at upload boundary.
+    - App sites updated with explicit conversions.
+  - Shims in root keep paths stable (`src/blocks/`, `src/worldgen/`, `src/voxel.rs`).
   - `cargo check` passes for the workspace.
 
-- Temporary shims (to remove in Phase 7)
-  - `src/blocks/mod.rs` re-exports `geist-blocks` (and preserves `crate::blocks::{registry,material,config,types}` paths).
-  - `src/worldgen/mod.rs` re-exports `geist-world::worldgen`.
-  - `src/voxel.rs` re-exports `geist-world::voxel`.
+- Pending (next phases)
+  - Phase 4: Split mesher CPU/GPU; move GPU upload to `geist-render-raylib`; isolate CPU mesh in `geist-mesh-cpu` (incl. `microgrid_tables.rs`).
+  - Phase 5: Slim runtime by moving GPU/texture/file‑watch to renderer/app; keep job lanes and results in `geist-runtime`.
+  - Phase 6: Extract edits, IO, structures into `geist-edit`, `geist-io`, `geist-structures`.
+  - Phase 7: Wire app fully to new crates, remove shims, clean imports.
 
-- Not yet done (future phases)
-  - Extract chunk + lighting crates.
-  - Split mesher CPU/GPU and add `geist-render-raylib` logic.
-  - Slim `runtime` (move GPU bits out).
-  - Extract edits, IO, and structures.
-  - Final import cleanup and shim removal.
-
-Goals
-
-- Separate CPU “engine” from GPU/Raylib concerns.
-- Keep crate APIs small and stable to enable parallel work.
-- Maintain performance: avoid extra copies, keep hot paths lean.
-- Incremental adoption with compiling checkpoints after each phase.
-
-Overview of Today
-
-- Rendering/app: `app.rs`, `camera.rs`, `player.rs`, `raycast.rs`, `shaders.rs`, `texture_cache.rs`.
-- Engine/core: `voxel.rs`, `worldgen/`, `chunkbuf.rs`, `lighting.rs`, `mesher.rs`, `microgrid_tables.rs`, `structure.rs`, `edit.rs`, `runtime.rs`, `event.rs`, `gamestate.rs`.
-- I/O and formats: `schem.rs`, `mcworld.rs` (feature `mcworld`).
-
-Proposed Workspace
-
-Create a `crates/` directory with the following crates. The dependency arrows indicate allowed directions only (acyclic).
+## Workspace Overview
 
 - geist-geom
-  - Responsibility: Minimal math types used in engine crates.
-  - Public API: `Vec3`, `Aabb`, small helpers and conversions.
-  - Depends on: nothing. No Raylib.
+  - Responsibility: Minimal math types for engine crates; no Raylib.
+  - API: `Vec3`, `Aabb`.
 
 - geist-blocks
-  - Responsibility: Block/Material/Registry types and config loading.
-  - Public API: `Block`, `MaterialId`, `MaterialCatalog`, `BlockRegistry`, `BlockRegistry::load_from_paths()`.
-  - Depends on: `serde`, `toml`.
+  - Responsibility: Blocks/materials/registry/config.
+  - API: `Block`, `MaterialId`, `MaterialCatalog`, `BlockRegistry` (+ loaders).
 
 - geist-world
-  - Responsibility: World sizing, runtime sampling, worldgen params.
-  - Public API: `World`, worldgen config I/O, sampling helpers.
-  - Depends on: `geist-blocks`, `fastnoise-lite`, `serde`, `toml`.
+  - Responsibility: World sizing, sampling, worldgen params and config I/O.
+  - API: `World`, `worldgen::{...}`, `load_params_from_path`.
 
 - geist-chunk
-  - Responsibility: Chunk buffer type + utilities.
-  - Public API: `ChunkBuf`, `get_local/world`, `contains_world`, `generate_chunk_buffer(...)`.
-  - Depends on: `geist-world`, `geist-blocks`.
+  - Responsibility: Chunk buffer and worldgen helpers.
+  - API: `ChunkBuf`, `generate_chunk_buffer`.
 
 - geist-lighting
-  - Responsibility: In‑chunk lighting and neighbor border planes.
-  - Public API: `LightGrid::compute_with_borders_buf`, `LightBorders`, `LightingStore`.
-  - Depends on: `geist-chunk`, `geist-blocks`.
+  - Responsibility: In‑chunk lighting; neighbor border planes; dynamic emitters.
+  - API: `LightGrid::{compute_with_borders_buf, sample_face_local}`, `LightBorders`, `LightingStore`.
 
-- geist-mesh-cpu
-  - Responsibility: CPU meshing only (no Raylib types).
-  - Public API: `NeighborsLoaded`, `MeshBuild`, `ChunkMeshCPU`, `build_chunk_greedy_cpu_buf(...)`, `build_voxel_body_cpu_buf(...)`.
-  - Depends on: `geist-chunk`, `geist-world`, `geist-lighting`, `geist-blocks`, `geist-geom`.
-  - Includes: `microgrid_tables.rs` and any meshing helpers.
-
-- geist-runtime
-  - Responsibility: Job lanes/queues/worker pools; drains CPU results.
-  - Public API: `BuildJob`, `JobOut`, `submit_*`, `drain_worker_results`, queue counters; `StructureBuildJob/StructureJobOut`.
-  - Depends on: `geist-world`, `geist-lighting`, `geist-chunk`, `geist-mesh-cpu`, `geist-blocks`.
-  - Excludes: Raylib/texture/shader management.
-
-- geist-structures
-  - Responsibility: Structure buffers, transforms, local edits.
-  - Public API: `StructureId`, `Pose`, `Structure`, `rotate_yaw[_inv]`.
-  - Depends on: `geist-blocks`, `geist-geom`.
-
-- geist-edit
-  - Responsibility: Persistent world edit store + revisions.
-  - Public API: `EditStore` and helpers for affected regions.
-  - Depends on: `geist-blocks`.
-
-- geist-io
-  - Responsibility: Data import/export (schematics, optional Bedrock).
-  - Public API: `schem::{load_any_schematic_apply_edits, find_unsupported_blocks_in_file, count_blocks_in_file}`.
-  - Depends on: `geist-blocks`, `geist-edit`; feature `mcworld` pulls `bedrock-hematite-nbt` and `zip`.
+- geist-mesh-cpu (planned)
+  - Responsibility: CPU meshing (no Raylib types), microgrid tables.
+  - API: `NeighborsLoaded`, `MeshBuild`, `ChunkMeshCPU`, `build_*` functions.
 
 - geist-render-raylib
-  - Responsibility: GPU‑facing rendering utils and resources.
-  - Public API: `ChunkRender`, shader wrappers, `TextureCache`, `upload_chunk_mesh(cpu, ...) -> ChunkRender`.
-  - Depends on: `raylib`, `geist-mesh-cpu`, `geist-blocks`.
+  - Responsibility: GPU upload, shaders, textures, conversions with Raylib.
+  - API: `ChunkRender`, `upload_chunk_mesh`, `conv::{...}`.
 
-- geist-app (bin)
-  - Responsibility: CLI, window loop, input, HUD, orchestration.
-  - Depends on: `geist-runtime`, `geist-render-raylib`, `geist-io`, `geist-structures`, `geist-edit`, `clap`, `log`.
+- geist-runtime (planned slim)
+  - Responsibility: Job lanes and worker pools; drain CPU results.
+  - API: `BuildJob`, `JobOut`, `submit_*`, `drain_*`, counters.
 
-Dependency Graph (condensed)
+- geist-structures (planned)
+  - Responsibility: Structure buffers, transforms, local edits (engine‑only types).
+  - API: `StructureId`, `Pose`, `Structure`, `rotate_yaw[_inv]`.
 
-geist-geom
-  ↓
-geist-blocks → geist-world → geist-chunk → geist-lighting → geist-mesh-cpu → geist-runtime → geist-app
-                                                              ↘ geist-render-raylib → geist-app
-geist-edit → geist-io ─────────────────────────────────────────────────────────────→ geist-app
-geist-structures ─────────────────────────────────────────────────────────────────→ geist-app
+- geist-edit (planned)
+  - Responsibility: Persistent world edits + revisions.
+  - API: `EditStore`.
 
-Feature Flags
+- geist-io (planned)
+  - Responsibility: Import/export; schematics and Bedrock (feature‑gated).
+  - API: `schem::{...}`, mcworld (feature).
 
-- `mcworld` moves from root crate to `geist-io` as optional, and is re‑exported at the workspace root for convenience:
-  - Root workspace `[features]`: `mcworld = ["geist-io/mcworld"]`.
-  - Only `geist-io` lists `bedrock-hematite-nbt` and `zip` as `optional = true`.
+## Dependency Direction (condensed)
 
-Old → New File Mapping
+`geist-geom`
+  → `geist-blocks` → `geist-world` → `geist-chunk` → `geist-lighting` → `geist-mesh-cpu` → `geist-runtime` → app
 
-- `src/blocks/*` → `crates/geist-blocks/src/*`
-- `src/worldgen/*`, `src/voxel.rs` → `crates/geist-world/src/*`
-- `src/chunkbuf.rs` → `crates/geist-chunk/src/lib.rs`
-- `src/lighting.rs` → `crates/geist-lighting/src/lib.rs`
-- `src/microgrid_tables.rs` → `crates/geist-mesh-cpu/src/microgrid_tables.rs`
-- `src/mesher.rs`
-  - CPU parts → `crates/geist-mesh-cpu/src/lib.rs`
-  - Raylib model upload + `ChunkRender` → `crates/geist-render-raylib/src/lib.rs`
-- `src/runtime.rs` → `crates/geist-runtime/src/lib.rs` (minus Raylib/texture/shader/file‑watch)
-- `src/structure.rs` → `crates/geist-structures/src/lib.rs`
-- `src/edit.rs` → `crates/geist-edit/src/lib.rs`
-- `src/schem.rs`, `src/mcworld.rs` → `crates/geist-io/src/*`
-- App‑only stays in `geist-app`: `app.rs`, `camera.rs`, `player.rs`, `raycast.rs`, `shaders.rs`, `texture_cache.rs`, `event.rs`, `gamestate.rs`, `snapshowcase.rs`.
+`geist-render-raylib` depends on `raylib`, `geist-mesh-cpu`, `geist-blocks`, and converts to/from `geist-geom`.
 
-Workspace Layout
+## Migration Plan (Phased)
 
-.
-├─ Cargo.toml (workspace root)
-├─ crates/
-│  ├─ geist-geom/
-│  ├─ geist-blocks/
-│  ├─ geist-world/
-│  ├─ geist-chunk/
-│  ├─ geist-lighting/
-│  ├─ geist-mesh-cpu/
-│  ├─ geist-runtime/
-│  ├─ geist-structures/
-│  ├─ geist-edit/
-│  ├─ geist-io/
-│  └─ geist-render-raylib/
-└─ src/ (geist-app bin crate)
+Phase 0: Workspace scaffold
+- Create crates and activate resolver = "2"; add temporary re‑exports as needed.
 
-Root Cargo.toml (sketch)
-
-```toml
-[workspace]
-members = [
-  "crates/geist-geom",
-  "crates/geist-blocks",
-  "crates/geist-world",
-  "crates/geist-chunk",
-  "crates/geist-lighting",
-  "crates/geist-mesh-cpu",
-  "crates/geist-runtime",
-  "crates/geist-structures",
-  "crates/geist-edit",
-  "crates/geist-io",
-  "crates/geist-render-raylib",
-  "." # geist-app
-]
-resolver = "2"
-
-[workspace.package]
-edition = "2024" # keep current edition
-
-[workspace.dependencies]
-serde = { version = "1", features = ["derive"] }
-toml = "0.8"
-fastnoise-lite = "1.1"
-log = "0.4"
-clap = { version = "4.5", features = ["derive"] }
-raylib = "5.5.1"
-# etc.
-
-[features]
-default = []
-mcworld = ["geist-io/mcworld"]
-```
-
-Example crate manifest (geist-mesh-cpu)
-
-```toml
-[package]
-name = "geist-mesh-cpu"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-geist-blocks = { path = "../geist-blocks" }
-geist-world = { path = "../geist-world" }
-geist-chunk = { path = "../geist-chunk" }
-geist-lighting = { path = "../geist-lighting" }
-geist-geom = { path = "../geist-geom" }
-```
-
-Incremental Migration Plan
-
-Phase 0: Scaffold the workspace (no code moves)
-- Convert root to a `[workspace]` and create empty crates with stubs.
-- In each new crate, add temporary `pub use` re‑exports pointing back into the old modules to keep the binary compiling while we move code.
-
-Phase 1: Extract Blocks + World
+Phase 1: Blocks + World
 - Move `src/blocks/` → `geist-blocks`.
 - Move `src/worldgen/` and `src/voxel.rs` → `geist-world`.
-- Update imports where needed; keep re‑exports during the transition.
 
-Done in repo:
-- `geist-blocks` now contains `config`, `material`, `registry`, `types` (with re-exports in `lib.rs`).
-- `geist-world` now contains `worldgen` and `voxel` with full parity features (biomes, trees, caves, features) and `load_params_from_path`.
-- Root app re-exports preserve old paths; app worldgen config reload continues to work.
-
-Phase 2: Extract Chunk + Lighting
+Phase 2: Chunk + Lighting
 - Move `src/chunkbuf.rs` → `geist-chunk`.
 - Move `src/lighting.rs` → `geist-lighting`.
-- Update users: mesher, runtime, app.
 
-Done in repo:
-- `geist-chunk` now provides `ChunkBuf` and `generate_chunk_buffer()`; root `src/chunkbuf.rs` re-exports it.
-- `geist-lighting` now provides `LightGrid`, `LightBorders`, `NeighborBorders`, `LightingStore` with the same APIs (including `sample_face_local` used by mesher); root `src/lighting.rs` re-exports it.
-- Root `Cargo.toml` depends on `geist-chunk` and `geist-lighting`.
-- Workspace builds (`cargo check`): OK.
+Phase 3: Engine math
+- Add `geist-geom` and refactor engine code to use it instead of Raylib types.
+- Add Raylib↔geom conversions in `geist-render-raylib`.
 
-Notes:
-- `LightGrid::sample_face_local` restored so mesher compiles unchanged.
-- Neighbor border handling is preserved; dynamic emitters remain in `LightingStore`.
+Phase 4: Split Mesher (next)
+- Extract CPU mesher (`MeshBuild`, `ChunkMeshCPU`, `NeighborsLoaded`, `microgrid_tables`) into `geist-mesh-cpu`.
+- Move `ChunkRender`, texture/shader management, and mesh upload into `geist-render-raylib`.
 
-Phase 3: Introduce engine math (remove Raylib from engine types)
-- Add `geist-geom` with `Vec3` and `Aabb` equivalents.
-- Replace `raylib::Vector3/BoundingBox` usages inside CPU engine code (meshing/structure) with `geist-geom` types.
-- Keep conversions inside `geist-render-raylib` when uploading meshes.
+Phase 5: Slim Runtime (next)
+- Move GPU/texture/file‑watch out of runtime; keep lanes, queues, results only.
 
-Notes:
-- `geist-geom` crate already exists with initial `Vec3`/`Aabb` types; integration pending.
+Phase 6: Edits, IO, Structures (next)
+- Move `edit.rs` → `geist-edit`, `schem.rs`/`mcworld.rs` → `geist-io`, `structure.rs` → `geist-structures`.
 
-Phase 4: Split Mesher
-- Move CPU meshing into `geist-mesh-cpu` (including `microgrid_tables.rs`).
-- Add `geist-render-raylib` that owns `ChunkRender`, shader wrappers, `TextureCache`, and `upload_chunk_mesh`.
-- Remove Raylib model types from the CPU path.
+Phase 7: App wiring and cleanup (next)
+- Remove shims; update imports; finalize crate boundaries.
 
-Proposed concrete steps:
-- Extract CPU-only meshing structures (`MeshBuild`, `ChunkMeshCPU`, `NeighborsLoaded`) into `geist-mesh-cpu`.
-- Keep `microgrid_tables.rs` with static tables in `geist-mesh-cpu`.
-- Introduce `geist-render-raylib` for `ChunkRender`, shader wrappers, texture cache and mesh upload, plus conversions from `geist-geom`.
+## Temporary Shims (remove in Phase 7)
 
-Phase 5: Slim Runtime
-- Move GPU/texture/file‑watch logic out of `runtime.rs` into `geist-render-raylib` and/or the app.
-- Keep only job submission/draining, lane counts, and result types in `geist-runtime`.
+- `src/blocks/mod.rs` re‑exports `geist-blocks`.
+- `src/worldgen/mod.rs` re‑exports `geist-world::worldgen`.
+- `src/voxel.rs` re‑exports `geist-world::voxel`.
 
-Phase 6: Extract Edits + IO + Structures
-- Move `src/edit.rs` → `geist-edit`.
-- Move `src/schem.rs` and `src/mcworld.rs` → `geist-io` (feature‑gated as today).
-- Move `src/structure.rs` → `geist-structures` (depend on `geist-geom`).
+## Validation Checklist (per phase)
 
-Phase 7: Wire the App
-- Update `geist-app` to depend on new crates and remove all temporary re‑exports.
-- Keep CLI and HUD unchanged; adopt new crate APIs for queue sizes and debug counters where applicable.
+- Build: `cargo check` / `cargo build --workspace` passes.
+- Visual parity: worldgen/caves/trees/features intact.
+- Engine crates have no `raylib` dependency.
+- Imports: root `src/` use new crates (or shims until Phase 7).
 
-Validation checkpoints (per phase)
+## Build/Run Commands
 
-- Build: `cargo check`/`cargo build --workspace` must pass.
-- Smoke run: `cargo run -- run` should render world parity (biomes, trees, caves intact).
-- Imports: root `src/` should reference new crates or shims only; remove shims at Phase 7.
+- Build all: `cargo build --workspace`
+- Run app: `cargo run` (current root bin is `geist`)
+- With Bedrock: `cargo run -F mcworld`
 
+## Guidelines
 
-Build/Run After Split
+- No Raylib types in engine crates.
+- Keep public surfaces minimal; document with rustdoc.
+- Avoid cyclic deps; push shared helpers down (e.g., `geist-geom`).
+- Prefer slices over owned `Vec` in hot paths when possible.
 
-- Build everything: `cargo build --workspace`
-- Run the app: `cargo run -p geist-app -- run [args...]`
-- With Bedrock support: `cargo run -F mcworld -p geist-app -- run ...`
+## Risks & Mitigations
 
-API and Code Style Guidelines
+- Raylib leakage into engine crates → introduce `geist-geom` first; convert only at renderer boundary.
+- Build breakage from large moves → use phased PRs and temporary adapters.
+- Feature flag drift → centralize feature forwarding in the workspace; keep `mcworld` in `geist-io` and forward.
 
-- Crate boundaries are hard: no Raylib types in engine crates (`blocks/world/chunk/lighting/mesh/runtime/edit/structures`).
-- Keep public surfaces minimal and document them with rustdoc comments.
-- Prefer `&[T]`/`&mut [T]` over owned `Vec<T>` in hot paths; return borrowable views when possible.
-- Avoid cyclic deps; if two crates need shared helpers, move them to `geist-geom` or a tiny util inside the lowest layer.
-- Use `#[deny(missing_docs)]` and `#[warn(clippy::all)]` in new crates after initial migration.
+## Acceptance Criteria
 
-Risks and Mitigations
-
-- Raylib leakage into engine crates: mitigate by introducing `geist-geom` first and converting at the edges.
-- Large moves breaking the build: mitigate with phased PRs and temporary `pub use` adapters to preserve paths while callers are updated.
-- Feature flag drift: centralize feature forwarding in the root workspace; keep `mcworld` only in `geist-io` and re‑export at root.
-
-Acceptance Criteria
-
-- The workspace builds with `cargo build --workspace`.
-- `cargo run -p geist-app` renders the same world before/after the split.
+- `cargo build --workspace` succeeds.
+- App renders the same scene before/after refactors.
 - No engine crate depends on `raylib`.
-- Root `mcworld` feature forwards to `geist-io/mcworld` and works as it does today.
+- `mcworld` feature works via `geist-io`.
 
-Optional Follow‑ups
+## Appendix: Completed Phase Details
 
-- Consider a small `geist-events` crate if `event.rs` becomes a reusable boundary, otherwise keep it in the app.
-- Add crate‑level README files summarizing each module’s purpose and public API.
-- Add CI jobs: `cargo fmt --all`, `cargo clippy --workspace -D warnings`, and a minimal run smoke test.
+- Phase 1
+  - `geist-blocks` and `geist-world` created; worldgen parity retained; shims in root.
+
+- Phase 2
+  - `geist-chunk` and `geist-lighting` created; mesher/light APIs preserved; borders handled.
+
+- Phase 3
+  - `geist-geom` added with `Vec3`/`Aabb`; engine code refactored (structures + mesher bbox).
+  - `geist-render-raylib` gained conversion helpers for clean boundaries.
+

@@ -5,6 +5,8 @@ use crate::microgrid_tables::{empty4_to_rects, occ8_to_boxes};
 use crate::texture_cache::TextureCache;
 use crate::voxel::World;
 use raylib::core::math::BoundingBox;
+use geist_geom::{Aabb, Vec3};
+use geist_render_raylib::conv::aabb_to_rl;
 use raylib::prelude::*;
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -610,7 +612,7 @@ pub struct ChunkRender {
 pub struct ChunkMeshCPU {
     pub cx: i32,
     pub cz: i32,
-    pub bbox: BoundingBox,
+    pub bbox: Aabb,
     pub parts: std::collections::HashMap<MaterialId, MeshBuild>,
 }
 
@@ -1113,14 +1115,14 @@ pub fn build_chunk_greedy_cpu_buf(
             }
         }
     }
-    let bbox = BoundingBox::new(
-        Vector3::new(base_x as f32, 0.0, base_z as f32),
-        Vector3::new(
-            base_x as f32 + sx as f32,
-            sy as f32,
-            base_z as f32 + sz as f32,
-        ),
-    );
+    let bbox = Aabb {
+        min: Vec3 { x: base_x as f32, y: 0.0, z: base_z as f32 },
+        max: Vec3 {
+            x: base_x as f32 + sx as f32,
+            y: sy as f32,
+            z: base_z as f32 + sz as f32,
+        },
+    };
     let light_borders = Some(LightBorders::from_grid(&light));
     Some((
         ChunkMeshCPU {
@@ -1277,7 +1279,7 @@ pub fn upload_chunk_mesh(
     Some(ChunkRender {
         cx: cpu.cx,
         cz: cpu.cz,
-        bbox: cpu.bbox,
+        bbox: aabb_to_rl(cpu.bbox),
         parts: parts_gpu,
         leaf_tint: None,
     })
@@ -1566,10 +1568,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
         }
     }
 
-    let bbox = BoundingBox::new(
-        Vector3::new(0.0, 0.0, 0.0),
-        Vector3::new(sx as f32, sy as f32, sz as f32),
-    );
+    let bbox = Aabb { min: Vec3 { x: 0.0, y: 0.0, z: 0.0 }, max: Vec3 { x: sx as f32, y: sy as f32, z: sz as f32 } };
     ChunkMeshCPU {
         cx: 0,
         cz: 0,
