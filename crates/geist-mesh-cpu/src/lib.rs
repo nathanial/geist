@@ -780,7 +780,17 @@ pub fn build_chunk_wcc_cpu_buf(
 
     // Phase 2: Use a single WCC mesher at S=2 to cover full cubes and micro occupancy.
     let S: usize = 2;
-    let mut wm = WccMesher::new(buf, &light, reg, S, base_x, base_z);
+    let mut wm = WccMesher::new(
+        buf,
+        &light,
+        reg,
+        S,
+        base_x,
+        base_z,
+        world,
+        edits,
+        neighbors,
+    );
 
     for z in 0..sz {
         for y in 0..sy {
@@ -1091,14 +1101,119 @@ pub struct WccMesher<'a> {
     keys: KeyTable,
     reg: &'a BlockRegistry,
     light: &'a LightGrid,
+    buf: &'a ChunkBuf,
+    world: &'a World,
+    edits: Option<&'a HashMap<(i32, i32, i32), Block>>,
+    neighbors: NeighborsLoaded,
     base_x: i32,
     base_z: i32,
 }
 
 impl<'a> WccMesher<'a> {
-    pub fn new(buf: &ChunkBuf, light: &'a LightGrid, reg: &'a BlockRegistry, S: usize, base_x: i32, base_z: i32) -> Self {
+    pub fn new(
+        buf: &'a ChunkBuf,
+        light: &'a LightGrid,
+        reg: &'a BlockRegistry,
+        S: usize,
+        base_x: i32,
+        base_z: i32,
+        world: &'a World,
+        edits: Option<&'a HashMap<(i32, i32, i32), Block>>,
+        neighbors: NeighborsLoaded,
+    ) -> Self {
         let (sx, sy, sz) = (buf.sx, buf.sy, buf.sz);
-        Self { S, sx, sy, sz, grids: FaceGrids::new(S, sx, sy, sz), keys: KeyTable::new(), reg, light, base_x, base_z }
+        Self {
+            S,
+            sx,
+            sy,
+            sz,
+            grids: FaceGrids::new(S, sx, sy, sz),
+            keys: KeyTable::new(),
+            reg,
+            light,
+            buf,
+            world,
+            edits,
+            neighbors,
+            base_x,
+            base_z,
+        }
+    }
+    #[inline]
+    fn world_block(&self, nx: i32, ny: i32, nz: i32) -> Block {
+        if let Some(es) = self.edits {
+            es.get(&(nx, ny, nz))
+                .copied()
+                .unwrap_or_else(|| self.world.block_at_runtime(self.reg, nx, ny, nz))
+        } else {
+            self.world.block_at_runtime(self.reg, nx, ny, nz)
+        }
+    }
+    #[inline]
+    fn neighbor_micro_occludes_negx(&self, here: Block, ly: usize, iym: usize, lz: usize, izm: usize) -> bool {
+        // Sample neighbor block one voxel to -X
+        let nx = self.base_x - 1;
+        let ny = ly as i32;
+        let nz = self.base_z + lz as i32;
+        // Respect seam policy: same blocks can be configured not to occlude
+        if let Some(h) = self.reg.get(here.id) {
+            let nb = self.world_block(nx, ny, nz);
+            if let Some(n) = self.reg.get(nb.id) {
+                if h.seam.dont_occlude_same && here.id == nb.id { return false; }
+                // Full cubes occlude entire micro column
+                if n.is_solid(nb.state) && matches!(n.shape, geist_blocks::types::Shape::Cube | geist_blocks::types::Shape::AxisCube { .. }) {
+                    return true;
+                }
+                // If neighbor has micro occupancy, require it to touch +X boundary at this micro YZ cell
+                if let Some(occ) = n.variant(nb.state).occupancy {
+                    for b in crate::microgrid_tables::occ8_to_boxes(occ) {
+                        let x1 = b[3] as usize; // max x in [0,2]
+                        let y0 = b[1] as usize; let y1 = b[4] as usize;
+                        let z0 = b[2] as usize; let z1 = b[5] as usize;
+                        if x1 == self.S { // touches +X neighbor boundary
+                            if iym >= y0 && iym < y1 && izm >= z0 && izm < z1 {
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                }
+                // Non-occupancy, non-full-cube shapes (thin dynamics) do not cancel WCC faces
+                return false;
+            }
+        }
+        false
+    }
+    #[inline]
+    fn neighbor_micro_occludes_negz(&self, here: Block, lx: usize, ixm: usize, ly: usize, iym: usize) -> bool {
+        // Sample neighbor block one voxel to -Z
+        let nx = self.base_x + lx as i32;
+        let ny = ly as i32;
+        let nz = self.base_z - 1;
+        if let Some(h) = self.reg.get(here.id) {
+            let nb = self.world_block(nx, ny, nz);
+            if let Some(n) = self.reg.get(nb.id) {
+                if h.seam.dont_occlude_same && here.id == nb.id { return false; }
+                if n.is_solid(nb.state) && matches!(n.shape, geist_blocks::types::Shape::Cube | geist_blocks::types::Shape::AxisCube { .. }) {
+                    return true;
+                }
+                if let Some(occ) = n.variant(nb.state).occupancy {
+                    for b in crate::microgrid_tables::occ8_to_boxes(occ) {
+                        let z1 = b[5] as usize;
+                        let x0 = b[0] as usize; let x1 = b[3] as usize;
+                        let y0 = b[1] as usize; let y1 = b[4] as usize;
+                        if z1 == self.S { // touches +Z neighbor boundary
+                            if ixm >= x0 && ixm < x1 && iym >= y0 && iym < y1 {
+                                return true;
+                            }
+                        }
+                    }
+                    return false;
+                }
+                return false;
+            }
+        }
+        false
     }
     #[inline]
     fn light_bin(&self, x: usize, y: usize, z: usize, face: Face) -> u8 {
@@ -1185,6 +1300,21 @@ impl<'a> WccMesher<'a> {
                     }
                 }
             }}
+            // Seam fix: if this is the -X boundary plane (ix==0), drop mask cells occluded by a loaded neighbor.
+            if ix == 0 && self.neighbors.neg_x {
+                for iy in 0..height_x {
+                    for iz in 0..width_x {
+                        let mi = iy * width_x + iz;
+                        if mask[mi].is_none() { continue; }
+                        // Map micro cell to local block coords and micro coords within the block
+                        let ly = iy / self.S; let iym = iy % self.S;
+                        let lz = iz / self.S; let izm = iz % self.S;
+                        if ly >= sy || lz >= sz { continue; }
+                        let here = self.buf.get_local(0, ly, lz);
+                        if self.neighbor_micro_occludes_negx(here, ly, iym, lz, izm) { mask[mi] = None; }
+                    }
+                }
+            }
             greedy_rects(width_x, height_x, &mut mask, |u0, v0, w, h, codev| {
                 let ((mid, pos), l) = codev;
                 let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN));
@@ -1233,6 +1363,21 @@ impl<'a> WccMesher<'a> {
                     }
                 }
             }}
+            // Seam fix: if this is the -Z boundary plane (iz==0), drop mask cells occluded by a loaded neighbor.
+            if iz == 0 && self.neighbors.neg_z {
+                for iy in 0..height_z {
+                    for ix in 0..width_z {
+                        let mi = iy * width_z + ix;
+                        if mask[mi].is_none() { continue; }
+                        // Map micro cell to local block coords and micro coords within the block
+                        let ly = iy / self.S; let iym = iy % self.S;
+                        let lx = ix / self.S; let ixm = ix % self.S;
+                        if ly >= sy || lx >= sx { continue; }
+                        let here = self.buf.get_local(lx, ly, 0);
+                        if self.neighbor_micro_occludes_negz(here, lx, ixm, ly, iym) { mask[mi] = None; }
+                    }
+                }
+            }
             greedy_rects(width_z, height_z, &mut mask, |u0, v0, w, h, codev| {
                 let ((mid, pos), l) = codev; let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN)); let rgba = [lv,lv,lv,255];
                 let face = if pos { Face::PosZ } else { Face::NegZ };
@@ -1435,4 +1580,3 @@ fn greedy_rects<K: Copy + Eq + Hash>(
 
 #[inline]
 fn apply_min_light(l: u8, min: Option<u8>) -> u8 { if let Some(m) = min { l.max(m) } else { l } }
-
