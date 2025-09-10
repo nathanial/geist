@@ -1,151 +1,119 @@
-# Lighting Algorithm Alternatives (WCC‑Friendly)
+# Micro‑Voxel Lighting (S=2) — WCC‑Aligned, Non‑Heuristic
 
 ## Motivation
-- Current voxel BFS + heuristic face sampling introduces directional bias, seam timing artifacts, and micro‑shape inconsistencies.
-- The Watertight Cubical Complex (WCC) mesher works at S=2 micro resolution and emits only the world’s surface. An ideal lighting method should align to that frontier, avoid approximations, and have clean chunk‑seam behavior.
+- Ensure lighting semantics match the WCC S=2 mesher exactly, eliminating quadrant sampling bias, leaks through sealed micro cells, and seam inconsistencies.
+- Provide a model with clear mathematical guarantees: propagation is a shortest‑path (or monotone attenuation) problem on a finite graph with watertight gates defined by geometry.
 
-## Goals
-- Visual correctness on WCC faces (no quadrant bias, no leaks through sealed micro cells).
-- Seam‑safe: half‑open plane ownership, deterministic neighbor exchange.
-- Reasonable memory and compute for 32×256×32 chunks.
-- Works for skylight and block lights; optional directional beams.
+## High‑Level Overview
+- Grid: Replace voxel‑center light with an S=2 micro‑voxel grid (2× each axis → 8× voxels). For a 32×256×32 chunk, micro dims are 64×512×64 (≈2.1M cells).
+- Graph: Each micro voxel is a node. Edges exist only across open micro faces determined by the same sealed‑plane predicate the WCC mesher uses (watertight by construction).
+- Sources: Skylight injects from the top boundary via micro +Y faces open to sky; emissive blocks inject via their exposed faces or designated micro voxels.
+- Solve: Run integer bucketed BFS (or Dijkstra if weights differ) per channel. Result is deterministic and order‑independent.
+- Shading: For each WCC face cell (2×2 per macro face), sample the two adjacent micro voxels across that plane cell and combine (typically max). No neighborhood heuristics.
 
-## Option A — WCC‑Frontier Flood (Surface BFS)
-Description
-- Treat WCC plane micro‑cells (2×2 per voxel face) as the graph. Edges connect adjacent plane cells on the same plane and around edges where geometry allows. Light sources “inject” onto surface cells they touch (sky on top surfaces, blocks on their incident faces). Propagate along surface cells with attenuation (per step or per metric distance).
+## Guarantees
+- Soundness: Light never crosses sealed faces (identical gates as mesher).
+- Completeness: All and only micro voxels connected to a source through open faces receive light.
+- Determinism: Monotone, order‑independent solution (least fixed point of the propagation operator).
+- Seam correctness: Half‑open ownership and micro border exchange make chunk‑local results equal to a global solve.
 
-How it integrates with WCC
-- Perfectly: the mesher already iterates plane micro‑cells to merge quads. Shade directly from the surface scalar on each plane cell; merges remain stable because lighting is computed at the same resolution as the merge grid.
+## Data Model
+- Micro occupancy: Boolean per micro voxel (air vs solid) or per micro face open/closed. Derive from the same S=2 shape sampling the mesher uses. Prefer a shared function to avoid drift.
+- Light channels: At minimum `sky` and `emissive` (block light). Optional RGB per emissive if needed by art style.
+- Representation: Integer light level L in [0..15] or [0..31]. Use nibble packing to control memory if needed.
+- Layout: Flattened 3D array for micro light, e.g., `idx = ((y * Zm) + z) * Xm + x` with `Xm=2*X`, `Ym=2*Y`, `Zm=2*Z`. Keep a matching layout for occupancy if stored.
 
-Seams
-- Use half‑open rule. For −X/−Z boundary planes owned by this chunk, optionally ingest neighbor surface values via micro border planes. No duplication on +X/+Z. Deterministic and crack‑free.
+Memory notes
+- Raw micro light (1 byte/voxel/channel) at 64×512×64 ≈ 2.1 MB/channel. With two channels (sky+emissive) ≈ 4.2 MB/chunk.
+- Nibble packing (4 bits/channel) allows `sky`+`emissive` in 1 byte → ≈ 2.1 MB/chunk.
+- Ephemeral compute: Allocate during build, then persist only border micro planes (for neighbor exchange) + any gameplay field you still need.
 
-Pros
-- Alignment with geometry eliminates sampler artifacts entirely (no peeking across closed micro cells).
-- Minimal memory: compute on demand per build only for visible frontier; no volumetric arrays needed.
-- Naturally supports variable attenuation profiles per light type.
+## Sealed‑Plane Predicate (Shared With WCC)
+- Single source of truth: Implement `micro_face_open(a_voxel, b_voxel, face)` using the exact S=2 occupancy the mesher uses to prove watertightness.
+- Properties required for correctness:
+  - Antisymmetry: `open(a→b) == open(b→a)`.
+  - Locality: Decision depends only on geometry of the two incident macro blocks at the micro interface.
+  - Consistency: If all four micro plane cells on a macro face are closed, the mesher must emit no face there; lighting must also block.
 
-Cons
-- Propagation is limited to surfaces; interior volumetric light is not stored. This is fine for rendering (hidden interiors are not emitted), but gameplay systems that require interior light might still need a coarse field.
-- Implementation needs a clean, shared “plane‑cell open” predicate and consistent edge connectivity rules.
+## Borders and Seam Ownership
+- Half‑open rule: This chunk owns −X, −Y, −Z boundary faces; +X, +Y, +Z are owned by the neighbor. Only the owner writes to a seam plane.
+- Exchange format: For each of 6 faces, provide the micro border plane of light for each channel (size: `Ym×Zm` on X faces, `Xm×Zm` on Y faces, `Xm×Ym` on Z faces).
+- Build order independence:
+  - When building a chunk, read available neighbor border planes for +X/+Y/+Z as seeds. If missing, treat as zero for emissive; for skylight at world top, inject full sky via a virtual +Y plane.
+  - After compute, publish −X/−Y/−Z planes for neighbors. Optionally schedule a cheap “seam relax” pass when new neighbor data arrives.
 
-Complexity
-- Moderate. Build/visit surface cell graph while WCC emits or in a prepass. Use a small queue per face plane. Cost scales with exposed area, not volume.
+## Propagation Algorithm
+- Use an integer bucketed BFS (Dial’s algorithm) per channel with non‑increasing levels:
+  - Typical rule: Neighbor receives `max(nei, src - cost)`, with `cost = 1` per micro step. For distance‑based falloff use anisotropic costs (then prefer 0–31 range).
+  - Because updates are monotone and bounded, a bucketed queue over light levels converges quickly and deterministically.
 
-## Option B — Micro‑Voxel Lighting (S=2)
-Description
-- Store light per micro voxel (2× on each axis → 8× voxels). BFS propagates through voxel faces using the same open/closed predicate as WCC micro occupancy. Face shading reads the two voxels across the face cell and takes the max.
+Pseudocode (single channel)
+```
+init all L = 0
+queue buckets[0..Lmax]
 
-How it integrates with WCC
-- Exact semantics match. No sampling heuristics; every plane cell is the frontier between two micro voxels.
+// Seed skylight from +Y border and interior sources
+for each seed s: set L[s] = max(L[s], seed_val); push s to bucket[seed_val]
 
-Seams
-- Exchange micro border planes per neighbor; same half‑open ownership as WCC to prevent double counting.
+for level from Lmax down to 1:
+  while bucket[level] not empty:
+    v = pop()
+    if L[v] != level: continue // stale entry
+    for each dir in 6:
+      if not micro_face_open(v, v+dir, dir): continue
+      n = v+dir
+      new = level - cost(dir) // usually 1
+      if new > L[n]: L[n] = new; push n to bucket[new]
+```
 
-Pros
-- Highest fidelity and simplest conceptual model; eliminates all the current artifacts.
+Parallelization
+- Process buckets per level to avoid race conditions; or use lock‑free multi‑producer queues per level. Micro occupancy is read‑only, L is updated via monotone writes guarded by the level check above.
 
-Cons
-- Memory/time overhead: ~8× the voxel count; for three channels this can be 2–6 MB per chunk unless compressed or computed ephemerally. Needs careful scheduling.
+## Sources
+- Skylight: Seeds live on micro voxels whose +Y face is open to the external sky. Practically:
+  - Read +Y neighbor border plane if present and enqueue those voxels just below the plane where the +Y micro face is open.
+  - For the topmost world chunk, synthesize a “sky plane” with level = `Lmax`.
+- Emissive blocks: Prefer surface emission for correctness with WCC:
+  - For each exposed micro face cell of an emissive block, inject into the adjacent air micro voxel with the block’s emission level.
+  - Optionally also seed the block’s interior micro voxels if you want center‑emission behavior.
 
-Complexity
-- Higher. Requires changes to storage, propagation, neighbor exchange, and possibly streaming.
+## Shading of WCC Faces
+- For each emitted WCC face micro cell (the 2×2 grid on a macro face):
+  - Identify the two adjacent micro voxels separated by that plane cell (call them `A` and `B`).
+  - Face light = `combine(L[A], L[B])` with `combine = max` for non‑directional light.
+  - This guarantees no peeking across sealed micro cells and aligns 1:1 with merge cells.
 
-## Option C — Dual‑Grid BFS (Voxel Centers + Plane Gates)
-Description
-- Keep a voxel‑center light grid, but edges between voxels are allowed only where the specific plane micro‑cell is open (same predicate WCC uses). For face shading, evaluate light as max(local, neighbor) but only if the corresponding plane cell is open.
+## Integration With Current Codebase
+- Current state (observed):
+  - Voxel‑center light grid with BFS and S=2‑aware gates like `can_cross_face_s2`/`skylight_transparent_s2`.
+  - Face shading uses `LightGrid::sample_face_local_s2` with multi‑sample neighborhood (recently made symmetric to remove bias).
+  - Border data exists for skylight (`sk_xn/xp/zn/zp`) at voxel resolution; Y borders handled specially.
+- Changes required:
+  - Add micro occupancy provider shared with WCC (S=2). Either compute on demand from block shapes or precompute a packed bitset per chunk.
+  - Introduce micro light storage (ephemeral scratch) and border micro planes per face per channel.
+  - Replace voxel‑center BFS with micro‑voxel BFS for `sky` and `emissive`.
+  - Replace `sample_face_local_s2` usage for WCC faces with the two‑voxel max described above.
+  - Unify sealed‑plane predicate used by mesher and lighting; deprecate heuristic sampling paths.
 
-How it integrates with WCC
-- Good. Uses WCC’s sealed‑plane logic; face shading consults the exact plane cell openness.
+## Gotchas and How To Avoid Them
+- Predicate drift: If lighting and mesher use different S=2 openness logic, cracks/leaks reappear. Fix by moving the predicate to a shared module and testing it.
+- Border mis‑ownership: Writing/reading the wrong seam side causes double‑counting or gaps. Enforce −X/−Y/−Z ownership with unit tests over chunk pairs.
+- Missing neighbor data: Build might run without some neighbors. Treat missing +X/+Y/+Z planes as zeros (and sky for +Y at world top) and schedule a seam‑relax when neighbors arrive.
+- Memory spikes: 2.1 MB/channel scratch can be heavy. Use nibble packing, arena reuse, or tile the chunk vertically (process bands of, say, 64 micro Y at a time) with streaming borders between bands.
+- Performance regressions: BFS on 2.1M cells is fast if most are solid. Ensure early culling by never enqueuing solid voxels and using tight cache‑friendly layout.
+- Non‑manifold micro shapes: WCC must guarantee watertightness at S=2. Add assertions that every closed macro face implies all four plane cells are closed and vice versa.
 
-Seams
-- Same neighbor border planes as today, but micro‑aware for skylight/block light.
+## Step‑By‑Step Migration Plan
+- Step 1: Extract the sealed‑plane predicate into a shared `wcc::s2::micro_face_open()` used by both mesher and lighting.
+- Step 2: Provide a micro occupancy view for a chunk: API to test micro voxel solid/air and micro face openness, backed by per‑block S=2 tables.
+- Step 3: Implement bucketed BFS over the micro grid for `sky` and `emissive`. Accept neighbor micro border planes as optional inputs; emit −X/−Y/−Z planes as outputs.
+- Step 4: Replace WCC face shading path to read exactly the two adjacent micro voxels per plane cell and combine.
+- Step 5: Delete heuristic multi‑sample codepaths for WCC surfaces. Keep a legacy path only for non‑WCC meshes if needed.
+- Step 6: Add tests: slab/stair stacks, thin panes, overhang skylight, emissives in corridors, and staggered chunk seam cases.
 
-Pros
-- Close to current design; lower memory than micro‑voxel grid; removes most leaks because the gate matches WCC.
+## Validation
+- Scenes: slab/stair stacks, pane corridors with emissives, tree canopies (leaf skylight occlusion), cliff overhangs, and chunk seams with staggered loads.
+- Metrics: build time per chunk, peak memory, merge stability, seam consistency (no cracks/doubles), visual diffs vs current.
 
-Cons
-- Still volumetric; stores light where it may not be needed (hidden interiors). Some residual approximation when multiple micro cells exist across a face and one side dominates.
-
-Complexity
-- Moderate. Needs a unified sealed‑plane function and a face‑cell gate in both propagation and sampling.
-
-## Option D — Column Skylight + Layer Lateral Pass
-Description
-- For skylight only: compute vertical visibility per (x,z) column with micro occupancy. Then, per Y‑layer, run a 2D lateral flood constrained by micro openness to spread skylight horizontally with controlled attenuation.
-
-How it integrates with WCC
-- WCC tops receive sky values exactly; lateral spread remains layer‑local and micro‑aware.
-
-Seams
-- Exchange per‑layer skylight micro border stripes. Deterministic with half‑open rule.
-
-Pros
-- Memory light; removes odd “side bleed” patterns while keeping expected skylight look. Keeps block light system unchanged.
-
-Cons
-- More special‑case logic (skylight path differs from block light). Still an approximation vs A/B.
-
-Complexity
-- Low–moderate.
-
-## Option E — Ray‑Based Face Shading (Skylight‑Only)
-Description
-- For each WCC face cell, cast a handful of discrete rays upward/outward through micro occupancy to test sky visibility and accumulate brightness. No BFS field; shade faces directly.
-
-How it integrates with WCC
-- Natural: rays run through the same micro grid WCC uses; no volumetric storage.
-
-Seams
-- Rays traversing chunk borders can use neighbor micro border occupancy/light or a limited horizon.
-
-Pros
-- Eliminates BFS artifacts; computation limited to visible faces; trivially parallel.
-
-Cons
-- Stochastic artifacts unless rays are carefully chosen; harder to match non‑skylight sources; caching needed for stability.
-
-Complexity
-- Moderate.
-
-## Option F — Logical Light + Surface AO
-Description
-- Keep a strict, simple logical light (e.g., vertical‑only skylight, basic block‑light BFS) and add a cheap, deterministic ambient occlusion term based on WCC micro neighborhoods to provide contact‑shadow cues.
-
-How it integrates with WCC
-- AO computed per face cell while merging; stable and crack‑free.
-
-Seams
-- AO is geometric; no neighbor exchange needed. Logical light retains current seam path with micro border planes.
-
-Pros
-- Easy to implement; removes many perceptual artifacts without heavy lighting changes.
-
-Cons
-- Not physically motivated for light transport; still needs clean logical light for emissives/skylight.
-
-Complexity
-- Low.
-
-## Cross‑Cutting Requirements
-- Unified sealed‑plane predicate: a single function that, given two adjacent voxels and a face index, decides openness at S=2. Both mesher and lighting must use it.
-- Micro border planes: for any solution needing neighbor exchange, send per‑face micro planes (skylight, block light, and optional direction) with consistent half‑open indexing.
-- Deterministic ownership: do not compute or own +X/+Z faces locally; stitch via neighbor planes only (already matches WCC seam rule).
-
-## Recommendations
-Short term (low risk)
-- Adopt Option C improvements on top of the current system:
-  - Use the unified sealed‑plane predicate for both propagation and sampling gates.
-  - Make border sampling micro‑aware (read neighbor skylight/block micro planes, not block‑wide max).
-  - Keep the 8‑sample symmetric neighborhood only as a fallback when precise per‑cell data isn’t available.
-
-Medium term (best WCC synergy with small memory)
-- Implement Option A (WCC‑Frontier Flood) for skylight first, optionally for block lights later. Shade directly from surface values; drop heuristic neighbor sampling entirely for WCC faces.
-
-Long term (maximum correctness)
-- Evaluate Option B (micro‑voxel lighting) with compression or on‑demand computation restricted to a band near surfaces. Compare visuals and cost against the surface BFS.
-
-## Validation Plan
-- Test scenes: slab/stair stacks, pane corridors with emissives, tree canopies (leaves block skylight), cliff overhangs, and chunk seams with staggered neighbor loads.
-- Metrics: build time per chunk, memory peak during build, surface quad merge stability, seam consistency (no cracks/double faces), and visual deltas.
-
+## Summary
+- Micro‑voxel lighting at S=2 is the fully non‑heuristic, theoretically clean approach aligned with WCC. It removes directional bias and leakiness by construction, yields deterministic results across seams, and integrates cleanly with WCC face shading. The main tradeoff is memory/compute, which can be mitigated via nibble packing and ephemeral allocation during builds.
