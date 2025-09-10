@@ -546,6 +546,7 @@ dependencies = [
 name = "geist-blocks"
 version = "0.1.0"
 dependencies = [
+ "proptest",
  "serde",
  "toml",
 ]
@@ -594,6 +595,7 @@ dependencies = [
  "geist-blocks",
  "geist-chunk",
  "geist-world",
+ "proptest",
 ]
 
 [[package]]
