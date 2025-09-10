@@ -5,7 +5,7 @@ use serde::Deserialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use geist_blocks::{BlockRegistry};
+use geist_blocks::BlockRegistry;
 use geist_blocks::types::Block as RtBlock;
 use geist_edit::EditStore;
 use geist_structures::Structure;

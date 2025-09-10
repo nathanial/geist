@@ -1,8 +1,8 @@
 //! Chunk buffer and world generation helpers.
 #![forbid(unsafe_code)]
 
-use geist_blocks::types::Block;
 use geist_blocks::BlockRegistry;
+use geist_blocks::types::Block;
 use geist_world::World;
 
 #[derive(Clone, Debug)]
@@ -64,7 +64,14 @@ impl ChunkBuf {
         if b.len() != expect {
             b.resize(expect, Block { id: 0, state: 0 });
         }
-        ChunkBuf { cx, cz, sx, sy, sz, blocks: b }
+        ChunkBuf {
+            cx,
+            cz,
+            sx,
+            sy,
+            sz,
+            blocks: b,
+        }
     }
 }
 
@@ -84,9 +91,17 @@ pub fn generate_chunk_buffer(world: &World, cx: i32, cz: i32, reg: &BlockRegistr
                 let wx = x0 + x as i32;
                 let wy = y as i32;
                 let wz = z0 + z as i32;
-                blocks[(y * sz + z) * sx + x] = world.block_at_runtime_with(reg, &mut ctx, wx, wy, wz);
+                blocks[(y * sz + z) * sx + x] =
+                    world.block_at_runtime_with(reg, &mut ctx, wx, wy, wz);
             }
         }
     }
-    ChunkBuf { cx, cz, sx, sy, sz, blocks }
+    ChunkBuf {
+        cx,
+        cz,
+        sx,
+        sy,
+        sz,
+        blocks,
+    }
 }

@@ -1,17 +1,17 @@
 use std::collections::{HashMap, HashSet};
 
-use raylib::prelude::*;
 use geist_geom::Vec3;
 use geist_render_raylib::conv::{vec3_from_rl, vec3_to_rl};
+use raylib::prelude::*;
 
-use geist_blocks::{Block, BlockRegistry};
 use crate::event::{Event, EventEnvelope, EventQueue, RebuildCause};
 use crate::gamestate::{ChunkEntry, GameState};
+use crate::raycast;
+use geist_blocks::{Block, BlockRegistry};
+use geist_edit::EditStore;
 use geist_lighting::LightingStore;
 use geist_mesh_cpu::NeighborsLoaded;
-use geist_render_raylib::{upload_chunk_mesh, TextureCache, LeavesShader, FogShader, ChunkRender};
-use crate::raycast;
-use geist_edit::EditStore;
+use geist_render_raylib::{ChunkRender, FogShader, LeavesShader, TextureCache, upload_chunk_mesh};
 use geist_runtime::{BuildJob, JobOut, Runtime, StructureBuildJob};
 use geist_structures::{Pose, Structure, StructureId, rotate_yaw, rotate_yaw_inv};
 use geist_world::voxel::{World, WorldGenMode};
@@ -320,7 +320,11 @@ impl App {
         for off in &offsets {
             let p = feet_world + *off;
             let pv = vec3_from_rl(p);
-            let diff = Vec3 { x: pv.x - st.pose.pos.x, y: pv.y - st.pose.pos.y, z: pv.z - st.pose.pos.z };
+            let diff = Vec3 {
+                x: pv.x - st.pose.pos.x,
+                y: pv.y - st.pose.pos.y,
+                z: pv.z - st.pose.pos.z,
+            };
             let local = rotate_yaw_inv(diff, st.pose.yaw_deg);
             let lx = local.x.floor() as i32;
             let ly = (local.y - 0.08).floor() as i32;
@@ -385,7 +389,8 @@ impl App {
                                         if let Some(e) = p.extension().and_then(|e| e.to_str()) {
                                             let e = e.to_lowercase();
                                             if e == "png" || e == "jpg" || e == "jpeg" {
-                                                let _ = tex_tx.send(p.to_string_lossy().to_string());
+                                                let _ =
+                                                    tex_tx.send(p.to_string_lossy().to_string());
                                             }
                                         }
                                     }
@@ -396,8 +401,13 @@ impl App {
                     },
                 )
                 .unwrap();
-                let _ = watcher.watch(std::path::Path::new("assets/blocks"), RecursiveMode::Recursive);
-                loop { std::thread::sleep(std::time::Duration::from_secs(3600)); }
+                let _ = watcher.watch(
+                    std::path::Path::new("assets/blocks"),
+                    RecursiveMode::Recursive,
+                );
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(3600));
+                }
             });
         }
         // File watcher for worldgen config
@@ -407,27 +417,30 @@ impl App {
             let path = world_config_path.clone();
             std::thread::spawn(move || {
                 use notify::{EventKind, RecursiveMode, Watcher};
-                if let Ok(mut watcher) = notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
-                    if let Ok(event) = res {
-                        match event.kind {
-                            EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_) | EventKind::Any => {
-                                let _ = tx.send(());
+                if let Ok(mut watcher) =
+                    notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+                        if let Ok(event) = res {
+                            match event.kind {
+                                EventKind::Modify(_)
+                                | EventKind::Create(_)
+                                | EventKind::Remove(_)
+                                | EventKind::Any => {
+                                    let _ = tx.send(());
+                                }
+                                _ => {}
                             }
-                            _ => {}
                         }
-                    }
-                }) {
+                    })
+                {
                     let _ = watcher.watch(std::path::Path::new(&path), RecursiveMode::NonRecursive);
-                    loop { std::thread::sleep(std::time::Duration::from_secs(3600)); }
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_secs(3600));
+                    }
                 }
             });
         }
 
-        let runtime = Runtime::new(
-            world.clone(),
-            lighting.clone(),
-            reg.clone(),
-        );
+        let runtime = Runtime::new(world.clone(), lighting.clone(), reg.clone());
         let mut gs = GameState::new(world.clone(), edits, lighting.clone(), cam.position);
         let mut queue = EventQueue::new();
         let hotbar = Self::load_hotbar(&reg);
@@ -553,7 +566,8 @@ impl App {
                                     .iter()
                                     .map(|e| (e.size.0 as i64) * (e.size.2 as i64))
                                     .sum();
-                                let target_w: i32 = (((total_area as f64).sqrt()).ceil() as i32).max(32);
+                                let target_w: i32 =
+                                    (((total_area as f64).sqrt()).ceil() as i32).max(32);
                                 let row_width_limit: i32 = target_w;
                                 let mut placements: Vec<(
                                     std::path::PathBuf,
@@ -601,8 +615,13 @@ impl App {
                                     let mut y = world.world_size_y() as i32 - 2;
                                     while y >= 1 {
                                         let b = world.block_at_runtime(&reg, wx, y, wz);
-                                        if reg.get(b.id).map(|t| t.is_solid(b.state)).unwrap_or(false) {
-                                            return (y + 1).clamp(1, world.world_size_y() as i32 - 1);
+                                        if reg
+                                            .get(b.id)
+                                            .map(|t| t.is_solid(b.state))
+                                            .unwrap_or(false)
+                                        {
+                                            return (y + 1)
+                                                .clamp(1, world.world_size_y() as i32 - 1);
                                         }
                                         y -= 1;
                                     }
@@ -621,7 +640,9 @@ impl App {
                                         (wx0 + sx - 1, wz0 + sz - 1),
                                     ];
                                     let mut wy = i32::MIN;
-                                    for (cx, cz) in corners { wy = wy.max(find_surface_y(cx, cz)); }
+                                    for (cx, cz) in corners {
+                                        wy = wy.max(find_surface_y(cx, cz));
+                                    }
                                     // Clamp so the schematic fits vertically within world bounds.
                                     let world_y_top = world.world_size_y() as i32 - 2;
                                     let wy = wy.min(world_y_top);
@@ -742,7 +763,11 @@ impl App {
                     if let Some(att) = self.gs.ground_attach {
                         if att.id == id {
                             let wl = rotate_yaw(vec3_from_rl(att.local_offset), st.pose.yaw_deg);
-                            let world_from_local = Vec3 { x: wl.x + st.pose.pos.x, y: wl.y + st.pose.pos.y, z: wl.z + st.pose.pos.z };
+                            let world_from_local = Vec3 {
+                                x: wl.x + st.pose.pos.x,
+                                y: wl.y + st.pose.pos.y,
+                                z: wl.z + st.pose.pos.z,
+                            };
                             self.gs.walker.pos = vec3_to_rl(world_from_local);
                         }
                     }
@@ -766,9 +791,13 @@ impl App {
                         for (id, st) in &self.gs.structures {
                             if self.is_feet_on_structure(st, feet_world) {
                                 // Capture local feet offset and attach
-                            let p = vec3_from_rl(self.gs.walker.pos);
-                            let diff = Vec3 { x: p.x - st.pose.pos.x, y: p.y - st.pose.pos.y, z: p.z - st.pose.pos.z };
-                            let local = rotate_yaw_inv(diff, st.pose.yaw_deg);
+                                let p = vec3_from_rl(self.gs.walker.pos);
+                                let diff = Vec3 {
+                                    x: p.x - st.pose.pos.x,
+                                    y: p.y - st.pose.pos.y,
+                                    z: p.z - st.pose.pos.z,
+                                };
+                                let local = rotate_yaw_inv(diff, st.pose.yaw_deg);
                                 self.gs.ground_attach = Some(crate::gamestate::GroundAttach {
                                     id: *id,
                                     grace: 8,
@@ -789,7 +818,11 @@ impl App {
                         if let Some(st) = self.gs.structures.get(&att.id) {
                             // Calculate where we should be based on our local offset and the platform's current position
                             let wl = rotate_yaw(vec3_from_rl(att.local_offset), st.pose.yaw_deg);
-                            let target_world_pos = Vec3 { x: wl.x + st.pose.pos.x, y: wl.y + st.pose.pos.y, z: wl.z + st.pose.pos.z };
+                            let target_world_pos = Vec3 {
+                                x: wl.x + st.pose.pos.x,
+                                y: wl.y + st.pose.pos.y,
+                                z: wl.z + st.pose.pos.z,
+                            };
 
                             // Move the player to maintain their position on the platform
                             self.gs.walker.pos = vec3_to_rl(target_world_pos);
@@ -801,8 +834,16 @@ impl App {
                     let sampler = |wx: i32, wy: i32, wz: i32| -> Block {
                         // Check dynamic structures first
                         for st in self.gs.structures.values() {
-                            let p = vec3_from_rl(Vector3::new(wx as f32 + 0.5, wy as f32 + 0.5, wz as f32 + 0.5));
-                            let diff = Vec3 { x: p.x - st.pose.pos.x, y: p.y - st.pose.pos.y, z: p.z - st.pose.pos.z };
+                            let p = vec3_from_rl(Vector3::new(
+                                wx as f32 + 0.5,
+                                wy as f32 + 0.5,
+                                wz as f32 + 0.5,
+                            ));
+                            let diff = Vec3 {
+                                x: p.x - st.pose.pos.x,
+                                y: p.y - st.pose.pos.y,
+                                z: p.z - st.pose.pos.z,
+                            };
                             let local = rotate_yaw_inv(diff, st.pose.yaw_deg);
                             let lx = local.x.floor() as i32;
                             let ly = local.y.floor() as i32;
@@ -852,7 +893,11 @@ impl App {
                         if let Some(st) = self.gs.structures.get(&att.id) {
                             // Calculate new local position after physics (player may have moved)
                             let p = vec3_from_rl(self.gs.walker.pos);
-                            let diff = Vec3 { x: p.x - st.pose.pos.x, y: p.y - st.pose.pos.y, z: p.z - st.pose.pos.z };
+                            let diff = Vec3 {
+                                x: p.x - st.pose.pos.x,
+                                y: p.y - st.pose.pos.y,
+                                z: p.z - st.pose.pos.z,
+                            };
                             let new_local = rotate_yaw_inv(diff, st.pose.yaw_deg);
 
                             // Check if we're still on the structure after physics
@@ -955,8 +1000,7 @@ impl App {
                 }
                 // Load new ones
                 for key in desired {
-                    if !self.renders.contains_key(&key)
-                        && !self.gs.inflight_rev.contains_key(&key)
+                    if !self.renders.contains_key(&key) && !self.gs.inflight_rev.contains_key(&key)
                     {
                         self.queue.emit_now(Event::EnsureChunkLoaded {
                             cx: key.0,
@@ -1038,13 +1082,9 @@ impl App {
                 }
             }
             Event::StructureBuildCompleted { id, rev, cpu } => {
-                if let Some(mut cr) = upload_chunk_mesh(
-                    rl,
-                    thread,
-                    cpu,
-                    &mut self.tex_cache,
-                    &self.reg.materials,
-                ) {
+                if let Some(mut cr) =
+                    upload_chunk_mesh(rl, thread, cpu, &mut self.tex_cache, &self.reg.materials)
+                {
                     for (mid, model) in &mut cr.parts {
                         if let Some(mat) = model.materials_mut().get_mut(0) {
                             let leaves = self
@@ -1120,13 +1160,9 @@ impl App {
                     return;
                 }
                 // Upload to GPU
-                if let Some(mut cr) = upload_chunk_mesh(
-                    rl,
-                    thread,
-                    cpu,
-                    &mut self.tex_cache,
-                    &self.reg.materials,
-                ) {
+                if let Some(mut cr) =
+                    upload_chunk_mesh(rl, thread, cpu, &mut self.tex_cache, &self.reg.materials)
+                {
                     // Assign biome-based leaf tint for this chunk (center sample)
                     let sx = self.gs.world.chunk_size_x as i32;
                     let sz = self.gs.world.chunk_size_z as i32;
@@ -1236,7 +1272,11 @@ impl App {
                 let mut struct_hit: Option<(StructureId, raycast::RayHit, f32)> = None;
                 for (id, st) in &self.gs.structures {
                     let o = vec3_from_rl(org);
-                    let diff = Vec3 { x: o.x - st.pose.pos.x, y: o.y - st.pose.pos.y, z: o.z - st.pose.pos.z };
+                    let diff = Vec3 {
+                        x: o.x - st.pose.pos.x,
+                        y: o.y - st.pose.pos.y,
+                        z: o.z - st.pose.pos.z,
+                    };
                     let local_org = vec3_to_rl(rotate_yaw_inv(diff, st.pose.yaw_deg));
                     let local_dir = vec3_to_rl(rotate_yaw_inv(vec3_from_rl(dir), st.pose.yaw_deg));
                     let is_solid_local = |lx: i32, ly: i32, lz: i32| -> bool {
@@ -1272,7 +1312,11 @@ impl App {
                             hit.bz as f32 + 0.5,
                         );
                         let wl = rotate_yaw(vec3_from_rl(cc_local), st.pose.yaw_deg);
-                        let cc_world = Vec3 { x: wl.x + st.pose.pos.x, y: wl.y + st.pose.pos.y, z: wl.z + st.pose.pos.z };
+                        let cc_world = Vec3 {
+                            x: wl.x + st.pose.pos.x,
+                            y: wl.y + st.pose.pos.y,
+                            z: wl.z + st.pose.pos.z,
+                        };
                         let cw = vec3_to_rl(cc_world);
                         let d = Vector3::new(cw.x - org.x, cw.y - org.y, cw.z - org.z);
                         let dist2 = d.x * d.x + d.y * d.y + d.z * d.z;
@@ -1728,7 +1772,11 @@ impl App {
         let step_dy = self.gs.structure_elev_speed * dt.max(0.0);
         for (id, st) in self.gs.structures.iter() {
             let prev = st.pose.pos;
-            let newp = Vec3 { x: prev.x + step_dx, y: prev.y + step_dy, z: prev.z };
+            let newp = Vec3 {
+                x: prev.x + step_dx,
+                y: prev.y + step_dy,
+                z: prev.z,
+            };
             let delta = Vector3::new(newp.x - prev.x, newp.y - prev.y, newp.z - prev.z);
             // Keep yaw fixed so collisions match visuals
             let yaw = 0.0_f32;
@@ -2089,7 +2137,8 @@ impl App {
                         if bx < 0 || bx >= self.gs.world.world_size_x() as i32 {
                             continue;
                         }
-                        let pos3 = Vector3::new(bx as f32 + 0.5, row_y as f32 + 1.25, cz as f32 + 0.5);
+                        let pos3 =
+                            Vector3::new(bx as f32 + 0.5, row_y as f32 + 1.25, cz as f32 + 0.5);
                         // Project to screen and draw text centered
                         let sp = d.get_world_to_screen(pos3, camera3d);
                         let text = e.label.as_str();
@@ -2121,7 +2170,8 @@ impl App {
                         {
                             continue;
                         }
-                        let pos3 = Vector3::new(bx as f32 + 0.5, row_y as f32 + 1.25, bz as f32 + 0.5);
+                        let pos3 =
+                            Vector3::new(bx as f32 + 0.5, row_y as f32 + 1.25, bz as f32 + 0.5);
                         let sp = d.get_world_to_screen(pos3, camera3d);
                         let text = p.label.as_str();
                         let w = d.measure_text(text, font_size);
@@ -2343,7 +2393,11 @@ impl App {
 
             // Show detailed detection info
             let p = vec3_from_rl(self.gs.walker.pos);
-            let diff = Vec3 { x: p.x - st.pose.pos.x, y: p.y - st.pose.pos.y, z: p.z - st.pose.pos.z };
+            let diff = Vec3 {
+                x: p.x - st.pose.pos.x,
+                y: p.y - st.pose.pos.y,
+                z: p.z - st.pose.pos.z,
+            };
             let local = rotate_yaw_inv(diff, st.pose.yaw_deg);
             let test_y = local.y - 0.08;
             let lx = local.x.floor() as i32;
@@ -2656,7 +2710,9 @@ impl App {
             return;
         }
         log::info!("Texture changes detected: {} file(s)", changed.len());
-        for p in &changed { log::debug!(" - {}", p); }
+        for p in &changed {
+            log::debug!(" - {}", p);
+        }
         // Helper to choose material path like upload path
         let choose_path = |mid: geist_blocks::types::MaterialId| -> Option<String> {
             self.reg.materials.get(mid).and_then(|mdef| {
@@ -2693,18 +2749,37 @@ impl App {
         // Rebind textures on existing chunk renders
         for (_k, cr) in self.renders.iter_mut() {
             for (mid, model) in cr.parts.iter_mut() {
-                let Some(path) = choose_path(*mid) else { continue; };
-                if !changed.contains(&path) { continue; }
-                if let Some(mat) = { use raylib::prelude::RaylibModel; model.materials_mut().get_mut(0) } {
+                let Some(path) = choose_path(*mid) else {
+                    continue;
+                };
+                if !changed.contains(&path) {
+                    continue;
+                }
+                if let Some(mat) = {
+                    use raylib::prelude::RaylibModel;
+                    model.materials_mut().get_mut(0)
+                } {
                     if let Some(tex) = self.tex_cache.get_ref(&path) {
-                        mat.set_material_texture(raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO, tex);
+                        mat.set_material_texture(
+                            raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO,
+                            tex,
+                        );
                         *rebound.entry(path.clone()).or_insert(0) += 1;
                     } else if let Ok(t) = rl.load_texture(thread, &path) {
-                        t.set_texture_filter(thread, raylib::consts::TextureFilter::TEXTURE_FILTER_POINT);
-                        t.set_texture_wrap(thread, raylib::consts::TextureWrap::TEXTURE_WRAP_REPEAT);
+                        t.set_texture_filter(
+                            thread,
+                            raylib::consts::TextureFilter::TEXTURE_FILTER_POINT,
+                        );
+                        t.set_texture_wrap(
+                            thread,
+                            raylib::consts::TextureWrap::TEXTURE_WRAP_REPEAT,
+                        );
                         self.tex_cache.replace_loaded(path.clone(), t);
                         if let Some(tex) = self.tex_cache.get_ref(&path) {
-                            mat.set_material_texture(raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO, tex);
+                            mat.set_material_texture(
+                                raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO,
+                                tex,
+                            );
                             *rebound.entry(path.clone()).or_insert(0) += 1;
                         }
                     }
@@ -2714,18 +2789,37 @@ impl App {
         // Rebind for structure renders as well
         for (_id, cr) in self.structure_renders.iter_mut() {
             for (mid, model) in cr.parts.iter_mut() {
-                let Some(path) = choose_path(*mid) else { continue; };
-                if !changed.contains(&path) { continue; }
-                if let Some(mat) = { use raylib::prelude::RaylibModel; model.materials_mut().get_mut(0) } {
+                let Some(path) = choose_path(*mid) else {
+                    continue;
+                };
+                if !changed.contains(&path) {
+                    continue;
+                }
+                if let Some(mat) = {
+                    use raylib::prelude::RaylibModel;
+                    model.materials_mut().get_mut(0)
+                } {
                     if let Some(tex) = self.tex_cache.get_ref(&path) {
-                        mat.set_material_texture(raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO, tex);
+                        mat.set_material_texture(
+                            raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO,
+                            tex,
+                        );
                         *rebound.entry(path.clone()).or_insert(0) += 1;
                     } else if let Ok(t) = rl.load_texture(thread, &path) {
-                        t.set_texture_filter(thread, raylib::consts::TextureFilter::TEXTURE_FILTER_POINT);
-                        t.set_texture_wrap(thread, raylib::consts::TextureWrap::TEXTURE_WRAP_REPEAT);
+                        t.set_texture_filter(
+                            thread,
+                            raylib::consts::TextureFilter::TEXTURE_FILTER_POINT,
+                        );
+                        t.set_texture_wrap(
+                            thread,
+                            raylib::consts::TextureWrap::TEXTURE_WRAP_REPEAT,
+                        );
                         self.tex_cache.replace_loaded(path.clone(), t);
                         if let Some(tex) = self.tex_cache.get_ref(&path) {
-                            mat.set_material_texture(raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO, tex);
+                            mat.set_material_texture(
+                                raylib::consts::MaterialMapIndex::MATERIAL_MAP_ALBEDO,
+                                tex,
+                            );
                             *rebound.entry(path.clone()).or_insert(0) += 1;
                         }
                     }
@@ -2735,14 +2829,20 @@ impl App {
         if rebound.is_empty() {
             log::info!("Texture reload complete; no active models referenced changed textures");
         } else {
-            for (p, n) in rebound { log::info!("Rebound {} on {} material(s)", p, n); }
+            for (p, n) in rebound {
+                log::info!("Rebound {} on {} material(s)", p, n);
+            }
         }
     }
 
     pub fn process_worldgen_file_events(&mut self) {
         let mut changed = false;
-        for _ in self.worldgen_event_rx.try_iter() { changed = true; }
-        if !changed { return; }
+        for _ in self.worldgen_event_rx.try_iter() {
+            changed = true;
+        }
+        if !changed {
+            return;
+        }
         let path = std::path::Path::new(&self.world_config_path);
         if !path.exists() {
             log::warn!("worldgen config missing: {}", self.world_config_path);
@@ -2756,12 +2856,21 @@ impl App {
                 self.worldgen_dirty = true;
             }
             Err(e) => {
-                log::warn!("worldgen config reload failed ({}): {}", self.world_config_path, e);
+                log::warn!(
+                    "worldgen config reload failed ({}): {}",
+                    self.world_config_path,
+                    e
+                );
             }
         }
     }
 
     pub fn take_worldgen_dirty(&mut self) -> bool {
-        if self.worldgen_dirty { self.worldgen_dirty = false; true } else { false }
+        if self.worldgen_dirty {
+            self.worldgen_dirty = false;
+            true
+        } else {
+            false
+        }
     }
 }

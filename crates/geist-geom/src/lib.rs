@@ -11,14 +11,26 @@ pub struct Vec3 {
 }
 
 impl Vec3 {
-    pub const ZERO: Vec3 = Vec3 { x: 0.0, y: 0.0, z: 0.0 };
-    pub const UP: Vec3 = Vec3 { x: 0.0, y: 1.0, z: 0.0 };
+    pub const ZERO: Vec3 = Vec3 {
+        x: 0.0,
+        y: 0.0,
+        z: 0.0,
+    };
+    pub const UP: Vec3 = Vec3 {
+        x: 0.0,
+        y: 1.0,
+        z: 0.0,
+    };
 
     #[inline]
-    pub const fn new(x: f32, y: f32, z: f32) -> Self { Self { x, y, z } }
+    pub const fn new(x: f32, y: f32, z: f32) -> Self {
+        Self { x, y, z }
+    }
 
     #[inline]
-    pub fn dot(self, rhs: Vec3) -> f32 { self.x * rhs.x + self.y * rhs.y + self.z * rhs.z }
+    pub fn dot(self, rhs: Vec3) -> f32 {
+        self.x * rhs.x + self.y * rhs.y + self.z * rhs.z
+    }
 
     #[inline]
     pub fn cross(self, rhs: Vec3) -> Vec3 {
@@ -30,7 +42,9 @@ impl Vec3 {
     }
 
     #[inline]
-    pub fn length(self) -> f32 { self.dot(self).sqrt() }
+    pub fn length(self) -> f32 {
+        self.dot(self).sqrt()
+    }
 
     #[inline]
     pub fn normalized(self) -> Vec3 {
@@ -42,35 +56,51 @@ impl Vec3 {
 impl Add for Vec3 {
     type Output = Vec3;
     #[inline]
-    fn add(self, rhs: Vec3) -> Vec3 { Vec3::new(self.x + rhs.x, self.y + rhs.y, self.z + rhs.z) }
+    fn add(self, rhs: Vec3) -> Vec3 {
+        Vec3::new(self.x + rhs.x, self.y + rhs.y, self.z + rhs.z)
+    }
 }
 
 impl AddAssign for Vec3 {
     #[inline]
-    fn add_assign(&mut self, rhs: Vec3) { self.x += rhs.x; self.y += rhs.y; self.z += rhs.z; }
+    fn add_assign(&mut self, rhs: Vec3) {
+        self.x += rhs.x;
+        self.y += rhs.y;
+        self.z += rhs.z;
+    }
 }
 
 impl Sub for Vec3 {
     type Output = Vec3;
     #[inline]
-    fn sub(self, rhs: Vec3) -> Vec3 { Vec3::new(self.x - rhs.x, self.y - rhs.y, self.z - rhs.z) }
+    fn sub(self, rhs: Vec3) -> Vec3 {
+        Vec3::new(self.x - rhs.x, self.y - rhs.y, self.z - rhs.z)
+    }
 }
 
 impl SubAssign for Vec3 {
     #[inline]
-    fn sub_assign(&mut self, rhs: Vec3) { self.x -= rhs.x; self.y -= rhs.y; self.z -= rhs.z; }
+    fn sub_assign(&mut self, rhs: Vec3) {
+        self.x -= rhs.x;
+        self.y -= rhs.y;
+        self.z -= rhs.z;
+    }
 }
 
 impl Mul<f32> for Vec3 {
     type Output = Vec3;
     #[inline]
-    fn mul(self, rhs: f32) -> Vec3 { Vec3::new(self.x * rhs, self.y * rhs, self.z * rhs) }
+    fn mul(self, rhs: f32) -> Vec3 {
+        Vec3::new(self.x * rhs, self.y * rhs, self.z * rhs)
+    }
 }
 
 impl Div<f32> for Vec3 {
     type Output = Vec3;
     #[inline]
-    fn div(self, rhs: f32) -> Vec3 { Vec3::new(self.x / rhs, self.y / rhs, self.z / rhs) }
+    fn div(self, rhs: f32) -> Vec3 {
+        Vec3::new(self.x / rhs, self.y / rhs, self.z / rhs)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -81,5 +111,7 @@ pub struct Aabb {
 
 impl Aabb {
     #[inline]
-    pub const fn new(min: Vec3, max: Vec3) -> Self { Self { min, max } }
+    pub const fn new(min: Vec3, max: Vec3) -> Self {
+        Self { min, max }
+    }
 }

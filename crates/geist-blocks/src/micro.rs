@@ -17,8 +17,13 @@ fn occ_bit(occ: u8, x: usize, y: usize, z: usize) -> bool {
 #[inline]
 fn is_full_cube(reg: &BlockRegistry, b: Block) -> bool {
     reg.get(b.id)
-        .map(|ty| ty.is_solid(b.state)
-            && matches!(ty.shape, crate::types::Shape::Cube | crate::types::Shape::AxisCube { .. }))
+        .map(|ty| {
+            ty.is_solid(b.state)
+                && matches!(
+                    ty.shape,
+                    crate::types::Shape::Cube | crate::types::Shape::AxisCube { .. }
+                )
+        })
         .unwrap_or(false)
 }
 

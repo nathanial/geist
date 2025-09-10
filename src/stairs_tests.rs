@@ -8,4 +8,3 @@ mod dummy {
         assert!(true);
     }
 }
-

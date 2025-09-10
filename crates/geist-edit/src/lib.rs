@@ -189,4 +189,3 @@ impl EditStore {
         self.built.get(&(cx, cz)).copied().unwrap_or(0)
     }
 }
-

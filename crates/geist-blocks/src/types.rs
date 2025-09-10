@@ -32,13 +32,22 @@ pub enum FaceRole {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Shape {
     Cube,
-    AxisCube { axis_from: String },
-    Slab { half_from: String },
-    Stairs { facing_from: String, half_from: String },
+    AxisCube {
+        axis_from: String,
+    },
+    Slab {
+        half_from: String,
+    },
+    Stairs {
+        facing_from: String,
+        half_from: String,
+    },
     Pane,
     Fence,
-    Gate { facing_from: String, open_from: String },
+    Gate {
+        facing_from: String,
+        open_from: String,
+    },
     Carpet,
     None,
 }
-

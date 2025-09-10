@@ -1,9 +1,11 @@
 use geist_blocks::{Block, BlockRegistry};
 use geist_chunk::generate_chunk_buffer;
 use geist_lighting::{LightBorders, LightingStore};
-use geist_mesh_cpu::{build_chunk_wcc_cpu_buf, ChunkMeshCPU, NeighborsLoaded};
-use geist_render_raylib::{upload_chunk_mesh, ChunkRender, TextureCache};
-use geist_world::voxel::{build_showcase_entries, build_showcase_stairs_cluster, World, WorldGenMode};
+use geist_mesh_cpu::{ChunkMeshCPU, NeighborsLoaded, build_chunk_wcc_cpu_buf};
+use geist_render_raylib::{ChunkRender, TextureCache, upload_chunk_mesh};
+use geist_world::voxel::{
+    World, WorldGenMode, build_showcase_entries, build_showcase_stairs_cluster,
+};
 use raylib::prelude::*;
 use std::collections::HashMap;
 use std::fs;
@@ -59,7 +61,11 @@ pub fn run_showcase_snapshots(args: SnapArgs) {
     if Path::new(&args.world_config).exists() {
         match geist_world::worldgen::load_params_from_path(Path::new(&args.world_config)) {
             Ok(p) => world.update_worldgen_params(p),
-            Err(e) => log::warn!("Failed to load worldgen config {}: {}", args.world_config, e),
+            Err(e) => log::warn!(
+                "Failed to load worldgen config {}: {}",
+                args.world_config,
+                e
+            ),
         }
     }
 
@@ -74,7 +80,12 @@ pub fn run_showcase_snapshots(args: SnapArgs) {
     // Build all chunks (CPU+GPU)
     let mut chunks: HashMap<(i32, i32), CpuGpuChunk> = HashMap::new();
     let mut borders_to_publish: Vec<((i32, i32), LightBorders)> = Vec::new();
-    let neighbors_loaded = NeighborsLoaded { neg_x: true, pos_x: true, neg_z: true, pos_z: true };
+    let neighbors_loaded = NeighborsLoaded {
+        neg_x: true,
+        pos_x: true,
+        neg_z: true,
+        pos_z: true,
+    };
     for cz in 0..(args.chunks_z as i32) {
         for cx in 0..(args.chunks_x as i32) {
             let buf = generate_chunk_buffer(&world, cx, cz, &reg);
@@ -89,10 +100,25 @@ pub fn run_showcase_snapshots(args: SnapArgs) {
                 &reg,
             ) {
                 // Keep a CPU copy for geometry dump
-                let cpu_copy = ChunkMeshCPU { cx: cpu.cx, cz: cpu.cz, bbox: cpu.bbox, parts: cpu.parts.clone() };
-                if let Some(cr) = upload_chunk_mesh(&mut rl, &thread, cpu, &mut tex_cache, &reg.materials) {
-                    if let Some(b) = lb { borders_to_publish.push(((cx, cz), b)); }
-                    chunks.insert((cx, cz), CpuGpuChunk { cpu: cpu_copy, gpu: cr });
+                let cpu_copy = ChunkMeshCPU {
+                    cx: cpu.cx,
+                    cz: cpu.cz,
+                    bbox: cpu.bbox,
+                    parts: cpu.parts.clone(),
+                };
+                if let Some(cr) =
+                    upload_chunk_mesh(&mut rl, &thread, cpu, &mut tex_cache, &reg.materials)
+                {
+                    if let Some(b) = lb {
+                        borders_to_publish.push(((cx, cz), b));
+                    }
+                    chunks.insert(
+                        (cx, cz),
+                        CpuGpuChunk {
+                            cpu: cpu_copy,
+                            gpu: cr,
+                        },
+                    );
                 }
             }
         }
@@ -110,7 +136,8 @@ pub fn run_showcase_snapshots(args: SnapArgs) {
     let mut items: Vec<ItemInfo> = Vec::new();
     let params = { world.gen_params.read().map(|g| g.clone()).ok() };
     if let Some(p) = params {
-        let mut row_y = (world.chunk_size_y as f32 * p.platform_y_ratio + p.platform_y_offset).round() as i32;
+        let mut row_y =
+            (world.chunk_size_y as f32 * p.platform_y_ratio + p.platform_y_offset).round() as i32;
         row_y = row_y.clamp(1, world.chunk_size_y as i32 - 2);
         let cz_mid = (world.world_size_z() as i32) / 2;
         // Main row
@@ -122,7 +149,13 @@ pub fn run_showcase_snapshots(args: SnapArgs) {
             let start_x = cx_mid - row_len / 2;
             for (i, e) in entries.iter().enumerate() {
                 let bx = start_x + (i as i32) * spacing;
-                items.push(ItemInfo { label: e.label.clone(), wx: bx, wy: row_y, wz: cz_mid, block: e.block });
+                items.push(ItemInfo {
+                    label: e.label.clone(),
+                    wx: bx,
+                    wy: row_y,
+                    wz: cz_mid,
+                    block: e.block,
+                });
             }
         }
         // Stairs cluster
@@ -136,7 +169,13 @@ pub fn run_showcase_snapshots(args: SnapArgs) {
             for p in placements {
                 let bx = start_x + p.dx;
                 let bz = base_z + p.dz;
-                items.push(ItemInfo { label: p.label.clone(), wx: bx, wy: row_y, wz: bz, block: p.block });
+                items.push(ItemInfo {
+                    label: p.label.clone(),
+                    wx: bx,
+                    wy: row_y,
+                    wz: bz,
+                    block: p.block,
+                });
             }
         }
     }
@@ -157,7 +196,11 @@ pub fn run_showcase_snapshots(args: SnapArgs) {
         let _ = fs::create_dir_all(&item_dir);
 
         // Camera target at block center
-        let target = Vector3::new(item.wx as f32 + 0.5, item.wy as f32 + 0.5, item.wz as f32 + 0.5);
+        let target = Vector3::new(
+            item.wx as f32 + 0.5,
+            item.wy as f32 + 0.5,
+            item.wz as f32 + 0.5,
+        );
         let mut shot_files: Vec<String> = Vec::new();
         let n = args.angles.max(1);
         for k in 0..n {
@@ -202,7 +245,14 @@ pub fn run_showcase_snapshots(args: SnapArgs) {
 
         let mut faces: Vec<(String, [f32; 3], [[f32; 3]; 4])> = Vec::new();
         if let Some(c) = chunks.get(&(cx, cz)) {
-            collect_block_faces(&c.cpu, &reg, item.wx as f32, item.wy as f32, item.wz as f32, &mut faces);
+            collect_block_faces(
+                &c.cpu,
+                &reg,
+                item.wx as f32,
+                item.wy as f32,
+                item.wz as f32,
+                &mut faces,
+            );
         }
 
         // Resolve block name and state props
@@ -262,7 +312,10 @@ pub fn run_showcase_snapshots(args: SnapArgs) {
         for (mat, n, verts) in faces {
             entry.push_str(&format!(
                 "      <face material=\"{}\" nx=\"{:.6}\" ny=\"{:.6}\" nz=\"{:.6}\">\n",
-                escape_xml(&mat), n[0], n[1], n[2]
+                escape_xml(&mat),
+                n[0],
+                n[1],
+                n[2]
             ));
             for v in &verts {
                 entry.push_str(&format!(
@@ -301,7 +354,8 @@ fn collect_block_faces(
     let by = [wy, wy + 1.0];
     let bz = [wz, wz + 1.0];
     let nearly_eq = |a: f32, b: f32| (a - b).abs() <= 1.0e-3;
-    let overlaps = |a0: f32, a1: f32, b0: f32, b1: f32| a0.min(a1) <= b1 + eps && a1.max(a0) >= b0 - eps;
+    let overlaps =
+        |a0: f32, a1: f32, b0: f32, b1: f32| a0.min(a1) <= b1 + eps && a1.max(a0) >= b0 - eps;
     for (mid, mb) in &cpu.parts {
         let mat_key = reg
             .materials
@@ -325,7 +379,13 @@ fn collect_block_faces(
             let ax = n[0].abs();
             let ay = n[1].abs();
             let az = n[2].abs();
-            let axis = if ax > ay && ax > az { 0 } else if ay > az { 1 } else { 2 };
+            let axis = if ax > ay && ax > az {
+                0
+            } else if ay > az {
+                1
+            } else {
+                2
+            };
             // Compute rectangle bounds on the two non-normal axes
             let mut x_min = f32::INFINITY;
             let mut x_max = f32::NEG_INFINITY;
@@ -334,12 +394,24 @@ fn collect_block_faces(
             let mut z_min = f32::INFINITY;
             let mut z_max = f32::NEG_INFINITY;
             for p in &v {
-                if p[0] < x_min { x_min = p[0]; }
-                if p[0] > x_max { x_max = p[0]; }
-                if p[1] < y_min { y_min = p[1]; }
-                if p[1] > y_max { y_max = p[1]; }
-                if p[2] < z_min { z_min = p[2]; }
-                if p[2] > z_max { z_max = p[2]; }
+                if p[0] < x_min {
+                    x_min = p[0];
+                }
+                if p[0] > x_max {
+                    x_max = p[0];
+                }
+                if p[1] < y_min {
+                    y_min = p[1];
+                }
+                if p[1] > y_max {
+                    y_max = p[1];
+                }
+                if p[2] < z_min {
+                    z_min = p[2];
+                }
+                if p[2] > z_max {
+                    z_max = p[2];
+                }
             }
             // Plane coordinate to check coincidence with block face plane
             let plane_ok = match axis {
@@ -357,14 +429,18 @@ fn collect_block_faces(
                     nearly_eq(z0, bz[0]) || nearly_eq(z0, bz[1])
                 }
             };
-            if !plane_ok { continue; }
+            if !plane_ok {
+                continue;
+            }
             // Overlap test in the other two axes
             let intersects = match axis {
                 0 => overlaps(y_min, y_max, by[0], by[1]) && overlaps(z_min, z_max, bz[0], bz[1]),
                 1 => overlaps(x_min, x_max, bx[0], bx[1]) && overlaps(z_min, z_max, bz[0], bz[1]),
                 _ => overlaps(x_min, x_max, bx[0], bx[1]) && overlaps(y_min, y_max, by[0], by[1]),
             };
-            if !intersects { continue; }
+            if !intersects {
+                continue;
+            }
             out.push((mat_key.clone(), n, v));
         }
     }

@@ -1,7 +1,7 @@
 //! Structures, transforms, and local edits.
 #![forbid(unsafe_code)]
 
-use geist_blocks::{types::Block, BlockRegistry};
+use geist_blocks::{BlockRegistry, types::Block};
 use geist_geom::Vec3;
 use std::collections::HashMap;
 
@@ -141,11 +141,14 @@ impl StructureEditStore {
 pub fn rotate_yaw(v: Vec3, yaw_deg: f32) -> Vec3 {
     let r = yaw_deg.to_radians();
     let (s, c) = r.sin_cos();
-    Vec3 { x: v.x * c - v.z * s, y: v.y, z: v.x * s + v.z * c }
+    Vec3 {
+        x: v.x * c - v.z * s,
+        y: v.y,
+        z: v.x * s + v.z * c,
+    }
 }
 
 #[inline]
 pub fn rotate_yaw_inv(v: Vec3, yaw_deg: f32) -> Vec3 {
     rotate_yaw(v, -yaw_deg)
 }
-

@@ -1,11 +1,11 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use crate::player::Walker;
 use geist_blocks::types::Block;
 use geist_chunk::ChunkBuf;
 use geist_edit::EditStore;
 use geist_lighting::LightingStore;
-use crate::player::Walker;
 use geist_structures::{Structure, StructureId};
 use geist_world::voxel::World;
 

@@ -4,15 +4,15 @@ mod event;
 mod gamestate;
 mod player;
 mod raycast;
+mod snapshowcase;
 #[cfg(test)]
 mod stairs_tests;
-mod snapshowcase;
 
-use geist_blocks::BlockRegistry;
 use clap::{Args, Parser, Subcommand, ValueEnum};
+use geist_blocks::BlockRegistry;
+use geist_world::voxel::{World, WorldGenMode};
 use std::path::PathBuf;
 use std::sync::Arc;
-use geist_world::voxel::{World, WorldGenMode};
 
 #[derive(Parser, Debug)]
 #[command(
@@ -208,9 +208,7 @@ fn main() {
                     }
                 }
             } else {
-                match geist_io::find_unsupported_blocks_in_file(std::path::Path::new(
-                    &schem_path,
-                )) {
+                match geist_io::find_unsupported_blocks_in_file(std::path::Path::new(&schem_path)) {
                     Ok(list) => {
                         if list.is_empty() {
                             println!(
@@ -393,6 +391,10 @@ pub struct SnapArgs {
     pub chunk_size_z: usize,
 
     /// Worldgen config path (TOML)
-    #[arg(long, value_name = "PATH", default_value = "assets/worldgen/worldgen.toml")]
+    #[arg(
+        long,
+        value_name = "PATH",
+        default_value = "assets/worldgen/worldgen.toml"
+    )]
     pub world_config: String,
 }

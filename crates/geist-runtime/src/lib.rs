@@ -2,13 +2,13 @@
 #![forbid(unsafe_code)]
 
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{mpsc, Arc};
+use std::sync::{Arc, mpsc};
 use std::thread;
 
 use geist_blocks::{Block, BlockRegistry};
 use geist_chunk as chunkbuf;
 use geist_lighting::{LightBorders, LightingStore};
-use geist_mesh_cpu::{build_chunk_wcc_cpu_buf, ChunkMeshCPU, NeighborsLoaded};
+use geist_mesh_cpu::{ChunkMeshCPU, NeighborsLoaded, build_chunk_wcc_cpu_buf};
 use geist_world::World;
 
 #[derive(Clone, Debug)]
@@ -86,11 +86,7 @@ pub struct Runtime {
 }
 
 impl Runtime {
-    pub fn new(
-        world: Arc<World>,
-        lighting: Arc<LightingStore>,
-        reg: Arc<BlockRegistry>,
-    ) -> Self {
+    pub fn new(world: Arc<World>, lighting: Arc<LightingStore>, reg: Arc<BlockRegistry>) -> Self {
         // Worker threads (three lanes)
         let (job_tx_edit, job_rx_edit) = mpsc::channel::<BuildJob>();
         let (job_tx_light, job_rx_light) = mpsc::channel::<BuildJob>();
@@ -280,7 +276,12 @@ impl Runtime {
             thread::spawn(move || {
                 while let Ok(job) = s_job_rx.recv() {
                     let mut buf = chunkbuf::ChunkBuf::from_blocks_local(
-                        0, 0, job.sx, job.sy, job.sz, job.base_blocks.clone(),
+                        0,
+                        0,
+                        job.sx,
+                        job.sy,
+                        job.sz,
+                        job.base_blocks.clone(),
                     );
                     for ((lx, ly, lz), b) in job.edits.iter().copied() {
                         if lx < 0 || ly < 0 || lz < 0 {
@@ -293,7 +294,11 @@ impl Runtime {
                         }
                     }
                     let cpu = geist_mesh_cpu::build_voxel_body_cpu_buf(&buf, 96, &reg);
-                    let _ = s_res_tx.send(StructureJobOut { id: job.id, rev: job.rev, cpu });
+                    let _ = s_res_tx.send(StructureJobOut {
+                        id: job.id,
+                        rev: job.rev,
+                        cpu,
+                    });
                 }
             });
         }
@@ -323,7 +328,10 @@ impl Runtime {
 
     pub fn submit_build_job_edit(&self, job: BuildJob) {
         self.q_edit.fetch_add(1, Ordering::Relaxed);
-        self.lane_by_job.lock().unwrap().insert(job.job_id, Lane::Edit);
+        self.lane_by_job
+            .lock()
+            .unwrap()
+            .insert(job.job_id, Lane::Edit);
         if self.job_tx_edit.send(job).is_err() {
             self.q_edit.fetch_sub(1, Ordering::Relaxed);
         }
@@ -331,7 +339,10 @@ impl Runtime {
 
     pub fn submit_build_job_light(&self, job: BuildJob) {
         self.q_light.fetch_add(1, Ordering::Relaxed);
-        self.lane_by_job.lock().unwrap().insert(job.job_id, Lane::Light);
+        self.lane_by_job
+            .lock()
+            .unwrap()
+            .insert(job.job_id, Lane::Light);
         if self.job_tx_light.send(job).is_err() {
             self.q_light.fetch_sub(1, Ordering::Relaxed);
         }
@@ -339,7 +350,10 @@ impl Runtime {
 
     pub fn submit_build_job_bg(&self, job: BuildJob) {
         self.q_bg.fetch_add(1, Ordering::Relaxed);
-        self.lane_by_job.lock().unwrap().insert(job.job_id, Lane::Bg);
+        self.lane_by_job
+            .lock()
+            .unwrap()
+            .insert(job.job_id, Lane::Bg);
         if self.job_tx_bg.send(job).is_err() {
             self.q_bg.fetch_sub(1, Ordering::Relaxed);
         }
