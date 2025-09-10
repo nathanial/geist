@@ -4,6 +4,7 @@
 use core::ops::{Add, AddAssign, Div, Mul, Sub, SubAssign};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Vec3 {
     pub x: f32,
     pub y: f32,
@@ -104,6 +105,7 @@ impl Div<f32> for Vec3 {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
 pub struct Aabb {
     pub min: Vec3,
     pub max: Vec3,
