@@ -435,7 +435,7 @@ pub fn build_chunk_wcc_cpu_buf(
     let base_z = buf.cz * sz as i32;
 
     let light = match lighting {
-        Some(store) => compute_light_with_borders_buf(buf, store, reg),
+        Some(store) => compute_light_with_borders_buf(buf, store, reg, world),
         None => return None,
     };
 

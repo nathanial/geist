@@ -551,6 +551,7 @@ version = "0.1.0"
 dependencies = [
  "geist-blocks",
  "geist-chunk",
+ "geist-world",
 ]
 
 [[package]]

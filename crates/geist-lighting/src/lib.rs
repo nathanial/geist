@@ -544,6 +544,8 @@ pub struct NeighborBorders {
 impl NeighborBorders { pub fn empty(_sx: usize,_sy: usize,_sz: usize) -> Self { Self { xn:None,xp:None,zn:None,zp:None, sk_xn:None,sk_xp:None,sk_zn:None,sk_zp:None, bcn_xn:None,bcn_xp:None,bcn_zn:None,bcn_zp:None, bcn_dir_xn:None,bcn_dir_xp:None,bcn_dir_zn:None,bcn_dir_zp:None } } }
 
 // Entry point that chooses the lighting algorithm based on LightingStore mode.
-pub fn compute_light_with_borders_buf(buf: &ChunkBuf, store: &LightingStore, reg: &BlockRegistry) -> LightGrid {
-    micro::compute_light_with_borders_buf_micro(buf, store, reg)
+use geist_world::World;
+
+pub fn compute_light_with_borders_buf(buf: &ChunkBuf, store: &LightingStore, reg: &BlockRegistry, world: &World) -> LightGrid {
+    micro::compute_light_with_borders_buf_micro(buf, store, reg, world)
 }

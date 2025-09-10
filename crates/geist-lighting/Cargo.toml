@@ -9,3 +9,4 @@ path = "src/lib.rs"
 [dependencies]
 geist-blocks = { path = "../geist-blocks" }
 geist-chunk = { path = "../geist-chunk" }
+geist-world = { path = "../geist-world" }
