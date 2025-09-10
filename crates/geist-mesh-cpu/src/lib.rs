@@ -128,6 +128,77 @@ impl MeshBuild {
     pub fn normals(&self) -> &[f32] { &self.norm }
 }
 
+// Clip a face-aligned rectangle against the current chunk's interior bounds and emit if any portion remains.
+// Chunk interior bounds: X in [base_x, base_x+sx), Z in [base_z, base_z+sz), Y in [0, sy).
+#[inline]
+fn emit_face_rect_for_clipped(
+    builds: &mut std::collections::HashMap<MaterialId, MeshBuild>,
+    mid: MaterialId,
+    face: Face,
+    mut origin: Vec3,
+    mut u1: f32,
+    mut v1: f32,
+    rgba: [u8; 4],
+    base_x: i32,
+    sx: usize,
+    sy: usize,
+    base_z: i32,
+    sz: usize,
+) {
+    let bx0 = base_x as f32;
+    let bx1 = (base_x + sx as i32) as f32;
+    let bz0 = base_z as f32;
+    let bz1 = (base_z + sz as i32) as f32;
+    let by0 = 0.0f32;
+    let by1 = sy as f32;
+
+    match face {
+        Face::PosX | Face::NegX => {
+            let fx = origin.x;
+            if !(fx >= bx0 && fx < bx1) { return; }
+            // Clip along Z (u)
+            let z0 = origin.z; let z1 = origin.z + u1;
+            let cz0 = z0.max(bz0); let cz1 = z1.min(bz1);
+            if cz1 <= cz0 { return; }
+            origin.z = cz0; u1 = cz1 - cz0;
+            // Clip along Y (v)
+            let y0 = origin.y; let y1 = origin.y + v1;
+            let cy0 = y0.max(by0); let cy1 = y1.min(by1);
+            if cy1 <= cy0 { return; }
+            origin.y = cy0; v1 = cy1 - cy0;
+        }
+        Face::PosZ | Face::NegZ => {
+            let fz = origin.z;
+            if !(fz >= bz0 && fz < bz1) { return; }
+            // Clip along X (u)
+            let x0 = origin.x; let x1 = origin.x + u1;
+            let cx0 = x0.max(bx0); let cx1 = x1.min(bx1);
+            if cx1 <= cx0 { return; }
+            origin.x = cx0; u1 = cx1 - cx0;
+            // Clip along Y (v)
+            let y0 = origin.y; let y1 = origin.y + v1;
+            let cy0 = y0.max(by0); let cy1 = y1.min(by1);
+            if cy1 <= cy0 { return; }
+            origin.y = cy0; v1 = cy1 - cy0;
+        }
+        Face::PosY | Face::NegY => {
+            let fy = origin.y;
+            if !(fy >= by0 && fy < by1) { return; }
+            // Clip along X (u)
+            let x0 = origin.x; let x1 = origin.x + u1;
+            let cx0 = x0.max(bx0); let cx1 = x1.min(bx1);
+            if cx1 <= cx0 { return; }
+            origin.x = cx0; u1 = cx1 - cx0;
+            // Clip along Z (v)
+            let z0 = origin.z; let z1 = origin.z + v1;
+            let cz0 = z0.max(bz0); let cz1 = z1.min(bz1);
+            if cz1 <= cz0 { return; }
+            origin.z = cz0; v1 = cz1 - cz0;
+        }
+    }
+    emit_face_rect_for(builds, mid, face, origin, u1, v1, rgba);
+}
+
 #[inline]
 fn unknown_material_id(reg: &BlockRegistry) -> MaterialId {
     reg.materials.get_id("unknown").unwrap_or(MaterialId(0))
@@ -234,6 +305,29 @@ fn emit_box_generic(
 }
 
 #[inline]
+fn emit_box_generic_clipped(
+    builds: &mut std::collections::HashMap<MaterialId, MeshBuild>,
+    mut min: Vec3,
+    mut max: Vec3,
+    fm_for_face: &dyn Fn(Face) -> MaterialId,
+    occludes: impl FnMut(Face) -> bool,
+    sample_light: impl FnMut(Face) -> u8,
+    base_x: i32,
+    sx: usize,
+    sy: usize,
+    base_z: i32,
+    sz: usize,
+) {
+    let bx0 = base_x as f32; let bx1 = (base_x + sx as i32) as f32;
+    let by0 = 0.0f32; let by1 = sy as f32;
+    let bz0 = base_z as f32; let bz1 = (base_z + sz as i32) as f32;
+    min.x = min.x.max(bx0); min.y = min.y.max(by0); min.z = min.z.max(bz0);
+    max.x = max.x.min(bx1); max.y = max.y.min(by1); max.z = max.z.min(bz1);
+    if !(min.x < max.x && min.y < max.y && min.z < max.z) { return; }
+    emit_box_generic(builds, min, max, fm_for_face, occludes, sample_light);
+}
+
+#[inline]
 fn microgrid_boxes(fx: f32, fy: f32, fz: f32, occ: u8) -> Vec<(Vec3, Vec3)> {
     use microgrid_tables::occ8_to_boxes;
     let cell = 0.5f32;
@@ -287,23 +381,7 @@ fn is_occluder(
         }
         return occludes_face(nb, face, reg);
     }
-    let x0 = buf.cx * buf.sx as i32;
-    let z0 = buf.cz * buf.sz as i32;
-    let x1 = x0 + buf.sx as i32;
-    let z1 = z0 + buf.sz as i32;
-    let mut neighbor_loaded = false;
-    if nx < x0 {
-        neighbor_loaded = nmask.neg_x;
-    } else if nx >= x1 {
-        neighbor_loaded = nmask.pos_x;
-    } else if nz < z0 {
-        neighbor_loaded = nmask.neg_z;
-    } else if nz >= z1 {
-        neighbor_loaded = nmask.pos_z;
-    }
-    if !neighbor_loaded {
-        return false;
-    }
+    // Out of local bounds: unconditionally consult world+edits to decide occlusion (overscan default)
     let nb = if let Some(es) = edits {
         es.get(&(nx, ny, nz))
             .copied()
@@ -394,6 +472,8 @@ pub fn build_chunk_wcc_cpu_buf(
     }
 
     let mut builds: HashMap<MaterialId, MeshBuild> = HashMap::new();
+    // Overscan: incorporate neighbor seam contributions before emission
+    wm.seed_neighbor_seams();
     wm.emit_into(&mut builds);
 
     // Phase 3: thin dynamic shapes (pane, fence, gate, carpet)
@@ -416,7 +496,7 @@ pub fn build_chunk_wcc_cpu_buf(
                             let t = 0.0625f32;
                             let min = Vec3 { x: fx + 0.5 - t, y: fy, z: fz };
                             let max = Vec3 { x: fx + 0.5 + t, y: fy + 1.0, z: fz + 1.0 };
-                            emit_box_generic(
+                            emit_box_generic_clipped(
                                 &mut builds,
                                 min,
                                 max,
@@ -432,6 +512,7 @@ pub fn build_chunk_wcc_cpu_buf(
                                     let lv = light.sample_face_local_s2(buf, reg, x, y, z, face.index());
                                     lv.max(VISUAL_LIGHT_MIN)
                                 },
+                                base_x, sx, sy, base_z, sz,
                             );
                             // Add side connectors to adjacent panes
                             let mut connect_xn = false;
@@ -474,22 +555,22 @@ pub fn build_chunk_wcc_cpu_buf(
                             if connect_xn {
                                 let min = Vec3 { x: fx + 0.0, y: fy, z: fz + 0.5 - t };
                                 let max = Vec3 { x: fx + 0.5 - t, y: fy + 1.0, z: fz + 0.5 + t };
-                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                                emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN), base_x, sx, sy, base_z, sz);
                             }
                             if connect_xp {
                                 let min = Vec3 { x: fx + 0.5 + t, y: fy, z: fz + 0.5 - t };
                                 let max = Vec3 { x: fx + 1.0, y: fy + 1.0, z: fz + 0.5 + t };
-                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                                emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN), base_x, sx, sy, base_z, sz);
                             }
                             if connect_zn {
                                 let min = Vec3 { x: fx + 0.5 - t, y: fy, z: fz + 0.0 };
                                 let max = Vec3 { x: fx + 0.5 + t, y: fy + 1.0, z: fz + 0.5 - t };
-                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                                emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN), base_x, sx, sy, base_z, sz);
                             }
                             if connect_zp {
                                 let min = Vec3 { x: fx + 0.5 - t, y: fy, z: fz + 0.5 + t };
                                 let max = Vec3 { x: fx + 0.5 + t, y: fy + 1.0, z: fz + 1.0 };
-                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                                emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN), base_x, sx, sy, base_z, sz);
                             }
                         }
                         geist_blocks::types::Shape::Fence => {
@@ -509,28 +590,28 @@ pub fn build_chunk_wcc_cpu_buf(
                             let t = 0.125f32; // post half-width
                             let min = Vec3 { x: fx + 0.5 - t, y: fy, z: fz + 0.5 - t };
                             let max = Vec3 { x: fx + 0.5 + t, y: fy + 1.0, z: fz + 0.5 + t };
-                            emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                            emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN), base_x, sx, sy, base_z, sz);
                             // Arms
                             let t = 0.125f32; let arm = 0.5f32 - t;
                             if connect[0] { // xn
                                 let min = Vec3 { x: fx + 0.0, y: fy + 0.375, z: fz + 0.5 - t };
                                 let max = Vec3 { x: fx + 0.5, y: fy + 0.625, z: fz + 0.5 + t };
-                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                                emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN), base_x, sx, sy, base_z, sz);
                             }
                             if connect[1] { // xp
                                 let min = Vec3 { x: fx + 0.5, y: fy + 0.375, z: fz + 0.5 - t };
                                 let max = Vec3 { x: fx + 1.0, y: fy + 0.625, z: fz + 0.5 + t };
-                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                                emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN), base_x, sx, sy, base_z, sz);
                             }
                             if connect[2] { // zn
                                 let min = Vec3 { x: fx + 0.5 - t, y: fy + 0.375, z: fz + 0.0 };
                                 let max = Vec3 { x: fx + 0.5 + t, y: fy + 0.625, z: fz + 0.5 };
-                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                                emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN), base_x, sx, sy, base_z, sz);
                             }
                             if connect[3] { // zp
                                 let min = Vec3 { x: fx + 0.5 - t, y: fy + 0.375, z: fz + 0.5 };
                                 let max = Vec3 { x: fx + 0.5 + t, y: fy + 0.625, z: fz + 1.0 };
-                                emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN));
+                                emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |face| light.sample_face_local_s2(buf, reg, x, y, z, face.index()).max(VISUAL_LIGHT_MIN), base_x, sx, sy, base_z, sz);
                             }
                             let _ = arm; // silence
                         }
@@ -554,7 +635,7 @@ pub fn build_chunk_wcc_cpu_buf(
                             }
                             let face_material = |face: Face| ty.material_for_cached(face.role(), here.state);
                             for (min, max) in boxes {
-                                emit_box_generic(
+                                emit_box_generic_clipped(
                                     &mut builds,
                                     min,
                                     max,
@@ -570,6 +651,7 @@ pub fn build_chunk_wcc_cpu_buf(
                                         let lv = light.sample_face_local_s2(buf, reg, x, y, z, face.index());
                                         lv.max(VISUAL_LIGHT_MIN)
                                     },
+                                    base_x, sx, sy, base_z, sz,
                                 );
                             }
                         }
@@ -578,7 +660,7 @@ pub fn build_chunk_wcc_cpu_buf(
                             let min = Vec3 { x: fx, y: fy, z: fz };
                             let max = Vec3 { x: fx + 1.0, y: fy + h, z: fz + 1.0 };
                             let face_material = |face: Face| ty.material_for_cached(face.role(), here.state);
-                            emit_box_generic(
+                            emit_box_generic_clipped(
                                 &mut builds,
                                 min,
                                 max,
@@ -594,6 +676,7 @@ pub fn build_chunk_wcc_cpu_buf(
                                     let lv = light.sample_face_local_s2(buf, reg, x, y, z, face.index());
                                     lv.max(VISUAL_LIGHT_MIN)
                                 },
+                                base_x, sx, sy, base_z, sz,
                             );
                         }
                         _ => {}
@@ -720,6 +803,56 @@ impl<'a> WccMesher<'a> {
             neighbors,
             base_x,
             base_z,
+        }
+    }
+    // Overscan: seed parity on our -X/-Z boundary planes using neighbor world blocks.
+    // This cancels interior faces across seams and emits neighbor-owned faces when our side is empty.
+    pub fn seed_neighbor_seams(&mut self) {
+        // -X seam: toggle +X faces of neighbor cells onto ix==0
+        for ly in 0..self.sy {
+            for lz in 0..self.sz {
+                // Neighbor at (base_x-1, ly, base_z+lz)
+                let nb = self.world_block(self.base_x - 1, ly as i32, self.base_z + lz as i32);
+                // Optional: honor seam policy to not occlude same-type neighbors
+                let here = self.buf.get_local(0, ly, lz);
+                if let (Some(ht), Some(_nt)) = (self.reg.get(here.id), self.reg.get(nb.id)) {
+                    if ht.seam.dont_occlude_same && here.id == nb.id {
+                        continue;
+                    }
+                }
+                for iym in 0..self.S { for izm in 0..self.S {
+                    if micro_cell_solid_s2(self.reg, nb, 1, iym, izm) {
+                        let iy = ly * self.S + iym;
+                        let iz = lz * self.S + izm;
+                        let mid = registry_material_for_or_unknown(nb, Face::PosX, self.reg);
+                        let l = self.light_bin(0, ly, lz, Face::PosX);
+                        // ix==0 plane; pos=true (PosX)
+                        self.toggle_x(0, 0, 0, 0, iy, iy + 1, iz, iz + 1, true, mid, l);
+                    }
+                }}
+            }
+        }
+        // -Z seam: toggle +Z faces of neighbor cells onto iz==0
+        for ly in 0..self.sy {
+            for lx in 0..self.sx {
+                let nb = self.world_block(self.base_x + lx as i32, ly as i32, self.base_z - 1);
+                let here = self.buf.get_local(lx, ly, 0);
+                if let (Some(ht), Some(_nt)) = (self.reg.get(here.id), self.reg.get(nb.id)) {
+                    if ht.seam.dont_occlude_same && here.id == nb.id {
+                        continue;
+                    }
+                }
+                for ixm in 0..self.S { for iym in 0..self.S {
+                    if micro_cell_solid_s2(self.reg, nb, ixm, iym, 1) {
+                        let ix = lx * self.S + ixm;
+                        let iy = ly * self.S + iym;
+                        let mid = registry_material_for_or_unknown(nb, Face::PosZ, self.reg);
+                        let l = self.light_bin(lx, ly, 0, Face::PosZ);
+                        // iz==0 plane; pos=true (PosZ)
+                        self.toggle_z(0, 0, 0, 0, ix, ix + 1, iy, iy + 1, true, mid, l);
+                    }
+                }}
+            }
         }
     }
     #[inline]
@@ -887,40 +1020,7 @@ impl<'a> WccMesher<'a> {
                     }
                 }
             }}
-            // Seam fix: if this is the -X boundary plane (ix==0), drop mask cells occluded by a loaded neighbor.
-            if ix == 0 && self.neighbors.neg_x {
-                for iy in 0..height_x {
-                    for iz in 0..width_x {
-                        let mi = iy * width_x + iz;
-                        if mask[mi].is_none() { continue; }
-                        // Map micro cell to local block coords and micro coords within the block
-                        let ly = iy / self.S; let iym = iy % self.S;
-                        let lz = iz / self.S; let izm = iz % self.S;
-                        if ly >= sy || lz >= sz { continue; }
-                        let here = self.buf.get_local(0, ly, lz);
-                        if self.neighbor_micro_occludes_negx(here, ly, iym, lz, izm) { mask[mi] = None; }
-                    }
-                }
-            }
-            // Ownership of the shared plane: if this is the -X boundary (ix==0), also add faces coming
-            // from the negative neighbor when our local side is empty at this micro cell.
-            if ix == 0 {
-                for iy in 0..height_x {
-                    for iz in 0..width_x {
-                        let mi = iy * width_x + iz;
-                        if mask[mi].is_some() { continue; }
-                        let ly = iy / self.S; let iym = iy % self.S;
-                        let lz = iz / self.S; let izm = iz % self.S;
-                        if ly >= sy || lz >= sz { continue; }
-                        let here = self.buf.get_local(0, ly, lz);
-                        // If local block already occupies this micro cell at -X, do not add neighbor faces
-                        if self.local_micro_touches_negx(here, iym, izm) { continue; }
-                        if let Some((mid, l)) = self.neighbor_face_info_negx(ly, iym, lz, izm) {
-                            mask[mi] = Some(((mid, true), l)); // emit as +X-facing on our -X plane
-                        }
-                    }
-                }
-            }
+            // Overscan enabled: parity already includes neighbor seam toggles; no seam-specific mask edits here.
             greedy_rects(width_x, height_x, &mut mask, |u0, v0, w, h, codev| {
                 let ((mid, pos), l) = codev;
                 let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN));
@@ -929,7 +1029,7 @@ impl<'a> WccMesher<'a> {
                 let fx = (self.base_x as f32) + (ix as f32) * scale;
                 let origin = Vec3 { x: fx, y: (v0 as f32) * scale, z: (self.base_z as f32) + (u0 as f32) * scale };
                 let u1 = (w as f32) * scale; let v1 = (h as f32) * scale;
-                emit_face_rect_for(builds, mid, face, origin, u1, v1, rgba);
+                emit_face_rect_for_clipped(builds, mid, face, origin, u1, v1, rgba, self.base_x, self.sx, self.sy, self.base_z, self.sz);
             });
         }
         // Y planes
@@ -952,7 +1052,7 @@ impl<'a> WccMesher<'a> {
                 let fy = (iy as f32) * scale;
                 let origin = Vec3 { x: (self.base_x as f32) + (u0 as f32) * scale, y: fy, z: (self.base_z as f32) + (v0 as f32) * scale };
                 let u1 = (w as f32) * scale; let v1 = (h as f32) * scale;
-                emit_face_rect_for(builds, mid, face, origin, u1, v1, rgba);
+                emit_face_rect_for_clipped(builds, mid, face, origin, u1, v1, rgba, self.base_x, self.sx, self.sy, self.base_z, self.sz);
             });
         }
         // Z planes
@@ -969,45 +1069,14 @@ impl<'a> WccMesher<'a> {
                     }
                 }
             }}
-            // Seam fix: if this is the -Z boundary plane (iz==0), drop mask cells occluded by a loaded neighbor.
-            if iz == 0 && self.neighbors.neg_z {
-                for iy in 0..height_z {
-                    for ix in 0..width_z {
-                        let mi = iy * width_z + ix;
-                        if mask[mi].is_none() { continue; }
-                        // Map micro cell to local block coords and micro coords within the block
-                        let ly = iy / self.S; let iym = iy % self.S;
-                        let lx = ix / self.S; let ixm = ix % self.S;
-                        if ly >= sy || lx >= sx { continue; }
-                        let here = self.buf.get_local(lx, ly, 0);
-                        if self.neighbor_micro_occludes_negz(here, lx, ixm, ly, iym) { mask[mi] = None; }
-                    }
-                }
-            }
-            // Ownership for shared -Z plane: add faces from negative neighbor when local side is empty.
-            if iz == 0 {
-                for iy in 0..height_z {
-                    for ix in 0..width_z {
-                        let mi = iy * width_z + ix;
-                        if mask[mi].is_some() { continue; }
-                        let ly = iy / self.S; let iym = iy % self.S;
-                        let lx = ix / self.S; let ixm = ix % self.S;
-                        if ly >= sy || lx >= sx { continue; }
-                        let here = self.buf.get_local(lx, ly, 0);
-                        if self.local_micro_touches_negz(here, ixm, iym) { continue; }
-                        if let Some((mid, l)) = self.neighbor_face_info_negz(lx, ixm, ly, iym) {
-                            mask[mi] = Some(((mid, true), l)); // emit as +Z-facing on our -Z plane
-                        }
-                    }
-                }
-            }
+            // Overscan enabled: parity already includes neighbor seam toggles; no seam-specific mask edits here.
             greedy_rects(width_z, height_z, &mut mask, |u0, v0, w, h, codev| {
                 let ((mid, pos), l) = codev; let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN)); let rgba = [lv,lv,lv,255];
                 let face = if pos { Face::PosZ } else { Face::NegZ };
                 let fz = (self.base_z as f32) + (iz as f32) * scale;
                 let origin = Vec3 { x: (self.base_x as f32) + (u0 as f32) * scale, y: (v0 as f32) * scale, z: fz };
                 let u1 = (w as f32) * scale; let v1 = (h as f32) * scale;
-                emit_face_rect_for(builds, mid, face, origin, u1, v1, rgba);
+                emit_face_rect_for_clipped(builds, mid, face, origin, u1, v1, rgba, self.base_x, self.sx, self.sy, self.base_z, self.sz);
             });
         }
     }
@@ -1037,7 +1106,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                     if let Some(occ) = var.occupancy {
                         let face_material = |face: Face| ty.material_for_cached(face.role(), here.state);
                         for (min, max) in microgrid_boxes(fx, fy, fz, occ) {
-                            emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |_face| ambient);
+                            emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |_face| ambient, base_x, buf.sx, buf.sy, base_z, buf.sz);
                         }
                         continue;
                     }
@@ -1046,20 +1115,20 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                     Some(geist_blocks::types::Shape::Cube) | Some(geist_blocks::types::Shape::AxisCube { .. }) => {
                         let min = Vec3 { x: fx, y: fy, z: fz };
                         let max = Vec3 { x: fx + 1.0, y: fy + 1.0, z: fz + 1.0 };
-                        emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |_face| ambient);
+                        emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |_face| ambient, base_x, buf.sx, buf.sy, base_z, buf.sz);
                     }
                     Some(geist_blocks::types::Shape::Slab { .. }) => {
                         let top = is_top_half_shape(here, reg);
                         let h = 0.5f32;
                         let min = Vec3 { x: fx, y: if top { fy + 0.5 } else { fy }, z: fz };
                         let max = Vec3 { x: fx + 1.0, y: if top { fy + 1.0 } else { fy + 0.5 }, z: fz + 1.0 };
-                        emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |_face| ambient);
+                        emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |_face| ambient, base_x, buf.sx, buf.sy, base_z, buf.sz);
                     }
                     Some(geist_blocks::types::Shape::Pane) => {
                         let t = 0.0625f32;
                         let min = Vec3 { x: fx + 0.5 - t, y: fy, z: fz };
                         let max = Vec3 { x: fx + 0.5 + t, y: fy + 1.0, z: fz + 1.0 };
-                        emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |_face| ambient);
+                        emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |_face| ambient, base_x, buf.sx, buf.sy, base_z, buf.sz);
                     }
                     Some(geist_blocks::types::Shape::Fence) => {
                         let t = 0.125f32;
@@ -1069,13 +1138,14 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                         boxes.push((Vec3 { x: fx, y: fy + p, z: fz + 0.5 - t }, Vec3 { x: fx + 1.0, y: fy + 1.0 - p, z: fz + 0.5 + t }));
                         boxes.push((Vec3 { x: fx + 0.5 - t, y: fy + p, z: fz }, Vec3 { x: fx + 0.5 + t, y: fy + 1.0 - p, z: fz + 1.0 }));
                         for (min, max) in boxes {
-                            emit_box_generic(
+                            emit_box_generic_clipped(
                                 &mut builds,
                                 min,
                                 max,
                                 &face_material,
                                 |_face| false,
                                 |_face| ambient,
+                                base_x, buf.sx, buf.sy, base_z, buf.sz,
                             );
                         }
                     }
@@ -1087,14 +1157,14 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                         boxes.push((Vec3 { x: fx + 0.0, y: fy + y0, z: fz + 0.5 - t }, Vec3 { x: fx + 1.0, y: fy + y0 + t, z: fz + 0.5 + t }));
                         boxes.push((Vec3 { x: fx + 0.0, y: fy + y1, z: fz + 0.5 - t }, Vec3 { x: fx + 1.0, y: fy + y1 + t, z: fz + 0.5 + t }));
                         for (min, max) in boxes {
-                            emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |_face| ambient);
+                            emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |_face| ambient, base_x, buf.sx, buf.sy, base_z, buf.sz);
                         }
                     }
                     Some(geist_blocks::types::Shape::Carpet) => {
                         let h = 0.0625f32;
                         let min = Vec3 { x: fx, y: fy, z: fz };
                         let max = Vec3 { x: fx + 1.0, y: fy + h, z: fz + 1.0 };
-                        emit_box_generic(&mut builds, min, max, &face_material, |_face| false, |_face| ambient);
+                        emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |_face| ambient, base_x, buf.sx, buf.sy, base_z, buf.sz);
                     }
                     _ => {}
                 }
