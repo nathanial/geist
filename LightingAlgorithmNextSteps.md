@@ -53,7 +53,7 @@ This note captures the status of the Micro S=2 lighting work, what’s in place 
 
 ### Attenuation defaults
 - Legacy skylight: 32 per macro step (unchanged).
-- Micro skylight: 32 per micro step (stronger dropoff than the previous scaffold).
+- Micro skylight: 16 per micro step (stronger dropoff than the previous scaffold).
 - Micro block light: 16 per micro step.
 
 ### Toggle & UX
