@@ -295,10 +295,20 @@ impl LightGrid {
                     for oy in 0..2 { for oz in 0..2 {
                         let my = by + oy; let mz = bz + oz;
                         let a = lval(mx_here, my, mz);
-                        let b = if mx_nb < mxs { lval(mx_nb, my, mz) }
-                                else { // use neighbor micro plane if present
-                                    if let Some(ref nbp) = self.mnb_xp_sky { let idx = my * mzs + mz; let sv = *nbp.get(idx).unwrap_or(&0); sv.max(*self.mnb_xp_blk.as_ref().and_then(|p| p.get(idx)).unwrap_or(&0)) } else { 0 }
-                                };
+                        let b = if mx_nb < mxs { lval(mx_nb, my, mz) } else {
+                            // Prefer micro planes; fallback to coarse border if missing
+                            if let Some(ref nbp) = self.mnb_xp_sky {
+                                let idx = my * mzs + mz; let sv = *nbp.get(idx).unwrap_or(&0);
+                                sv.max(*self.mnb_xp_blk.as_ref().and_then(|p| p.get(idx)).unwrap_or(&0))
+                            } else {
+                                let ly = (my / 2).min(self.sy.saturating_sub(1));
+                                let lz = (mz / 2).min(self.sz.saturating_sub(1));
+                                let idxp = ly * self.sz + lz;
+                                let sv = self.nb_xp_sky.as_ref().and_then(|p| p.get(idxp)).cloned().unwrap_or(0);
+                                let bv = self.nb_xp_blk.as_ref().and_then(|p| p.get(idxp)).cloned().unwrap_or(0);
+                                sv.max(bv)
+                            }
+                        };
                         upd(a.max(b));
                     }}
                 }
@@ -307,8 +317,19 @@ impl LightGrid {
                     for oy in 0..2 { for oz in 0..2 {
                         let my = by + oy; let mz = bz + oz;
                         let a = lval(mx_here, my, mz);
-                        let b = if mx_nb < mxs { lval(mx_nb, my, mz) }
-                                else { if let Some(ref nbp) = self.mnb_xn_sky { let idx = my * mzs + mz; let sv = *nbp.get(idx).unwrap_or(&0); sv.max(*self.mnb_xn_blk.as_ref().and_then(|p| p.get(idx)).unwrap_or(&0)) } else { 0 } };
+                        let b = if mx_nb < mxs { lval(mx_nb, my, mz) } else {
+                            if let Some(ref nbp) = self.mnb_xn_sky {
+                                let idx = my * mzs + mz; let sv = *nbp.get(idx).unwrap_or(&0);
+                                sv.max(*self.mnb_xn_blk.as_ref().and_then(|p| p.get(idx)).unwrap_or(&0))
+                            } else {
+                                let ly = (my / 2).min(self.sy.saturating_sub(1));
+                                let lz = (mz / 2).min(self.sz.saturating_sub(1));
+                                let idxp = ly * self.sz + lz;
+                                let sv = self.nb_xn_sky.as_ref().and_then(|p| p.get(idxp)).cloned().unwrap_or(0);
+                                let bv = self.nb_xn_blk.as_ref().and_then(|p| p.get(idxp)).cloned().unwrap_or(0);
+                                sv.max(bv)
+                            }
+                        };
                         upd(a.max(b));
                     }}
                 }
@@ -317,8 +338,19 @@ impl LightGrid {
                     for oy in 0..2 { for ox in 0..2 {
                         let my = by + oy; let mx = bx + ox;
                         let a = lval(mx, my, mz_here);
-                        let b = if mz_nb < mzs { lval(mx, my, mz_nb) }
-                                else { if let Some(ref nbp) = self.mnb_zp_sky { let idx = my * mxs + mx; let sv = *nbp.get(idx).unwrap_or(&0); sv.max(*self.mnb_zp_blk.as_ref().and_then(|p| p.get(idx)).unwrap_or(&0)) } else { 0 } };
+                        let b = if mz_nb < mzs { lval(mx, my, mz_nb) } else {
+                            if let Some(ref nbp) = self.mnb_zp_sky {
+                                let idx = my * mxs + mx; let sv = *nbp.get(idx).unwrap_or(&0);
+                                sv.max(*self.mnb_zp_blk.as_ref().and_then(|p| p.get(idx)).unwrap_or(&0))
+                            } else {
+                                let ly = (my / 2).min(self.sy.saturating_sub(1));
+                                let lx = (mx / 2).min(self.sx.saturating_sub(1));
+                                let idxp = ly * self.sx + lx;
+                                let sv = self.nb_zp_sky.as_ref().and_then(|p| p.get(idxp)).cloned().unwrap_or(0);
+                                let bv = self.nb_zp_blk.as_ref().and_then(|p| p.get(idxp)).cloned().unwrap_or(0);
+                                sv.max(bv)
+                            }
+                        };
                         upd(a.max(b));
                     }}
                 }
@@ -327,8 +359,19 @@ impl LightGrid {
                     for oy in 0..2 { for ox in 0..2 {
                         let my = by + oy; let mx = bx + ox;
                         let a = lval(mx, my, mz_here);
-                        let b = if mz_nb < mzs { lval(mx, my, mz_nb) }
-                                else { if let Some(ref nbp) = self.mnb_zn_sky { let idx = my * mxs + mx; let sv = *nbp.get(idx).unwrap_or(&0); sv.max(*self.mnb_zn_blk.as_ref().and_then(|p| p.get(idx)).unwrap_or(&0)) } else { 0 } };
+                        let b = if mz_nb < mzs { lval(mx, my, mz_nb) } else {
+                            if let Some(ref nbp) = self.mnb_zn_sky {
+                                let idx = my * mxs + mx; let sv = *nbp.get(idx).unwrap_or(&0);
+                                sv.max(*self.mnb_zn_blk.as_ref().and_then(|p| p.get(idx)).unwrap_or(&0))
+                            } else {
+                                let ly = (my / 2).min(self.sy.saturating_sub(1));
+                                let lx = (mx / 2).min(self.sx.saturating_sub(1));
+                                let idxp = ly * self.sx + lx;
+                                let sv = self.nb_zn_sky.as_ref().and_then(|p| p.get(idxp)).cloned().unwrap_or(0);
+                                let bv = self.nb_zn_blk.as_ref().and_then(|p| p.get(idxp)).cloned().unwrap_or(0);
+                                sv.max(bv)
+                            }
+                        };
                         upd(a.max(b));
                     }}
                 }

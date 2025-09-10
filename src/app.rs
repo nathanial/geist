@@ -1181,10 +1181,9 @@ impl App {
 
                 // Update light borders in main thread; if changed, emit a dedicated event
                 if let Some(lb) = light_borders {
-                    let changed = self.gs.lighting.update_borders(cx, cz, lb);
-                    if changed {
-                        self.queue.emit_now(Event::LightBordersUpdated { cx, cz });
-                    }
+                    let _changed = self.gs.lighting.update_borders(cx, cz, lb);
+                    // Always notify neighbors so they can pick up new micro seam planes
+                    self.queue.emit_now(Event::LightBordersUpdated { cx, cz });
                 }
             }
             Event::ChunkRebuildRequested { cx, cz, cause } => {

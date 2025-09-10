@@ -68,7 +68,6 @@ pub fn micro_face_cell_open_s2(
     } else {
         micro_cell_solid_s2(reg, there, b.0, b.1, b.2)
     };
-    // Face cell is open if neither side occupies the face-adjacent micro voxel
-    !(local_solid || neighbor_solid)
+    // Face cell is open if the plane is not sealed: at least one side is air.
+    !(local_solid && neighbor_solid)
 }
-
