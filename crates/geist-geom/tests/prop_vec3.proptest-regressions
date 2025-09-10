@@ -1,0 +1,15 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 1a6ecb870bb80bccef94c1897fba7eb5d14803743baa820a6dcb1662cea6a87d # shrinks to x = 3.3592832e38, y = 60.30239, z = 3.0819213e36
+cc e6565d03b0101bc8da881af360750bea0673dfe28633404a08e1e33bd74aee69 # shrinks to ax = 5.6740126e-37, ay = 6.4699335e28, az = 1.0328933e26, bx = 5.83049e-10, by = 2.0427588e-16, bz = 6.707032e-16
+cc d6d807224ad89bb6b96845c7c0a0381d1f43a82a7903f775076bc0be24e411a1 # shrinks to ax = 8.247502e-7, ay = 3.420392e-16, az = 3.958335e37, bx = 64865510000000.0, by = 6.003813e-18, bz = 4.9256406e-14
+cc 2e2b5288fe24b3a418b082f3c16e447bffa76a4c1ba9411a4385aea1d52f0819 # shrinks to x = 23553726000.0, y = 7.8020764e-25, z = 1.2447799e-29, k = 517520350.0
+cc ce9d493cf57b931533438491891057c396470125c9794e6fd6299ff5046b8f47 # shrinks to ax = 7.7393366e17, ay = 7.0024434e-32, az = 0.5152918, bx = 4.7411737e-9, by = 2.0001897e-31, bz = 1.1111146e37, cx = 2269499600000000.0, cy = 43058.152, cz = 6.2074805e29
+cc 7079a0430cd2329d7a0d0800ae832fff8e0611d03d77cc454f35d21cc3e7e260 # shrinks to v = Vec3 { x: 2.5077681e-24, y: 3.6024817e-32, z: 2.097095e-21 }
+cc 2b1920ceb4da5cfc02d7df0e3504b8a3b248e5ecf7e7a17a804b6140ca7a1331 # shrinks to a = Vec3 { x: 1.61934e-22, y: 2.3690362e-12, z: 54539.043 }, b = Vec3 { x: 8.2872365e-26, y: 2.1915214e-17, z: 1.4029887 }, c = Vec3 { x: 1.873974e-36, y: 42742.945, z: 320480.8 }
+cc 609d77de2b3b11f96805484b60d265e5b3c6026df853b126f4cd42afd701cf7e # shrinks to a = Vec3 { x: 3.2705893e-33, y: 1.6679378e-21, z: 4034.6409 }, k = 2.5765192e-30
+cc 9f182767d0db6691d4355007028b8da677e142ddbff1e958b9f7390e8806d0f0 # shrinks to a = Vec3 { x: 7781.15, y: 0.20925675, z: 3.8739893e-28 }, b = Vec3 { x: 1.2891596e-5, y: 1.5079115e-28, z: 2041.1823 }
