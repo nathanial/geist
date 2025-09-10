@@ -15,6 +15,32 @@ pub enum LightingMode {
     MicroS2 = 1,
 }
 
+// Micro border planes for S=2 lighting exchange across seams.
+// Arrays are stored per-face at micro resolution:
+// - X faces: size = Ym * Zm, index = my * Zm + mz
+// - Y faces: size = Xm * Zm, index = mz * Xm + mx
+// - Z faces: size = Xm * Ym, index = my * Xm + mx
+#[derive(Clone)]
+pub struct MicroBorders {
+    pub xm_sk_neg: Vec<u8>, pub xm_sk_pos: Vec<u8>,
+    pub ym_sk_neg: Vec<u8>, pub ym_sk_pos: Vec<u8>,
+    pub zm_sk_neg: Vec<u8>, pub zm_sk_pos: Vec<u8>,
+    pub xm_bl_neg: Vec<u8>, pub xm_bl_pos: Vec<u8>,
+    pub ym_bl_neg: Vec<u8>, pub ym_bl_pos: Vec<u8>,
+    pub zm_bl_neg: Vec<u8>, pub zm_bl_pos: Vec<u8>,
+    pub xm: usize, pub ym: usize, pub zm: usize,
+}
+
+pub struct NeighborMicroBorders {
+    pub xm_sk_neg: Option<Vec<u8>>, pub xm_sk_pos: Option<Vec<u8>>,
+    pub ym_sk_neg: Option<Vec<u8>>, pub ym_sk_pos: Option<Vec<u8>>,
+    pub zm_sk_neg: Option<Vec<u8>>, pub zm_sk_pos: Option<Vec<u8>>,
+    pub xm_bl_neg: Option<Vec<u8>>, pub xm_bl_pos: Option<Vec<u8>>,
+    pub ym_bl_neg: Option<Vec<u8>>, pub ym_bl_pos: Option<Vec<u8>>,
+    pub zm_bl_neg: Option<Vec<u8>>, pub zm_bl_pos: Option<Vec<u8>>,
+    pub xm: usize, pub ym: usize, pub zm: usize,
+}
+
 #[inline]
 fn occ_bit(occ: u8, x: usize, y: usize, z: usize) -> bool {
     let idx = ((y & 1) << 2) | ((z & 1) << 1) | (x & 1);
@@ -395,11 +421,12 @@ pub struct LightingStore {
     borders: Mutex<HashMap<(i32, i32), LightBorders>>,
     emitters: Mutex<HashMap<(i32, i32), Vec<(usize, usize, usize, u8, bool)>>>,
     mode: AtomicU8,
+    micro_borders: Mutex<HashMap<(i32, i32), MicroBorders>>,
 }
 
 impl LightingStore {
-    pub fn new(sx: usize, sy: usize, sz: usize) -> Self { Self { sx, sy, sz, borders: Mutex::new(HashMap::new()), emitters: Mutex::new(HashMap::new()), mode: AtomicU8::new(LightingMode::LegacyVoxel as u8) } }
-    pub fn clear_chunk(&self, cx: i32, cz: i32) { { let mut m = self.borders.lock().unwrap(); m.remove(&(cx,cz)); } { let mut m = self.emitters.lock().unwrap(); m.remove(&(cx,cz)); } }
+    pub fn new(sx: usize, sy: usize, sz: usize) -> Self { Self { sx, sy, sz, borders: Mutex::new(HashMap::new()), emitters: Mutex::new(HashMap::new()), mode: AtomicU8::new(LightingMode::LegacyVoxel as u8), micro_borders: Mutex::new(HashMap::new()) } }
+    pub fn clear_chunk(&self, cx: i32, cz: i32) { { let mut m = self.borders.lock().unwrap(); m.remove(&(cx,cz)); } { let mut m = self.emitters.lock().unwrap(); m.remove(&(cx,cz)); } { let mut m = self.micro_borders.lock().unwrap(); m.remove(&(cx,cz)); } }
     pub fn clear_all_borders(&self) { let mut m = self.borders.lock().unwrap(); m.clear(); }
     pub fn set_mode(&self, mode: LightingMode) { self.mode.store(mode as u8, Ordering::Relaxed); }
     pub fn toggle_mode(&self) -> LightingMode { let cur = self.mode.load(Ordering::Relaxed); let next = if cur == (LightingMode::LegacyVoxel as u8) { LightingMode::MicroS2 } else { LightingMode::LegacyVoxel }; self.set_mode(next); next }
@@ -431,6 +458,22 @@ impl LightingStore {
         let mut map = self.emitters.lock().unwrap(); if let Some(v)=map.get_mut(&(cx,cz)) { v.retain(|&(x,y,z,_,_)| !(x==lx && y==ly && z==lz)); if v.is_empty() { map.remove(&(cx,cz)); } }
     }
     pub fn emitters_for_chunk(&self, cx: i32, cz: i32) -> Vec<(usize, usize, usize, u8, bool)> { let map = self.emitters.lock().unwrap(); map.get(&(cx,cz)).cloned().unwrap_or_default() }
+    pub fn update_micro_borders(&self, cx: i32, cz: i32, mb: MicroBorders) { let mut m = self.micro_borders.lock().unwrap(); m.insert((cx,cz), mb); }
+    pub fn get_neighbor_micro_borders(&self, cx: i32, cz: i32) -> NeighborMicroBorders {
+        let xm = self.sx * 2; let ym = self.sy * 2; let zm = self.sz * 2;
+        let map = self.micro_borders.lock().unwrap();
+        let mut nb = NeighborMicroBorders {
+            xm_sk_neg: None, xm_sk_pos: None, ym_sk_neg: None, ym_sk_pos: None, zm_sk_neg: None, zm_sk_pos: None,
+            xm_bl_neg: None, xm_bl_pos: None, ym_bl_neg: None, ym_bl_pos: None, zm_bl_neg: None, zm_bl_pos: None,
+            xm, ym, zm,
+        };
+        if let Some(m)=map.get(&(cx-1,cz)) { nb.xm_sk_neg=Some(m.xm_sk_pos.clone()); nb.xm_bl_neg=Some(m.xm_bl_pos.clone()); }
+        if let Some(m)=map.get(&(cx+1,cz)) { nb.xm_sk_pos=Some(m.xm_sk_neg.clone()); nb.xm_bl_pos=Some(m.xm_bl_neg.clone()); }
+        if let Some(m)=map.get(&(cx,cz-1)) { nb.zm_sk_neg=Some(m.zm_sk_pos.clone()); nb.zm_bl_neg=Some(m.zm_bl_pos.clone()); }
+        if let Some(m)=map.get(&(cx,cz+1)) { nb.zm_sk_pos=Some(m.zm_sk_neg.clone()); nb.zm_bl_pos=Some(m.zm_bl_neg.clone()); }
+        // Vertical neighbors are not chunked here; keep None. If vertically chunked, add mapping like above.
+        nb
+    }
 }
 
 fn equal_planes(a: &LightBorders, b: &LightBorders) -> bool {

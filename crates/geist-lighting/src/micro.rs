@@ -1,4 +1,4 @@
-use crate::{LightGrid, LightingStore};
+use crate::{LightGrid, LightingStore, MicroBorders};
 use geist_blocks::{types::Block, BlockRegistry};
 use geist_chunk::ChunkBuf;
 
@@ -58,57 +58,90 @@ pub fn compute_light_with_borders_buf_micro(buf: &ChunkBuf, store: &LightingStor
         }
     }}}
 
-    // Seed from neighbor coarse border planes (upsampled 2x per axis)
+    // Seed from neighbor micro border planes when available; fall back to coarse upsample
+    let nbm = store.get_neighbor_micro_borders(buf.cx, buf.cz);
     let nb = store.get_neighbor_borders(buf.cx, buf.cz);
     let atten: u8 = 32; // coarse seam attenuation baseline
-    // Block light neighbors
-    if let Some(ref plane) = nb.xn { for z in 0..buf.sz { for y in 0..buf.sy {
+    // Block light neighbors (-X and +X)
+    if let Some(ref plane) = nbm.xm_bl_neg { for my in 0..mys { for mz in 0..mzs {
+        let v = clamp_sub_u8(plane[my*mzs + mz], 16);
+        if v > 0 { let i = midx(0, my, mz, mxs, mzs); if !micro_solid_at(buf, reg, 0, my, mz) && micro_blk[i] < v { micro_blk[i] = v; } }
+    }}}
+    else if let Some(ref plane) = nb.xn { for z in 0..buf.sz { for y in 0..buf.sy {
         let v = clamp_sub_u8(plane[y*buf.sz+z], atten);
         if v > 0 { for mz in (z*2)..(z*2+2) { for my in (y*2)..(y*2+2) {
-            let i = midx(0, my, mz, mxs, mzs); if micro_blk[i] < v { micro_blk[i] = v; }
+            let i = midx(0, my, mz, mxs, mzs); if !micro_solid_at(buf, reg, 0, my, mz) && micro_blk[i] < v { micro_blk[i] = v; }
         }}}
     }}}
-    if let Some(ref plane) = nb.xp { for z in 0..buf.sz { for y in 0..buf.sy {
+    if let Some(ref plane) = nbm.xm_bl_pos { for my in 0..mys { for mz in 0..mzs {
+        let v = clamp_sub_u8(plane[my*mzs + mz], 16);
+        if v > 0 { let i = midx(mxs-1, my, mz, mxs, mzs); if !micro_solid_at(buf, reg, mxs-1, my, mz) && micro_blk[i] < v { micro_blk[i] = v; } }
+    }}}
+    else if let Some(ref plane) = nb.xp { for z in 0..buf.sz { for y in 0..buf.sy {
         let v = clamp_sub_u8(plane[y*buf.sz+z], atten);
         if v > 0 { for mz in (z*2)..(z*2+2) { for my in (y*2)..(y*2+2) {
-            let i = midx(mxs-1, my, mz, mxs, mzs); if micro_blk[i] < v { micro_blk[i] = v; }
+            let i = midx(mxs-1, my, mz, mxs, mzs); if !micro_solid_at(buf, reg, mxs-1, my, mz) && micro_blk[i] < v { micro_blk[i] = v; }
         }}}
     }}}
-    if let Some(ref plane) = nb.zn { for x in 0..buf.sx { for y in 0..buf.sy {
+    if let Some(ref plane) = nbm.zm_bl_neg { for my in 0..mys { for mx in 0..mxs {
+        let v = clamp_sub_u8(plane[my*mxs + mx], 16);
+        if v > 0 { let i = midx(mx, my, 0, mxs, mzs); if !micro_solid_at(buf, reg, mx, my, 0) && micro_blk[i] < v { micro_blk[i] = v; } }
+    }}}
+    else if let Some(ref plane) = nb.zn { for x in 0..buf.sx { for y in 0..buf.sy {
         let v = clamp_sub_u8(plane[y*buf.sx+x], atten);
         if v > 0 { for mx in (x*2)..(x*2+2) { for my in (y*2)..(y*2+2) {
-            let i = midx(mx, my, 0, mxs, mzs); if micro_blk[i] < v { micro_blk[i] = v; }
+            let i = midx(mx, my, 0, mxs, mzs); if !micro_solid_at(buf, reg, mx, my, 0) && micro_blk[i] < v { micro_blk[i] = v; }
         }}}
     }}}
-    if let Some(ref plane) = nb.zp { for x in 0..buf.sx { for y in 0..buf.sy {
+    if let Some(ref plane) = nbm.zm_bl_pos { for my in 0..mys { for mx in 0..mxs {
+        let v = clamp_sub_u8(plane[my*mxs + mx], 16);
+        if v > 0 { let i = midx(mx, my, mzs-1, mxs, mzs); if !micro_solid_at(buf, reg, mx, my, mzs-1) && micro_blk[i] < v { micro_blk[i] = v; } }
+    }}}
+    else if let Some(ref plane) = nb.zp { for x in 0..buf.sx { for y in 0..buf.sy {
         let v = clamp_sub_u8(plane[y*buf.sx+x], atten);
         if v > 0 { for mx in (x*2)..(x*2+2) { for my in (y*2)..(y*2+2) {
-            let i = midx(mx, my, mzs-1, mxs, mzs); if micro_blk[i] < v { micro_blk[i] = v; }
+            let i = midx(mx, my, mzs-1, mxs, mzs); if !micro_solid_at(buf, reg, mx, my, mzs-1) && micro_blk[i] < v { micro_blk[i] = v; }
         }}}
     }}}
     // Skylight neighbors
-    if let Some(ref plane) = nb.sk_xn { for z in 0..buf.sz { for y in 0..buf.sy {
+    if let Some(ref plane) = nbm.xm_sk_neg { for my in 0..mys { for mz in 0..mzs {
+        let v = clamp_sub_u8(plane[my*mzs + mz], 16);
+        if v > 0 { let i = midx(0, my, mz, mxs, mzs); if !micro_solid_at(buf, reg, 0, my, mz) && micro_sky[i] < v { micro_sky[i] = v; } }
+    }}}
+    else if let Some(ref plane) = nb.sk_xn { for z in 0..buf.sz { for y in 0..buf.sy {
         let v = clamp_sub_u8(plane[y*buf.sz+z], atten);
         if v > 0 { for mz in (z*2)..(z*2+2) { for my in (y*2)..(y*2+2) {
-            let i = midx(0, my, mz, mxs, mzs); if micro_sky[i] < v { micro_sky[i] = v; }
+            let i = midx(0, my, mz, mxs, mzs); if !micro_solid_at(buf, reg, 0, my, mz) && micro_sky[i] < v { micro_sky[i] = v; }
         }}}
     }}}
-    if let Some(ref plane) = nb.sk_xp { for z in 0..buf.sz { for y in 0..buf.sy {
+    if let Some(ref plane) = nbm.xm_sk_pos { for my in 0..mys { for mz in 0..mzs {
+        let v = clamp_sub_u8(plane[my*mzs + mz], 16);
+        if v > 0 { let i = midx(mxs-1, my, mz, mxs, mzs); if !micro_solid_at(buf, reg, mxs-1, my, mz) && micro_sky[i] < v { micro_sky[i] = v; } }
+    }}}
+    else if let Some(ref plane) = nb.sk_xp { for z in 0..buf.sz { for y in 0..buf.sy {
         let v = clamp_sub_u8(plane[y*buf.sz+z], atten);
         if v > 0 { for mz in (z*2)..(z*2+2) { for my in (y*2)..(y*2+2) {
-            let i = midx(mxs-1, my, mz, mxs, mzs); if micro_sky[i] < v { micro_sky[i] = v; }
+            let i = midx(mxs-1, my, mz, mxs, mzs); if !micro_solid_at(buf, reg, mxs-1, my, mz) && micro_sky[i] < v { micro_sky[i] = v; }
         }}}
     }}}
-    if let Some(ref plane) = nb.sk_zn { for x in 0..buf.sx { for y in 0..buf.sy {
+    if let Some(ref plane) = nbm.zm_sk_neg { for my in 0..mys { for mx in 0..mxs {
+        let v = clamp_sub_u8(plane[my*mxs + mx], 16);
+        if v > 0 { let i = midx(mx, my, 0, mxs, mzs); if !micro_solid_at(buf, reg, mx, my, 0) && micro_sky[i] < v { micro_sky[i] = v; } }
+    }}}
+    else if let Some(ref plane) = nb.sk_zn { for x in 0..buf.sx { for y in 0..buf.sy {
         let v = clamp_sub_u8(plane[y*buf.sx+x], atten);
         if v > 0 { for mx in (x*2)..(x*2+2) { for my in (y*2)..(y*2+2) {
-            let i = midx(mx, my, 0, mxs, mzs); if micro_sky[i] < v { micro_sky[i] = v; }
+            let i = midx(mx, my, 0, mxs, mzs); if !micro_solid_at(buf, reg, mx, my, 0) && micro_sky[i] < v { micro_sky[i] = v; }
         }}}
     }}}
-    if let Some(ref plane) = nb.sk_zp { for x in 0..buf.sx { for y in 0..buf.sy {
+    if let Some(ref plane) = nbm.zm_sk_pos { for my in 0..mys { for mx in 0..mxs {
+        let v = clamp_sub_u8(plane[my*mxs + mx], 16);
+        if v > 0 { let i = midx(mx, my, mzs-1, mxs, mzs); if !micro_solid_at(buf, reg, mx, my, mzs-1) && micro_sky[i] < v { micro_sky[i] = v; } }
+    }}}
+    else if let Some(ref plane) = nb.sk_zp { for x in 0..buf.sx { for y in 0..buf.sy {
         let v = clamp_sub_u8(plane[y*buf.sx+x], atten);
         if v > 0 { for mx in (x*2)..(x*2+2) { for my in (y*2)..(y*2+2) {
-            let i = midx(mx, my, mzs-1, mxs, mzs); if micro_sky[i] < v { micro_sky[i] = v; }
+            let i = midx(mx, my, mzs-1, mxs, mzs); if !micro_solid_at(buf, reg, mx, my, mzs-1) && micro_sky[i] < v { micro_sky[i] = v; }
         }}}
     }}}
 
@@ -210,7 +243,22 @@ pub fn compute_light_with_borders_buf_micro(buf: &ChunkBuf, store: &LightingStor
         lg.block_light[ii] = bmax;
     }}}
 
-    // Borders: leave beacon arrays at default (0). Neighbor planes are derived lazily by LightBorders::from_grid upstream.
+    // Compute and publish micro border planes for this chunk (we own -X/-Y/-Z planes for stitching)
+    let mut xm_sk_neg = vec![0u8; mys*mzs]; let mut xm_bl_neg = vec![0u8; mys*mzs];
+    let mut xm_sk_pos = vec![0u8; mys*mzs]; let mut xm_bl_pos = vec![0u8; mys*mzs];
+    let mut zm_sk_neg = vec![0u8; mys*mxs]; let mut zm_bl_neg = vec![0u8; mys*mxs];
+    let mut zm_sk_pos = vec![0u8; mys*mxs]; let mut zm_bl_pos = vec![0u8; mys*mxs];
+    let mut ym_sk_neg = vec![0u8; mzs*mxs]; let mut ym_bl_neg = vec![0u8; mzs*mxs];
+    let mut ym_sk_pos = vec![0u8; mzs*mxs]; let mut ym_bl_pos = vec![0u8; mzs*mxs];
+    // X planes
+    for my in 0..mys { for mz in 0..mzs { let idx=my*mzs+mz; xm_sk_neg[idx]=micro_sky[midx(0,my,mz,mxs,mzs)]; xm_bl_neg[idx]=micro_blk[midx(0,my,mz,mxs,mzs)]; xm_sk_pos[idx]=micro_sky[midx(mxs-1,my,mz,mxs,mzs)]; xm_bl_pos[idx]=micro_blk[midx(mxs-1,my,mz,mxs,mzs)]; }}
+    // Z planes
+    for my in 0..mys { for mx in 0..mxs { let idx=my*mxs+mx; zm_sk_neg[idx]=micro_sky[midx(mx,my,0,mxs,mzs)]; zm_bl_neg[idx]=micro_blk[midx(mx,my,0,mxs,mzs)]; zm_sk_pos[idx]=micro_sky[midx(mx,my,mzs-1,mxs,mzs)]; zm_bl_pos[idx]=micro_blk[midx(mx,my,mzs-1,mxs,mzs)]; }}
+    // Y planes
+    for mz in 0..mzs { for mx in 0..mxs { let idx=mz*mxs+mx; ym_sk_neg[idx]=micro_sky[midx(mx,0,mz,mxs,mzs)]; ym_bl_neg[idx]=micro_blk[midx(mx,0,mz,mxs,mzs)]; ym_sk_pos[idx]=micro_sky[midx(mx,mys-1,mz,mxs,mzs)]; ym_bl_pos[idx]=micro_blk[midx(mx,mys-1,mz,mxs,mzs)]; }}
+    store.update_micro_borders(buf.cx, buf.cz, MicroBorders { xm_sk_neg, xm_sk_pos, ym_sk_neg, ym_sk_pos, zm_sk_neg, zm_sk_pos, xm_bl_neg, xm_bl_pos, ym_bl_neg, ym_bl_pos, zm_bl_neg, zm_bl_pos, xm: mxs, ym: mys, zm: mzs });
+
+    // Coarse planes are still derived by LightBorders::from_grid upstream.
     lg
 }
 
