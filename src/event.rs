@@ -26,6 +26,7 @@ pub enum Event {
     WireframeToggled,
     ChunkBoundsToggled,
     FrustumCullingToggled,
+    LightingModeToggled,
     BiomeLabelToggled,
     PlaceTypeSelected {
         block: Block,
@@ -268,7 +269,8 @@ impl EventQueue {
                     Event::WireframeToggled => "WireframeToggled",
                     Event::ChunkBoundsToggled => "ChunkBoundsToggled",
                     Event::FrustumCullingToggled => "FrustumCullingToggled",
-                    Event::BiomeLabelToggled => "BiomeLabelToggled",
+                Event::BiomeLabelToggled => "BiomeLabelToggled",
+                Event::LightingModeToggled => "LightingModeToggled",
                     Event::PlaceTypeSelected { .. } => "PlaceTypeSelected",
                     Event::MovementRequested { .. } => "MovementRequested",
                     Event::RaycastEditRequested { .. } => "RaycastEditRequested",

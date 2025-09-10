@@ -1527,6 +1527,16 @@ impl App {
             Event::BiomeLabelToggled => {
                 self.gs.show_biome_label = !self.gs.show_biome_label;
             }
+            Event::LightingModeToggled => {
+                let mode = self.gs.lighting.toggle_mode();
+                self.gs.lighting.clear_all_borders();
+                log::info!("Lighting mode toggled -> {:?}; scheduling relight", mode);
+                // Treat as terrain reload: rebuild all loaded chunks
+                let keys: Vec<(i32, i32)> = self.renders.keys().cloned().collect();
+                for (cx, cz) in keys {
+                    self.queue.emit_now(Event::ChunkRebuildRequested { cx, cz, cause: RebuildCause::StreamLoad });
+                }
+            }
             Event::PlaceTypeSelected { block } => {
                 self.gs.place_type = block;
             }
@@ -1586,6 +1596,10 @@ impl App {
         }
         if rl.is_key_pressed(KeyboardKey::KEY_H) {
             self.queue.emit_now(Event::BiomeLabelToggled);
+        }
+        // Toggle lighting algorithm (Legacy vs Micro S=2) and relight all loaded chunks
+        if rl.is_key_pressed(KeyboardKey::KEY_M) {
+            self.queue.emit_now(Event::LightingModeToggled);
         }
         // Hotbar selection: if config present, use it; else fallback to legacy mapping
         if !self.hotbar.is_empty() {
@@ -1795,6 +1809,7 @@ impl App {
                 Event::WireframeToggled => "WireframeToggled",
                 Event::ChunkBoundsToggled => "ChunkBoundsToggled",
                 Event::FrustumCullingToggled => "FrustumCullingToggled",
+                Event::LightingModeToggled => "LightingModeToggled",
                 Event::BiomeLabelToggled => "BiomeLabelToggled",
                 Event::PlaceTypeSelected { .. } => "PlaceTypeSelected",
                 Event::MovementRequested { .. } => "MovementRequested",
@@ -2522,6 +2537,9 @@ impl App {
             }
             E::BiomeLabelToggled => {
                 log::info!(target: "events", "[tick {}] BiomeLabelToggled", tick);
+            }
+            E::LightingModeToggled => {
+                log::info!(target: "events", "[tick {}] LightingModeToggled", tick);
             }
             E::PlaceTypeSelected { block } => {
                 log::info!(target: "events", "[tick {}] PlaceTypeSelected block={:?}", tick, block);

@@ -5,7 +5,15 @@ use geist_blocks::types::Block;
 use geist_blocks::BlockRegistry;
 use geist_chunk::ChunkBuf;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Mutex, atomic::{AtomicU8, Ordering}};
+
+mod micro;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LightingMode {
+    LegacyVoxel = 0,
+    MicroS2 = 1,
+}
 
 #[inline]
 fn occ_bit(occ: u8, x: usize, y: usize, z: usize) -> bool {
@@ -386,11 +394,16 @@ pub struct LightingStore {
     sx: usize, sy: usize, sz: usize,
     borders: Mutex<HashMap<(i32, i32), LightBorders>>,
     emitters: Mutex<HashMap<(i32, i32), Vec<(usize, usize, usize, u8, bool)>>>,
+    mode: AtomicU8,
 }
 
 impl LightingStore {
-    pub fn new(sx: usize, sy: usize, sz: usize) -> Self { Self { sx, sy, sz, borders: Mutex::new(HashMap::new()), emitters: Mutex::new(HashMap::new()) } }
+    pub fn new(sx: usize, sy: usize, sz: usize) -> Self { Self { sx, sy, sz, borders: Mutex::new(HashMap::new()), emitters: Mutex::new(HashMap::new()), mode: AtomicU8::new(LightingMode::LegacyVoxel as u8) } }
     pub fn clear_chunk(&self, cx: i32, cz: i32) { { let mut m = self.borders.lock().unwrap(); m.remove(&(cx,cz)); } { let mut m = self.emitters.lock().unwrap(); m.remove(&(cx,cz)); } }
+    pub fn clear_all_borders(&self) { let mut m = self.borders.lock().unwrap(); m.clear(); }
+    pub fn set_mode(&self, mode: LightingMode) { self.mode.store(mode as u8, Ordering::Relaxed); }
+    pub fn toggle_mode(&self) -> LightingMode { let cur = self.mode.load(Ordering::Relaxed); let next = if cur == (LightingMode::LegacyVoxel as u8) { LightingMode::MicroS2 } else { LightingMode::LegacyVoxel }; self.set_mode(next); next }
+    pub fn mode(&self) -> LightingMode { match self.mode.load(Ordering::Relaxed) { 1 => LightingMode::MicroS2, _ => LightingMode::LegacyVoxel } }
     pub fn get_neighbor_borders(&self, cx: i32, cz: i32) -> NeighborBorders {
         let map = self.borders.lock().unwrap(); let mut nb = NeighborBorders::empty(self.sx, self.sy, self.sz);
         if let Some(b)=map.get(&(cx-1,cz)) { nb.xn=Some(b.xp.clone()); nb.sk_xn=Some(b.sk_xp.clone()); nb.bcn_xn=Some(b.bcn_xp.clone()); nb.bcn_dir_xn=Some(b.bcn_dir_xp.clone()); }
@@ -432,3 +445,11 @@ pub struct NeighborBorders {
 }
 
 impl NeighborBorders { pub fn empty(_sx: usize,_sy: usize,_sz: usize) -> Self { Self { xn:None,xp:None,zn:None,zp:None, sk_xn:None,sk_xp:None,sk_zn:None,sk_zp:None, bcn_xn:None,bcn_xp:None,bcn_zn:None,bcn_zp:None, bcn_dir_xn:None,bcn_dir_xp:None,bcn_dir_zn:None,bcn_dir_zp:None } } }
+
+// Entry point that chooses the lighting algorithm based on LightingStore mode.
+pub fn compute_light_with_borders_buf(buf: &ChunkBuf, store: &LightingStore, reg: &BlockRegistry) -> LightGrid {
+    match store.mode() {
+        LightingMode::LegacyVoxel => LightGrid::compute_with_borders_buf(buf, store, reg),
+        LightingMode::MicroS2 => micro::compute_light_with_borders_buf_micro(buf, store, reg),
+    }
+}

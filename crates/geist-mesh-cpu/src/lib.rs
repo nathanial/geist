@@ -5,7 +5,7 @@ use geist_blocks::BlockRegistry;
 use geist_blocks::types::{Block, FaceRole, MaterialId};
 use geist_chunk::ChunkBuf;
 use geist_geom::{Aabb, Vec3};
-use geist_lighting::{LightBorders, LightGrid, LightingStore};
+use geist_lighting::{LightBorders, LightGrid, LightingStore, compute_light_with_borders_buf};
 use geist_world::World;
 use std::collections::HashMap;
 use std::hash::Hash;
@@ -356,7 +356,7 @@ pub fn build_chunk_wcc_cpu_buf(
     let base_z = buf.cz * sz as i32;
 
     let light = match lighting {
-        Some(store) => LightGrid::compute_with_borders_buf(buf, store, reg),
+        Some(store) => compute_light_with_borders_buf(buf, store, reg),
         None => return None,
     };
 
