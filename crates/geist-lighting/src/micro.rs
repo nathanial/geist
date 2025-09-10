@@ -458,7 +458,7 @@ pub fn compute_light_with_borders_buf_micro(
                 let (nxu, nyu, nzu) = (nx as usize, ny as usize, nz as usize);
                 if nxu < mxs && nyu < mys && nzu < mzs {
                     let ii = midx(nxu, nyu, nzu, mxs, mzs);
-                    if micro_blk[ii] + att_blk == lvl {
+                    if (micro_blk[ii] as u16 + att_blk as u16) == (lvl as u16) {
                         q_blk.push_back((nxu, nyu, nzu, micro_blk[ii]));
                     }
                 }
@@ -556,7 +556,7 @@ pub fn compute_light_with_borders_buf_micro(
                 let (nxu, nyu, nzu) = (nx as usize, ny as usize, nz as usize);
                 if nxu < mxs && nyu < mys && nzu < mzs {
                     let ii = midx(nxu, nyu, nzu, mxs, mzs);
-                    if micro_sky[ii] + att_sky == lvl {
+                    if (micro_sky[ii] as u16 + att_sky as u16) == (lvl as u16) {
                         q_sky.push_back((nxu, nyu, nzu, micro_sky[ii]));
                     }
                 }
