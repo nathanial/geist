@@ -73,85 +73,37 @@ pub fn compute_light_with_borders_buf_micro(buf: &ChunkBuf, store: &LightingStor
     if let Some(ref plane) = nbm.xm_bl_neg { for my in 0..mys { for mz in 0..mzs {
         let v = clamp_sub_u8(plane[my*mzs + mz], MICRO_BLOCK_ATTENUATION);
         if v > 0 { let i = midx(0, my, mz, mxs, mzs); if !micro_solid_at(buf, reg, 0, my, mz) && micro_blk[i] < v { micro_blk[i] = v; } }
-    }}}
-    else if let Some(ref plane) = nb.xn { for z in 0..buf.sz { for y in 0..buf.sy {
-        let v = clamp_sub_u8(plane[y*buf.sz+z], atten);
-        if v > 0 { for mz in (z*MICRO_SCALE)..(z*MICRO_SCALE+MICRO_SCALE) { for my in (y*MICRO_SCALE)..(y*MICRO_SCALE+MICRO_SCALE) {
-            let i = midx(0, my, mz, mxs, mzs); if !micro_solid_at(buf, reg, 0, my, mz) && micro_blk[i] < v { micro_blk[i] = v; }
-        }}}
-    }}}
+    }}} else { /* no coarse fallback (Option A) */ }
     if let Some(ref plane) = nbm.xm_bl_pos { for my in 0..mys { for mz in 0..mzs {
         let v = clamp_sub_u8(plane[my*mzs + mz], MICRO_BLOCK_ATTENUATION);
         if v > 0 { let i = midx(mxs-1, my, mz, mxs, mzs); if !micro_solid_at(buf, reg, mxs-1, my, mz) && micro_blk[i] < v { micro_blk[i] = v; } }
-    }}}
-    else if let Some(ref plane) = nb.xp { for z in 0..buf.sz { for y in 0..buf.sy {
-        let v = clamp_sub_u8(plane[y*buf.sz+z], atten);
-        if v > 0 { for mz in (z*MICRO_SCALE)..(z*MICRO_SCALE+MICRO_SCALE) { for my in (y*MICRO_SCALE)..(y*MICRO_SCALE+MICRO_SCALE) {
-            let i = midx(mxs-1, my, mz, mxs, mzs); if !micro_solid_at(buf, reg, mxs-1, my, mz) && micro_blk[i] < v { micro_blk[i] = v; }
-        }}}
-    }}}
+    }}} else { /* no coarse fallback (Option A) */ }
     if let Some(ref plane) = nbm.zm_bl_neg { for my in 0..mys { for mx in 0..mxs {
         let v = clamp_sub_u8(plane[my*mxs + mx], MICRO_BLOCK_ATTENUATION);
         if v > 0 { let i = midx(mx, my, 0, mxs, mzs); if !micro_solid_at(buf, reg, mx, my, 0) && micro_blk[i] < v { micro_blk[i] = v; } }
-    }}}
-    else if let Some(ref plane) = nb.zn { for x in 0..buf.sx { for y in 0..buf.sy {
-        let v = clamp_sub_u8(plane[y*buf.sx+x], atten);
-        if v > 0 { for mx in (x*MICRO_SCALE)..(x*MICRO_SCALE+MICRO_SCALE) { for my in (y*MICRO_SCALE)..(y*MICRO_SCALE+MICRO_SCALE) {
-            let i = midx(mx, my, 0, mxs, mzs); if !micro_solid_at(buf, reg, mx, my, 0) && micro_blk[i] < v { micro_blk[i] = v; }
-        }}}
-    }}}
+    }}} else { /* no coarse fallback (Option A) */ }
     if let Some(ref plane) = nbm.zm_bl_pos { for my in 0..mys { for mx in 0..mxs {
         let v = clamp_sub_u8(plane[my*mxs + mx], MICRO_BLOCK_ATTENUATION);
         if v > 0 { let i = midx(mx, my, mzs-1, mxs, mzs); if !micro_solid_at(buf, reg, mx, my, mzs-1) && micro_blk[i] < v { micro_blk[i] = v; } }
-    }}}
-    else if let Some(ref plane) = nb.zp { for x in 0..buf.sx { for y in 0..buf.sy {
-        let v = clamp_sub_u8(plane[y*buf.sx+x], atten);
-        if v > 0 { for mx in (x*MICRO_SCALE)..(x*MICRO_SCALE+MICRO_SCALE) { for my in (y*MICRO_SCALE)..(y*MICRO_SCALE+MICRO_SCALE) {
-            let i = midx(mx, my, mzs-1, mxs, mzs); if !micro_solid_at(buf, reg, mx, my, mzs-1) && micro_blk[i] < v { micro_blk[i] = v; }
-        }}}
-    }}}
+    }}} else { /* no coarse fallback (Option A) */ }
     // Skylight neighbors
     if let Some(ref plane) = nbm.xm_sk_neg { for my in 0..mys { for mz in 0..mzs {
         let v = clamp_sub_u8(plane[my*mzs + mz], MICRO_SKY_ATTENUATION);
         if v > 0 { let i = midx(0, my, mz, mxs, mzs); if !micro_solid_at(buf, reg, 0, my, mz) && micro_sky[i] < v { micro_sky[i] = v; } }
-    }}}
-    else if let Some(ref plane) = nb.sk_xn { for z in 0..buf.sz { for y in 0..buf.sy {
-        let v = clamp_sub_u8(plane[y*buf.sz+z], atten);
-        if v > 0 { for mz in (z*MICRO_SCALE)..(z*MICRO_SCALE+MICRO_SCALE) { for my in (y*MICRO_SCALE)..(y*MICRO_SCALE+MICRO_SCALE) {
-            let i = midx(0, my, mz, mxs, mzs); if !micro_solid_at(buf, reg, 0, my, mz) && micro_sky[i] < v { micro_sky[i] = v; }
-        }}}
-    }}}
+    }}} else { /* no coarse fallback (Option A) */ }
     if let Some(ref plane) = nbm.xm_sk_pos { for my in 0..mys { for mz in 0..mzs {
         let v = clamp_sub_u8(plane[my*mzs + mz], MICRO_SKY_ATTENUATION);
         if v > 0 { let i = midx(mxs-1, my, mz, mxs, mzs); if !micro_solid_at(buf, reg, mxs-1, my, mz) && micro_sky[i] < v { micro_sky[i] = v; } }
-    }}}
-    else if let Some(ref plane) = nb.sk_xp { for z in 0..buf.sz { for y in 0..buf.sy {
-        let v = clamp_sub_u8(plane[y*buf.sz+z], atten);
-        if v > 0 { for mz in (z*MICRO_SCALE)..(z*MICRO_SCALE+MICRO_SCALE) { for my in (y*MICRO_SCALE)..(y*MICRO_SCALE+MICRO_SCALE) {
-            let i = midx(mxs-1, my, mz, mxs, mzs); if !micro_solid_at(buf, reg, mxs-1, my, mz) && micro_sky[i] < v { micro_sky[i] = v; }
-        }}}
-    }}}
+    }}} else { /* no coarse fallback (Option A) */ }
     // (removed duplicate X skylight seeding)
     if let Some(ref plane) = nbm.zm_sk_neg { for my in 0..mys { for mx in 0..mxs {
         let v = clamp_sub_u8(plane[my*mxs + mx], MICRO_SKY_ATTENUATION);
         if v > 0 { let i = midx(mx, my, 0, mxs, mzs); if !micro_solid_at(buf, reg, mx, my, 0) && micro_sky[i] < v { micro_sky[i] = v; } }
-    }}}
-    else if let Some(ref plane) = nb.sk_zn { for x in 0..buf.sx { for y in 0..buf.sy {
-        let v = clamp_sub_u8(plane[y*buf.sx+x], atten);
-        if v > 0 { for mx in (x*MICRO_SCALE)..(x*MICRO_SCALE+MICRO_SCALE) { for my in (y*MICRO_SCALE)..(y*MICRO_SCALE+MICRO_SCALE) {
-            let i = midx(mx, my, 0, mxs, mzs); if !micro_solid_at(buf, reg, mx, my, 0) && micro_sky[i] < v { micro_sky[i] = v; }
-        }}}
-    }}}
+    }}} else { /* no coarse fallback (Option A) */ }
     if let Some(ref plane) = nbm.zm_sk_pos { for my in 0..mys { for mx in 0..mxs {
         let v = clamp_sub_u8(plane[my*mxs + mx], MICRO_SKY_ATTENUATION);
         if v > 0 { let i = midx(mx, my, mzs-1, mxs, mzs); if !micro_solid_at(buf, reg, mx, my, mzs-1) && micro_sky[i] < v { micro_sky[i] = v; } }
-    }}}
-    else if let Some(ref plane) = nb.sk_zp { for x in 0..buf.sx { for y in 0..buf.sy {
-        let v = clamp_sub_u8(plane[y*buf.sx+x], atten);
-        if v > 0 { for mx in (x*MICRO_SCALE)..(x*MICRO_SCALE+MICRO_SCALE) { for my in (y*MICRO_SCALE)..(y*MICRO_SCALE+MICRO_SCALE) {
-            let i = midx(mx, my, mzs-1, mxs, mzs); if !micro_solid_at(buf, reg, mx, my, mzs-1) && micro_sky[i] < v { micro_sky[i] = v; }
-        }}}
-    }}}
+    }}} else { /* no coarse fallback (Option A) */ }
 
     // Seed emissive blocks at micro resolution (fill interior air micro voxels of the macro cell)
     for (lx, ly, lz, level, is_beacon) in store.emitters_for_chunk(buf.cx, buf.cz) {
