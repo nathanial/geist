@@ -9,7 +9,7 @@ const MICRO_SCALE: usize = 2;
 
 // Light attenuation values
 const MICRO_BLOCK_ATTENUATION: u8 = 16;  // Per-micro-step block light attenuation
-const MICRO_SKY_ATTENUATION: u8 = 16;    // Per-micro-step skylight attenuation
+pub const MICRO_SKY_ATTENUATION: u8 = 16;    // Per-micro-step skylight attenuation
 const COARSE_SEAM_ATTENUATION: u8 = 32;  // Attenuation when falling back to coarse neighbors
 
 // Maximum light values

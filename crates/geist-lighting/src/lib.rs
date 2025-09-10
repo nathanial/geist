@@ -546,6 +546,8 @@ impl NeighborBorders { pub fn empty(_sx: usize,_sy: usize,_sz: usize) -> Self { 
 // Entry point that chooses the lighting algorithm based on LightingStore mode.
 use geist_world::World;
 
+use crate::micro::MICRO_SKY_ATTENUATION;
+
 pub fn compute_light_with_borders_buf(buf: &ChunkBuf, store: &LightingStore, reg: &BlockRegistry, world: &World) -> LightGrid {
     micro::compute_light_with_borders_buf_micro(buf, store, reg, world)
 }
