@@ -114,4 +114,88 @@ proptest! {
         let r = (a * k) / k;
         prop_assert!(vapprox_abs_rel(r, a, 1e-6, 1e-5));
     }
+
+    // Triangle inequality: |a + b| <= |a| + |b|
+    #[test]
+    fn vec3_triangle_inequality(
+        a in any_vec3(),
+        b in any_vec3(),
+    ) {
+        let lhs = (a + b).length();
+        let rhs = a.length() + b.length();
+        // Allow small numerical slack
+        prop_assert!(lhs <= rhs + 1e-6 + 1e-5 * rhs.max(1.0));
+    }
+
+    // Reverse triangle inequality: ||a|-|b|| <= |a - b|
+    #[test]
+    fn vec3_reverse_triangle_inequality(
+        a in any_vec3(),
+        b in any_vec3(),
+    ) {
+        let lhs = (a.length() - b.length()).abs();
+        let rhs = (a - b).length();
+        prop_assert!(lhs <= rhs + 1e-6 + 1e-5 * rhs.max(1.0));
+    }
+
+    // Cauchy-Schwarz: |a·b| <= |a||b|
+    #[test]
+    fn vec3_cauchy_schwarz(
+        a in any_vec3(),
+        b in any_vec3(),
+    ) {
+        let lhs = a.dot(b).abs();
+        let rhs = a.length() * b.length();
+        prop_assert!(lhs <= rhs + 1e-6 + 1e-5 * rhs.max(1.0));
+    }
+
+    // Lagrange's identity: |a×b|^2 + (a·b)^2 = |a|^2 |b|^2
+    #[test]
+    fn vec3_lagrange_identity(
+        a in any_vec3(),
+        b in any_vec3(),
+    ) {
+        let lhs = a.cross(b).length().powi(2) + a.dot(b).powi(2);
+        let rhs = a.dot(a) * b.dot(b);
+        prop_assert!(approx_abs_rel(lhs, rhs, 1e-5, 1e-5));
+    }
+
+    // Scalar distributivity: k*(a + b) = k*a + k*b
+    #[test]
+    fn vec3_scalar_distributivity(
+        a in any_vec3(),
+        b in any_vec3(),
+        k in bounded_f32(),
+    ) {
+        let left = (a + b) * k;
+        let right = (a * k) + (b * k);
+        prop_assert!(vapprox_abs_rel(left, right, 1e-6, 1e-5));
+    }
+
+    // Scalar associativity: (a*k1)*k2 = a*(k1*k2)
+    #[test]
+    fn vec3_scalar_associativity(
+        a in any_vec3(),
+        k1 in bounded_f32(),
+        k2 in bounded_f32(),
+    ) {
+        let left = (a * k1) * k2;
+        let right = a * (k1 * k2);
+        prop_assert!(vapprox_abs_rel(left, right, 1e-6, 1e-5));
+    }
+
+    // Parallel vectors cross to ~zero: a×(k a) ≈ 0
+    #[test]
+    fn vec3_cross_parallel_zero(
+        a in any_vec3(),
+        k in bounded_f32(),
+    ) {
+        let b = a * k;
+        let c = a.cross(b);
+        // Scale tolerance with magnitude ~ |k| * |a|^2 (products in cross terms)
+        let scale = k.abs() * a.length() * a.length();
+        prop_assert!(approx_zero_scaled(c.x, scale, 1e-6, 1e-5));
+        prop_assert!(approx_zero_scaled(c.y, scale, 1e-6, 1e-5));
+        prop_assert!(approx_zero_scaled(c.z, scale, 1e-6, 1e-5));
+    }
 }
