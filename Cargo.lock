@@ -556,6 +556,7 @@ version = "0.1.0"
 dependencies = [
  "geist-blocks",
  "geist-world",
+ "proptest",
 ]
 
 [[package]]
@@ -604,6 +605,7 @@ dependencies = [
  "geist-geom",
  "geist-lighting",
  "geist-world",
+ "proptest",
 ]
 
 [[package]]
