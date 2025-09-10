@@ -84,9 +84,9 @@ pub fn compute_light_with_borders_buf_micro(buf: &ChunkBuf, store: &LightingStor
             .unwrap_or_else(|| nb.sk_xn.as_ref().map(|p| clamp_sub_u8(p[ly*buf.sz + lz], atten)).unwrap_or(0));
         if seed_blk>0 || seed_sky>0 {
             let here = buf.get_local(0, ly, lz);
-            let nb_b = crate::LightGrid { sx:0, sy:0, sz:0, skylight:vec![], block_light:vec![], beacon_light:vec![], beacon_dir:vec![], m_sky:None,m_blk:None,mxs:0,mys:0,mzs:0, mnb_xn_sky:None,mnb_xp_sky:None,mnb_xn_blk:None,mnb_xp_blk:None,mnb_zn_sky:None,mnb_zp_sky:None,mnb_zn_blk:None,mnb_zp_blk:None,mnb_yn_sky:None,mnb_yp_sky:None,mnb_yn_blk:None,mnb_yp_blk:None, nb_xn_blk:None,nb_xp_blk:None,nb_zn_blk:None,nb_zp_blk:None,nb_xn_sky:None,nb_xp_sky:None,nb_zn_sky:None,nb_zp_sky:None,nb_xn_bcn:None,nb_xp_bcn:None,nb_zn_bcn:None,nb_zp_bcn:None,nb_xn_bcn_dir:None,nb_xp_bcn_dir:None,nb_zn_bcn_dir:None,nb_zp_bcn_dir:None };
-            let nb_block = world.block_at_runtime(reg, base_x - 1, ly as i32, base_z + lz as i32);
-            if micro_face_cell_open_s2(reg, nb_block, here, 2, iym, izm) {
+            let there = world.block_at_runtime(reg, base_x - 1, ly as i32, base_z + lz as i32);
+            // Crossing from local to neighbor is -X (face=3) at the -X boundary
+            if micro_face_cell_open_s2(reg, here, there, 3, iym, izm) {
                 let i = midx(0, my, mz, mxs, mzs);
                 if seed_blk>0 && !micro_solid_at(buf, reg, 0, my, mz) && micro_blk[i] < seed_blk { micro_blk[i] = seed_blk; }
                 if seed_sky>0 && !micro_solid_at(buf, reg, 0, my, mz) && micro_sky[i] < seed_sky { micro_sky[i] = seed_sky; }
@@ -99,8 +99,9 @@ pub fn compute_light_with_borders_buf_micro(buf: &ChunkBuf, store: &LightingStor
             .unwrap_or_else(|| nb.sk_xp.as_ref().map(|p| clamp_sub_u8(p[ly*buf.sz + lz], atten)).unwrap_or(0));
         if seed_blk>0 || seed_sky>0 {
             let here = buf.get_local(buf.sx-1, ly, lz);
-            let nb_block = world.block_at_runtime(reg, base_x + buf.sx as i32, ly as i32, base_z + lz as i32);
-            if micro_face_cell_open_s2(reg, nb_block, here, 3, iym, izm) {
+            let there = world.block_at_runtime(reg, base_x + buf.sx as i32, ly as i32, base_z + lz as i32);
+            // Crossing from local to neighbor is +X (face=2) at the +X boundary
+            if micro_face_cell_open_s2(reg, here, there, 2, iym, izm) {
                 let i = midx(mxs-1, my, mz, mxs, mzs);
                 if seed_blk>0 && !micro_solid_at(buf, reg, mxs-1, my, mz) && micro_blk[i] < seed_blk { micro_blk[i] = seed_blk; }
                 if seed_sky>0 && !micro_solid_at(buf, reg, mxs-1, my, mz) && micro_sky[i] < seed_sky { micro_sky[i] = seed_sky; }
@@ -117,8 +118,9 @@ pub fn compute_light_with_borders_buf_micro(buf: &ChunkBuf, store: &LightingStor
             .unwrap_or_else(|| nb.sk_zn.as_ref().map(|p| clamp_sub_u8(p[ly*buf.sx + lx], atten)).unwrap_or(0));
         if seed_blk>0 || seed_sky>0 {
             let here = buf.get_local(lx, ly, 0);
-            let nb_block = world.block_at_runtime(reg, base_x + lx as i32, ly as i32, base_z - 1);
-            if micro_face_cell_open_s2(reg, nb_block, here, 4, ixm, iym) {
+            let there = world.block_at_runtime(reg, base_x + lx as i32, ly as i32, base_z - 1);
+            // Crossing from local to neighbor is -Z (face=5) at the -Z boundary
+            if micro_face_cell_open_s2(reg, here, there, 5, ixm, iym) {
                 let i = midx(mx, my, 0, mxs, mzs);
                 if seed_blk>0 && !micro_solid_at(buf, reg, mx, my, 0) && micro_blk[i] < seed_blk { micro_blk[i] = seed_blk; }
                 if seed_sky>0 && !micro_solid_at(buf, reg, mx, my, 0) && micro_sky[i] < seed_sky { micro_sky[i] = seed_sky; }
@@ -131,8 +133,9 @@ pub fn compute_light_with_borders_buf_micro(buf: &ChunkBuf, store: &LightingStor
             .unwrap_or_else(|| nb.sk_zp.as_ref().map(|p| clamp_sub_u8(p[ly*buf.sx + lx], atten)).unwrap_or(0));
         if seed_blk>0 || seed_sky>0 {
             let here = buf.get_local(lx, ly, buf.sz-1);
-            let nb_block = world.block_at_runtime(reg, base_x + lx as i32, ly as i32, base_z + buf.sz as i32);
-            if micro_face_cell_open_s2(reg, nb_block, here, 5, ixm, iym) {
+            let there = world.block_at_runtime(reg, base_x + lx as i32, ly as i32, base_z + buf.sz as i32);
+            // Crossing from local to neighbor is +Z (face=4) at the +Z boundary
+            if micro_face_cell_open_s2(reg, here, there, 4, ixm, iym) {
                 let i = midx(mx, my, mzs-1, mxs, mzs);
                 if seed_blk>0 && !micro_solid_at(buf, reg, mx, my, mzs-1) && micro_blk[i] < seed_blk { micro_blk[i] = seed_blk; }
                 if seed_sky>0 && !micro_solid_at(buf, reg, mx, my, mzs-1) && micro_sky[i] < seed_sky { micro_sky[i] = seed_sky; }

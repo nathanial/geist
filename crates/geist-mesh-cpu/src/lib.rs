@@ -825,7 +825,8 @@ impl<'a> WccMesher<'a> {
                         let iy = ly * self.S + iym;
                         let iz = lz * self.S + izm;
                         let mid = registry_material_for_or_unknown(nb, Face::PosX, self.reg);
-                        let l = self.light_bin(0, ly, lz, Face::PosX);
+                        // Shade across the -X seam using NegX sampling (neighbor lies at -X)
+                        let l = self.light_bin(0, ly, lz, Face::NegX);
                         // ix==0 plane; pos=true (PosX)
                         self.toggle_x(0, 0, 0, 0, iy, iy + 1, iz, iz + 1, true, mid, l);
                     }
@@ -847,7 +848,8 @@ impl<'a> WccMesher<'a> {
                         let ix = lx * self.S + ixm;
                         let iy = ly * self.S + iym;
                         let mid = registry_material_for_or_unknown(nb, Face::PosZ, self.reg);
-                        let l = self.light_bin(lx, ly, 0, Face::PosZ);
+                        // Shade across the -Z seam using NegZ sampling (neighbor lies at -Z)
+                        let l = self.light_bin(lx, ly, 0, Face::NegZ);
                         // iz==0 plane; pos=true (PosZ)
                         self.toggle_z(0, 0, 0, 0, ix, ix + 1, iy, iy + 1, true, mid, l);
                     }
@@ -872,7 +874,8 @@ impl<'a> WccMesher<'a> {
         let nb = self.world_block(nx, ny, nz);
         if micro_cell_solid_s2(self.reg, nb, 1, iym, izm) {
             let mid = registry_material_for_or_unknown(nb, Face::PosX, self.reg);
-            let l = self.light_bin(0, ly, lz, Face::PosX);
+            // Shade across the -X seam using NegX sampling
+            let l = self.light_bin(0, ly, lz, Face::NegX);
             return Some((mid, l));
         }
         None
@@ -886,7 +889,8 @@ impl<'a> WccMesher<'a> {
         let nb = self.world_block(nx, ny, nz);
         if micro_cell_solid_s2(self.reg, nb, ixm, iym, 1) {
             let mid = registry_material_for_or_unknown(nb, Face::PosZ, self.reg);
-            let l = self.light_bin(lx, ly, 0, Face::PosZ);
+            // Shade across the -Z seam using NegZ sampling
+            let l = self.light_bin(lx, ly, 0, Face::NegZ);
             return Some((mid, l));
         }
         None
