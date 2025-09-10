@@ -3,17 +3,14 @@
 
 use geist_blocks::types::Block;
 use geist_blocks::BlockRegistry;
+use geist_blocks::micro::{micro_cell_solid_s2, micro_face_cell_open_s2};
 use geist_chunk::ChunkBuf;
 use std::collections::HashMap;
-use std::sync::{Mutex, atomic::{AtomicU8, Ordering}};
+use std::sync::Mutex;
 
 mod micro;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LightingMode {
-    LegacyVoxel = 0,
-    MicroS2 = 1,
-}
+// Lighting mode toggle removed; Micro S=2 is always used.
 
 // Micro border planes for S=2 lighting exchange across seams.
 // Arrays are stored per-face at micro resolution:
@@ -76,64 +73,12 @@ fn can_cross_face_s2(buf: &ChunkBuf, reg: &BlockRegistry, x: usize, y: usize, z:
         return false;
     }
     let here = buf.get_local(x, y, z);
-    let nb = buf.get_local(nx as usize, ny as usize, nz as usize);
-
-    // Fast path: if neither side uses micro occupancy, fall back to legacy passability
-    let occ_a = occ8_for(reg, here);
-    let occ_b = occ8_for(reg, nb);
-    if occ_a.is_none() && occ_b.is_none() {
-        // Legacy rule: you can enter target only if target propagates light (or is air)
-        return block_light_passable(nb, reg);
-    }
-
-    // Determine if the plane is fully sealed at S=2: for all micro cells on the plane, either side touches the plane.
-    let mut sealed = true;
-    match face {
-        2 => { // +X: here x=1, nb x=0; iterate over y,z micro
-            for my in 0..2 { for mz in 0..2 {
-                let a = occ_a.map_or(false, |o| occ_bit(o, 1, my, mz)) || is_full_cube(reg, here);
-                let b = occ_b.map_or(false, |o| occ_bit(o, 0, my, mz)) || is_full_cube(reg, nb);
-                if !(a || b) { sealed = false; break; }
-            } if !sealed { break; } }
-        }
-        3 => { // -X: here x=0, nb x=1
-            for my in 0..2 { for mz in 0..2 {
-                let a = occ_a.map_or(false, |o| occ_bit(o, 0, my, mz)) || is_full_cube(reg, here);
-                let b = occ_b.map_or(false, |o| occ_bit(o, 1, my, mz)) || is_full_cube(reg, nb);
-                if !(a || b) { sealed = false; break; }
-            } if !sealed { break; } }
-        }
-        0 => { // +Y: here y=1, nb y=0; iterate x,z
-            for mx in 0..2 { for mz in 0..2 {
-                let a = occ_a.map_or(false, |o| occ_bit(o, mx, 1, mz)) || is_full_cube(reg, here);
-                let b = occ_b.map_or(false, |o| occ_bit(o, mx, 0, mz)) || is_full_cube(reg, nb);
-                if !(a || b) { sealed = false; break; }
-            } if !sealed { break; } }
-        }
-        1 => { // -Y: here y=0, nb y=1
-            for mx in 0..2 { for mz in 0..2 {
-                let a = occ_a.map_or(false, |o| occ_bit(o, mx, 0, mz)) || is_full_cube(reg, here);
-                let b = occ_b.map_or(false, |o| occ_bit(o, mx, 1, mz)) || is_full_cube(reg, nb);
-                if !(a || b) { sealed = false; break; }
-            } if !sealed { break; } }
-        }
-        4 => { // +Z: here z=1, nb z=0; iterate x,y
-            for mx in 0..2 { for my in 0..2 {
-                let a = occ_a.map_or(false, |o| occ_bit(o, mx, my, 1)) || is_full_cube(reg, here);
-                let b = occ_b.map_or(false, |o| occ_bit(o, mx, my, 0)) || is_full_cube(reg, nb);
-                if !(a || b) { sealed = false; break; }
-            } if !sealed { break; } }
-        }
-        5 => { // -Z: here z=0, nb z=1
-            for mx in 0..2 { for my in 0..2 {
-                let a = occ_a.map_or(false, |o| occ_bit(o, mx, my, 0)) || is_full_cube(reg, here);
-                let b = occ_b.map_or(false, |o| occ_bit(o, mx, my, 1)) || is_full_cube(reg, nb);
-                if !(a || b) { sealed = false; break; }
-            } if !sealed { break; } }
-        }
-        _ => {}
-    }
-    !sealed
+    let there = buf.get_local(nx as usize, ny as usize, nz as usize);
+    // Cross if any of the four micro face cells is open
+    for i0 in 0..2 { for i1 in 0..2 {
+        if micro_face_cell_open_s2(reg, here, there, face, i0, i1) { return true; }
+    }}
+    false
 }
 
 pub struct LightGrid {
@@ -424,21 +369,17 @@ impl LightGrid {
         }
         // Only the neighbor's micro occupancy can seal light reaching the boundary from that side.
         let there = buf.get_local(nx as usize, ny as usize, nz as usize);
-        if let Some(occ_b) = occ8_for(reg, there) {
-            let mut all_covered = true;
-            match face {
-                2 => { for my in 0..2 { for mz in 0..2 { if !occ_bit(occ_b, 0, my, mz) { all_covered=false; break; } } if !all_covered { break; } } }
-                3 => { for my in 0..2 { for mz in 0..2 { if !occ_bit(occ_b, 1, my, mz) { all_covered=false; break; } } if !all_covered { break; } } }
-                0 => { for mx in 0..2 { for mz in 0..2 { if !occ_bit(occ_b, mx, 0, mz) { all_covered=false; break; } } if !all_covered { break; } } }
-                1 => { for mx in 0..2 { for mz in 0..2 { if !occ_bit(occ_b, mx, 1, mz) { all_covered=false; break; } } if !all_covered { break; } } }
-                4 => { for mx in 0..2 { for my in 0..2 { if !occ_bit(occ_b, mx, my, 0) { all_covered=false; break; } } if !all_covered { break; } } }
-                5 => { for mx in 0..2 { for my in 0..2 { if !occ_bit(occ_b, mx, my, 1) { all_covered=false; break; } } if !all_covered { break; } } }
-                _ => {}
-            }
-            if all_covered { return local; }
-        } else if is_full_cube(reg, there) {
-            return local;
+        let mut all_covered = true;
+        match face {
+            2 => { for my in 0..2 { for mz in 0..2 { if !micro_cell_solid_s2(reg, there, 0, my, mz) { all_covered=false; break; } } if !all_covered { break; } } }
+            3 => { for my in 0..2 { for mz in 0..2 { if !micro_cell_solid_s2(reg, there, 1, my, mz) { all_covered=false; break; } } if !all_covered { break; } } }
+            0 => { for mx in 0..2 { for mz in 0..2 { if !micro_cell_solid_s2(reg, there, mx, 0, mz) { all_covered=false; break; } } if !all_covered { break; } } }
+            1 => { for mx in 0..2 { for mz in 0..2 { if !micro_cell_solid_s2(reg, there, mx, 1, mz) { all_covered=false; break; } } if !all_covered { break; } } }
+            4 => { for mx in 0..2 { for my in 0..2 { if !micro_cell_solid_s2(reg, there, mx, my, 0) { all_covered=false; break; } } if !all_covered { break; } } }
+            5 => { for mx in 0..2 { for my in 0..2 { if !micro_cell_solid_s2(reg, there, mx, my, 1) { all_covered=false; break; } } if !all_covered { break; } } }
+            _ => {}
         }
+        if all_covered { return local; }
         // Otherwise, approximate the face-neighbor contribution by sampling the best among the micro-adjacent voxels
         let mut nb_max: u8 = 0;
         let mut upd = |sx_i: i32, sy_i: i32, sz_i: i32| {
@@ -523,17 +464,13 @@ pub struct LightingStore {
     sx: usize, sy: usize, sz: usize,
     borders: Mutex<HashMap<(i32, i32), LightBorders>>,
     emitters: Mutex<HashMap<(i32, i32), Vec<(usize, usize, usize, u8, bool)>>>,
-    mode: AtomicU8,
     micro_borders: Mutex<HashMap<(i32, i32), MicroBorders>>,
 }
 
 impl LightingStore {
-    pub fn new(sx: usize, sy: usize, sz: usize) -> Self { Self { sx, sy, sz, borders: Mutex::new(HashMap::new()), emitters: Mutex::new(HashMap::new()), mode: AtomicU8::new(LightingMode::LegacyVoxel as u8), micro_borders: Mutex::new(HashMap::new()) } }
+    pub fn new(sx: usize, sy: usize, sz: usize) -> Self { Self { sx, sy, sz, borders: Mutex::new(HashMap::new()), emitters: Mutex::new(HashMap::new()), micro_borders: Mutex::new(HashMap::new()) } }
     pub fn clear_chunk(&self, cx: i32, cz: i32) { { let mut m = self.borders.lock().unwrap(); m.remove(&(cx,cz)); } { let mut m = self.emitters.lock().unwrap(); m.remove(&(cx,cz)); } { let mut m = self.micro_borders.lock().unwrap(); m.remove(&(cx,cz)); } }
     pub fn clear_all_borders(&self) { let mut m = self.borders.lock().unwrap(); m.clear(); }
-    pub fn set_mode(&self, mode: LightingMode) { self.mode.store(mode as u8, Ordering::Relaxed); }
-    pub fn toggle_mode(&self) -> LightingMode { let cur = self.mode.load(Ordering::Relaxed); let next = if cur == (LightingMode::LegacyVoxel as u8) { LightingMode::MicroS2 } else { LightingMode::LegacyVoxel }; self.set_mode(next); next }
-    pub fn mode(&self) -> LightingMode { match self.mode.load(Ordering::Relaxed) { 1 => LightingMode::MicroS2, _ => LightingMode::LegacyVoxel } }
     pub fn get_neighbor_borders(&self, cx: i32, cz: i32) -> NeighborBorders {
         let map = self.borders.lock().unwrap(); let mut nb = NeighborBorders::empty(self.sx, self.sy, self.sz);
         if let Some(b)=map.get(&(cx-1,cz)) { nb.xn=Some(b.xp.clone()); nb.sk_xn=Some(b.sk_xp.clone()); nb.bcn_xn=Some(b.bcn_xp.clone()); nb.bcn_dir_xn=Some(b.bcn_dir_xp.clone()); }
@@ -594,8 +531,5 @@ impl NeighborBorders { pub fn empty(_sx: usize,_sy: usize,_sz: usize) -> Self { 
 
 // Entry point that chooses the lighting algorithm based on LightingStore mode.
 pub fn compute_light_with_borders_buf(buf: &ChunkBuf, store: &LightingStore, reg: &BlockRegistry) -> LightGrid {
-    match store.mode() {
-        LightingMode::LegacyVoxel => LightGrid::compute_with_borders_buf(buf, store, reg),
-        LightingMode::MicroS2 => micro::compute_light_with_borders_buf_micro(buf, store, reg),
-    }
+    micro::compute_light_with_borders_buf_micro(buf, store, reg)
 }

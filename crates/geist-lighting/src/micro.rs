@@ -1,5 +1,6 @@
 use crate::{LightGrid, LightingStore, MicroBorders};
 use geist_blocks::{types::Block, BlockRegistry};
+use geist_blocks::micro::micro_cell_solid_s2;
 use geist_chunk::ChunkBuf;
 
 // Micro-voxel scale factor (2x resolution in each dimension)
@@ -40,13 +41,8 @@ fn micro_solid_at(buf: &ChunkBuf, reg: &BlockRegistry, mx: usize, my: usize, mz:
     let x = mx >> 1; let y = my >> 1; let z = mz >> 1;
     if x >= buf.sx || y >= buf.sy || z >= buf.sz { return true; }
     let b = buf.get_local(x, y, z);
-    if is_full_cube(reg, b) { return true; }
-    if let Some(occ) = occ8_for(reg, b) {
-        let lx = mx & 1; let ly = my & 1; let lz = mz & 1;
-        let idx = ((ly & 1) << 2) | ((lz & 1) << 1) | (lx & 1);
-        return (occ & (1u8 << idx)) != 0;
-    }
-    false
+    let lx = mx & 1; let ly = my & 1; let lz = mz & 1;
+    micro_cell_solid_s2(reg, b, lx, ly, lz)
 }
 
 #[inline]

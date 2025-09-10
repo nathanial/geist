@@ -5,6 +5,7 @@ pub mod config;
 pub mod material;
 pub mod registry;
 pub mod types;
+pub mod micro;
 
 // Re-exports for convenience (match original crate layout)
 pub use material::MaterialCatalog;

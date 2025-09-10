@@ -6,8 +6,8 @@ This note captures the status of the Micro S=2 lighting work, what’s in place 
 - Implemented Micro S=2 lighting with micro BFS and per‑micro seam exchange.
 - Face shading now samples the exact two micro voxels across each WCC plane cell (no heuristics), including across chunk seams.
 - Skylight dropoff increased: per‑micro step attenuation is 32 (sharper falloff), block light uses 16.
-- Toggle with `M` between Legacy and Micro S=2; rebuilds loaded chunks.
-- Micro beacons and a shared sealed‑plane predicate are the next high‑impact items.
+- Committed to Micro S=2 only (legacy mode removed; no toggle).
+- Shared sealed‑plane predicate implemented for S=2 and used by mesher + lighting.
 
 ---
 
@@ -15,9 +15,8 @@ This note captures the status of the Micro S=2 lighting work, what’s in place 
 
 ### Engine selection
 - File: `crates/geist-lighting/src/lib.rs`
-  - `LightingMode` enum (`LegacyVoxel`, `MicroS2`) stored atomically in `LightingStore`.
-  - `compute_light_with_borders_buf(...)` dispatches to legacy or Micro S=2 engine.
-  - App hotkey `M` toggles mode, clears stored coarse borders, and rebuilds loaded chunks.
+  - Mode toggle removed. `compute_light_with_borders_buf(...)` always uses the Micro S=2 engine.
+  - App hotkey `M` and `Event::LightingModeToggled` removed.
 
 ### Micro S=2 lighting engine
 - File: `crates/geist-lighting/src/micro.rs`
@@ -45,7 +44,7 @@ This note captures the status of the Micro S=2 lighting work, what’s in place 
   - For each of the 4 plane micro cells on the face, read the two micro voxels across the plane (local + neighbor side) and take the max.
   - When neighbor is out of bounds, sample from the attached neighbor micro seam plane.
   - Take the max across the 4 cells. Finally, max with legacy beacon level at the macro cell (micro beacons pending).
-- If micro arrays are absent (Legacy mode), falls back to existing S=2‑aware sampler.
+- If micro arrays are absent (fallback path), uses an S=2‑aware sampler that now consults the shared micro helpers.
 
 ### Seam propagation and events
 - Coarse `LightBorders` are still emitted and used by the app to trigger `LightBordersUpdated` cascades (neighbor rebuilds). Micro borders ride alongside in `LightingStore` and are consumed by the Micro S=2 engine.
@@ -57,8 +56,7 @@ This note captures the status of the Micro S=2 lighting work, what’s in place 
 - Micro block light: 16 per micro step.
 
 ### Toggle & UX
-- Press `M` to toggle between Legacy and Micro S=2.
-- On toggle, coarse borders are cleared and all loaded chunks are re‑queued for rebuild.
+- No runtime toggle; Micro S=2 is the only lighting path.
 
 ---
 
@@ -86,9 +84,9 @@ This note captures the status of the Micro S=2 lighting work, what’s in place 
 - Attach micro beacon arrays and planes to `LightGrid` for shading where needed.
 
 2) Shared sealed‑plane predicate
-- Provide a single `micro_face_open(...)` API (S=2) shared by mesher and lighting.
-- Property checks: antisymmetry, locality, and consistency with watertight meshing.
-- Replace ad‑hoc occupancy checks with this predicate in lighting/propagation and sampling gates.
+- DONE: Added `geist_blocks::micro::{micro_cell_solid_s2, micro_face_cell_open_s2}`.
+- Mesher now uses `micro_cell_solid_s2` for local/neighbor micro plane decisions; lighting uses it for S=2 gating and sampling fallback.
+- `can_cross_face_s2` now uses `micro_face_cell_open_s2` across the four plane micro cells.
 
 3) Performance + memory
 - Switch micro BFS to bucketed queues (Dial’s algorithm) for integer levels.
@@ -125,9 +123,10 @@ Metrics
 
 ---
 
-## Code Map
-- Engine toggle & dispatcher:
-  - `crates/geist-lighting/src/lib.rs`: `LightingMode`, `compute_light_with_borders_buf(...)`, store methods.
+- Engine dispatcher:
+  - `crates/geist-lighting/src/lib.rs`: `compute_light_with_borders_buf(...)` always dispatches to Micro S=2.
+- Shared S=2 micro helpers:
+  - `crates/geist-blocks/src/micro.rs`: `micro_cell_solid_s2`, `micro_face_cell_open_s2`.
 - Micro engine:
   - `crates/geist-lighting/src/micro.rs`: micro BFS, seam seeding, border export, LightGrid micro attachment.
 - Face shading:
@@ -156,4 +155,3 @@ Metrics
 5. Optional: vertical micro seams (if vertical chunking is added)
 
 This plan takes the Micro S=2 path from functional to robust, aligning lighting semantics exactly with the WCC S=2 mesher and removing remaining approximations.
-
