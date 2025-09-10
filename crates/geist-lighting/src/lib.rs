@@ -144,6 +144,22 @@ pub struct LightGrid {
     pub(crate) block_light: Vec<u8>,
     pub(crate) beacon_light: Vec<u8>,
     pub(crate) beacon_dir: Vec<u8>,
+    // Optional micro-light fields (present in MicroS2 mode)
+    pub(crate) m_sky: Option<Vec<u8>>, // size = (2*sx)*(2*sy)*(2*sz)
+    pub(crate) m_blk: Option<Vec<u8>>, // size = (2*sx)*(2*sy)*(2*sz)
+    pub(crate) mxs: usize,
+    pub(crate) mys: usize,
+    pub(crate) mzs: usize,
+    // Optional neighbor micro border planes at chunk seams
+    // X faces: size = mys * mzs (index = my * mzs + mz)
+    pub(crate) mnb_xn_sky: Option<Vec<u8>>, pub(crate) mnb_xp_sky: Option<Vec<u8>>,
+    pub(crate) mnb_xn_blk: Option<Vec<u8>>, pub(crate) mnb_xp_blk: Option<Vec<u8>>,
+    // Z faces: size = mys * mxs (index = my * mxs + mx)
+    pub(crate) mnb_zn_sky: Option<Vec<u8>>, pub(crate) mnb_zp_sky: Option<Vec<u8>>,
+    pub(crate) mnb_zn_blk: Option<Vec<u8>>, pub(crate) mnb_zp_blk: Option<Vec<u8>>,
+    // Y faces (usually not chunked vertically): size = mzs * mxs (index = mz * mxs + mx)
+    pub(crate) mnb_yn_sky: Option<Vec<u8>>, pub(crate) mnb_yp_sky: Option<Vec<u8>>,
+    pub(crate) mnb_yn_blk: Option<Vec<u8>>, pub(crate) mnb_yp_blk: Option<Vec<u8>>,
     pub(crate) nb_xn_blk: Option<Vec<u8>>,
     pub(crate) nb_xp_blk: Option<Vec<u8>>,
     pub(crate) nb_zn_blk: Option<Vec<u8>>,
@@ -173,6 +189,14 @@ impl LightGrid {
             block_light: vec![0; sx * sy * sz],
             beacon_light: vec![0; sx * sy * sz],
             beacon_dir: vec![0; sx * sy * sz],
+            m_sky: None,
+            m_blk: None,
+            mxs: sx * 2,
+            mys: sy * 2,
+            mzs: sz * 2,
+            mnb_xn_sky: None, mnb_xp_sky: None, mnb_xn_blk: None, mnb_xp_blk: None,
+            mnb_zn_sky: None, mnb_zp_sky: None, mnb_zn_blk: None, mnb_zp_blk: None,
+            mnb_yn_sky: None, mnb_yp_sky: None, mnb_yn_blk: None, mnb_yp_blk: None,
             nb_xn_blk: None, nb_xp_blk: None, nb_zn_blk: None, nb_zp_blk: None,
             nb_xn_sky: None, nb_xp_sky: None, nb_zn_sky: None, nb_zp_sky: None,
             nb_xn_bcn: None, nb_xp_bcn: None, nb_zn_bcn: None, nb_zp_bcn: None,
@@ -310,6 +334,85 @@ impl LightGrid {
 
     // Face-aware light sample that respects S=2 micro openings for neighbor contribution
     pub fn sample_face_local_s2(&self, buf: &ChunkBuf, reg: &BlockRegistry, x: usize, y: usize, z: usize, face: usize) -> u8 {
+        // If micro-light is available, compute face light by sampling the two
+        // micro voxels across each plane micro cell and taking the maximum.
+        if let (Some(ms), Some(mb)) = (&self.m_sky, &self.m_blk) {
+            let mxs = self.mxs; let mys = self.mys; let mzs = self.mzs;
+            let mut max_v: u8 = 0;
+            let lval = |mx: usize, my: usize, mz: usize| -> u8 {
+                if mx < mxs && my < mys && mz < mzs { let i = (my * mzs + mz) * mxs + mx; ms[i].max(mb[i]) } else { 0 }
+            };
+            let mut upd = |v: u8| { if v > max_v { max_v = v; } };
+            let bx = 2 * x; let by = 2 * y; let bz = 2 * z;
+            match face {
+                2 => { // +X
+                    let mx_here = bx + 1; let mx_nb = bx + 2;
+                    for oy in 0..2 { for oz in 0..2 {
+                        let my = by + oy; let mz = bz + oz;
+                        let a = lval(mx_here, my, mz);
+                        let b = if mx_nb < mxs { lval(mx_nb, my, mz) }
+                                else { // use neighbor micro plane if present
+                                    if let Some(ref nbp) = self.mnb_xp_sky { let idx = my * mzs + mz; let sv = *nbp.get(idx).unwrap_or(&0); sv.max(*self.mnb_xp_blk.as_ref().and_then(|p| p.get(idx)).unwrap_or(&0)) } else { 0 }
+                                };
+                        upd(a.max(b));
+                    }}
+                }
+                3 => { // -X
+                    let mx_here = bx; let mx_nb = if bx > 0 { bx - 1 } else { mxs }; // sentinel
+                    for oy in 0..2 { for oz in 0..2 {
+                        let my = by + oy; let mz = bz + oz;
+                        let a = lval(mx_here, my, mz);
+                        let b = if mx_nb < mxs { lval(mx_nb, my, mz) }
+                                else { if let Some(ref nbp) = self.mnb_xn_sky { let idx = my * mzs + mz; let sv = *nbp.get(idx).unwrap_or(&0); sv.max(*self.mnb_xn_blk.as_ref().and_then(|p| p.get(idx)).unwrap_or(&0)) } else { 0 } };
+                        upd(a.max(b));
+                    }}
+                }
+                4 => { // +Z
+                    let mz_here = bz + 1; let mz_nb = bz + 2;
+                    for oy in 0..2 { for ox in 0..2 {
+                        let my = by + oy; let mx = bx + ox;
+                        let a = lval(mx, my, mz_here);
+                        let b = if mz_nb < mzs { lval(mx, my, mz_nb) }
+                                else { if let Some(ref nbp) = self.mnb_zp_sky { let idx = my * mxs + mx; let sv = *nbp.get(idx).unwrap_or(&0); sv.max(*self.mnb_zp_blk.as_ref().and_then(|p| p.get(idx)).unwrap_or(&0)) } else { 0 } };
+                        upd(a.max(b));
+                    }}
+                }
+                5 => { // -Z
+                    let mz_here = bz; let mz_nb = if bz > 0 { bz - 1 } else { mzs };
+                    for oy in 0..2 { for ox in 0..2 {
+                        let my = by + oy; let mx = bx + ox;
+                        let a = lval(mx, my, mz_here);
+                        let b = if mz_nb < mzs { lval(mx, my, mz_nb) }
+                                else { if let Some(ref nbp) = self.mnb_zn_sky { let idx = my * mxs + mx; let sv = *nbp.get(idx).unwrap_or(&0); sv.max(*self.mnb_zn_blk.as_ref().and_then(|p| p.get(idx)).unwrap_or(&0)) } else { 0 } };
+                        upd(a.max(b));
+                    }}
+                }
+                0 => { // +Y
+                    let my_here = by + 1; let my_nb = by + 2;
+                    for oz in 0..2 { for ox in 0..2 {
+                        let mz = bz + oz; let mx = bx + ox;
+                        let a = lval(mx, my_here, mz);
+                        let b = if my_nb < mys { lval(mx, my_nb, mz) }
+                                else { if let Some(ref nbp) = self.mnb_yp_sky { let idx = mz * mxs + mx; let sv = *nbp.get(idx).unwrap_or(&0); sv.max(*self.mnb_yp_blk.as_ref().and_then(|p| p.get(idx)).unwrap_or(&0)) } else { 0 } };
+                        upd(a.max(b));
+                    }}
+                }
+                1 => { // -Y
+                    let my_here = by; let my_nb = if by > 0 { by - 1 } else { mys };
+                    for oz in 0..2 { for ox in 0..2 {
+                        let mz = bz + oz; let mx = bx + ox;
+                        let a = lval(mx, my_here, mz);
+                        let b = if my_nb < mys { lval(mx, my_nb, mz) }
+                                else { if let Some(ref nbp) = self.mnb_yn_sky { let idx = mz * mxs + mx; let sv = *nbp.get(idx).unwrap_or(&0); sv.max(*self.mnb_yn_blk.as_ref().and_then(|p| p.get(idx)).unwrap_or(&0)) } else { 0 } };
+                        upd(a.max(b));
+                    }}
+                }
+                _ => {}
+            }
+            // Also consider local beacon light at the macro sample as a safety net (micro beacons unsupported)
+            let macro_i = self.idx(x, y, z);
+            return max_v.max(self.beacon_light[macro_i]);
+        }
         let i = self.idx(x, y, z);
         let local = self.skylight[i].max(self.block_light[i]).max(self.beacon_light[i]);
         // Compute neighbor coords

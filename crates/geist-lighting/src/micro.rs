@@ -105,7 +105,7 @@ pub fn compute_light_with_borders_buf_micro(buf: &ChunkBuf, store: &LightingStor
     }}}
     // Skylight neighbors
     if let Some(ref plane) = nbm.xm_sk_neg { for my in 0..mys { for mz in 0..mzs {
-        let v = clamp_sub_u8(plane[my*mzs + mz], 16);
+        let v = clamp_sub_u8(plane[my*mzs + mz], 32);
         if v > 0 { let i = midx(0, my, mz, mxs, mzs); if !micro_solid_at(buf, reg, 0, my, mz) && micro_sky[i] < v { micro_sky[i] = v; } }
     }}}
     else if let Some(ref plane) = nb.sk_xn { for z in 0..buf.sz { for y in 0..buf.sy {
@@ -115,7 +115,7 @@ pub fn compute_light_with_borders_buf_micro(buf: &ChunkBuf, store: &LightingStor
         }}}
     }}}
     if let Some(ref plane) = nbm.xm_sk_pos { for my in 0..mys { for mz in 0..mzs {
-        let v = clamp_sub_u8(plane[my*mzs + mz], 16);
+        let v = clamp_sub_u8(plane[my*mzs + mz], 32);
         if v > 0 { let i = midx(mxs-1, my, mz, mxs, mzs); if !micro_solid_at(buf, reg, mxs-1, my, mz) && micro_sky[i] < v { micro_sky[i] = v; } }
     }}}
     else if let Some(ref plane) = nb.sk_xp { for z in 0..buf.sz { for y in 0..buf.sy {
@@ -124,8 +124,9 @@ pub fn compute_light_with_borders_buf_micro(buf: &ChunkBuf, store: &LightingStor
             let i = midx(mxs-1, my, mz, mxs, mzs); if !micro_solid_at(buf, reg, mxs-1, my, mz) && micro_sky[i] < v { micro_sky[i] = v; }
         }}}
     }}}
+    // (removed duplicate X skylight seeding)
     if let Some(ref plane) = nbm.zm_sk_neg { for my in 0..mys { for mx in 0..mxs {
-        let v = clamp_sub_u8(plane[my*mxs + mx], 16);
+        let v = clamp_sub_u8(plane[my*mxs + mx], 32);
         if v > 0 { let i = midx(mx, my, 0, mxs, mzs); if !micro_solid_at(buf, reg, mx, my, 0) && micro_sky[i] < v { micro_sky[i] = v; } }
     }}}
     else if let Some(ref plane) = nb.sk_zn { for x in 0..buf.sx { for y in 0..buf.sy {
@@ -135,7 +136,7 @@ pub fn compute_light_with_borders_buf_micro(buf: &ChunkBuf, store: &LightingStor
         }}}
     }}}
     if let Some(ref plane) = nbm.zm_sk_pos { for my in 0..mys { for mx in 0..mxs {
-        let v = clamp_sub_u8(plane[my*mxs + mx], 16);
+        let v = clamp_sub_u8(plane[my*mxs + mx], 32);
         if v > 0 { let i = midx(mx, my, mzs-1, mxs, mzs); if !micro_solid_at(buf, reg, mx, my, mzs-1) && micro_sky[i] < v { micro_sky[i] = v; } }
     }}}
     else if let Some(ref plane) = nb.sk_zp { for x in 0..buf.sx { for y in 0..buf.sy {
@@ -169,7 +170,7 @@ pub fn compute_light_with_borders_buf_micro(buf: &ChunkBuf, store: &LightingStor
 
     // Choose per-micro step cost (approx half macro step)
     let att_blk: u8 = 16;
-    let att_sky: u8 = 16;
+    let att_sky: u8 = 32;
     let mut push = |mx: i32, my: i32, mz: i32, mxs: usize, mys: usize, mzs: usize, arr: &mut [u8], lvl: u8, att: u8| {
         if mx < 0 || my < 0 || mz < 0 { return; }
         let (mxu, myu, mzu) = (mx as usize, my as usize, mz as usize);
@@ -229,7 +230,7 @@ pub fn compute_light_with_borders_buf_micro(buf: &ChunkBuf, store: &LightingStor
         }
     }
 
-    // Downsample micro -> macro (max over the 2x2x2 block)
+    // Downsample micro -> macro (max over the 2x2x2 block) and retain micro arrays + neighbor planes
     let mut lg = LightGrid::new(buf.sx, buf.sy, buf.sz);
     for z in 0..buf.sz { for y in 0..buf.sy { for x in 0..buf.sx {
         let mut smax = 0u8; let mut bmax = 0u8;
@@ -257,7 +258,16 @@ pub fn compute_light_with_borders_buf_micro(buf: &ChunkBuf, store: &LightingStor
     // Y planes
     for mz in 0..mzs { for mx in 0..mxs { let idx=mz*mxs+mx; ym_sk_neg[idx]=micro_sky[midx(mx,0,mz,mxs,mzs)]; ym_bl_neg[idx]=micro_blk[midx(mx,0,mz,mxs,mzs)]; ym_sk_pos[idx]=micro_sky[midx(mx,mys-1,mz,mxs,mzs)]; ym_bl_pos[idx]=micro_blk[midx(mx,mys-1,mz,mxs,mzs)]; }}
     store.update_micro_borders(buf.cx, buf.cz, MicroBorders { xm_sk_neg, xm_sk_pos, ym_sk_neg, ym_sk_pos, zm_sk_neg, zm_sk_pos, xm_bl_neg, xm_bl_pos, ym_bl_neg, ym_bl_pos, zm_bl_neg, zm_bl_pos, xm: mxs, ym: mys, zm: mzs });
-
+    // Attach micro arrays and neighbor planes to LightGrid for micro face sampling
+    lg.m_sky = Some(micro_sky);
+    lg.m_blk = Some(micro_blk);
+    // Add neighbor micro planes for sampling across seams
+    lg.mnb_xn_sky = nbm.xm_sk_neg; lg.mnb_xp_sky = nbm.xm_sk_pos;
+    lg.mnb_zn_sky = nbm.zm_sk_neg; lg.mnb_zp_sky = nbm.zm_sk_pos;
+    lg.mnb_yn_sky = nbm.ym_sk_neg; lg.mnb_yp_sky = nbm.ym_sk_pos;
+    lg.mnb_xn_blk = nbm.xm_bl_neg; lg.mnb_xp_blk = nbm.xm_bl_pos;
+    lg.mnb_zn_blk = nbm.zm_bl_neg; lg.mnb_zp_blk = nbm.zm_bl_pos;
+    lg.mnb_yn_blk = nbm.ym_bl_neg; lg.mnb_yp_blk = nbm.ym_bl_pos;
     // Coarse planes are still derived by LightBorders::from_grid upstream.
     lg
 }
