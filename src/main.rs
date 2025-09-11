@@ -256,13 +256,65 @@ fn run_app(run: RunArgs) {
     rl.set_target_fps(60);
 
     // Load runtime voxel registry (materials + block types) and keep it
-    let reg = std::sync::Arc::new(
-        BlockRegistry::load_from_paths("assets/voxels/materials.toml", "assets/voxels/blocks.toml")
-            .unwrap_or_else(|e| {
-                log::warn!("Failed to load runtime voxel registry: {}", e);
-                BlockRegistry::new()
-            }),
-    );
+    // Be robust to arbitrary CWDs by searching for an assets/ folder near
+    // current dir, the executable, and the crate root.
+    fn resolve_assets_root() -> std::path::PathBuf {
+        use std::path::PathBuf;
+        let mut candidates: Vec<PathBuf> = Vec::new();
+        if let Ok(cwd) = std::env::current_dir() {
+            candidates.push(cwd);
+        }
+        // Executable dir
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                candidates.push(dir.to_path_buf());
+            }
+        }
+        // Crate root (compile-time)
+        candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+
+        // For each candidate, climb up to 5 parents looking for assets/voxels/materials.toml
+        for base in candidates {
+            let mut cur = base.clone();
+            for _ in 0..5 {
+                let check = cur.join("assets/voxels/materials.toml");
+                if check.exists() {
+                    return cur;
+                }
+                if let Some(parent) = cur.parent() {
+                    cur = parent.to_path_buf();
+                } else {
+                    break;
+                }
+            }
+        }
+        // Fallback to CWD
+        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+    }
+
+    let assets_root = resolve_assets_root();
+    let mats_path = assets_root.join("assets/voxels/materials.toml");
+    let blocks_path = assets_root.join("assets/voxels/blocks.toml");
+    let mut reg0 = BlockRegistry::load_from_paths(&mats_path, &blocks_path).unwrap_or_else(|e| {
+        log::warn!(
+            "Failed to load runtime voxel registry from {:?} / {:?}: {}",
+            mats_path, blocks_path, e
+        );
+        BlockRegistry::new()
+    });
+    // Normalize material texture paths to absolute so they load regardless of CWD
+    {
+        use std::path::PathBuf;
+        for m in &mut reg0.materials.materials {
+            for p in &mut m.texture_candidates {
+                if p.is_relative() {
+                    let joined: PathBuf = assets_root.join(&p);
+                    *p = joined;
+                }
+            }
+        }
+    }
+    let reg = std::sync::Arc::new(reg0);
     log::info!(
         "Loaded voxel registry: {} materials, {} blocks",
         reg.materials.materials.len(),
@@ -295,15 +347,22 @@ fn run_app(run: RunArgs) {
     ));
     // Initial worldgen params load (optional)
     {
-        let cfg_path = std::path::Path::new(&run.world_config);
-        if cfg_path.exists() {
-            match geist_world::worldgen::load_params_from_path(cfg_path) {
+        use std::path::Path;
+        let cfg_path = Path::new(&run.world_config);
+        let cfg_path_abs = if cfg_path.exists() {
+            cfg_path.to_path_buf()
+        } else {
+            let alt = assets_root.join(cfg_path);
+            alt
+        };
+        if cfg_path_abs.exists() {
+            match geist_world::worldgen::load_params_from_path(&cfg_path_abs) {
                 Ok(params) => {
                     world.update_worldgen_params(params);
-                    log::info!("Loaded worldgen config from {}", run.world_config);
+                    log::info!("Loaded worldgen config from {:?}", cfg_path_abs);
                 }
                 Err(e) => {
-                    log::warn!("worldgen config load failed ({}): {}", run.world_config, e);
+                    log::warn!("worldgen config load failed (path={:?}): {}", cfg_path_abs, e);
                 }
             }
         } else {
