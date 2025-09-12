@@ -145,7 +145,6 @@ impl Runtime {
                         Some(&ls),
                         &w,
                         Some(&snap_map),
-                        job.neighbors,
                         job.cx,
                         job.cz,
                         &job.reg,

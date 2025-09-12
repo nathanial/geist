@@ -222,9 +222,9 @@ fn emit_face_rect_for_clipped(
     builds: &mut std::collections::HashMap<MaterialId, MeshBuild>,
     mid: MaterialId,
     face: Face,
-    mut origin: Vec3,
-    mut u1: f32,
-    mut v1: f32,
+    origin: Vec3,
+    u1: f32,
+    v1: f32,
     rgba: [u8; 4],
     base_x: i32,
     sx: usize,
@@ -672,7 +672,6 @@ fn is_occluder(
     buf: &ChunkBuf,
     world: &World,
     edits: Option<&HashMap<(i32, i32, i32), Block>>,
-    nmask: NeighborsLoaded,
     reg: &BlockRegistry,
     here: Block,
     face: Face,
@@ -742,7 +741,6 @@ pub fn build_chunk_wcc_cpu_buf(
     lighting: Option<&LightingStore>,
     world: &World,
     edits: Option<&HashMap<(i32, i32, i32), Block>>,
-    neighbors: NeighborsLoaded,
     cx: i32,
     cz: i32,
     reg: &BlockRegistry,
@@ -760,7 +758,7 @@ pub fn build_chunk_wcc_cpu_buf(
 
     // Phase 2: Use a single WCC mesher at S=2 to cover full cubes and micro occupancy.
     let S: usize = 2;
-    let mut wm = WccMesher::new(buf, &light, reg, S, base_x, base_z, world, edits, neighbors);
+    let mut wm = WccMesher::new(buf, &light, reg, S, base_x, base_z, world, edits);
 
     for z in 0..sz {
         for y in 0..sy {
@@ -829,7 +827,7 @@ pub fn build_chunk_wcc_cpu_buf(
                                     let (nx, ny, nz) =
                                         (fx as i32 + dx, fy as i32 + dy, fz as i32 + dz);
                                     is_occluder(
-                                        buf, world, edits, neighbors, reg, here, face, nx, ny, nz,
+                                        buf, world, edits, reg, here, face, nx, ny, nz,
                                     )
                                 },
                                 |face| {
@@ -1228,7 +1226,7 @@ pub fn build_chunk_wcc_cpu_buf(
                                         let (nx, ny, nz) =
                                             (fx as i32 + dx, fy as i32 + dy, fz as i32 + dz);
                                         is_occluder(
-                                            buf, world, edits, neighbors, reg, here, face, nx, ny,
+                                            buf, world, edits, reg, here, face, nx, ny,
                                             nz,
                                         )
                                     },
@@ -1275,7 +1273,7 @@ pub fn build_chunk_wcc_cpu_buf(
                                     let (nx, ny, nz) =
                                         (fx as i32 + dx, fy as i32 + dy, fz as i32 + dz);
                                     is_occluder(
-                                        buf, world, edits, neighbors, reg, here, face, nx, ny, nz,
+                                        buf, world, edits, reg, here, face, nx, ny, nz,
                                     )
                                 },
                                 |face| {
@@ -1357,14 +1355,12 @@ impl KeyTable {
 
 struct Bitset {
     data: Vec<u64>,
-    n: usize,
 }
 impl Bitset {
     fn new(n: usize) -> Self {
         let words = (n + 63) / 64;
         Self {
-            data: vec![0; words],
-            n,
+            data: vec![0; words]
         }
     }
     #[inline]
@@ -1464,7 +1460,6 @@ pub struct WccMesher<'a> {
     buf: &'a ChunkBuf,
     world: &'a World,
     edits: Option<&'a HashMap<(i32, i32, i32), Block>>,
-    neighbors: NeighborsLoaded,
     base_x: i32,
     base_z: i32,
 }
@@ -1479,7 +1474,6 @@ impl<'a> WccMesher<'a> {
         base_z: i32,
         world: &'a World,
         edits: Option<&'a HashMap<(i32, i32, i32), Block>>,
-        neighbors: NeighborsLoaded,
     ) -> Self {
         let (sx, sy, sz) = (buf.sx, buf.sy, buf.sz);
         Self {
@@ -1494,7 +1488,6 @@ impl<'a> WccMesher<'a> {
             buf,
             world,
             edits,
-            neighbors,
             base_x,
             base_z,
         }
@@ -1601,27 +1594,7 @@ impl<'a> WccMesher<'a> {
         }
         None
     }
-    #[inline]
-    fn neighbor_face_info_negz(
-        &self,
-        lx: usize,
-        ixm: usize,
-        ly: usize,
-        iym: usize,
-    ) -> Option<(MaterialId, u8)> {
-        // Sample neighbor block one voxel to -Z; if it occupies this micro X Y cell at its +Z boundary, emit PosZ face
-        let nx = self.base_x + lx as i32;
-        let ny = ly as i32;
-        let nz = self.base_z - 1;
-        let nb = self.world_block(nx, ny, nz);
-        if micro_cell_solid_s2(self.reg, nb, ixm, iym, 1) {
-            let mid = registry_material_for_or_unknown(nb, Face::PosZ, self.reg);
-            // Shade across the -Z seam using NegZ sampling
-            let l = self.light_bin(lx, ly, 0, Face::NegZ);
-            return Some((mid, l));
-        }
-        None
-    }
+
     #[inline]
     fn world_block(&self, nx: i32, ny: i32, nz: i32) -> Block {
         if let Some(es) = self.edits {
@@ -1632,54 +1605,7 @@ impl<'a> WccMesher<'a> {
             self.world.block_at_runtime(self.reg, nx, ny, nz)
         }
     }
-    #[inline]
-    fn neighbor_micro_occludes_negx(
-        &self,
-        here: Block,
-        ly: usize,
-        iym: usize,
-        lz: usize,
-        izm: usize,
-    ) -> bool {
-        // Sample neighbor block one voxel to -X
-        let nx = self.base_x - 1;
-        let ny = ly as i32;
-        let nz = self.base_z + lz as i32;
-        let nb = self.world_block(nx, ny, nz);
-        if self
-            .reg
-            .get(here.id)
-            .map(|t| t.seam.dont_occlude_same && here.id == nb.id)
-            .unwrap_or(false)
-        {
-            return false;
-        }
-        micro_cell_solid_s2(self.reg, nb, 1, iym, izm)
-    }
-    #[inline]
-    fn neighbor_micro_occludes_negz(
-        &self,
-        here: Block,
-        lx: usize,
-        ixm: usize,
-        ly: usize,
-        iym: usize,
-    ) -> bool {
-        // Sample neighbor block one voxel to -Z
-        let nx = self.base_x + lx as i32;
-        let ny = ly as i32;
-        let nz = self.base_z - 1;
-        let nb = self.world_block(nx, ny, nz);
-        if self
-            .reg
-            .get(here.id)
-            .map(|t| t.seam.dont_occlude_same && here.id == nb.id)
-            .unwrap_or(false)
-        {
-            return false;
-        }
-        micro_cell_solid_s2(self.reg, nb, ixm, iym, 1)
-    }
+    
     #[inline]
     fn light_bin(&self, x: usize, y: usize, z: usize, face: Face) -> u8 {
         let l = self
@@ -2087,7 +2013,6 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                     }
                     Some(geist_blocks::types::Shape::Slab { .. }) => {
                         let top = is_top_half_shape(here, reg);
-                        let h = 0.5f32;
                         let min = Vec3 {
                             x: fx,
                             y: if top { fy + 0.5 } else { fy },

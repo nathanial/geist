@@ -157,12 +157,3 @@ Dependency direction:
 - The `raylib` crate defaults to `bindgen` (generates C bindings at build time).
 - Engine crates deliberately avoid any Raylib types; conversions occur only in `geist-render-raylib`.
 
-## Snapshot Showcase
-
-Render a grid of materials and a stair cluster to images and a simple `manifest.xml`:
-
-```
-cargo run -- snapshowcase --out-dir showcase_output --width 512 --height 512 --angles 8
-```
-
-This writes images under `showcase_output/` and creates a manifest with camera metadata.

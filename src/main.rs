@@ -4,7 +4,6 @@ mod event;
 mod gamestate;
 mod player;
 mod raycast;
-mod snapshowcase;
 mod assets;
 #[cfg(test)]
 mod stairs_tests;
@@ -46,8 +45,6 @@ enum Command {
         cmd: SchemCmd,
     },
 
-    /// Render showcase snapshots and write XML manifest
-    SnapShowcase(SnapArgs),
 }
 
 #[derive(Args, Debug)]
@@ -238,7 +235,6 @@ fn main() {
             }
         }
         Command::Run(run) => run_app(run, assets_root),
-        Command::SnapShowcase(args) => snapshowcase::run_showcase_snapshots(args),
     }
 }
 
