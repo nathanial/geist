@@ -221,6 +221,8 @@ pub struct LeavesShader {
     pub loc_palette2: i32,
     pub loc_palette3: i32,
     pub loc_strength: i32,
+    pub loc_time: i32,
+    pub loc_underwater: i32,
 }
 
 impl LeavesShader {
@@ -238,6 +240,8 @@ impl LeavesShader {
         let loc_palette2 = shader.get_shader_location("palette2");
         let loc_palette3 = shader.get_shader_location("palette3");
         let loc_strength = shader.get_shader_location("autumnStrength");
+        let loc_time = shader.get_shader_location("time");
+        let loc_underwater = shader.get_shader_location("underwater");
         let mut s = Self {
             shader,
             loc_fog_color,
@@ -249,6 +253,8 @@ impl LeavesShader {
             loc_palette2,
             loc_palette3,
             loc_strength,
+            loc_time,
+            loc_underwater,
         };
         s.set_autumn_palette(
             [0.905, 0.678, 0.161],
@@ -281,6 +287,8 @@ impl LeavesShader {
         let loc_palette2 = shader.get_shader_location("palette2");
         let loc_palette3 = shader.get_shader_location("palette3");
         let loc_strength = shader.get_shader_location("autumnStrength");
+        let loc_time = shader.get_shader_location("time");
+        let loc_underwater = shader.get_shader_location("underwater");
         let mut s = Self {
             shader,
             loc_fog_color,
@@ -292,6 +300,8 @@ impl LeavesShader {
             loc_palette2,
             loc_palette3,
             loc_strength,
+            loc_time,
+            loc_underwater,
         };
         s.set_autumn_palette(
             [0.905, 0.678, 0.161],
@@ -332,6 +342,8 @@ impl LeavesShader {
         fog_color: [f32; 3],
         fog_start: f32,
         fog_end: f32,
+        time: f32,
+        underwater: bool,
     ) {
         if self.loc_fog_color >= 0 {
             self.shader.set_shader_value(self.loc_fog_color, fog_color);
@@ -346,6 +358,13 @@ impl LeavesShader {
             let cam = [camera_pos.x, camera_pos.y, camera_pos.z];
             self.shader.set_shader_value(self.loc_camera_pos, cam);
         }
+        if self.loc_time >= 0 {
+            self.shader.set_shader_value(self.loc_time, time);
+        }
+        if self.loc_underwater >= 0 {
+            let v: i32 = if underwater { 1 } else { 0 };
+            self.shader.set_shader_value(self.loc_underwater, v);
+        }
     }
 }
 
@@ -355,6 +374,8 @@ pub struct FogShader {
     pub loc_fog_start: i32,
     pub loc_fog_end: i32,
     pub loc_camera_pos: i32,
+    pub loc_time: i32,
+    pub loc_underwater: i32,
 }
 
 impl FogShader {
@@ -367,12 +388,16 @@ impl FogShader {
         let loc_fog_start = shader.get_shader_location("fogStart");
         let loc_fog_end = shader.get_shader_location("fogEnd");
         let loc_camera_pos = shader.get_shader_location("cameraPos");
+        let loc_time = shader.get_shader_location("time");
+        let loc_underwater = shader.get_shader_location("underwater");
         Some(Self {
             shader,
             loc_fog_color,
             loc_fog_start,
             loc_fog_end,
             loc_camera_pos,
+            loc_time,
+            loc_underwater,
         })
     }
     pub fn load_with_base(
@@ -392,12 +417,16 @@ impl FogShader {
         let loc_fog_start = shader.get_shader_location("fogStart");
         let loc_fog_end = shader.get_shader_location("fogEnd");
         let loc_camera_pos = shader.get_shader_location("cameraPos");
+        let loc_time = shader.get_shader_location("time");
+        let loc_underwater = shader.get_shader_location("underwater");
         Some(Self {
             shader,
             loc_fog_color,
             loc_fog_start,
             loc_fog_end,
             loc_camera_pos,
+            loc_time,
+            loc_underwater,
         })
     }
     pub fn update_frame_uniforms(
@@ -406,6 +435,8 @@ impl FogShader {
         fog_color: [f32; 3],
         fog_start: f32,
         fog_end: f32,
+        time: f32,
+        underwater: bool,
     ) {
         if self.loc_fog_color >= 0 {
             self.shader.set_shader_value(self.loc_fog_color, fog_color);
@@ -419,6 +450,13 @@ impl FogShader {
         if self.loc_camera_pos >= 0 {
             let cam = [camera_pos.x, camera_pos.y, camera_pos.z];
             self.shader.set_shader_value(self.loc_camera_pos, cam);
+        }
+        if self.loc_time >= 0 {
+            self.shader.set_shader_value(self.loc_time, time);
+        }
+        if self.loc_underwater >= 0 {
+            let v: i32 = if underwater { 1 } else { 0 };
+            self.shader.set_shader_value(self.loc_underwater, v);
         }
     }
 }

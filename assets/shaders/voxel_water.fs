@@ -18,14 +18,13 @@ void main(){
   // Alpha depends on whether the camera is underwater
   // When underwater, make the surface opaque so nothing above is visible
   float alpha = (underwater > 0) ? 1.0 : 0.7;
-  if (underwater > 0) {
-    // Force a solid water surface color when submerged
-    finalColor = vec4(fogColor, 1.0);
-    return;
-  }
   // Fog
   float dist = length(fragWorldPos - cameraPos);
   float f = clamp((fogEnd - dist) / max(fogEnd - fogStart, 0.0001), 0.0, 1.0);
   vec3 rgb = mix(fogColor, base.rgb, f);
+  // Stronger tint when underwater, still draw surface from below (requires backface disabled)
+  if (underwater > 0) {
+    rgb = mix(fogColor, rgb, 0.70);
+  }
   finalColor = vec4(rgb, alpha);
 }

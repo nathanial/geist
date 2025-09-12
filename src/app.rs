@@ -2110,51 +2110,60 @@ impl App {
                 d3.draw_grid(64, 1.0);
             }
 
-            // Update shader uniforms
-            let surface_fog = [210.0 / 255.0, 221.0 / 255.0, 235.0 / 255.0];
-            let cave_fog = [0.0, 0.0, 0.0];
-            let world_h = self.gs.world.world_size_y() as f32;
-            let underground_thr = 0.30_f32 * world_h;
-            let underground = self.cam.position.y < underground_thr;
-            let fog_color = if underground { cave_fog } else { surface_fog };
-            // Diminish fog: push start/end farther out
-            let fog_start = 64.0f32;
-            let fog_end = 512.0f32 * 0.9;
-            if let Some(ref mut ls) = self.leaves_shader {
-                ls.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end);
-            }
-            if let Some(ref mut fs) = self.fog_shader {
-                fs.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end);
-            }
-            if let Some(ref mut ws) = self.water_shader {
-                // Determine if camera is underwater
-                let p = self.cam.position;
-                let wx = p.x.floor() as i32;
-                let wy = p.y.floor() as i32;
-                let wz = p.z.floor() as i32;
-                let b = if let Some(edit) = self.gs.edits.get(wx, wy, wz) {
-                    edit
-                } else {
-                    // Prefer loaded chunk buffers before falling back to worldgen
-                    let sx = self.gs.world.chunk_size_x as i32;
-                    let sz = self.gs.world.chunk_size_z as i32;
-                    let cx = wx.div_euclid(sx);
-                    let cz = wz.div_euclid(sz);
-                    if let Some(cent) = self.gs.chunks.get(&(cx, cz)) {
-                        if let Some(ref buf) = cent.buf {
-                            buf.get_world(wx, wy, wz).unwrap_or(Block::AIR)
-                        } else {
-                            self.gs.world.block_at_runtime(&self.reg, wx, wy, wz)
-                        }
+            // Determine if camera is underwater (used for fog + water + leaves)
+            let p_cam = self.cam.position;
+            let wx = p_cam.x.floor() as i32;
+            let wy = p_cam.y.floor() as i32;
+            let wz = p_cam.z.floor() as i32;
+            let b_cam = if let Some(edit) = self.gs.edits.get(wx, wy, wz) {
+                edit
+            } else {
+                // Prefer loaded chunk buffers before falling back to worldgen
+                let sx = self.gs.world.chunk_size_x as i32;
+                let sz = self.gs.world.chunk_size_z as i32;
+                let cx = wx.div_euclid(sx);
+                let cz = wz.div_euclid(sz);
+                if let Some(cent) = self.gs.chunks.get(&(cx, cz)) {
+                    if let Some(ref buf) = cent.buf {
+                        buf.get_world(wx, wy, wz).unwrap_or(Block::AIR)
                     } else {
                         self.gs.world.block_at_runtime(&self.reg, wx, wy, wz)
                     }
-                };
-                let underwater = self
-                    .reg
-                    .get(b.id)
-                    .map(|ty| ty.name == "water")
-                    .unwrap_or(false);
+                } else {
+                    self.gs.world.block_at_runtime(&self.reg, wx, wy, wz)
+                }
+            };
+            let underwater = self
+                .reg
+                .get(b_cam.id)
+                .map(|ty| ty.name == "water")
+                .unwrap_or(false);
+
+            // Update shader uniforms
+            let surface_fog = [210.0 / 255.0, 221.0 / 255.0, 235.0 / 255.0];
+            let cave_fog = [0.0, 0.0, 0.0];
+            // Underwater tint: soft blue-green
+            let water_fog = [0.16, 0.32, 0.45];
+            let world_h = self.gs.world.world_size_y() as f32;
+            let underground_thr = 0.30_f32 * world_h;
+            let underground = self.cam.position.y < underground_thr;
+            let mut fog_color = if underwater {
+                water_fog
+            } else if underground {
+                cave_fog
+            } else {
+                surface_fog
+            };
+            // Fog ranges: denser underwater
+            let mut fog_start = if underwater { 4.0 } else { 64.0 };
+            let mut fog_end = if underwater { 48.0 } else { 512.0 * 0.9 };
+            if let Some(ref mut ls) = self.leaves_shader {
+                ls.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end, time_now, underwater);
+            }
+            if let Some(ref mut fs) = self.fog_shader {
+                fs.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end, time_now, underwater);
+            }
+            if let Some(ref mut ws) = self.water_shader {
                 ws.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end, time_now, underwater);
             }
 
@@ -2283,7 +2292,9 @@ impl App {
                             .and_then(|m| m.render_tag.as_deref());
                         if tag == Some("water") {
                             self.debug_stats.draw_calls += 1;
+                            unsafe { raylib::ffi::rlDisableBackfaceCulling(); }
                             d3.draw_model(model, Vector3::zero(), 1.0, Color::WHITE);
+                            unsafe { raylib::ffi::rlEnableBackfaceCulling(); }
                         }
                     }
                 }
@@ -2311,7 +2322,9 @@ impl App {
                                 .and_then(|m| m.render_tag.as_deref());
                             if tag == Some("water") {
                                 self.debug_stats.draw_calls += 1;
+                                unsafe { raylib::ffi::rlDisableBackfaceCulling(); }
                                 d3.draw_model(model, vec3_to_rl(st.pose.pos), 1.0, Color::WHITE);
+                                unsafe { raylib::ffi::rlEnableBackfaceCulling(); }
                             }
                         }
                     }
