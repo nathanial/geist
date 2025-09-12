@@ -5,6 +5,7 @@ use geist_geom::Vec3;
 
 use crate::mesh_build::MeshBuild;
 use crate::face::Face;
+use crate::constants::OPAQUE_ALPHA;
 
 #[inline]
 pub(crate) fn emit_face_rect_for(
@@ -156,7 +157,7 @@ pub(crate) fn emit_box_generic(
     emit_box_faces(builds, min, max, |face| {
         if occludes(face) { return None; }
         let lv = sample_light(face);
-        let rgba = [lv, lv, lv, 255];
+        let rgba = [lv, lv, lv, OPAQUE_ALPHA];
         let mid = fm_for_face(face);
         Some((mid, rgba))
     });
@@ -191,4 +192,3 @@ pub(crate) fn emit_box_generic_clipped(
     if !(min.x < max.x && min.y < max.y && min.z < max.z) { return; }
     emit_box_generic(builds, min, max, fm_for_face, occludes, sample_light);
 }
-

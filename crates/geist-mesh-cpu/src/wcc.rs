@@ -12,6 +12,7 @@ use crate::emit::emit_face_rect_for_clipped;
 use crate::face::Face;
 use crate::mesh_build::MeshBuild;
 use crate::util::{apply_min_light, registry_material_for_or_unknown, VISUAL_LIGHT_MIN, greedy_rects};
+use crate::constants::{OPAQUE_ALPHA, BITS_PER_WORD, WORD_INDEX_MASK, WORD_INDEX_SHIFT};
 
 // Emit greedy quads for a given axis by expanding a mask sourced from FaceGrids.
 macro_rules! emit_plane_mask {
@@ -36,7 +37,7 @@ macro_rules! emit_plane_mask {
             greedy_rects(width, height, &mut mask, |u0, v0, w, h, codev| {
                 let ((mid, pos), l) = codev;
                 let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN));
-                let rgba = [lv, lv, lv, 255];
+                let rgba = [lv, lv, lv, OPAQUE_ALPHA];
                 let face = if pos { Face::PosX } else { Face::NegX };
                 let scale = 1.0 / $self.S as f32;
                 let origin = Vec3 { x: ($self.base_x as f32) + (ix as f32) * scale, y: (v0 as f32) * scale, z: ($self.base_z as f32) + (u0 as f32) * scale };
@@ -67,7 +68,7 @@ macro_rules! emit_plane_mask {
             greedy_rects(width, height, &mut mask, |u0, v0, w, h, codev| {
                 let ((mid, pos), l) = codev;
                 let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN));
-                let rgba = [lv, lv, lv, 255];
+                let rgba = [lv, lv, lv, OPAQUE_ALPHA];
                 let face = if pos { Face::PosY } else { Face::NegY };
                 let scale = 1.0 / $self.S as f32;
                 let origin = Vec3 { x: ($self.base_x as f32) + (u0 as f32) * scale, y: (iy as f32) * scale, z: ($self.base_z as f32) + (v0 as f32) * scale };
@@ -98,7 +99,7 @@ macro_rules! emit_plane_mask {
             greedy_rects(width, height, &mut mask, |u0, v0, w, h, codev| {
                 let ((mid, pos), l) = codev;
                 let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN));
-                let rgba = [lv, lv, lv, 255];
+                let rgba = [lv, lv, lv, OPAQUE_ALPHA];
                 let face = if pos { Face::PosZ } else { Face::NegZ };
                 let scale = 1.0 / $self.S as f32;
                 let origin = Vec3 { x: ($self.base_x as f32) + (u0 as f32) * scale, y: (v0 as f32) * scale, z: ($self.base_z as f32) + (iz as f32) * scale };
@@ -137,13 +138,13 @@ impl KeyTable {
 
 struct Bitset { data: Vec<u64> }
 impl Bitset {
-    fn new(n: usize) -> Self { Self { data: vec![0; (n + 63) / 64] } }
+    fn new(n: usize) -> Self { Self { data: vec![0; (n + WORD_INDEX_MASK) / BITS_PER_WORD] } }
     #[inline]
-    fn toggle(&mut self, i: usize) { let w = i >> 6; let b = i & 63; self.data[w] ^= 1u64 << b; }
+    fn toggle(&mut self, i: usize) { let w = i >> WORD_INDEX_SHIFT; let b = i & WORD_INDEX_MASK; self.data[w] ^= 1u64 << b; }
     #[inline]
-    fn set(&mut self, i: usize, v: bool) { let w = i >> 6; let b = i & 63; if v { self.data[w] |= 1u64 << b; } else { self.data[w] &= !(1u64 << b); } }
+    fn set(&mut self, i: usize, v: bool) { let w = i >> WORD_INDEX_SHIFT; let b = i & WORD_INDEX_MASK; if v { self.data[w] |= 1u64 << b; } else { self.data[w] &= !(1u64 << b); } }
     #[inline]
-    fn get(&self, i: usize) -> bool { let w = i >> 6; let b = i & 63; (self.data[w] >> b) & 1 != 0 }
+    fn get(&self, i: usize) -> bool { let w = i >> WORD_INDEX_SHIFT; let b = i & WORD_INDEX_MASK; (self.data[w] >> b) & 1 != 0 }
 }
 
 struct FaceGrids {

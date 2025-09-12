@@ -13,6 +13,7 @@ use crate::face::Face;
 use crate::mesh_build::MeshBuild;
 use crate::util::{VISUAL_LIGHT_MIN, is_occluder, is_full_cube, is_top_half_shape, microgrid_boxes, unknown_material_id};
 use crate::wcc::WccMesher;
+use crate::constants::MICROGRID_STEPS;
 
 /// Build a chunk mesh using Watertight Cubical Complex (WCC) at S=1 (full cubes only).
 /// Phase 1: Only full cubes contribute; micro/dynamic shapes are ignored here.
@@ -36,8 +37,8 @@ pub fn build_chunk_wcc_cpu_buf(
         None => return None,
     };
 
-    // Phase 2: Use a single WCC mesher at S=2 to cover full cubes and micro occupancy.
-    let S: usize = 2;
+    // Phase 2: Use a single WCC mesher at S=MICROGRID_STEPS to cover full cubes and micro occupancy.
+    let S: usize = MICROGRID_STEPS;
     let mut wm = WccMesher::new(buf, &light, reg, S, base_x, base_z, world, edits);
 
     for z in 0..sz {

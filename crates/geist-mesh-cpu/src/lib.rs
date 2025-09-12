@@ -3,6 +3,7 @@
 
 pub mod microgrid_tables;
 
+mod constants;
 mod face;
 mod mesh_build;
 mod neighbors;
@@ -19,4 +20,3 @@ pub use chunk::ChunkMeshCPU;
 pub use wcc::WccMesher;
 pub use build::{build_chunk_wcc_cpu_buf, build_voxel_body_cpu_buf};
 pub use util::is_full_cube;
-

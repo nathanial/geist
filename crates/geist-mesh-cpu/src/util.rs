@@ -8,6 +8,7 @@ use geist_world::World;
 use geist_geom::Vec3;
 
 use crate::face::Face;
+use crate::constants::MICRO_HALF_STEP_SIZE;
 
 // Visual-only lighting floor to avoid pitch-black faces in darkness.
 // Does not affect logical light propagation.
@@ -186,7 +187,7 @@ pub(crate) fn apply_min_light(l: u8, min: Option<u8>) -> u8 {
 #[inline]
 pub(crate) fn microgrid_boxes(fx: f32, fy: f32, fz: f32, occ: u8) -> Vec<(Vec3, Vec3)> {
     use crate::microgrid_tables::occ8_to_boxes;
-    let cell = 0.5f32;
+    let cell = MICRO_HALF_STEP_SIZE;
     let mut out = Vec::new();
     for b in occ8_to_boxes(occ) {
         let min = Vec3 {
