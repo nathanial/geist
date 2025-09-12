@@ -74,3 +74,6 @@ acacia_log = { paths = ["assets/blocks/log_acacia.png"], render_tag = "log" }
 acacia_log_top = { paths = ["assets/blocks/log_acacia_top.png"], render_tag = "log" }
 acacia_planks = ["assets/blocks/planks_acacia.png"]
 acacia_leaves = { paths = ["assets/blocks/leaves_acacia_opaque.png"], render_tag = "leaves" }
+
+# Fluids
+water = { paths = ["assets/blocks/water_still.png"], render_tag = "water" }

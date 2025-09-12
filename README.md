@@ -143,6 +143,7 @@ Dependency direction:
 - Shaders: `assets/shaders/`
   - Core: `voxel_fog_textured.vs`, `voxel_fog_textured.fs`, and `voxel_fog_leaves.fs`.
   - Hot‑reload: edits in `assets/shaders/` reload shaders and rebind them on existing models.
+  - Water: `voxel_water.fs` fragment shader is used for materials tagged `render_tag = "water"`; it supports a subtle wave effect and an underwater mode.
 
 - Worldgen config: `assets/worldgen/worldgen.toml`
   - Hot‑reload: enabled by default (`--watch-worldgen`). On change, worldgen params update; optionally triggers rebuilds (`--rebuild-on-worldgen-change`).

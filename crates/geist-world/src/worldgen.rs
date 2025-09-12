@@ -24,6 +24,8 @@ pub struct WorldGenConfig {
     pub features: Vec<FeatureRule>,
     #[serde(default)]
     pub biomes: Biomes,
+    #[serde(default)]
+    pub water: Water,
 }
 
 impl Default for WorldGenConfig {
@@ -38,6 +40,7 @@ impl Default for WorldGenConfig {
             trees: Trees::default(),
             features: Vec::new(),
             biomes: Biomes::default(),
+            water: Water::default(),
         }
     }
 }
@@ -172,6 +175,21 @@ impl Default for Surface {
             top: default_top_names(),
             subsoil: default_sub_names(),
         }
+    }
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct Water {
+    #[serde(default = "default_water_enable")]
+    pub enable: bool,
+    #[serde(default = "default_water_level_ratio")]
+    pub level_ratio: f32,
+}
+fn default_water_enable() -> bool { true }
+fn default_water_level_ratio() -> f32 { 0.33 }
+impl Default for Water {
+    fn default() -> Self {
+        Self { enable: true, level_ratio: default_water_level_ratio() }
     }
 }
 
@@ -379,6 +397,8 @@ pub struct WorldGenParams {
     // Platform controls (for flying structures)
     pub platform_y_ratio: f32,
     pub platform_y_offset: f32,
+    pub water_enable: bool,
+    pub water_level_ratio: f32,
 }
 
 impl WorldGenParams {
@@ -428,6 +448,8 @@ impl WorldGenParams {
             },
             platform_y_ratio: cfg.platform.y_ratio,
             platform_y_offset: cfg.platform.y_offset,
+            water_enable: cfg.water.enable,
+            water_level_ratio: cfg.water.level_ratio,
         }
     }
 }

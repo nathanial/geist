@@ -422,3 +422,69 @@ impl FogShader {
         }
     }
 }
+
+pub struct WaterShader {
+    pub shader: raylib::shaders::WeakShader,
+    pub loc_fog_color: i32,
+    pub loc_fog_start: i32,
+    pub loc_fog_end: i32,
+    pub loc_camera_pos: i32,
+    pub loc_time: i32,
+    pub loc_underwater: i32,
+}
+
+impl WaterShader {
+    pub fn load_with_base(
+        rl: &mut RaylibHandle,
+        thread: &RaylibThread,
+        base: &std::path::Path,
+    ) -> Option<Self> {
+        let vs = base.join("assets/shaders/voxel_fog_textured.vs");
+        let fs = base.join("assets/shaders/voxel_water.fs");
+        let shader_strong = rl.load_shader(
+            thread,
+            Some(vs.to_string_lossy().as_ref()),
+            Some(fs.to_string_lossy().as_ref()),
+        );
+        let shader = unsafe { shader_strong.make_weak() };
+        Some(Self {
+            loc_fog_color: shader.get_shader_location("fogColor"),
+            loc_fog_start: shader.get_shader_location("fogStart"),
+            loc_fog_end: shader.get_shader_location("fogEnd"),
+            loc_camera_pos: shader.get_shader_location("cameraPos"),
+            loc_time: shader.get_shader_location("time"),
+            loc_underwater: shader.get_shader_location("underwater"),
+            shader,
+        })
+    }
+    pub fn update_frame_uniforms(
+        &mut self,
+        camera_pos: Vector3,
+        fog_color: [f32; 3],
+        fog_start: f32,
+        fog_end: f32,
+        time: f32,
+        underwater: bool,
+    ) {
+        if self.loc_fog_color >= 0 {
+            self.shader.set_shader_value(self.loc_fog_color, fog_color);
+        }
+        if self.loc_fog_start >= 0 {
+            self.shader.set_shader_value(self.loc_fog_start, fog_start);
+        }
+        if self.loc_fog_end >= 0 {
+            self.shader.set_shader_value(self.loc_fog_end, fog_end);
+        }
+        if self.loc_camera_pos >= 0 {
+            let cam = [camera_pos.x, camera_pos.y, camera_pos.z];
+            self.shader.set_shader_value(self.loc_camera_pos, cam);
+        }
+        if self.loc_time >= 0 {
+            self.shader.set_shader_value(self.loc_time, time);
+        }
+        if self.loc_underwater >= 0 {
+            let v: i32 = if underwater { 1 } else { 0 };
+            self.shader.set_shader_value(self.loc_underwater, v);
+        }
+    }
+}

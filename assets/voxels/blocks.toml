@@ -67,6 +67,16 @@ emission = 0
 shape = "cube"
 materials = { all = "snow" }
 
+# Water (meshed as solid for surfaces, but treated non-collidable in player)
+[[blocks]]
+name = "water"
+solid = true
+blocks_skylight = true
+propagates_light = false
+emission = 0
+shape = "cube"
+materials = { all = "water" }
+
 [[blocks]]
 name = "glowstone"
 solid = true

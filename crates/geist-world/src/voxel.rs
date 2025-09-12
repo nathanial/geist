@@ -371,6 +371,11 @@ impl World {
             hh.clamp(1, self.chunk_size_y as i32 - 1)
         };
         let height = height_for(x, z);
+        let water_level_y = if ctx.params.water_enable {
+            (self.chunk_size_y as f32 * ctx.params.water_level_ratio).round() as i32
+        } else {
+            -1
+        };
 
         // Biomes helpers
         let climate_for = |wx: i32, wz: i32| -> Option<(f32, f32)> {
@@ -436,6 +441,11 @@ impl World {
         } else {
             &ctx.params.sub_deep
         };
+
+        // Water fill: above terrain and below/at water level becomes water
+        if base == "air" && ctx.params.water_enable && y <= water_level_y {
+            base = "water";
+        }
 
         // --- Cave carving ---
         let mut carved_here = false;
@@ -556,6 +566,7 @@ impl World {
                     base = "air";
                     carved_here = true;
                 }
+                // Water fill for carved interior handled by global check above
 
                 // Neighbor-solid check used by features
                 let mut near_solid_cache: Option<bool> = None;

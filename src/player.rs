@@ -41,7 +41,13 @@ impl Walker {
 
     #[inline]
     fn is_solid_for_collision(reg: &BlockRegistry, b: Block) -> bool {
-        reg.get(b.id).map(|t| t.is_solid(b.state)).unwrap_or(false)
+        if let Some(t) = reg.get(b.id) {
+            if t.name == "water" {
+                return false;
+            }
+            return t.is_solid(b.state);
+        }
+        false
     }
 
     fn aabb_collides_with<F>(&self, reg: &BlockRegistry, sample: &F, pos: Vector3) -> bool

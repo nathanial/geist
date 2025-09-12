@@ -10,9 +10,14 @@ y_ratio = 0.50
 y_offset = 16.0
 
 [height]
-frequency = 0.004
-min_y_ratio = 0.4
-max_y_ratio = 0.45
+frequency = 0.04
+min_y_ratio = 0.2
+max_y_ratio = 0.4
+
+[water]
+# Enable oceans/lakes and pick a global sea level as a ratio of world height
+enable = true
+level_ratio = 0.33
 
 [surface]
 snow_threshold = 0.62
@@ -39,8 +44,8 @@ warp = { octaves = 3, persistence = 0.6,  lacunarity = 2.0, scale = 220.0 }
 
 # Biomes: optional column-level selection that can override top surface and tree species weights
 [biomes]
-# debug_pack_all = true
-# debug_cell_size = 32
+debug_pack_all = true
+debug_cell_size = 32
 enable = true
 [biomes.temp]
 frequency = 0.001

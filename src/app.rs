@@ -37,6 +37,7 @@ pub struct App {
     // Renderer-side resources (moved from runtime in Phase 5)
     pub leaves_shader: Option<LeavesShader>,
     pub fog_shader: Option<FogShader>,
+    pub water_shader: Option<geist_render_raylib::WaterShader>,
     pub tex_cache: TextureCache,
     pub renders: HashMap<(i32, i32), ChunkRender>,
     pub structure_renders: HashMap<StructureId, ChunkRender>,
@@ -379,6 +380,7 @@ impl App {
             .or_else(|| LeavesShader::load(rl, thread));
         let fog_shader =
             FogShader::load_with_base(rl, thread, &assets_root).or_else(|| FogShader::load(rl, thread));
+        let water_shader = geist_render_raylib::WaterShader::load_with_base(rl, thread, &assets_root);
         let tex_cache = TextureCache::new();
         // File watcher for textures under assets/blocks
         let (tex_tx, tex_rx) = std::sync::mpsc::channel::<String>();
@@ -709,6 +711,7 @@ impl App {
             hotbar,
             leaves_shader,
             fog_shader,
+            water_shader,
             tex_cache,
             renders: HashMap::new(),
             structure_renders: HashMap::new(),
@@ -1155,17 +1158,25 @@ impl App {
                 {
                     for (mid, model) in &mut cr.parts {
                         if let Some(mat) = model.materials_mut().get_mut(0) {
-                            let leaves = self
+                            let tag = self
                                 .reg
                                 .materials
                                 .get(*mid)
-                                .and_then(|m| m.render_tag.as_deref())
-                                == Some("leaves");
-                            if leaves {
+                                .and_then(|m| m.render_tag.as_deref());
+                            if tag == Some("leaves") {
                                 if let Some(ref ls) = self.leaves_shader {
                                     let dest = mat.shader_mut();
                                     let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
                                     let src_ptr: *const raylib::ffi::Shader = ls.shader.as_ref();
+                                    unsafe {
+                                        std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1);
+                                    }
+                                }
+                            } else if tag == Some("water") {
+                                if let Some(ref ws) = self.water_shader {
+                                    let dest = mat.shader_mut();
+                                    let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
+                                    let src_ptr: *const raylib::ffi::Shader = ws.shader.as_ref();
                                     unsafe {
                                         std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1);
                                     }
@@ -1244,17 +1255,25 @@ impl App {
                     // Assign shaders
                     for (mid, model) in &mut cr.parts {
                         if let Some(mat) = model.materials_mut().get_mut(0) {
-                            let leaves = self
+                            let tag = self
                                 .reg
                                 .materials
                                 .get(*mid)
-                                .and_then(|m| m.render_tag.as_deref())
-                                == Some("leaves");
-                            if leaves {
+                                .and_then(|m| m.render_tag.as_deref());
+                            if tag == Some("leaves") {
                                 if let Some(ref ls) = self.leaves_shader {
                                     let dest = mat.shader_mut();
                                     let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
                                     let src_ptr: *const raylib::ffi::Shader = ls.shader.as_ref();
+                                    unsafe {
+                                        std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1);
+                                    }
+                                }
+                            } else if tag == Some("water") {
+                                if let Some(ref ws) = self.water_shader {
+                                    let dest = mat.shader_mut();
+                                    let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
+                                    let src_ptr: *const raylib::ffi::Shader = ws.shader.as_ref();
                                     unsafe {
                                         std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1);
                                     }
@@ -1662,21 +1681,34 @@ impl App {
             ) {
                 self.fog_shader = Some(fs);
             }
+            if let Some(ws) = geist_render_raylib::WaterShader::load_with_base(
+                rl,
+                thread,
+                &self.assets_root,
+            ) {
+                self.water_shader = Some(ws);
+            }
             // Rebind shaders on all existing models
             let mut rebind = |parts: &mut Vec<(geist_blocks::types::MaterialId, raylib::core::models::Model)>| {
                 for (mid, model) in parts.iter_mut() {
                     if let Some(mat) = model.materials_mut().get_mut(0) {
-                        let leaves = self
+                        let tag = self
                             .reg
                             .materials
                             .get(*mid)
-                            .and_then(|m| m.render_tag.as_deref())
-                            == Some("leaves");
-                        if leaves {
+                            .and_then(|m| m.render_tag.as_deref());
+                        if tag == Some("leaves") {
                             if let Some(ref ls) = self.leaves_shader {
                                 let dest = mat.shader_mut();
                                 let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
                                 let src_ptr: *const raylib::ffi::Shader = ls.shader.as_ref();
+                                unsafe { std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1) };
+                            }
+                        } else if tag == Some("water") {
+                            if let Some(ref ws) = self.water_shader {
+                                let dest = mat.shader_mut();
+                                let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
+                                let src_ptr: *const raylib::ffi::Shader = ws.shader.as_ref();
                                 unsafe { std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1) };
                             }
                         } else if let Some(ref fs) = self.fog_shader {
@@ -2065,6 +2097,7 @@ impl App {
         let frustum = self.cam.calculate_frustum(aspect_ratio, 0.1, 10000.0); // Increased far plane
 
         let camera3d = self.cam.to_camera3d();
+        let time_now = rl.get_time() as f32;
         let mut d = rl.begin_drawing(thread);
         d.clear_background(Color::new(210, 221, 235, 255));
         // Ensure the depth buffer is cleared every frame to avoid ghost silhouettes when moving
@@ -2092,6 +2125,37 @@ impl App {
             }
             if let Some(ref mut fs) = self.fog_shader {
                 fs.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end);
+            }
+            if let Some(ref mut ws) = self.water_shader {
+                // Determine if camera is underwater
+                let p = self.cam.position;
+                let wx = p.x.floor() as i32;
+                let wy = p.y.floor() as i32;
+                let wz = p.z.floor() as i32;
+                let b = if let Some(edit) = self.gs.edits.get(wx, wy, wz) {
+                    edit
+                } else {
+                    // Prefer loaded chunk buffers before falling back to worldgen
+                    let sx = self.gs.world.chunk_size_x as i32;
+                    let sz = self.gs.world.chunk_size_z as i32;
+                    let cx = wx.div_euclid(sx);
+                    let cz = wz.div_euclid(sz);
+                    if let Some(cent) = self.gs.chunks.get(&(cx, cz)) {
+                        if let Some(ref buf) = cent.buf {
+                            buf.get_world(wx, wy, wz).unwrap_or(Block::AIR)
+                        } else {
+                            self.gs.world.block_at_runtime(&self.reg, wx, wy, wz)
+                        }
+                    } else {
+                        self.gs.world.block_at_runtime(&self.reg, wx, wy, wz)
+                    }
+                };
+                let underwater = self
+                    .reg
+                    .get(b.id)
+                    .map(|ty| ty.name == "water")
+                    .unwrap_or(false);
+                ws.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end, time_now, underwater);
             }
 
             for cr in self.renders.values() {
