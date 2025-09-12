@@ -6,7 +6,7 @@ use geist_blocks::micro::{micro_cell_solid_s2, micro_face_cell_open_s2};
 use geist_blocks::types::Block;
 use geist_chunk::ChunkBuf;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 mod micro;
 
@@ -19,36 +19,36 @@ mod micro;
 // - Z faces: size = Xm * Ym, index = my * Xm + mx
 #[derive(Clone)]
 pub struct MicroBorders {
-    pub xm_sk_neg: Vec<u8>,
-    pub xm_sk_pos: Vec<u8>,
-    pub ym_sk_neg: Vec<u8>,
-    pub ym_sk_pos: Vec<u8>,
-    pub zm_sk_neg: Vec<u8>,
-    pub zm_sk_pos: Vec<u8>,
-    pub xm_bl_neg: Vec<u8>,
-    pub xm_bl_pos: Vec<u8>,
-    pub ym_bl_neg: Vec<u8>,
-    pub ym_bl_pos: Vec<u8>,
-    pub zm_bl_neg: Vec<u8>,
-    pub zm_bl_pos: Vec<u8>,
+    pub xm_sk_neg: Arc<[u8]>,
+    pub xm_sk_pos: Arc<[u8]>,
+    pub ym_sk_neg: Arc<[u8]>,
+    pub ym_sk_pos: Arc<[u8]>,
+    pub zm_sk_neg: Arc<[u8]>,
+    pub zm_sk_pos: Arc<[u8]>,
+    pub xm_bl_neg: Arc<[u8]>,
+    pub xm_bl_pos: Arc<[u8]>,
+    pub ym_bl_neg: Arc<[u8]>,
+    pub ym_bl_pos: Arc<[u8]>,
+    pub zm_bl_neg: Arc<[u8]>,
+    pub zm_bl_pos: Arc<[u8]>,
     pub xm: usize,
     pub ym: usize,
     pub zm: usize,
 }
 
 pub struct NeighborMicroBorders {
-    pub xm_sk_neg: Option<Vec<u8>>,
-    pub xm_sk_pos: Option<Vec<u8>>,
-    pub ym_sk_neg: Option<Vec<u8>>,
-    pub ym_sk_pos: Option<Vec<u8>>,
-    pub zm_sk_neg: Option<Vec<u8>>,
-    pub zm_sk_pos: Option<Vec<u8>>,
-    pub xm_bl_neg: Option<Vec<u8>>,
-    pub xm_bl_pos: Option<Vec<u8>>,
-    pub ym_bl_neg: Option<Vec<u8>>,
-    pub ym_bl_pos: Option<Vec<u8>>,
-    pub zm_bl_neg: Option<Vec<u8>>,
-    pub zm_bl_pos: Option<Vec<u8>>,
+    pub xm_sk_neg: Option<Arc<[u8]>>,
+    pub xm_sk_pos: Option<Arc<[u8]>>,
+    pub ym_sk_neg: Option<Arc<[u8]>>,
+    pub ym_sk_pos: Option<Arc<[u8]>>,
+    pub zm_sk_neg: Option<Arc<[u8]>>,
+    pub zm_sk_pos: Option<Arc<[u8]>>,
+    pub xm_bl_neg: Option<Arc<[u8]>>,
+    pub xm_bl_pos: Option<Arc<[u8]>>,
+    pub ym_bl_neg: Option<Arc<[u8]>>,
+    pub ym_bl_pos: Option<Arc<[u8]>>,
+    pub zm_bl_neg: Option<Arc<[u8]>>,
+    pub zm_bl_pos: Option<Arc<[u8]>>,
     pub xm: usize,
     pub ym: usize,
     pub zm: usize,
@@ -162,20 +162,20 @@ pub struct LightGrid {
     pub(crate) mzs: usize,
     // Optional neighbor micro border planes at chunk seams
     // X faces: size = mys * mzs (index = my * mzs + mz)
-    pub(crate) mnb_xn_sky: Option<Vec<u8>>,
-    pub(crate) mnb_xp_sky: Option<Vec<u8>>,
-    pub(crate) mnb_xn_blk: Option<Vec<u8>>,
-    pub(crate) mnb_xp_blk: Option<Vec<u8>>,
+    pub(crate) mnb_xn_sky: Option<Arc<[u8]>>,
+    pub(crate) mnb_xp_sky: Option<Arc<[u8]>>,
+    pub(crate) mnb_xn_blk: Option<Arc<[u8]>>,
+    pub(crate) mnb_xp_blk: Option<Arc<[u8]>>,
     // Z faces: size = mys * mxs (index = my * mxs + mx)
-    pub(crate) mnb_zn_sky: Option<Vec<u8>>,
-    pub(crate) mnb_zp_sky: Option<Vec<u8>>,
-    pub(crate) mnb_zn_blk: Option<Vec<u8>>,
-    pub(crate) mnb_zp_blk: Option<Vec<u8>>,
+    pub(crate) mnb_zn_sky: Option<Arc<[u8]>>,
+    pub(crate) mnb_zp_sky: Option<Arc<[u8]>>,
+    pub(crate) mnb_zn_blk: Option<Arc<[u8]>>,
+    pub(crate) mnb_zp_blk: Option<Arc<[u8]>>,
     // Y faces (usually not chunked vertically): size = mzs * mxs (index = mz * mxs + mx)
-    pub(crate) mnb_yn_sky: Option<Vec<u8>>,
-    pub(crate) mnb_yp_sky: Option<Vec<u8>>,
-    pub(crate) mnb_yn_blk: Option<Vec<u8>>,
-    pub(crate) mnb_yp_blk: Option<Vec<u8>>,
+    pub(crate) mnb_yn_sky: Option<Arc<[u8]>>,
+    pub(crate) mnb_yp_sky: Option<Arc<[u8]>>,
+    pub(crate) mnb_yn_blk: Option<Arc<[u8]>>,
+    pub(crate) mnb_yp_blk: Option<Arc<[u8]>>,
     pub(crate) nb_xn_blk: Option<Vec<u8>>,
     pub(crate) nb_xp_blk: Option<Vec<u8>>,
     pub(crate) nb_zn_blk: Option<Vec<u8>>,

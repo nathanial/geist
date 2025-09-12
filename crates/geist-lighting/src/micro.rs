@@ -1,4 +1,5 @@
 use crate::{LightGrid, LightingStore, MicroBorders};
+// (Arc used via .into() conversions when publishing planes)
 use geist_blocks::micro::{micro_cell_solid_s2, micro_face_cell_open_s2};
 use geist_blocks::{BlockRegistry, types::Block};
 use geist_chunk::ChunkBuf;
@@ -119,10 +120,9 @@ pub fn compute_light_with_borders_buf_micro(
         full[i] != 0
     }
 
-    // Propagation queues (seed inline as we write values)
-    use std::collections::VecDeque;
-    let mut q_blk: VecDeque<(usize, usize, usize, u8)> = VecDeque::with_capacity(mxs * mzs);
-    let mut q_sky: VecDeque<(usize, usize, usize, u8)> = VecDeque::with_capacity(mxs * mzs);
+    // Bucketed queues keyed by (level & 15) to avoid churn
+    let mut q_blk: [Vec<(usize, usize, usize, u8)>; 16] = std::array::from_fn(|_| Vec::new());
+    let mut q_sky: [Vec<(usize, usize, usize, u8)>; 16] = std::array::from_fn(|_| Vec::new());
 
     // Seed skylight from open-above micro columns (world-local within chunk)
     for mz in 0..mzs {
@@ -134,7 +134,8 @@ pub fn compute_light_with_borders_buf_micro(
                         let i = midx(mx, my, mz, mxs, mzs);
                         if micro_sky[i] == 0 {
                             micro_sky[i] = MAX_LIGHT;
-                            q_sky.push_back((mx, my, mz, MAX_LIGHT));
+                            let r = (MAX_LIGHT & 0x0F) as usize;
+                            q_sky[r].push((mx, my, mz, MAX_LIGHT));
                         }
                     } else {
                         open_above = false;
@@ -207,14 +208,16 @@ pub fn compute_light_with_borders_buf_micro(
                             && micro_blk[i] < seed_blk_nx
                         {
                             micro_blk[i] = seed_blk_nx;
-                            q_blk.push_back((0, my, mz, seed_blk_nx));
+                            let r = (seed_blk_nx & 0x0F) as usize;
+                            q_blk[r].push((0, my, mz, seed_blk_nx));
                         }
                         if seed_sky_nx > 0
                             && !micro_solid_at_fast(0, my, mz, buf, &occ8, &full)
                             && micro_sky[i] < seed_sky_nx
                         {
                             micro_sky[i] = seed_sky_nx;
-                            q_sky.push_back((0, my, mz, seed_sky_nx));
+                            let r = (seed_sky_nx & 0x0F) as usize;
+                            q_sky[r].push((0, my, mz, seed_sky_nx));
                         }
                     }
                     // +X
@@ -245,14 +248,16 @@ pub fn compute_light_with_borders_buf_micro(
                             && micro_blk[i] < seed_blk_px
                         {
                             micro_blk[i] = seed_blk_px;
-                            q_blk.push_back((mxs - 1, my, mz, seed_blk_px));
+                            let r = (seed_blk_px & 0x0F) as usize;
+                            q_blk[r].push((mxs - 1, my, mz, seed_blk_px));
                         }
                         if seed_sky_px > 0
                             && !micro_solid_at_fast(mxs - 1, my, mz, buf, &occ8, &full)
                             && micro_sky[i] < seed_sky_px
                         {
                             micro_sky[i] = seed_sky_px;
-                            q_sky.push_back((mxs - 1, my, mz, seed_sky_px));
+                            let r = (seed_sky_px & 0x0F) as usize;
+                            q_sky[r].push((mxs - 1, my, mz, seed_sky_px));
                         }
                     }
                 }
@@ -311,14 +316,16 @@ pub fn compute_light_with_borders_buf_micro(
                             && micro_blk[i] < seed_blk_nz
                         {
                             micro_blk[i] = seed_blk_nz;
-                            q_blk.push_back((mx, my, 0, seed_blk_nz));
+                            let r = (seed_blk_nz & 0x0F) as usize;
+                            q_blk[r].push((mx, my, 0, seed_blk_nz));
                         }
                         if seed_sky_nz > 0
                             && !micro_solid_at_fast(mx, my, 0, buf, &occ8, &full)
                             && micro_sky[i] < seed_sky_nz
                         {
                             micro_sky[i] = seed_sky_nz;
-                            q_sky.push_back((mx, my, 0, seed_sky_nz));
+                            let r = (seed_sky_nz & 0x0F) as usize;
+                            q_sky[r].push((mx, my, 0, seed_sky_nz));
                         }
                     }
                     // +Z
@@ -349,14 +356,16 @@ pub fn compute_light_with_borders_buf_micro(
                             && micro_blk[i] < seed_blk_pz
                         {
                             micro_blk[i] = seed_blk_pz;
-                            q_blk.push_back((mx, my, mzs - 1, seed_blk_pz));
+                            let r = (seed_blk_pz & 0x0F) as usize;
+                            q_blk[r].push((mx, my, mzs - 1, seed_blk_pz));
                         }
                         if seed_sky_pz > 0
                             && !micro_solid_at_fast(mx, my, mzs - 1, buf, &occ8, &full)
                             && micro_sky[i] < seed_sky_pz
                         {
                             micro_sky[i] = seed_sky_pz;
-                            q_sky.push_back((mx, my, mzs - 1, seed_sky_pz));
+                            let r = (seed_sky_pz & 0x0F) as usize;
+                            q_sky[r].push((mx, my, mzs - 1, seed_sky_pz));
                         }
                     }
                 }
@@ -379,7 +388,8 @@ pub fn compute_light_with_borders_buf_micro(
                         let i = midx(mx, my, mz, mxs, mzs);
                         if micro_blk[i] < level {
                             micro_blk[i] = level;
-                            q_blk.push_back((mx, my, mz, level));
+                            let r = (level & 0x0F) as usize;
+                            q_blk[r].push((mx, my, mz, level));
                         }
                     }
                 }
@@ -421,199 +431,103 @@ pub fn compute_light_with_borders_buf_micro(
         }
     };
 
-    while let Some((mx, my, mz, level)) = q_blk.pop_front() {
-        if level <= 1 {
-            continue;
-        }
-        let lvl = level;
-        let (mx_i, my_i, mz_i) = (mx as i32, my as i32, mz as i32);
-        let before = micro_blk[midx(mx, my, mz, mxs, mzs)];
-        if before != lvl {
-            continue;
-        }
-        push(
-            mx_i + 1,
-            my_i,
-            mz_i,
-            mxs,
-            mys,
-            mzs,
-            &mut micro_blk,
-            lvl,
-            att_blk,
-        );
-        push(
-            mx_i - 1,
-            my_i,
-            mz_i,
-            mxs,
-            mys,
-            mzs,
-            &mut micro_blk,
-            lvl,
-            att_blk,
-        );
-        push(
-            mx_i,
-            my_i + 1,
-            mz_i,
-            mxs,
-            mys,
-            mzs,
-            &mut micro_blk,
-            lvl,
-            att_blk,
-        );
-        push(
-            mx_i,
-            my_i - 1,
-            mz_i,
-            mxs,
-            mys,
-            mzs,
-            &mut micro_blk,
-            lvl,
-            att_blk,
-        );
-        push(
-            mx_i,
-            my_i,
-            mz_i + 1,
-            mxs,
-            mys,
-            mzs,
-            &mut micro_blk,
-            lvl,
-            att_blk,
-        );
-        push(
-            mx_i,
-            my_i,
-            mz_i - 1,
-            mxs,
-            mys,
-            mzs,
-            &mut micro_blk,
-            lvl,
-            att_blk,
-        );
-        // enqueue neighbors that we updated
-        let neigh = [
-            (mx_i + 1, my_i, mz_i),
-            (mx_i - 1, my_i, mz_i),
-            (mx_i, my_i + 1, mz_i),
-            (mx_i, my_i - 1, mz_i),
-            (mx_i, my_i, mz_i + 1),
-            (mx_i, my_i, mz_i - 1),
-        ];
-        for &(nx, ny, nz) in &neigh {
-            if nx >= 0 && ny >= 0 && nz >= 0 {
-                let (nxu, nyu, nzu) = (nx as usize, ny as usize, nz as usize);
-                if nxu < mxs && nyu < mys && nzu < mzs {
-                    let ii = midx(nxu, nyu, nzu, mxs, mzs);
-                    if (micro_blk[ii] as u16 + att_blk as u16) == (lvl as u16) {
-                        q_blk.push_back((nxu, nyu, nzu, micro_blk[ii]));
+    // Drain bucketed block-light queues until empty
+    loop {
+        let mut progressed = false;
+        for rem in 0..16 {
+            while let Some((mx, my, mz, level)) = q_blk[rem].pop() {
+                if level <= 1 {
+                    continue;
+                }
+                let lvl = level;
+                let (mx_i, my_i, mz_i) = (mx as i32, my as i32, mz as i32);
+                let before = micro_blk[midx(mx, my, mz, mxs, mzs)];
+                if before != lvl {
+                    continue;
+                }
+                push(mx_i + 1, my_i, mz_i, mxs, mys, mzs, &mut micro_blk, lvl, att_blk);
+                push(mx_i - 1, my_i, mz_i, mxs, mys, mzs, &mut micro_blk, lvl, att_blk);
+                push(mx_i, my_i + 1, mz_i, mxs, mys, mzs, &mut micro_blk, lvl, att_blk);
+                push(mx_i, my_i - 1, mz_i, mxs, mys, mzs, &mut micro_blk, lvl, att_blk);
+                push(mx_i, my_i, mz_i + 1, mxs, mys, mzs, &mut micro_blk, lvl, att_blk);
+                push(mx_i, my_i, mz_i - 1, mxs, mys, mzs, &mut micro_blk, lvl, att_blk);
+                // enqueue neighbors that we updated
+                let neigh = [
+                    (mx_i + 1, my_i, mz_i),
+                    (mx_i - 1, my_i, mz_i),
+                    (mx_i, my_i + 1, mz_i),
+                    (mx_i, my_i - 1, mz_i),
+                    (mx_i, my_i, mz_i + 1),
+                    (mx_i, my_i, mz_i - 1),
+                ];
+                for &(nx, ny, nz) in &neigh {
+                    if nx >= 0 && ny >= 0 && nz >= 0 {
+                        let (nxu, nyu, nzu) = (nx as usize, ny as usize, nz as usize);
+                        if nxu < mxs && nyu < mys && nzu < mzs {
+                            let ii = midx(nxu, nyu, nzu, mxs, mzs);
+                            let vv = micro_blk[ii];
+                            if (vv as u16 + att_blk as u16) == (lvl as u16) {
+                                let r = (vv & 0x0F) as usize;
+                                q_blk[r].push((nxu, nyu, nzu, vv));
+                            }
+                        }
                     }
                 }
+                progressed = true;
             }
+        }
+        if !progressed {
+            break;
         }
     }
 
-    while let Some((mx, my, mz, level)) = q_sky.pop_front() {
-        if level <= 1 {
-            continue;
-        }
-        let lvl = level;
-        let (mx_i, my_i, mz_i) = (mx as i32, my as i32, mz as i32);
-        let before = micro_sky[midx(mx, my, mz, mxs, mzs)];
-        if before != lvl {
-            continue;
-        }
-        push(
-            mx_i + 1,
-            my_i,
-            mz_i,
-            mxs,
-            mys,
-            mzs,
-            &mut micro_sky,
-            lvl,
-            att_sky,
-        );
-        push(
-            mx_i - 1,
-            my_i,
-            mz_i,
-            mxs,
-            mys,
-            mzs,
-            &mut micro_sky,
-            lvl,
-            att_sky,
-        );
-        push(
-            mx_i,
-            my_i + 1,
-            mz_i,
-            mxs,
-            mys,
-            mzs,
-            &mut micro_sky,
-            lvl,
-            att_sky,
-        );
-        push(
-            mx_i,
-            my_i - 1,
-            mz_i,
-            mxs,
-            mys,
-            mzs,
-            &mut micro_sky,
-            lvl,
-            att_sky,
-        );
-        push(
-            mx_i,
-            my_i,
-            mz_i + 1,
-            mxs,
-            mys,
-            mzs,
-            &mut micro_sky,
-            lvl,
-            att_sky,
-        );
-        push(
-            mx_i,
-            my_i,
-            mz_i - 1,
-            mxs,
-            mys,
-            mzs,
-            &mut micro_sky,
-            lvl,
-            att_sky,
-        );
-        // enqueue neighbors that we updated
-        let neigh = [
-            (mx_i + 1, my_i, mz_i),
-            (mx_i - 1, my_i, mz_i),
-            (mx_i, my_i + 1, mz_i),
-            (mx_i, my_i - 1, mz_i),
-            (mx_i, my_i, mz_i + 1),
-            (mx_i, my_i, mz_i - 1),
-        ];
-        for &(nx, ny, nz) in &neigh {
-            if nx >= 0 && ny >= 0 && nz >= 0 {
-                let (nxu, nyu, nzu) = (nx as usize, ny as usize, nz as usize);
-                if nxu < mxs && nyu < mys && nzu < mzs {
-                    let ii = midx(nxu, nyu, nzu, mxs, mzs);
-                    if (micro_sky[ii] as u16 + att_sky as u16) == (lvl as u16) {
-                        q_sky.push_back((nxu, nyu, nzu, micro_sky[ii]));
+    // Drain bucketed skylight queues until empty
+    loop {
+        let mut progressed = false;
+        for rem in 0..16 {
+            while let Some((mx, my, mz, level)) = q_sky[rem].pop() {
+                if level <= 1 {
+                    continue;
+                }
+                let lvl = level;
+                let (mx_i, my_i, mz_i) = (mx as i32, my as i32, mz as i32);
+                let before = micro_sky[midx(mx, my, mz, mxs, mzs)];
+                if before != lvl {
+                    continue;
+                }
+                push(mx_i + 1, my_i, mz_i, mxs, mys, mzs, &mut micro_sky, lvl, att_sky);
+                push(mx_i - 1, my_i, mz_i, mxs, mys, mzs, &mut micro_sky, lvl, att_sky);
+                push(mx_i, my_i + 1, mz_i, mxs, mys, mzs, &mut micro_sky, lvl, att_sky);
+                push(mx_i, my_i - 1, mz_i, mxs, mys, mzs, &mut micro_sky, lvl, att_sky);
+                push(mx_i, my_i, mz_i + 1, mxs, mys, mzs, &mut micro_sky, lvl, att_sky);
+                push(mx_i, my_i, mz_i - 1, mxs, mys, mzs, &mut micro_sky, lvl, att_sky);
+                // enqueue neighbors that we updated
+                let neigh = [
+                    (mx_i + 1, my_i, mz_i),
+                    (mx_i - 1, my_i, mz_i),
+                    (mx_i, my_i + 1, mz_i),
+                    (mx_i, my_i - 1, mz_i),
+                    (mx_i, my_i, mz_i + 1),
+                    (mx_i, my_i, mz_i - 1),
+                ];
+                for &(nx, ny, nz) in &neigh {
+                    if nx >= 0 && ny >= 0 && nz >= 0 {
+                        let (nxu, nyu, nzu) = (nx as usize, ny as usize, nz as usize);
+                        if nxu < mxs && nyu < mys && nzu < mzs {
+                            let ii = midx(nxu, nyu, nzu, mxs, mzs);
+                            let vv = micro_sky[ii];
+                            if (vv as u16 + att_sky as u16) == (lvl as u16) {
+                                let r = (vv & 0x0F) as usize;
+                                q_sky[r].push((nxu, nyu, nzu, vv));
+                            }
+                        }
                     }
                 }
+                progressed = true;
             }
+        }
+        if !progressed {
+            break;
         }
     }
 
@@ -715,18 +629,18 @@ pub fn compute_light_with_borders_buf_micro(
         buf.cx,
         buf.cz,
         MicroBorders {
-            xm_sk_neg,
-            xm_sk_pos,
-            ym_sk_neg,
-            ym_sk_pos,
-            zm_sk_neg,
-            zm_sk_pos,
-            xm_bl_neg,
-            xm_bl_pos,
-            ym_bl_neg,
-            ym_bl_pos,
-            zm_bl_neg,
-            zm_bl_pos,
+            xm_sk_neg: xm_sk_neg.into(),
+            xm_sk_pos: xm_sk_pos.into(),
+            ym_sk_neg: ym_sk_neg.into(),
+            ym_sk_pos: ym_sk_pos.into(),
+            zm_sk_neg: zm_sk_neg.into(),
+            zm_sk_pos: zm_sk_pos.into(),
+            xm_bl_neg: xm_bl_neg.into(),
+            xm_bl_pos: xm_bl_pos.into(),
+            ym_bl_neg: ym_bl_neg.into(),
+            ym_bl_pos: ym_bl_pos.into(),
+            zm_bl_neg: zm_bl_neg.into(),
+            zm_bl_pos: zm_bl_pos.into(),
             xm: mxs,
             ym: mys,
             zm: mzs,
