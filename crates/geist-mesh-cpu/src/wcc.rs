@@ -269,32 +269,6 @@ impl<'a> WccMesher<'a> {
     }
 
     #[inline]
-    fn local_micro_touches_negx(&self, here: Block, iym: usize, izm: usize) -> bool {
-        micro_cell_solid_s2(self.reg, here, 0, iym, izm)
-    }
-    #[inline]
-    fn local_micro_touches_negz(&self, here: Block, ixm: usize, iym: usize) -> bool {
-        micro_cell_solid_s2(self.reg, here, ixm, iym, 0)
-    }
-    #[inline]
-    fn neighbor_face_info_negx(
-        &self,
-        ly: usize,
-        iym: usize,
-        lz: usize,
-        izm: usize,
-    ) -> Option<(MaterialId, u8)> {
-        let nx = self.base_x - 1; let ny = ly as i32; let nz = self.base_z + lz as i32;
-        let nb = self.world_block(nx, ny, nz);
-        if micro_cell_solid_s2(self.reg, nb, 1, iym, izm) {
-            let mid = registry_material_for_or_unknown(nb, Face::PosX, self.reg);
-            let l = self.light_bin(0, ly, lz, Face::NegX);
-            return Some((mid, l));
-        }
-        None
-    }
-
-    #[inline]
     fn world_block(&self, nx: i32, ny: i32, nz: i32) -> Block {
         if let Some(es) = self.edits {
             es.get(&(nx, ny, nz))
