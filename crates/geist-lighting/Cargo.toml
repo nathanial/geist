@@ -15,5 +15,5 @@ geist-world = { path = "../geist-world" }
 proptest = "1"
 
 [features]
-default = []
+default = ["dial_queues"]
 dial_queues = []

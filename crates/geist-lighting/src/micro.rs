@@ -122,13 +122,11 @@ pub fn compute_light_with_borders_buf_micro(
 
     // BFS queues (stable order). We seed as we write, so no full-volume scan needed.
     use std::collections::VecDeque;
-    #[cfg(feature = "dial_queues")]
     struct DialQ {
         buckets: [VecDeque<(usize, usize, usize, u8)>; 16],
         cur_d: u16,
         pending: usize,
     }
-    #[cfg(feature = "dial_queues")]
     impl DialQ {
         fn new() -> Self {
             Self {
@@ -160,24 +158,6 @@ pub fn compute_light_with_borders_buf_micro(
                 }
                 self.cur_d = self.cur_d.wrapping_add(1);
             }
-        }
-    }
-    #[cfg(not(feature = "dial_queues"))]
-    struct DialQ {
-        q: VecDeque<(usize, usize, usize, u8)>,
-    }
-    #[cfg(not(feature = "dial_queues"))]
-    impl DialQ {
-        fn new() -> Self {
-            Self { q: VecDeque::new() }
-        }
-        #[inline]
-        fn push(&mut self, mx: usize, my: usize, mz: usize, level: u8) {
-            self.q.push_back((mx, my, mz, level));
-        }
-        #[inline]
-        fn pop(&mut self) -> Option<(usize, usize, usize, u8)> {
-            self.q.pop_front()
         }
     }
 

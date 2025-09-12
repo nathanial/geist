@@ -19,7 +19,7 @@ geist-geom = { path = "crates/geist-geom" }
 geist-blocks = { path = "crates/geist-blocks" }
 geist-world = { path = "crates/geist-world" }
 geist-chunk = { path = "crates/geist-chunk" }
-geist-lighting = { path = "crates/geist-lighting", features = ["dial_queues"] }
+geist-lighting = { path = "crates/geist-lighting" }
 geist-render-raylib = { path = "crates/geist-render-raylib" }
 geist-mesh-cpu = { path = "crates/geist-mesh-cpu" }
 geist-runtime = { path = "crates/geist-runtime" }
