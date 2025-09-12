@@ -56,6 +56,8 @@ pub struct App {
     pub assets_root: std::path::PathBuf,
     // Registry file watcher
     reg_event_rx: std::sync::mpsc::Receiver<()>,
+    // Shader file watcher
+    shader_event_rx: std::sync::mpsc::Receiver<()>,
 }
 
 #[derive(Default)]
@@ -749,6 +751,34 @@ impl App {
                     }
                 });
                 rrx
+            },
+            shader_event_rx: {
+                let (stx, srx) = std::sync::mpsc::channel::<()>();
+                let sdir = crate::assets::shaders_dir(&assets_root);
+                std::thread::spawn(move || {
+                    use notify::{EventKind, RecursiveMode, Watcher};
+                    if let Ok(mut watcher) = notify::recommended_watcher(
+                        move |res: Result<notify::Event, notify::Error>| {
+                            if let Ok(event) = res {
+                                match event.kind {
+                                    EventKind::Modify(_)
+                                    | EventKind::Create(_)
+                                    | EventKind::Remove(_)
+                                    | EventKind::Any => {
+                                        let _ = stx.send(());
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        },
+                    ) {
+                        let _ = watcher.watch(sdir.as_path(), RecursiveMode::Recursive);
+                        loop {
+                            std::thread::sleep(std::time::Duration::from_secs(3600));
+                        }
+                    }
+                });
+                srx
             },
         }
     }
@@ -1615,6 +1645,57 @@ impl App {
     }
 
     pub fn step(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread, dt: f32) {
+        // Shader hot-reload
+        if self.shader_event_rx.try_iter().next().is_some() {
+            // Attempt to reload both shaders; fall back to previous if load fails
+            if let Some(ls) = geist_render_raylib::LeavesShader::load_with_base(
+                rl,
+                thread,
+                &self.assets_root,
+            ) {
+                self.leaves_shader = Some(ls);
+            }
+            if let Some(fs) = geist_render_raylib::FogShader::load_with_base(
+                rl,
+                thread,
+                &self.assets_root,
+            ) {
+                self.fog_shader = Some(fs);
+            }
+            // Rebind shaders on all existing models
+            let mut rebind = |parts: &mut Vec<(geist_blocks::types::MaterialId, raylib::core::models::Model)>| {
+                for (mid, model) in parts.iter_mut() {
+                    if let Some(mat) = model.materials_mut().get_mut(0) {
+                        let leaves = self
+                            .reg
+                            .materials
+                            .get(*mid)
+                            .and_then(|m| m.render_tag.as_deref())
+                            == Some("leaves");
+                        if leaves {
+                            if let Some(ref ls) = self.leaves_shader {
+                                let dest = mat.shader_mut();
+                                let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
+                                let src_ptr: *const raylib::ffi::Shader = ls.shader.as_ref();
+                                unsafe { std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1) };
+                            }
+                        } else if let Some(ref fs) = self.fog_shader {
+                            let dest = mat.shader_mut();
+                            let dest_ptr: *mut raylib::ffi::Shader = dest.as_mut();
+                            let src_ptr: *const raylib::ffi::Shader = fs.shader.as_ref();
+                            unsafe { std::ptr::copy_nonoverlapping(src_ptr, dest_ptr, 1) };
+                        }
+                    }
+                }
+            };
+            for (_k, cr) in self.renders.iter_mut() {
+                rebind(&mut cr.parts);
+            }
+            for (_id, cr) in self.structure_renders.iter_mut() {
+                rebind(&mut cr.parts);
+            }
+            log::info!("Reloaded shaders and rebound on existing models");
+        }
         // Registry hot-reload (materials/blocks)
         if self.reg_event_rx.try_iter().next().is_some() {
             let mats = crate::assets::materials_path(&self.assets_root);

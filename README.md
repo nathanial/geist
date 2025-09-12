@@ -24,6 +24,7 @@ The app now uses subcommands via Clap.
 
 - Global
   - `--log-file [PATH]`: Write logs to a file instead of stderr. If `PATH` is omitted, defaults to `geist.log`. Honors `RUST_LOG`.
+  - `--assets-root DIR`: Set assets root explicitly. Otherwise, `GEIST_ASSETS` env var or auto‑detection is used.
 
 - `run`: start the viewer.
   - `--world <normal|flat|schem-only>`: World preset (default: `normal`).
@@ -125,14 +126,29 @@ Dependency direction:
 
 ## Assets & Hot Reload
 
-- Textures: place under `assets/blocks/`.
+- Assets root
+  - Default auto‑detection (searches current dir, executable dir, and crate root parents).
+  - Override with `--assets-root DIR` or `GEIST_ASSETS=/abs/path/to/repo`.
+  - All paths below are resolved relative to the assets root.
+
+- Textures: `assets/blocks/`
   - Examples: `assets/blocks/grass_top.png`, `assets/blocks/grass_side.png`, `assets/blocks/dirt.png`, `assets/blocks/stone.png`.
-  - The app hot‑reloads textures modified under `assets/blocks/` while running.
-- Voxel registry config:
+  - Hot‑reload: changes under `assets/blocks/` are detected and updated live.
+
+- Voxel registry:
   - Materials: `assets/voxels/materials.toml`
   - Blocks: `assets/voxels/blocks.toml`
-- Worldgen config: `assets/worldgen/worldgen.toml` (hot‑reloaded if `--watch-worldgen` is set; on by default).
+  - Hot‑reload: edits to either file reload the registry, clear the texture cache, and rebuild all loaded chunks and structures.
+
+- Shaders: `assets/shaders/`
+  - Core: `voxel_fog_textured.vs`, `voxel_fog_textured.fs`, and `voxel_fog_leaves.fs`.
+  - Hot‑reload: edits in `assets/shaders/` reload shaders and rebind them on existing models.
+
+- Worldgen config: `assets/worldgen/worldgen.toml`
+  - Hot‑reload: enabled by default (`--watch-worldgen`). On change, worldgen params update; optionally triggers rebuilds (`--rebuild-on-worldgen-change`).
+
 - Schematic palette mapping (for `schem` tools): `assets/voxels/palette_map.toml`.
+  - Resolved using assets root (or auto‑detect) so tools work from any working directory.
 
 ## Notes
 
