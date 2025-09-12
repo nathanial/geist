@@ -1426,6 +1426,15 @@ impl<'a> WccMesher<'a> {
             for lz in 0..self.sz {
                 // Neighbor at (base_x-1, ly, base_z+lz)
                 let nb = self.world_block(self.base_x - 1, ly as i32, self.base_z + lz as i32);
+                // Do not allow water to occlude across seams; keep terrain faces under water visible
+                if self
+                    .reg
+                    .get(nb.id)
+                    .map(|t| t.name == "water")
+                    .unwrap_or(false)
+                {
+                    continue;
+                }
                 // Optional: honor seam policy to not occlude same-type neighbors
                 let here = self.buf.get_local(0, ly, lz);
                 if let (Some(ht), Some(_nt)) = (self.reg.get(here.id), self.reg.get(nb.id)) {
@@ -1452,6 +1461,14 @@ impl<'a> WccMesher<'a> {
         for ly in 0..self.sy {
             for lx in 0..self.sx {
                 let nb = self.world_block(self.base_x + lx as i32, ly as i32, self.base_z - 1);
+                if self
+                    .reg
+                    .get(nb.id)
+                    .map(|t| t.name == "water")
+                    .unwrap_or(false)
+                {
+                    continue;
+                }
                 let here = self.buf.get_local(lx, ly, 0);
                 if let (Some(ht), Some(_nt)) = (self.reg.get(here.id), self.reg.get(nb.id)) {
                     if ht.seam.dont_occlude_same && here.id == nb.id {
