@@ -232,6 +232,16 @@ fn emit_face_rect_for_clipped(
     base_z: i32,
     sz: usize,
 ) {
+    #[inline]
+    fn clip_span(start: f32, len: f32, lo: f32, hi: f32) -> Option<(f32, f32)> {
+        let s0 = start.max(lo);
+        let s1 = (start + len).min(hi);
+        if s1 <= s0 {
+            None
+        } else {
+            Some((s0, s1 - s0))
+        }
+    }
     let bx0 = base_x as f32;
     let bx1 = (base_x + sx as i32) as f32;
     let bz0 = base_z as f32;
@@ -239,87 +249,49 @@ fn emit_face_rect_for_clipped(
     let by0 = 0.0f32;
     let by1 = sy as f32;
 
+    let mut out = None;
     match face {
         Face::PosX | Face::NegX => {
-            let fx = origin.x;
-            if !(fx >= bx0 && fx < bx1) {
-                return;
+            // Fixed X in [bx0, bx1)
+            if origin.x >= bx0 && origin.x < bx1 {
+                if let Some((z, u)) = clip_span(origin.z, u1, bz0, bz1) {
+                    if let Some((y, v)) = clip_span(origin.y, v1, by0, by1) {
+                        let mut o = origin;
+                        o.z = z;
+                        o.y = y;
+                        out = Some((o, u, v));
+                    }
+                }
             }
-            // Clip along Z (u)
-            let z0 = origin.z;
-            let z1 = origin.z + u1;
-            let cz0 = z0.max(bz0);
-            let cz1 = z1.min(bz1);
-            if cz1 <= cz0 {
-                return;
-            }
-            origin.z = cz0;
-            u1 = cz1 - cz0;
-            // Clip along Y (v)
-            let y0 = origin.y;
-            let y1 = origin.y + v1;
-            let cy0 = y0.max(by0);
-            let cy1 = y1.min(by1);
-            if cy1 <= cy0 {
-                return;
-            }
-            origin.y = cy0;
-            v1 = cy1 - cy0;
         }
         Face::PosZ | Face::NegZ => {
-            let fz = origin.z;
-            if !(fz >= bz0 && fz < bz1) {
-                return;
+            if origin.z >= bz0 && origin.z < bz1 {
+                if let Some((x, u)) = clip_span(origin.x, u1, bx0, bx1) {
+                    if let Some((y, v)) = clip_span(origin.y, v1, by0, by1) {
+                        let mut o = origin;
+                        o.x = x;
+                        o.y = y;
+                        out = Some((o, u, v));
+                    }
+                }
             }
-            // Clip along X (u)
-            let x0 = origin.x;
-            let x1 = origin.x + u1;
-            let cx0 = x0.max(bx0);
-            let cx1 = x1.min(bx1);
-            if cx1 <= cx0 {
-                return;
-            }
-            origin.x = cx0;
-            u1 = cx1 - cx0;
-            // Clip along Y (v)
-            let y0 = origin.y;
-            let y1 = origin.y + v1;
-            let cy0 = y0.max(by0);
-            let cy1 = y1.min(by1);
-            if cy1 <= cy0 {
-                return;
-            }
-            origin.y = cy0;
-            v1 = cy1 - cy0;
         }
         Face::PosY | Face::NegY => {
-            let fy = origin.y;
-            if !(fy >= by0 && fy < by1) {
-                return;
+            if origin.y >= by0 && origin.y < by1 {
+                if let Some((x, u)) = clip_span(origin.x, u1, bx0, bx1) {
+                    if let Some((z, v)) = clip_span(origin.z, v1, bz0, bz1) {
+                        let mut o = origin;
+                        o.x = x;
+                        o.z = z;
+                        out = Some((o, u, v));
+                    }
+                }
             }
-            // Clip along X (u)
-            let x0 = origin.x;
-            let x1 = origin.x + u1;
-            let cx0 = x0.max(bx0);
-            let cx1 = x1.min(bx1);
-            if cx1 <= cx0 {
-                return;
-            }
-            origin.x = cx0;
-            u1 = cx1 - cx0;
-            // Clip along Z (v)
-            let z0 = origin.z;
-            let z1 = origin.z + v1;
-            let cz0 = z0.max(bz0);
-            let cz1 = z1.min(bz1);
-            if cz1 <= cz0 {
-                return;
-            }
-            origin.z = cz0;
-            v1 = cz1 - cz0;
         }
     }
-    emit_face_rect_for(builds, mid, face, origin, u1, v1, rgba);
+    if let Some((o, cu, cv)) = out {
+        emit_face_rect_for(builds, mid, face, o, cu, cv, rgba);
+    }
 }
 
 #[inline]
@@ -502,6 +474,168 @@ fn emit_box_generic_clipped(
         return;
     }
     emit_box_generic(builds, min, max, fm_for_face, occludes, sample_light);
+}
+
+#[inline]
+fn neighbor_is_pane(buf: &ChunkBuf, reg: &BlockRegistry, wx: i32, wy: i32, wz: i32, face: Face) -> bool {
+    let (dx, dy, dz) = face.delta();
+    if let Some(nb) = buf.get_world(wx + dx, wy + dy, wz + dz) {
+        if let Some(nb_ty) = reg.get(nb.id) {
+            return matches!(nb_ty.shape, geist_blocks::types::Shape::Pane);
+        }
+    }
+    false
+}
+
+// Emit greedy quads for a given axis by expanding a mask sourced from FaceGrids.
+macro_rules! emit_plane_mask {
+    // X axis planes
+    ($self:ident, $builds:ident, X) => {{
+        let width = $self.S * $self.sz;   // along Z
+        let height = $self.S * $self.sy;  // along Y
+        for ix in 0..($self.S * $self.sx) {
+            let mut mask: Vec<Option<((MaterialId, bool), u8)>> = vec![None; width * height];
+            for iy in 0..height {
+                for iz in 0..width {
+                    let idx = $self.grids.idx_x(ix, iy, iz);
+                    if $self.grids.px.get(idx) {
+                        let key = $self.grids.kx[idx];
+                        if key != 0 {
+                            let (mid, l) = $self.keys.get(key);
+                            let pos = $self.grids.ox.get(idx);
+                            mask[iy * width + iz] = Some(((mid, pos), l));
+                        }
+                    }
+                }
+            }
+            greedy_rects(width, height, &mut mask, |u0, v0, w, h, codev| {
+                let ((mid, pos), l) = codev;
+                let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN));
+                let rgba = [lv, lv, lv, 255];
+                let face = if pos { Face::PosX } else { Face::NegX };
+                let scale = 1.0 / $self.S as f32;
+                let origin = Vec3 {
+                    x: ($self.base_x as f32) + (ix as f32) * scale,
+                    y: (v0 as f32) * scale,
+                    z: ($self.base_z as f32) + (u0 as f32) * scale,
+                };
+                let u1 = (w as f32) * scale;
+                let v1 = (h as f32) * scale;
+                emit_face_rect_for_clipped(
+                    $builds,
+                    mid,
+                    face,
+                    origin,
+                    u1,
+                    v1,
+                    rgba,
+                    $self.base_x,
+                    $self.sx,
+                    $self.sy,
+                    $self.base_z,
+                    $self.sz,
+                );
+            });
+        }
+    }};
+    // Y axis planes
+    ($self:ident, $builds:ident, Y) => {{
+        let width = $self.S * $self.sx;   // along X
+        let height = $self.S * $self.sz;  // along Z
+        for iy in 0..($self.S * $self.sy) {
+            let mut mask: Vec<Option<((MaterialId, bool), u8)>> = vec![None; width * height];
+            for iz in 0..height {
+                for ix in 0..width {
+                    let idx = $self.grids.idx_y(ix, iy, iz);
+                    if $self.grids.py.get(idx) {
+                        let key = $self.grids.ky[idx];
+                        if key != 0 {
+                            let (mid, l) = $self.keys.get(key);
+                            let pos = $self.grids.oy.get(idx);
+                            mask[iz * width + ix] = Some(((mid, pos), l));
+                        }
+                    }
+                }
+            }
+            greedy_rects(width, height, &mut mask, |u0, v0, w, h, codev| {
+                let ((mid, pos), l) = codev;
+                let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN));
+                let rgba = [lv, lv, lv, 255];
+                let face = if pos { Face::PosY } else { Face::NegY };
+                let scale = 1.0 / $self.S as f32;
+                let origin = Vec3 {
+                    x: ($self.base_x as f32) + (u0 as f32) * scale,
+                    y: (iy as f32) * scale,
+                    z: ($self.base_z as f32) + (v0 as f32) * scale,
+                };
+                let u1 = (w as f32) * scale;
+                let v1 = (h as f32) * scale;
+                emit_face_rect_for_clipped(
+                    $builds,
+                    mid,
+                    face,
+                    origin,
+                    u1,
+                    v1,
+                    rgba,
+                    $self.base_x,
+                    $self.sx,
+                    $self.sy,
+                    $self.base_z,
+                    $self.sz,
+                );
+            });
+        }
+    }};
+    // Z axis planes
+    ($self:ident, $builds:ident, Z) => {{
+        let width = $self.S * $self.sx;   // along X
+        let height = $self.S * $self.sy;  // along Y
+        for iz in 0..($self.S * $self.sz) {
+            let mut mask: Vec<Option<((MaterialId, bool), u8)>> = vec![None; width * height];
+            for iy in 0..height {
+                for ix in 0..width {
+                    let idx = $self.grids.idx_z(ix, iy, iz);
+                    if $self.grids.pz.get(idx) {
+                        let key = $self.grids.kz[idx];
+                        if key != 0 {
+                            let (mid, l) = $self.keys.get(key);
+                            let pos = $self.grids.oz.get(idx);
+                            mask[iy * width + ix] = Some(((mid, pos), l));
+                        }
+                    }
+                }
+            }
+            greedy_rects(width, height, &mut mask, |u0, v0, w, h, codev| {
+                let ((mid, pos), l) = codev;
+                let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN));
+                let rgba = [lv, lv, lv, 255];
+                let face = if pos { Face::PosZ } else { Face::NegZ };
+                let scale = 1.0 / $self.S as f32;
+                let origin = Vec3 {
+                    x: ($self.base_x as f32) + (u0 as f32) * scale,
+                    y: (v0 as f32) * scale,
+                    z: ($self.base_z as f32) + (iz as f32) * scale,
+                };
+                let u1 = (w as f32) * scale;
+                let v1 = (h as f32) * scale;
+                emit_face_rect_for_clipped(
+                    $builds,
+                    mid,
+                    face,
+                    origin,
+                    u1,
+                    v1,
+                    rgba,
+                    $self.base_x,
+                    $self.sx,
+                    $self.sy,
+                    $self.base_z,
+                    $self.sz,
+                );
+            });
+        }
+    }};
 }
 
 #[inline]
@@ -710,66 +844,13 @@ pub fn build_chunk_wcc_cpu_buf(
                                 sz,
                             );
                             // Add side connectors to adjacent panes
-                            let mut connect_xn = false;
-                            let mut connect_xp = false;
-                            let mut connect_zn = false;
-                            let mut connect_zp = false;
-                            {
-                                let (dx, dy, dz) = Face::PosZ.delta();
-                                if let Some(nb) = buf.get_world(
-                                    (fx as i32) + dx,
-                                    (fy as i32) + dy,
-                                    (fz as i32) + dz,
-                                ) {
-                                    if let Some(nb_ty) = reg.get(nb.id) {
-                                        if nb_ty.shape == geist_blocks::types::Shape::Pane {
-                                            connect_zp = true;
-                                        }
-                                    }
-                                }
-                            }
-                            {
-                                let (dx, dy, dz) = Face::NegZ.delta();
-                                if let Some(nb) = buf.get_world(
-                                    (fx as i32) + dx,
-                                    (fy as i32) + dy,
-                                    (fz as i32) + dz,
-                                ) {
-                                    if let Some(nb_ty) = reg.get(nb.id) {
-                                        if nb_ty.shape == geist_blocks::types::Shape::Pane {
-                                            connect_zn = true;
-                                        }
-                                    }
-                                }
-                            }
-                            {
-                                let (dx, dy, dz) = Face::PosX.delta();
-                                if let Some(nb) = buf.get_world(
-                                    (fx as i32) + dx,
-                                    (fy as i32) + dy,
-                                    (fz as i32) + dz,
-                                ) {
-                                    if let Some(nb_ty) = reg.get(nb.id) {
-                                        if nb_ty.shape == geist_blocks::types::Shape::Pane {
-                                            connect_xp = true;
-                                        }
-                                    }
-                                }
-                            }
-                            {
-                                let (dx, dy, dz) = Face::NegX.delta();
-                                if let Some(nb) = buf.get_world(
-                                    (fx as i32) + dx,
-                                    (fy as i32) + dy,
-                                    (fz as i32) + dz,
-                                ) {
-                                    if let Some(nb_ty) = reg.get(nb.id) {
-                                        if nb_ty.shape == geist_blocks::types::Shape::Pane {
-                                            connect_xn = true;
-                                        }
-                                    }
-                                }
-                            }
+                            let wx = fx as i32;
+                            let wy = fy as i32;
+                            let wz = fz as i32;
+                            let connect_zp = neighbor_is_pane(buf, reg, wx, wy, wz, Face::PosZ);
+                            let connect_zn = neighbor_is_pane(buf, reg, wx, wy, wz, Face::NegZ);
+                            let connect_xp = neighbor_is_pane(buf, reg, wx, wy, wz, Face::PosX);
+                            let connect_xn = neighbor_is_pane(buf, reg, wx, wy, wz, Face::NegX);
                             let t = 0.0625f32;
                             if connect_xn {
                                 let min = Vec3 {
@@ -1927,152 +2008,10 @@ impl<'a> WccMesher<'a> {
     }
 
     pub fn emit_into(&self, builds: &mut HashMap<MaterialId, MeshBuild>) {
-        let S = self.S as f32;
-        let scale = 1.0 / S;
-        let (sx, sy, sz) = (self.sx, self.sy, self.sz);
-        // X planes: ix in [0, S*sx) (skip +X at ix==S*sx)
-        let width_x = self.S * sz;
-        let height_x = self.S * sy;
-        for ix in 0..(self.S * sx) {
-            let mut mask: Vec<Option<((MaterialId, bool), u8)>> = vec![None; width_x * height_x];
-            for iy in 0..height_x {
-                for iz in 0..width_x {
-                    let idx = self.grids.idx_x(ix, iy, iz);
-                    if self.grids.px.get(idx) {
-                        let key = self.grids.kx[idx];
-                        if key != 0 {
-                            let (mid, l) = self.keys.get(key);
-                            let pos = self.grids.ox.get(idx);
-                            mask[iy * width_x + iz] = Some(((mid, pos), l));
-                        }
-                    }
-                }
-            }
-            // Overscan enabled: parity already includes neighbor seam toggles; no seam-specific mask edits here.
-            greedy_rects(width_x, height_x, &mut mask, |u0, v0, w, h, codev| {
-                let ((mid, pos), l) = codev;
-                let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN));
-                let rgba = [lv, lv, lv, 255];
-                let face = if pos { Face::PosX } else { Face::NegX };
-                let fx = (self.base_x as f32) + (ix as f32) * scale;
-                let origin = Vec3 {
-                    x: fx,
-                    y: (v0 as f32) * scale,
-                    z: (self.base_z as f32) + (u0 as f32) * scale,
-                };
-                let u1 = (w as f32) * scale;
-                let v1 = (h as f32) * scale;
-                emit_face_rect_for_clipped(
-                    builds,
-                    mid,
-                    face,
-                    origin,
-                    u1,
-                    v1,
-                    rgba,
-                    self.base_x,
-                    self.sx,
-                    self.sy,
-                    self.base_z,
-                    self.sz,
-                );
-            });
-        }
-        // Y planes
-        let width_y = self.S * sx;
-        let height_y = self.S * sz;
-        for iy in 0..(self.S * sy) {
-            let mut mask: Vec<Option<((MaterialId, bool), u8)>> = vec![None; width_y * height_y];
-            for iz in 0..height_y {
-                for ix in 0..width_y {
-                    let idx = self.grids.idx_y(ix, iy, iz);
-                    if self.grids.py.get(idx) {
-                        let key = self.grids.ky[idx];
-                        if key != 0 {
-                            let (mid, l) = self.keys.get(key);
-                            let pos = self.grids.oy.get(idx);
-                            mask[iz * width_y + ix] = Some(((mid, pos), l));
-                        }
-                    }
-                }
-            }
-            greedy_rects(width_y, height_y, &mut mask, |u0, v0, w, h, codev| {
-                let ((mid, pos), l) = codev;
-                let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN));
-                let rgba = [lv, lv, lv, 255];
-                let face = if pos { Face::PosY } else { Face::NegY };
-                let fy = (iy as f32) * scale;
-                let origin = Vec3 {
-                    x: (self.base_x as f32) + (u0 as f32) * scale,
-                    y: fy,
-                    z: (self.base_z as f32) + (v0 as f32) * scale,
-                };
-                let u1 = (w as f32) * scale;
-                let v1 = (h as f32) * scale;
-                emit_face_rect_for_clipped(
-                    builds,
-                    mid,
-                    face,
-                    origin,
-                    u1,
-                    v1,
-                    rgba,
-                    self.base_x,
-                    self.sx,
-                    self.sy,
-                    self.base_z,
-                    self.sz,
-                );
-            });
-        }
-        // Z planes
-        let width_z = self.S * sx;
-        let height_z = self.S * sy;
-        for iz in 0..(self.S * sz) {
-            let mut mask: Vec<Option<((MaterialId, bool), u8)>> = vec![None; width_z * height_z];
-            for iy in 0..height_z {
-                for ix in 0..width_z {
-                    let idx = self.grids.idx_z(ix, iy, iz);
-                    if self.grids.pz.get(idx) {
-                        let key = self.grids.kz[idx];
-                        if key != 0 {
-                            let (mid, l) = self.keys.get(key);
-                            let pos = self.grids.oz.get(idx);
-                            mask[iy * width_z + ix] = Some(((mid, pos), l));
-                        }
-                    }
-                }
-            }
-            // Overscan enabled: parity already includes neighbor seam toggles; no seam-specific mask edits here.
-            greedy_rects(width_z, height_z, &mut mask, |u0, v0, w, h, codev| {
-                let ((mid, pos), l) = codev;
-                let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN));
-                let rgba = [lv, lv, lv, 255];
-                let face = if pos { Face::PosZ } else { Face::NegZ };
-                let fz = (self.base_z as f32) + (iz as f32) * scale;
-                let origin = Vec3 {
-                    x: (self.base_x as f32) + (u0 as f32) * scale,
-                    y: (v0 as f32) * scale,
-                    z: fz,
-                };
-                let u1 = (w as f32) * scale;
-                let v1 = (h as f32) * scale;
-                emit_face_rect_for_clipped(
-                    builds,
-                    mid,
-                    face,
-                    origin,
-                    u1,
-                    v1,
-                    rgba,
-                    self.base_x,
-                    self.sx,
-                    self.sy,
-                    self.base_z,
-                    self.sz,
-                );
-            });
-        }
+        // Overscan already applied in parity; emit masks greedily for X/Y/Z planes.
+        emit_plane_mask!(self, builds, X);
+        emit_plane_mask!(self, builds, Y);
+        emit_plane_mask!(self, builds, Z);
     }
 }
 
