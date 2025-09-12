@@ -77,15 +77,65 @@ pub fn compute_light_with_borders_buf_micro(
     let mut micro_sky = vec![0u8; mxs * mys * mzs];
     let mut micro_blk = vec![0u8; mxs * mys * mzs];
 
+    // Precompute per-macro-cell micro occupancy to accelerate micro solid checks
+    let mut occ8 = vec![0u8; buf.sx * buf.sy * buf.sz];
+    let mut full = vec![0u8; buf.sx * buf.sy * buf.sz];
+    let idx3 = |x: usize, y: usize, z: usize| (y * buf.sz + z) * buf.sx + x;
+    for z in 0..buf.sz {
+        for y in 0..buf.sy {
+            for x in 0..buf.sx {
+                let b = buf.get_local(x, y, z);
+                full[idx3(x, y, z)] = is_full_cube(reg, b) as u8;
+                if let Some(o) = occ8_for(reg, b) {
+                    occ8[idx3(x, y, z)] = o;
+                }
+            }
+        }
+    }
+    #[inline]
+    fn occ_bit8(o: u8, x: usize, y: usize, z: usize) -> bool {
+        ((o >> (((y & 1) << 2) | ((z & 1) << 1) | (x & 1))) & 1) != 0
+    }
+    #[inline]
+    fn micro_solid_at_fast(
+        mx: usize,
+        my: usize,
+        mz: usize,
+        buf: &ChunkBuf,
+        occ8: &[u8],
+        full: &[u8],
+    ) -> bool {
+        let x = mx >> 1;
+        let y = my >> 1;
+        let z = mz >> 1;
+        if x >= buf.sx || y >= buf.sy || z >= buf.sz {
+            return true;
+        }
+        let i = (y * buf.sz + z) * buf.sx + x;
+        let o = occ8[i];
+        if o != 0 {
+            return occ_bit8(o, mx & 1, my & 1, mz & 1);
+        }
+        full[i] != 0
+    }
+
+    // Propagation queues (seed inline as we write values)
+    use std::collections::VecDeque;
+    let mut q_blk: VecDeque<(usize, usize, usize, u8)> = VecDeque::with_capacity(mxs * mzs);
+    let mut q_sky: VecDeque<(usize, usize, usize, u8)> = VecDeque::with_capacity(mxs * mzs);
+
     // Seed skylight from open-above micro columns (world-local within chunk)
     for mz in 0..mzs {
         for mx in 0..mxs {
             let mut open_above = true;
             for my in (0..mys).rev() {
                 if open_above {
-                    if !micro_solid_at(buf, reg, mx, my, mz) {
+                    if !micro_solid_at_fast(mx, my, mz, buf, &occ8, &full) {
                         let i = midx(mx, my, mz, mxs, mzs);
-                        micro_sky[i] = MAX_LIGHT;
+                        if micro_sky[i] == 0 {
+                            micro_sky[i] = MAX_LIGHT;
+                            q_sky.push_back((mx, my, mz, MAX_LIGHT));
+                        }
                     } else {
                         open_above = false;
                     }
@@ -103,193 +153,211 @@ pub fn compute_light_with_borders_buf_micro(
     // Block light neighbors
     // Skylight neighbors: handled together with block after the coarse fallback expansion
 
-    // Expanded implementation: X- seams (block + sky)
-    for my in 0..mys {
-        for mz in 0..mzs {
-            let ly = my >> 1;
-            let lz = mz >> 1;
-            let iym = my & 1;
-            let izm = mz & 1;
-            // -X
-            let mut seed_blk = nbm
-                .xm_bl_neg
-                .as_ref()
-                .map(|p| clamp_sub_u8(p[my * mzs + mz], MICRO_BLOCK_ATTENUATION))
-                .unwrap_or_else(|| {
-                    nb.xn
-                        .as_ref()
-                        .map(|p| clamp_sub_u8(p[ly * buf.sz + lz], atten))
-                        .unwrap_or(0)
-                });
-            let mut seed_sky = nbm
-                .xm_sk_neg
-                .as_ref()
-                .map(|p| clamp_sub_u8(p[my * mzs + mz], MICRO_SKY_ATTENUATION))
-                .unwrap_or_else(|| {
-                    nb.sk_xn
-                        .as_ref()
-                        .map(|p| clamp_sub_u8(p[ly * buf.sz + lz], atten))
-                        .unwrap_or(0)
-                });
-            if seed_blk > 0 || seed_sky > 0 {
-                let here = buf.get_local(0, ly, lz);
-                let there = world.block_at_runtime(reg, base_x - 1, ly as i32, base_z + lz as i32);
-                // Crossing from local to neighbor is -X (face=3) at the -X boundary
-                if micro_face_cell_open_s2(reg, here, there, 3, iym, izm) {
-                    let i = midx(0, my, mz, mxs, mzs);
-                    if seed_blk > 0
-                        && !micro_solid_at(buf, reg, 0, my, mz)
-                        && micro_blk[i] < seed_blk
-                    {
-                        micro_blk[i] = seed_blk;
-                    }
-                    if seed_sky > 0
-                        && !micro_solid_at(buf, reg, 0, my, mz)
-                        && micro_sky[i] < seed_sky
-                    {
-                        micro_sky[i] = seed_sky;
-                    }
+    // Expanded implementation: X seams (block + sky) with macro-first loops and cached 2x2 gates
+    for lz in 0..buf.sz {
+        for ly in 0..buf.sy {
+            let here_nx = buf.get_local(0, ly, lz);
+            let there_nx = world.block_at_runtime(reg, base_x - 1, ly as i32, base_z + lz as i32);
+            let here_px = buf.get_local(buf.sx - 1, ly, lz);
+            let there_px = world.block_at_runtime(
+                reg,
+                base_x + buf.sx as i32,
+                ly as i32,
+                base_z + lz as i32,
+            );
+            // Precompute gate masks for -X (face=3) and +X (face=2)
+            let mut gate_nx = [[false; 2]; 2];
+            let mut gate_px = [[false; 2]; 2];
+            for iym in 0..2 {
+                for izm in 0..2 {
+                    gate_nx[iym][izm] = micro_face_cell_open_s2(reg, here_nx, there_nx, 3, iym, izm);
+                    gate_px[iym][izm] = micro_face_cell_open_s2(reg, here_px, there_px, 2, iym, izm);
                 }
             }
-            // +X
-            let mut seed_blk = nbm
-                .xm_bl_pos
-                .as_ref()
-                .map(|p| clamp_sub_u8(p[my * mzs + mz], MICRO_BLOCK_ATTENUATION))
-                .unwrap_or_else(|| {
-                    nb.xp
+            // Process the four micro offsets within this macro pair
+            for iym in 0..2 {
+                for izm in 0..2 {
+                    let my = (ly << 1) | iym;
+                    let mz = (lz << 1) | izm;
+                    // -X
+                    let seed_blk_nx = nbm
+                        .xm_bl_neg
                         .as_ref()
-                        .map(|p| clamp_sub_u8(p[ly * buf.sz + lz], atten))
-                        .unwrap_or(0)
-                });
-            let mut seed_sky = nbm
-                .xm_sk_pos
-                .as_ref()
-                .map(|p| clamp_sub_u8(p[my * mzs + mz], MICRO_SKY_ATTENUATION))
-                .unwrap_or_else(|| {
-                    nb.sk_xp
+                        .map(|p| clamp_sub_u8(p[my * mzs + mz], MICRO_BLOCK_ATTENUATION))
+                        .unwrap_or_else(|| {
+                            nb.xn
+                                .as_ref()
+                                .map(|p| clamp_sub_u8(p[ly * buf.sz + lz], atten))
+                                .unwrap_or(0)
+                        });
+                    let seed_sky_nx = nbm
+                        .xm_sk_neg
                         .as_ref()
-                        .map(|p| clamp_sub_u8(p[ly * buf.sz + lz], atten))
-                        .unwrap_or(0)
-                });
-            if seed_blk > 0 || seed_sky > 0 {
-                let here = buf.get_local(buf.sx - 1, ly, lz);
-                let there = world.block_at_runtime(
-                    reg,
-                    base_x + buf.sx as i32,
-                    ly as i32,
-                    base_z + lz as i32,
-                );
-                // Crossing from local to neighbor is +X (face=2) at the +X boundary
-                if micro_face_cell_open_s2(reg, here, there, 2, iym, izm) {
-                    let i = midx(mxs - 1, my, mz, mxs, mzs);
-                    if seed_blk > 0
-                        && !micro_solid_at(buf, reg, mxs - 1, my, mz)
-                        && micro_blk[i] < seed_blk
-                    {
-                        micro_blk[i] = seed_blk;
+                        .map(|p| clamp_sub_u8(p[my * mzs + mz], MICRO_SKY_ATTENUATION))
+                        .unwrap_or_else(|| {
+                            nb.sk_xn
+                                .as_ref()
+                                .map(|p| clamp_sub_u8(p[ly * buf.sz + lz], atten))
+                                .unwrap_or(0)
+                        });
+                    if (seed_blk_nx > 0 || seed_sky_nx > 0) && gate_nx[iym][izm] {
+                        let i = midx(0, my, mz, mxs, mzs);
+                        if seed_blk_nx > 0
+                            && !micro_solid_at_fast(0, my, mz, buf, &occ8, &full)
+                            && micro_blk[i] < seed_blk_nx
+                        {
+                            micro_blk[i] = seed_blk_nx;
+                            q_blk.push_back((0, my, mz, seed_blk_nx));
+                        }
+                        if seed_sky_nx > 0
+                            && !micro_solid_at_fast(0, my, mz, buf, &occ8, &full)
+                            && micro_sky[i] < seed_sky_nx
+                        {
+                            micro_sky[i] = seed_sky_nx;
+                            q_sky.push_back((0, my, mz, seed_sky_nx));
+                        }
                     }
-                    if seed_sky > 0
-                        && !micro_solid_at(buf, reg, mxs - 1, my, mz)
-                        && micro_sky[i] < seed_sky
-                    {
-                        micro_sky[i] = seed_sky;
+                    // +X
+                    let seed_blk_px = nbm
+                        .xm_bl_pos
+                        .as_ref()
+                        .map(|p| clamp_sub_u8(p[my * mzs + mz], MICRO_BLOCK_ATTENUATION))
+                        .unwrap_or_else(|| {
+                            nb.xp
+                                .as_ref()
+                                .map(|p| clamp_sub_u8(p[ly * buf.sz + lz], atten))
+                                .unwrap_or(0)
+                        });
+                    let seed_sky_px = nbm
+                        .xm_sk_pos
+                        .as_ref()
+                        .map(|p| clamp_sub_u8(p[my * mzs + mz], MICRO_SKY_ATTENUATION))
+                        .unwrap_or_else(|| {
+                            nb.sk_xp
+                                .as_ref()
+                                .map(|p| clamp_sub_u8(p[ly * buf.sz + lz], atten))
+                                .unwrap_or(0)
+                        });
+                    if (seed_blk_px > 0 || seed_sky_px > 0) && gate_px[iym][izm] {
+                        let i = midx(mxs - 1, my, mz, mxs, mzs);
+                        if seed_blk_px > 0
+                            && !micro_solid_at_fast(mxs - 1, my, mz, buf, &occ8, &full)
+                            && micro_blk[i] < seed_blk_px
+                        {
+                            micro_blk[i] = seed_blk_px;
+                            q_blk.push_back((mxs - 1, my, mz, seed_blk_px));
+                        }
+                        if seed_sky_px > 0
+                            && !micro_solid_at_fast(mxs - 1, my, mz, buf, &occ8, &full)
+                            && micro_sky[i] < seed_sky_px
+                        {
+                            micro_sky[i] = seed_sky_px;
+                            q_sky.push_back((mxs - 1, my, mz, seed_sky_px));
+                        }
                     }
                 }
             }
         }
     }
-    // Z- seams (block + sky)
-    for my in 0..mys {
-        for mx in 0..mxs {
-            let ly = my >> 1;
-            let lx = mx >> 1;
-            let ixm = mx & 1;
-            let iym = my & 1;
-            // -Z
-            let mut seed_blk = nbm
-                .zm_bl_neg
-                .as_ref()
-                .map(|p| clamp_sub_u8(p[my * mxs + mx], MICRO_BLOCK_ATTENUATION))
-                .unwrap_or_else(|| {
-                    nb.zn
-                        .as_ref()
-                        .map(|p| clamp_sub_u8(p[ly * buf.sx + lx], atten))
-                        .unwrap_or(0)
-                });
-            let mut seed_sky = nbm
-                .zm_sk_neg
-                .as_ref()
-                .map(|p| clamp_sub_u8(p[my * mxs + mx], MICRO_SKY_ATTENUATION))
-                .unwrap_or_else(|| {
-                    nb.sk_zn
-                        .as_ref()
-                        .map(|p| clamp_sub_u8(p[ly * buf.sx + lx], atten))
-                        .unwrap_or(0)
-                });
-            if seed_blk > 0 || seed_sky > 0 {
-                let here = buf.get_local(lx, ly, 0);
-                let there = world.block_at_runtime(reg, base_x + lx as i32, ly as i32, base_z - 1);
-                // Crossing from local to neighbor is -Z (face=5) at the -Z boundary
-                if micro_face_cell_open_s2(reg, here, there, 5, ixm, iym) {
-                    let i = midx(mx, my, 0, mxs, mzs);
-                    if seed_blk > 0
-                        && !micro_solid_at(buf, reg, mx, my, 0)
-                        && micro_blk[i] < seed_blk
-                    {
-                        micro_blk[i] = seed_blk;
-                    }
-                    if seed_sky > 0
-                        && !micro_solid_at(buf, reg, mx, my, 0)
-                        && micro_sky[i] < seed_sky
-                    {
-                        micro_sky[i] = seed_sky;
-                    }
+    // Z seams (block + sky) with macro-first loops and cached 2x2 gates
+    for ly in 0..buf.sy {
+        for lx in 0..buf.sx {
+            let here_nz = buf.get_local(lx, ly, 0);
+            let there_nz = world.block_at_runtime(reg, base_x + lx as i32, ly as i32, base_z - 1);
+            let here_pz = buf.get_local(lx, ly, buf.sz - 1);
+            let there_pz = world.block_at_runtime(
+                reg,
+                base_x + lx as i32,
+                ly as i32,
+                base_z + buf.sz as i32,
+            );
+            let mut gate_nz = [[false; 2]; 2];
+            let mut gate_pz = [[false; 2]; 2];
+            for ixm in 0..2 {
+                for iym in 0..2 {
+                    gate_nz[iym][ixm] = micro_face_cell_open_s2(reg, here_nz, there_nz, 5, ixm, iym);
+                    gate_pz[iym][ixm] = micro_face_cell_open_s2(reg, here_pz, there_pz, 4, ixm, iym);
                 }
             }
-            // +Z
-            let mut seed_blk = nbm
-                .zm_bl_pos
-                .as_ref()
-                .map(|p| clamp_sub_u8(p[my * mxs + mx], MICRO_BLOCK_ATTENUATION))
-                .unwrap_or_else(|| {
-                    nb.zp
+            for ixm in 0..2 {
+                for iym in 0..2 {
+                    let mx = (lx << 1) | ixm;
+                    let my = (ly << 1) | iym;
+                    // -Z
+                    let seed_blk_nz = nbm
+                        .zm_bl_neg
                         .as_ref()
-                        .map(|p| clamp_sub_u8(p[ly * buf.sx + lx], atten))
-                        .unwrap_or(0)
-                });
-            let mut seed_sky = nbm
-                .zm_sk_pos
-                .as_ref()
-                .map(|p| clamp_sub_u8(p[my * mxs + mx], MICRO_SKY_ATTENUATION))
-                .unwrap_or_else(|| {
-                    nb.sk_zp
+                        .map(|p| clamp_sub_u8(p[my * mxs + mx], MICRO_BLOCK_ATTENUATION))
+                        .unwrap_or_else(|| {
+                            nb.zn
+                                .as_ref()
+                                .map(|p| clamp_sub_u8(p[ly * buf.sx + lx], atten))
+                                .unwrap_or(0)
+                        });
+                    let seed_sky_nz = nbm
+                        .zm_sk_neg
                         .as_ref()
-                        .map(|p| clamp_sub_u8(p[ly * buf.sx + lx], atten))
-                        .unwrap_or(0)
-                });
-            if seed_blk > 0 || seed_sky > 0 {
-                let here = buf.get_local(lx, ly, buf.sz - 1);
-                let there = world.block_at_runtime(
-                    reg,
-                    base_x + lx as i32,
-                    ly as i32,
-                    base_z + buf.sz as i32,
-                );
-                // Crossing from local to neighbor is +Z (face=4) at the +Z boundary
-                if micro_face_cell_open_s2(reg, here, there, 4, ixm, iym) {
-                    let i = midx(mx, my, mzs - 1, mxs, mzs);
-                    if seed_blk > 0
-                        && !micro_solid_at(buf, reg, mx, my, mzs - 1)
-                        && micro_blk[i] < seed_blk
-                    {
-                        micro_blk[i] = seed_blk;
+                        .map(|p| clamp_sub_u8(p[my * mxs + mx], MICRO_SKY_ATTENUATION))
+                        .unwrap_or_else(|| {
+                            nb.sk_zn
+                                .as_ref()
+                                .map(|p| clamp_sub_u8(p[ly * buf.sx + lx], atten))
+                                .unwrap_or(0)
+                        });
+                    if (seed_blk_nz > 0 || seed_sky_nz > 0) && gate_nz[iym][ixm] {
+                        let i = midx(mx, my, 0, mxs, mzs);
+                        if seed_blk_nz > 0
+                            && !micro_solid_at_fast(mx, my, 0, buf, &occ8, &full)
+                            && micro_blk[i] < seed_blk_nz
+                        {
+                            micro_blk[i] = seed_blk_nz;
+                            q_blk.push_back((mx, my, 0, seed_blk_nz));
+                        }
+                        if seed_sky_nz > 0
+                            && !micro_solid_at_fast(mx, my, 0, buf, &occ8, &full)
+                            && micro_sky[i] < seed_sky_nz
+                        {
+                            micro_sky[i] = seed_sky_nz;
+                            q_sky.push_back((mx, my, 0, seed_sky_nz));
+                        }
                     }
-                    if seed_sky > 0
-                        && !micro_solid_at(buf, reg, mx, my, mzs - 1)
-                        && micro_sky[i] < seed_sky
-                    {
-                        micro_sky[i] = seed_sky;
+                    // +Z
+                    let seed_blk_pz = nbm
+                        .zm_bl_pos
+                        .as_ref()
+                        .map(|p| clamp_sub_u8(p[my * mxs + mx], MICRO_BLOCK_ATTENUATION))
+                        .unwrap_or_else(|| {
+                            nb.zp
+                                .as_ref()
+                                .map(|p| clamp_sub_u8(p[ly * buf.sx + lx], atten))
+                                .unwrap_or(0)
+                        });
+                    let seed_sky_pz = nbm
+                        .zm_sk_pos
+                        .as_ref()
+                        .map(|p| clamp_sub_u8(p[my * mxs + mx], MICRO_SKY_ATTENUATION))
+                        .unwrap_or_else(|| {
+                            nb.sk_zp
+                                .as_ref()
+                                .map(|p| clamp_sub_u8(p[ly * buf.sx + lx], atten))
+                                .unwrap_or(0)
+                        });
+                    if (seed_blk_pz > 0 || seed_sky_pz > 0) && gate_pz[iym][ixm] {
+                        let i = midx(mx, my, mzs - 1, mxs, mzs);
+                        if seed_blk_pz > 0
+                            && !micro_solid_at_fast(mx, my, mzs - 1, buf, &occ8, &full)
+                            && micro_blk[i] < seed_blk_pz
+                        {
+                            micro_blk[i] = seed_blk_pz;
+                            q_blk.push_back((mx, my, mzs - 1, seed_blk_pz));
+                        }
+                        if seed_sky_pz > 0
+                            && !micro_solid_at_fast(mx, my, mzs - 1, buf, &occ8, &full)
+                            && micro_sky[i] < seed_sky_pz
+                        {
+                            micro_sky[i] = seed_sky_pz;
+                            q_sky.push_back((mx, my, mzs - 1, seed_sky_pz));
+                        }
                     }
                 }
             }
@@ -307,10 +375,11 @@ pub fn compute_light_with_borders_buf_micro(
         for mx in mx0..(mx0 + MICRO_SCALE) {
             for my in my0..(my0 + MICRO_SCALE) {
                 for mz in mz0..(mz0 + MICRO_SCALE) {
-                    if !micro_solid_at(buf, reg, mx, my, mz) {
+                    if !micro_solid_at_fast(mx, my, mz, buf, &occ8, &full) {
                         let i = midx(mx, my, mz, mxs, mzs);
                         if micro_blk[i] < level {
                             micro_blk[i] = level;
+                            q_blk.push_back((mx, my, mz, level));
                         }
                     }
                 }
@@ -319,22 +388,6 @@ pub fn compute_light_with_borders_buf_micro(
     }
 
     // Propagate block light (omni) and skylight with per-micro step attenuation
-    use std::collections::VecDeque;
-    let mut q_blk: VecDeque<(usize, usize, usize, u8)> = VecDeque::new();
-    let mut q_sky: VecDeque<(usize, usize, usize, u8)> = VecDeque::new();
-    for mz in 0..mzs {
-        for my in 0..mys {
-            for mx in 0..mxs {
-                let i = midx(mx, my, mz, mxs, mzs);
-                if micro_blk[i] > 0 {
-                    q_blk.push_back((mx, my, mz, micro_blk[i]));
-                }
-                if micro_sky[i] > 0 {
-                    q_sky.push_back((mx, my, mz, micro_sky[i]));
-                }
-            }
-        }
-    }
 
     // Use per-micro step attenuation constants
     let att_blk: u8 = MICRO_BLOCK_ATTENUATION;
@@ -355,7 +408,7 @@ pub fn compute_light_with_borders_buf_micro(
         if mxu >= mxs || myu >= mys || mzu >= mzs {
             return;
         }
-        if micro_solid_at(buf, reg, mxu, myu, mzu) {
+        if micro_solid_at_fast(mxu, myu, mzu, buf, &occ8, &full) {
             return;
         }
         let v = clamp_sub_u8(lvl, att);
@@ -564,28 +617,50 @@ pub fn compute_light_with_borders_buf_micro(
         }
     }
 
-    // Downsample micro -> macro (max over the MICRO_SCALE^3 block) and retain micro arrays + neighbor planes
+    // Downsample micro -> macro (max over the 2x2x2 block) and retain micro arrays + neighbor planes
     let mut lg = LightGrid::new(buf.sx, buf.sy, buf.sz);
+    let stride_z = mxs; // +1 micro Z
+    let stride_y = mxs * mzs; // +1 micro Y
     for z in 0..buf.sz {
         for y in 0..buf.sy {
             for x in 0..buf.sx {
-                let mut smax = 0u8;
-                let mut bmax = 0u8;
-                for dz in 0..MICRO_SCALE {
-                    for dy in 0..MICRO_SCALE {
-                        for dx in 0..MICRO_SCALE {
-                            let i = midx(
-                                x * MICRO_SCALE + dx,
-                                y * MICRO_SCALE + dy,
-                                z * MICRO_SCALE + dz,
-                                mxs,
-                                mzs,
-                            );
-                            smax = smax.max(micro_sky[i]);
-                            bmax = bmax.max(micro_blk[i]);
-                        }
-                    }
-                }
+                let mx0 = x << 1;
+                let my0 = y << 1;
+                let mz0 = z << 1;
+                let i000 = midx(mx0, my0, mz0, mxs, mzs);
+                let i001 = i000 + stride_z;
+                let i010 = i000 + stride_y;
+                let i011 = i010 + stride_z;
+                let i100 = i000 + 1;
+                let i101 = i100 + stride_z;
+                let i110 = i100 + stride_y;
+                let i111 = i110 + stride_z;
+                let smax = *[
+                    micro_sky[i000],
+                    micro_sky[i001],
+                    micro_sky[i010],
+                    micro_sky[i011],
+                    micro_sky[i100],
+                    micro_sky[i101],
+                    micro_sky[i110],
+                    micro_sky[i111],
+                ]
+                .iter()
+                .max()
+                .unwrap();
+                let bmax = *[
+                    micro_blk[i000],
+                    micro_blk[i001],
+                    micro_blk[i010],
+                    micro_blk[i011],
+                    micro_blk[i100],
+                    micro_blk[i101],
+                    micro_blk[i110],
+                    micro_blk[i111],
+                ]
+                .iter()
+                .max()
+                .unwrap();
                 let ii = ((y * buf.sz) + z) * buf.sx + x;
                 lg.skylight[ii] = smax;
                 lg.block_light[ii] = bmax;

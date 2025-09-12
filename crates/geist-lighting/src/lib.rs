@@ -78,6 +78,32 @@ fn is_full_cube(reg: &BlockRegistry, b: Block) -> bool {
         .unwrap_or(false)
 }
 
+// Bit masks for S=2 micro-occupancy faces (2x2x2 bits in layout idx=(y<<2)|(z<<1)|x)
+#[inline]
+fn occ8_mask_for_face_x0() -> u8 {
+    0x55 // bits {0,2,4,6}
+}
+#[inline]
+fn occ8_mask_for_face_x1() -> u8 {
+    0xAA // bits {1,3,5,7}
+}
+#[inline]
+fn occ8_mask_for_face_y0() -> u8 {
+    0x0F // bits {0..3}
+}
+#[inline]
+fn occ8_mask_for_face_y1() -> u8 {
+    0xF0 // bits {4..7}
+}
+#[inline]
+fn occ8_mask_for_face_z0() -> u8 {
+    0x33 // bits {0,1,4,5}
+}
+#[inline]
+fn occ8_mask_for_face_z1() -> u8 {
+    0xCC // bits {2,3,6,7}
+}
+
 // Decide if a face between (x,y,z) and its neighbor in `face` direction is open for light at S=2.
 // face indices: 0=+Y,1=-Y,2=+X,3=-X,4=+Z,5=-Z (matches registry/mesher)
 #[inline]
@@ -1063,88 +1089,20 @@ impl LightGrid {
         }
         // Only the neighbor's micro occupancy can seal light reaching the boundary from that side.
         let there = buf.get_local(nx as usize, ny as usize, nz as usize);
-        let mut all_covered = true;
-        match face {
-            2 => {
-                for my in 0..2 {
-                    for mz in 0..2 {
-                        if !micro_cell_solid_s2(reg, there, 0, my, mz) {
-                            all_covered = false;
-                            break;
-                        }
-                    }
-                    if !all_covered {
-                        break;
-                    }
-                }
-            }
-            3 => {
-                for my in 0..2 {
-                    for mz in 0..2 {
-                        if !micro_cell_solid_s2(reg, there, 1, my, mz) {
-                            all_covered = false;
-                            break;
-                        }
-                    }
-                    if !all_covered {
-                        break;
-                    }
-                }
-            }
-            0 => {
-                for mx in 0..2 {
-                    for mz in 0..2 {
-                        if !micro_cell_solid_s2(reg, there, mx, 0, mz) {
-                            all_covered = false;
-                            break;
-                        }
-                    }
-                    if !all_covered {
-                        break;
-                    }
-                }
-            }
-            1 => {
-                for mx in 0..2 {
-                    for mz in 0..2 {
-                        if !micro_cell_solid_s2(reg, there, mx, 1, mz) {
-                            all_covered = false;
-                            break;
-                        }
-                    }
-                    if !all_covered {
-                        break;
-                    }
-                }
-            }
-            4 => {
-                for mx in 0..2 {
-                    for my in 0..2 {
-                        if !micro_cell_solid_s2(reg, there, mx, my, 0) {
-                            all_covered = false;
-                            break;
-                        }
-                    }
-                    if !all_covered {
-                        break;
-                    }
-                }
-            }
-            5 => {
-                for mx in 0..2 {
-                    for my in 0..2 {
-                        if !micro_cell_solid_s2(reg, there, mx, my, 1) {
-                            all_covered = false;
-                            break;
-                        }
-                    }
-                    if !all_covered {
-                        break;
-                    }
-                }
-            }
-            _ => {}
-        }
+        let all_covered = if let Some(o) = occ8_for(reg, there) {
+            let mask = match face {
+                2 => occ8_mask_for_face_x0(), // neighbor's x=0 plane
+                3 => occ8_mask_for_face_x1(), // neighbor's x=1 plane
+                0 => occ8_mask_for_face_y0(), // neighbor's y=0 plane
+                1 => occ8_mask_for_face_y1(), // neighbor's y=1 plane
+                4 => occ8_mask_for_face_z0(), // neighbor's z=0 plane
+                5 => occ8_mask_for_face_z1(), // neighbor's z=1 plane
+                _ => 0,
+            };
+            (o & mask) == mask
+        } else {
+            is_full_cube(reg, there)
+        };
         if all_covered {
             return local;
         }
