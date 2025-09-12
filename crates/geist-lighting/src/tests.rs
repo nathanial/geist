@@ -178,7 +178,9 @@ fn lightborders_from_grid_and_equal() {
     // equal_planes detects equality and inequality
     let mut b2 = LightBorders::from_grid(&lg);
     assert!(super::equal_planes(&b, &b2));
-    b2.xn[0] ^= 1;
+    let mut tmp = b2.xn.to_vec();
+    tmp[0] ^= 1;
+    b2.xn = tmp.into();
     assert!(!super::equal_planes(&b, &b2));
 }
 
@@ -231,15 +233,15 @@ fn neighbor_light_max_uses_neighbor_planes_on_bounds() {
     lg.skylight.fill(0);
     lg.beacon_light.fill(0);
     // Provide +X neighbor planes
-    lg.nb_xp_blk = Some(vec![77]); // index y*sz+z = 0
-    lg.nb_xp_sky = Some(vec![10]);
-    lg.nb_xp_bcn = Some(vec![5]);
+    lg.nb_xp_blk = Some(vec![77].into()); // index y*sz+z = 0
+    lg.nb_xp_sky = Some(vec![10].into());
+    lg.nb_xp_bcn = Some(vec![5].into());
     assert_eq!(lg.neighbor_light_max(sx - 1, 0, 0, 2), 77);
 
     // -X neighbor via xn
-    lg.nb_xn_blk = Some(vec![66]);
-    lg.nb_xn_sky = Some(vec![3]);
-    lg.nb_xn_bcn = Some(vec![9]);
+    lg.nb_xn_blk = Some(vec![66].into());
+    lg.nb_xn_sky = Some(vec![3].into());
+    lg.nb_xn_bcn = Some(vec![9].into());
     assert_eq!(lg.neighbor_light_max(0, 0, 0, 3), 66);
 
     // When neighbor plane is None, falls back to boundary cell value
@@ -256,10 +258,10 @@ fn lightingstore_borders_and_micro_neighbors() {
     let store = LightingStore::new(2, 1, 2);
     // Insert neighbor at (-1,0) so current (0,0) sees xn from its xp
     let mut b = LightBorders::new(2, 1, 2);
-    b.xp = vec![11; 1 * 2];
-    b.sk_xp = vec![22; 1 * 2];
-    b.bcn_xp = vec![33; 1 * 2];
-    b.bcn_dir_xp = vec![1; 1 * 2];
+    b.xp = vec![11; 1 * 2].into();
+    b.sk_xp = vec![22; 1 * 2].into();
+    b.bcn_xp = vec![33; 1 * 2].into();
+    b.bcn_dir_xp = vec![1; 1 * 2].into();
     store.update_borders(-1, 0, b.clone());
     let nb = store.get_neighbor_borders(0, 0);
     assert_eq!(nb.xn.as_ref().unwrap(), &b.xp);
@@ -271,7 +273,9 @@ fn lightingstore_borders_and_micro_neighbors() {
     assert!(!store.update_borders(-1, 0, b.clone()));
     // And true when changed
     let mut b_changed = b.clone();
-    b_changed.xp[0] = 99;
+    let mut tmp = b_changed.xp.to_vec();
+    tmp[0] = 99;
+    b_changed.xp = tmp.into();
     assert!(store.update_borders(-1, 0, b_changed));
 
     // Micro neighbor mapping
@@ -361,7 +365,7 @@ fn compute_with_borders_buf_seeds_from_coarse_neighbors() {
     // Seed coarse neighbor on -X via neighbor chunk (-1,0)'s +X plane
     let store = LightingStore::new(sx, sy, sz);
     let mut nb = LightBorders::new(sx, sy, sz);
-    nb.xp = vec![200; sy * sz];
+    nb.xp = vec![200; sy * sz].into();
     store.update_borders(-1, 0, nb);
 
     let lg = super::compute_light_with_borders_buf(&buf, &store, &reg, &world);
@@ -400,7 +404,7 @@ fn compute_with_borders_buf_micro_neighbors_take_precedence() {
     let store = LightingStore::new(sx, sy, sz);
     // Provide both coarse and micro neighbors on -X; micro should win
     let mut coarse = LightBorders::new(sx, sy, sz);
-    coarse.xp = vec![200; sy * sz];
+    coarse.xp = vec![200; sy * sz].into();
     store.update_borders(-1, 0, coarse);
 
     // Neighbor micro planes for chunk (-1,0): we need xm_bl_pos to be present (maps to our xm_bl_neg)
@@ -479,7 +483,7 @@ fn skylight_neighbors_coarse_and_micro_precedence() {
     // Coarse skylight seeding from -X
     let store = LightingStore::new(sx, sy, sz);
     let mut nb = LightBorders::new(sx, sy, sz);
-    nb.sk_xp = vec![200; sy * sz]; // neighbor (-1,0)'s +X skylight
+    nb.sk_xp = vec![200; sy * sz].into(); // neighbor (-1,0)'s +X skylight
     store.update_borders(-1, 0, nb);
     let lg = super::compute_light_with_borders_buf(&buf, &store, &reg, &world);
     // Edge x=0 attenuated by COARSE_SEAM_ATTENUATION=32
@@ -513,7 +517,7 @@ fn skylight_neighbors_coarse_and_micro_precedence() {
     let store2 = LightingStore::new(sx, sy, sz);
     // Publish both coarse and micro for (-1,0)
     let mut coarse = LightBorders::new(sx, sy, sz);
-    coarse.sk_xp = vec![200; sy * sz];
+    coarse.sk_xp = vec![200; sy * sz].into();
     store2.update_borders(-1, 0, coarse);
     store2.update_micro_borders(-1, 0, mb.clone());
     let lg2 = super::compute_light_with_borders_buf(&buf, &store2, &reg, &world);
@@ -552,7 +556,7 @@ fn lightingstore_clear_chunk_and_all_borders() {
     let store = LightingStore::new(2, 2, 2);
     // Seed (-1,0) coarse borders so (0,0) has -X neighbor planes
     let mut b = LightBorders::new(2, 2, 2);
-    b.xp = vec![50; 4];
+    b.xp = vec![50; 4].into();
     store.update_borders(-1, 0, b);
     // Seed micro borders at (-1,0)
     let mb = MicroBorders {
@@ -590,7 +594,7 @@ fn lightingstore_clear_chunk_and_all_borders() {
 
     // Repopulate borders at multiple neighbors and then clear all borders only
     let mut b2 = LightBorders::new(2, 2, 2);
-    b2.zp = vec![77; 4];
+    b2.zp = vec![77; 4].into();
     store.update_borders(0, -1, b2); // provides zn to (0,0)
     assert!(store.get_neighbor_borders(0, 0).zn.is_some());
     store.clear_all_borders();
@@ -615,8 +619,8 @@ fn seam_symmetry_block_and_sky_z_plus_minus_with_micro_override() {
     // -Z coarse neighbors
     let store = LightingStore::new(sx, sy, sz);
     let mut nb = LightBorders::new(sx, sy, sz);
-    nb.zp = vec![200; sy * sx];
-    nb.sk_zp = vec![200; sy * sx];
+    nb.zp = vec![200; sy * sx].into();
+    nb.sk_zp = vec![200; sy * sx].into();
     store.update_borders(0, -1, nb);
     let lg = super::compute_light_with_borders_buf(&buf, &store, &reg, &world);
     for x in 0..sx {
@@ -631,8 +635,8 @@ fn seam_symmetry_block_and_sky_z_plus_minus_with_micro_override() {
     let store2 = LightingStore::new(sx, sy, sz);
     // coarse as well but micro should win
     let mut nb2 = LightBorders::new(sx, sy, sz);
-    nb2.zn = vec![200; sy * sx];
-    nb2.sk_zn = vec![200; sy * sx];
+    nb2.zn = vec![200; sy * sx].into();
+    nb2.sk_zn = vec![200; sy * sx].into();
     store2.update_borders(0, 1, nb2);
     // Micro neighbor at +Z: zm_*_neg maps to our zm_*_pos
     let (mxs, mys, mzs) = (sx * 2, sy * 2, sz * 2);
@@ -677,8 +681,8 @@ fn seam_symmetry_block_and_sky_x_plus_with_micro_override() {
     // +X coarse neighbors
     let store = LightingStore::new(sx, sy, sz);
     let mut nb = LightBorders::new(sx, sy, sz);
-    nb.xn = vec![200; sy * sz];
-    nb.sk_xn = vec![200; sy * sz];
+    nb.xn = vec![200; sy * sz].into();
+    nb.sk_xn = vec![200; sy * sz].into();
     store.update_borders(1, 0, nb);
     let lg = super::compute_light_with_borders_buf(&buf, &store, &reg, &world);
     // Only bottom layer (y=0) is air; top is stone and remains dark
@@ -693,8 +697,8 @@ fn seam_symmetry_block_and_sky_x_plus_with_micro_override() {
     // -X micro neighbors override
     let store2 = LightingStore::new(sx, sy, sz);
     let mut nb2 = LightBorders::new(sx, sy, sz);
-    nb2.xp = vec![200; sy * sz];
-    nb2.sk_xp = vec![200; sy * sz];
+    nb2.xp = vec![200; sy * sz].into();
+    nb2.sk_xp = vec![200; sy * sz].into();
     store2.update_borders(-1, 0, nb2);
     let (mxs, mys, mzs) = (sx * 2, sy * 2, sz * 2);
     let mb = MicroBorders {
@@ -838,7 +842,7 @@ fn clear_all_borders_does_not_clear_micro_planes() {
     assert!(store.get_neighbor_micro_borders(0, 0).xm_sk_neg.is_some());
     // Add coarse borders and then clear them
     let mut b = LightBorders::new(2, 1, 2);
-    b.xp = vec![1; 2];
+    b.xp = vec![1; 2].into();
     store.update_borders(-1, 0, b);
     assert!(store.get_neighbor_borders(0, 0).xn.is_some());
     store.clear_all_borders();

@@ -176,22 +176,22 @@ pub struct LightGrid {
     pub(crate) mnb_yp_sky: Option<Arc<[u8]>>,
     pub(crate) mnb_yn_blk: Option<Arc<[u8]>>,
     pub(crate) mnb_yp_blk: Option<Arc<[u8]>>,
-    pub(crate) nb_xn_blk: Option<Vec<u8>>,
-    pub(crate) nb_xp_blk: Option<Vec<u8>>,
-    pub(crate) nb_zn_blk: Option<Vec<u8>>,
-    pub(crate) nb_zp_blk: Option<Vec<u8>>,
-    pub(crate) nb_xn_sky: Option<Vec<u8>>,
-    pub(crate) nb_xp_sky: Option<Vec<u8>>,
-    pub(crate) nb_zn_sky: Option<Vec<u8>>,
-    pub(crate) nb_zp_sky: Option<Vec<u8>>,
-    pub(crate) nb_xn_bcn: Option<Vec<u8>>,
-    pub(crate) nb_xp_bcn: Option<Vec<u8>>,
-    pub(crate) nb_zn_bcn: Option<Vec<u8>>,
-    pub(crate) nb_zp_bcn: Option<Vec<u8>>,
-    pub(crate) nb_xn_bcn_dir: Option<Vec<u8>>,
-    pub(crate) nb_xp_bcn_dir: Option<Vec<u8>>,
-    pub(crate) nb_zn_bcn_dir: Option<Vec<u8>>,
-    pub(crate) nb_zp_bcn_dir: Option<Vec<u8>>,
+    pub(crate) nb_xn_blk: Option<Arc<[u8]>>,
+    pub(crate) nb_xp_blk: Option<Arc<[u8]>>,
+    pub(crate) nb_zn_blk: Option<Arc<[u8]>>,
+    pub(crate) nb_zp_blk: Option<Arc<[u8]>>,
+    pub(crate) nb_xn_sky: Option<Arc<[u8]>>,
+    pub(crate) nb_xp_sky: Option<Arc<[u8]>>,
+    pub(crate) nb_zn_sky: Option<Arc<[u8]>>,
+    pub(crate) nb_zp_sky: Option<Arc<[u8]>>,
+    pub(crate) nb_xn_bcn: Option<Arc<[u8]>>,
+    pub(crate) nb_xp_bcn: Option<Arc<[u8]>>,
+    pub(crate) nb_zn_bcn: Option<Arc<[u8]>>,
+    pub(crate) nb_zp_bcn: Option<Arc<[u8]>>,
+    pub(crate) nb_xn_bcn_dir: Option<Arc<[u8]>>,
+    pub(crate) nb_xp_bcn_dir: Option<Arc<[u8]>>,
+    pub(crate) nb_zn_bcn_dir: Option<Arc<[u8]>>,
+    pub(crate) nb_zp_bcn_dir: Option<Arc<[u8]>>,
 }
 
 impl LightGrid {
@@ -1201,112 +1201,162 @@ fn block_light_passable(b: Block, reg: &BlockRegistry) -> bool {
 
 #[derive(Clone)]
 pub struct LightBorders {
-    pub xn: Vec<u8>,
-    pub xp: Vec<u8>,
-    pub zn: Vec<u8>,
-    pub zp: Vec<u8>,
-    pub yn: Vec<u8>,
-    pub yp: Vec<u8>,
-    pub sk_xn: Vec<u8>,
-    pub sk_xp: Vec<u8>,
-    pub sk_zn: Vec<u8>,
-    pub sk_zp: Vec<u8>,
-    pub sk_yn: Vec<u8>,
-    pub sk_yp: Vec<u8>,
-    pub bcn_xn: Vec<u8>,
-    pub bcn_xp: Vec<u8>,
-    pub bcn_zn: Vec<u8>,
-    pub bcn_zp: Vec<u8>,
-    pub bcn_yn: Vec<u8>,
-    pub bcn_yp: Vec<u8>,
-    pub bcn_dir_xn: Vec<u8>,
-    pub bcn_dir_xp: Vec<u8>,
-    pub bcn_dir_zn: Vec<u8>,
-    pub bcn_dir_zp: Vec<u8>,
+    pub xn: Arc<[u8]>,
+    pub xp: Arc<[u8]>,
+    pub zn: Arc<[u8]>,
+    pub zp: Arc<[u8]>,
+    pub yn: Arc<[u8]>,
+    pub yp: Arc<[u8]>,
+    pub sk_xn: Arc<[u8]>,
+    pub sk_xp: Arc<[u8]>,
+    pub sk_zn: Arc<[u8]>,
+    pub sk_zp: Arc<[u8]>,
+    pub sk_yn: Arc<[u8]>,
+    pub sk_yp: Arc<[u8]>,
+    pub bcn_xn: Arc<[u8]>,
+    pub bcn_xp: Arc<[u8]>,
+    pub bcn_zn: Arc<[u8]>,
+    pub bcn_zp: Arc<[u8]>,
+    pub bcn_yn: Arc<[u8]>,
+    pub bcn_yp: Arc<[u8]>,
+    pub bcn_dir_xn: Arc<[u8]>,
+    pub bcn_dir_xp: Arc<[u8]>,
+    pub bcn_dir_zn: Arc<[u8]>,
+    pub bcn_dir_zp: Arc<[u8]>,
 }
 
 impl LightBorders {
     pub fn new(sx: usize, sy: usize, sz: usize) -> Self {
         Self {
-            xn: vec![0; sy * sz],
-            xp: vec![0; sy * sz],
-            zn: vec![0; sy * sx],
-            zp: vec![0; sy * sx],
-            yn: vec![0; sx * sz],
-            yp: vec![0; sx * sz],
-            sk_xn: vec![0; sy * sz],
-            sk_xp: vec![0; sy * sz],
-            sk_zn: vec![0; sy * sx],
-            sk_zp: vec![0; sy * sx],
-            sk_yn: vec![0; sx * sz],
-            sk_yp: vec![0; sx * sz],
-            bcn_xn: vec![0; sy * sz],
-            bcn_xp: vec![0; sy * sz],
-            bcn_zn: vec![0; sy * sx],
-            bcn_zp: vec![0; sy * sx],
-            bcn_yn: vec![0; sx * sz],
-            bcn_yp: vec![0; sx * sz],
-            bcn_dir_xn: vec![5; sy * sz],
-            bcn_dir_xp: vec![5; sy * sz],
-            bcn_dir_zn: vec![5; sy * sx],
-            bcn_dir_zp: vec![5; sy * sx],
+            xn: vec![0; sy * sz].into(),
+            xp: vec![0; sy * sz].into(),
+            zn: vec![0; sy * sx].into(),
+            zp: vec![0; sy * sx].into(),
+            yn: vec![0; sx * sz].into(),
+            yp: vec![0; sx * sz].into(),
+            sk_xn: vec![0; sy * sz].into(),
+            sk_xp: vec![0; sy * sz].into(),
+            sk_zn: vec![0; sy * sx].into(),
+            sk_zp: vec![0; sy * sx].into(),
+            sk_yn: vec![0; sx * sz].into(),
+            sk_yp: vec![0; sx * sz].into(),
+            bcn_xn: vec![0; sy * sz].into(),
+            bcn_xp: vec![0; sy * sz].into(),
+            bcn_zn: vec![0; sy * sx].into(),
+            bcn_zp: vec![0; sy * sx].into(),
+            bcn_yn: vec![0; sx * sz].into(),
+            bcn_yp: vec![0; sx * sz].into(),
+            bcn_dir_xn: vec![5; sy * sz].into(),
+            bcn_dir_xp: vec![5; sy * sz].into(),
+            bcn_dir_zn: vec![5; sy * sx].into(),
+            bcn_dir_zp: vec![5; sy * sx].into(),
         }
     }
     pub fn from_grid(grid: &LightGrid) -> Self {
         let (sx, sy, sz) = (grid.sx, grid.sy, grid.sz);
-        let mut b = Self::new(sx, sy, sz);
+        let mut xn = vec![0u8; sy * sz];
+        let mut xp = vec![0u8; sy * sz];
+        let mut zn = vec![0u8; sy * sx];
+        let mut zp = vec![0u8; sy * sx];
+        let mut yn = vec![0u8; sx * sz];
+        let mut yp = vec![0u8; sx * sz];
+        let mut sk_xn = vec![0u8; sy * sz];
+        let mut sk_xp = vec![0u8; sy * sz];
+        let mut sk_zn = vec![0u8; sy * sx];
+        let mut sk_zp = vec![0u8; sy * sx];
+        let mut sk_yn = vec![0u8; sx * sz];
+        let mut sk_yp = vec![0u8; sx * sz];
+        let mut bcn_xn = vec![0u8; sy * sz];
+        let mut bcn_xp = vec![0u8; sy * sz];
+        let mut bcn_zn = vec![0u8; sy * sx];
+        let mut bcn_zp = vec![0u8; sy * sx];
+        let mut bcn_yn = vec![0u8; sx * sz];
+        let mut bcn_yp = vec![0u8; sx * sz];
+        let mut bcn_dir_xn = vec![5u8; sy * sz];
+        let mut bcn_dir_xp = vec![5u8; sy * sz];
+        let mut bcn_dir_zn = vec![5u8; sy * sx];
+        let mut bcn_dir_zp = vec![5u8; sy * sx];
         let idx3 = |x: usize, y: usize, z: usize| -> usize { (y * sz + z) * sx + x };
         for z in 0..sz {
             for y in 0..sy {
-                b.xn[y * sz + z] = grid.block_light[idx3(0, y, z)];
-                b.sk_xn[y * sz + z] = grid.skylight[idx3(0, y, z)];
-                b.bcn_xn[y * sz + z] = grid.beacon_light[idx3(0, y, z)];
+                let ii = y * sz + z;
+                xn[ii] = grid.block_light[idx3(0, y, z)];
+                sk_xn[ii] = grid.skylight[idx3(0, y, z)];
+                bcn_xn[ii] = grid.beacon_light[idx3(0, y, z)];
                 let d = grid.beacon_dir[idx3(0, y, z)];
-                b.bcn_dir_xn[y * sz + z] = if d == 2 || d == 0 { 2 } else { 5 };
+                bcn_dir_xn[ii] = if d == 2 || d == 0 { 2 } else { 5 };
             }
         }
         for z in 0..sz {
             for y in 0..sy {
-                b.xp[y * sz + z] = grid.block_light[idx3(sx - 1, y, z)];
-                b.sk_xp[y * sz + z] = grid.skylight[idx3(sx - 1, y, z)];
-                b.bcn_xp[y * sz + z] = grid.beacon_light[idx3(sx - 1, y, z)];
+                let ii = y * sz + z;
+                xp[ii] = grid.block_light[idx3(sx - 1, y, z)];
+                sk_xp[ii] = grid.skylight[idx3(sx - 1, y, z)];
+                bcn_xp[ii] = grid.beacon_light[idx3(sx - 1, y, z)];
                 let d = grid.beacon_dir[idx3(sx - 1, y, z)];
-                b.bcn_dir_xp[y * sz + z] = if d == 1 || d == 0 { 1 } else { 5 };
+                bcn_dir_xp[ii] = if d == 1 || d == 0 { 1 } else { 5 };
             }
         }
         for x in 0..sx {
             for y in 0..sy {
-                b.zn[y * sx + x] = grid.block_light[idx3(x, y, 0)];
-                b.sk_zn[y * sx + x] = grid.skylight[idx3(x, y, 0)];
-                b.bcn_zn[y * sx + x] = grid.beacon_light[idx3(x, y, 0)];
+                let ii = y * sx + x;
+                zn[ii] = grid.block_light[idx3(x, y, 0)];
+                sk_zn[ii] = grid.skylight[idx3(x, y, 0)];
+                bcn_zn[ii] = grid.beacon_light[idx3(x, y, 0)];
                 let d = grid.beacon_dir[idx3(x, y, 0)];
-                b.bcn_dir_zn[y * sx + x] = if d == 4 || d == 0 { 4 } else { 5 };
+                bcn_dir_zn[ii] = if d == 4 || d == 0 { 4 } else { 5 };
             }
         }
         for x in 0..sx {
             for y in 0..sy {
-                b.zp[y * sx + x] = grid.block_light[idx3(x, y, sz - 1)];
-                b.sk_zp[y * sx + x] = grid.skylight[idx3(x, y, sz - 1)];
-                b.bcn_zp[y * sx + x] = grid.beacon_light[idx3(x, y, sz - 1)];
+                let ii = y * sx + x;
+                zp[ii] = grid.block_light[idx3(x, y, sz - 1)];
+                sk_zp[ii] = grid.skylight[idx3(x, y, sz - 1)];
+                bcn_zp[ii] = grid.beacon_light[idx3(x, y, sz - 1)];
                 let d = grid.beacon_dir[idx3(x, y, sz - 1)];
-                b.bcn_dir_zp[y * sx + x] = if d == 3 || d == 0 { 3 } else { 5 };
+                bcn_dir_zp[ii] = if d == 3 || d == 0 { 3 } else { 5 };
             }
         }
         for z in 0..sz {
             for x in 0..sx {
-                b.yn[z * sx + x] = grid.block_light[idx3(x, 0, z)];
-                b.sk_yn[z * sx + x] = grid.skylight[idx3(x, 0, z)];
-                b.bcn_yn[z * sx + x] = grid.beacon_light[idx3(x, 0, z)];
+                let ii = z * sx + x;
+                yn[ii] = grid.block_light[idx3(x, 0, z)];
+                sk_yn[ii] = grid.skylight[idx3(x, 0, z)];
+                bcn_yn[ii] = grid.beacon_light[idx3(x, 0, z)];
             }
         }
         for z in 0..sz {
             for x in 0..sx {
-                b.yp[z * sx + x] = grid.block_light[idx3(x, sy - 1, z)];
-                b.sk_yp[z * sx + x] = grid.skylight[idx3(x, sy - 1, z)];
-                b.bcn_yp[z * sx + x] = grid.beacon_light[idx3(x, sy - 1, z)];
+                let ii = z * sx + x;
+                yp[ii] = grid.block_light[idx3(x, sy - 1, z)];
+                sk_yp[ii] = grid.skylight[idx3(x, sy - 1, z)];
+                bcn_yp[ii] = grid.beacon_light[idx3(x, sy - 1, z)];
             }
         }
-        b
+        Self {
+            xn: xn.into(),
+            xp: xp.into(),
+            zn: zn.into(),
+            zp: zp.into(),
+            yn: yn.into(),
+            yp: yp.into(),
+            sk_xn: sk_xn.into(),
+            sk_xp: sk_xp.into(),
+            sk_zn: sk_zn.into(),
+            sk_zp: sk_zp.into(),
+            sk_yn: sk_yn.into(),
+            sk_yp: sk_yp.into(),
+            bcn_xn: bcn_xn.into(),
+            bcn_xp: bcn_xp.into(),
+            bcn_zn: bcn_zn.into(),
+            bcn_zp: bcn_zp.into(),
+            bcn_yn: bcn_yn.into(),
+            bcn_yp: bcn_yp.into(),
+            bcn_dir_xn: bcn_dir_xn.into(),
+            bcn_dir_xp: bcn_dir_xp.into(),
+            bcn_dir_zn: bcn_dir_zn.into(),
+            bcn_dir_zp: bcn_dir_zp.into(),
+        }
     }
 }
 
@@ -1515,22 +1565,22 @@ fn equal_planes(a: &LightBorders, b: &LightBorders) -> bool {
 }
 
 pub struct NeighborBorders {
-    pub xn: Option<Vec<u8>>,
-    pub xp: Option<Vec<u8>>,
-    pub zn: Option<Vec<u8>>,
-    pub zp: Option<Vec<u8>>,
-    pub sk_xn: Option<Vec<u8>>,
-    pub sk_xp: Option<Vec<u8>>,
-    pub sk_zn: Option<Vec<u8>>,
-    pub sk_zp: Option<Vec<u8>>,
-    pub bcn_xn: Option<Vec<u8>>,
-    pub bcn_xp: Option<Vec<u8>>,
-    pub bcn_zn: Option<Vec<u8>>,
-    pub bcn_zp: Option<Vec<u8>>,
-    pub bcn_dir_xn: Option<Vec<u8>>,
-    pub bcn_dir_xp: Option<Vec<u8>>,
-    pub bcn_dir_zn: Option<Vec<u8>>,
-    pub bcn_dir_zp: Option<Vec<u8>>,
+    pub xn: Option<Arc<[u8]>>,
+    pub xp: Option<Arc<[u8]>>,
+    pub zn: Option<Arc<[u8]>>,
+    pub zp: Option<Arc<[u8]>>,
+    pub sk_xn: Option<Arc<[u8]>>,
+    pub sk_xp: Option<Arc<[u8]>>,
+    pub sk_zn: Option<Arc<[u8]>>,
+    pub sk_zp: Option<Arc<[u8]>>,
+    pub bcn_xn: Option<Arc<[u8]>>,
+    pub bcn_xp: Option<Arc<[u8]>>,
+    pub bcn_zn: Option<Arc<[u8]>>,
+    pub bcn_zp: Option<Arc<[u8]>>,
+    pub bcn_dir_xn: Option<Arc<[u8]>>,
+    pub bcn_dir_xp: Option<Arc<[u8]>>,
+    pub bcn_dir_zn: Option<Arc<[u8]>>,
+    pub bcn_dir_zp: Option<Arc<[u8]>>,
 }
 
 impl NeighborBorders {

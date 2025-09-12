@@ -24,30 +24,30 @@ proptest! {
 
         // Left neighbor provides its +X to our -X
         let mut left = LightBorders::new(sx, sy, sz);
-        left.xp = xn.clone();
+        left.xp = xn.clone().into();
         prop_assert!(store.update_borders(-1, 0, left));
 
         // Right neighbor provides its -X to our +X
         let mut right = LightBorders::new(sx, sy, sz);
-        right.xn = xp.clone();
+        right.xn = xp.clone().into();
         prop_assert!(store.update_borders(1, 0, right));
 
         // Front neighbor (negative Z) provides its +Z to our -Z
         let mut front = LightBorders::new(sx, sy, sz);
-        front.zp = zn.clone();
+        front.zp = zn.clone().into();
         prop_assert!(store.update_borders(0, -1, front));
 
         // Back neighbor (positive Z) provides its -Z to our +Z
         let mut back = LightBorders::new(sx, sy, sz);
-        back.zn = zp.clone();
+        back.zn = zp.clone().into();
         prop_assert!(store.update_borders(0, 1, back));
 
         // No vertical neighbors managed; skip yn/yp mapping
 
         let nb = store.get_neighbor_borders(0, 0);
-        prop_assert_eq!(nb.xn.as_ref().unwrap(), &xn);
-        prop_assert_eq!(nb.xp.as_ref().unwrap(), &xp);
-        prop_assert_eq!(nb.zn.as_ref().unwrap(), &zn);
-        prop_assert_eq!(nb.zp.as_ref().unwrap(), &zp);
+        prop_assert_eq!(nb.xn.as_ref().unwrap().as_ref(), &xn[..]);
+        prop_assert_eq!(nb.xp.as_ref().unwrap().as_ref(), &xp[..]);
+        prop_assert_eq!(nb.zn.as_ref().unwrap().as_ref(), &zn[..]);
+        prop_assert_eq!(nb.zp.as_ref().unwrap().as_ref(), &zp[..]);
     }
 }
