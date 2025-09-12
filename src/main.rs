@@ -5,6 +5,7 @@ mod gamestate;
 mod player;
 mod raycast;
 mod snapshowcase;
+mod assets;
 #[cfg(test)]
 mod stairs_tests;
 
@@ -25,6 +26,10 @@ struct Cli {
     /// Log to a file; optional path (defaults to geist.log if omitted)
     #[arg(long, global = true, num_args = 0..=1, value_name = "PATH", default_missing_value = "geist.log")]
     log_file: Option<String>,
+
+    /// Assets root directory (overrides GEIST_ASSETS and auto-detect)
+    #[arg(long, global = true, value_name = "DIR")]
+    assets_root: Option<String>,
 
     #[command(subcommand)]
     command: Option<Command>,
@@ -182,6 +187,9 @@ fn main() {
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     }
 
+    // Resolve assets root now (CLI overrides env and auto-detect)
+    let assets_root = crate::assets::resolve_assets_root(cli.assets_root.clone());
+
     // Determine command (default to Run with defaults)
     let command = cli.command.unwrap_or(Command::Run(RunArgs::default()));
 
@@ -229,12 +237,12 @@ fn main() {
                 }
             }
         }
-        Command::Run(run) => run_app(run),
+        Command::Run(run) => run_app(run, assets_root),
         Command::SnapShowcase(args) => snapshowcase::run_showcase_snapshots(args),
     }
 }
 
-fn run_app(run: RunArgs) {
+fn run_app(run: RunArgs, assets_root: std::path::PathBuf) {
     // Silence raylib's internal logging unless debugging raylib itself
     unsafe {
         // 7 == LOG_NONE in raylib (0 was LOG_NONE; 0 was LOG_ALL and was too chatty)
@@ -255,46 +263,9 @@ fn run_app(run: RunArgs) {
 
     rl.set_target_fps(60);
 
-    // Load runtime voxel registry (materials + block types) and keep it
-    // Be robust to arbitrary CWDs by searching for an assets/ folder near
-    // current dir, the executable, and the crate root.
-    fn resolve_assets_root() -> std::path::PathBuf {
-        use std::path::PathBuf;
-        let mut candidates: Vec<PathBuf> = Vec::new();
-        if let Ok(cwd) = std::env::current_dir() {
-            candidates.push(cwd);
-        }
-        // Executable dir
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(dir) = exe.parent() {
-                candidates.push(dir.to_path_buf());
-            }
-        }
-        // Crate root (compile-time)
-        candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")));
-
-        // For each candidate, climb up to 5 parents looking for assets/voxels/materials.toml
-        for base in candidates {
-            let mut cur = base.clone();
-            for _ in 0..5 {
-                let check = cur.join("assets/voxels/materials.toml");
-                if check.exists() {
-                    return cur;
-                }
-                if let Some(parent) = cur.parent() {
-                    cur = parent.to_path_buf();
-                } else {
-                    break;
-                }
-            }
-        }
-        // Fallback to CWD
-        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
-    }
-
-    let assets_root = resolve_assets_root();
-    let mats_path = assets_root.join("assets/voxels/materials.toml");
-    let blocks_path = assets_root.join("assets/voxels/blocks.toml");
+    // Load runtime voxel registry (materials + block types)
+    let mats_path = crate::assets::materials_path(&assets_root);
+    let blocks_path = crate::assets::blocks_path(&assets_root);
     let mut reg0 = BlockRegistry::load_from_paths(&mats_path, &blocks_path).unwrap_or_else(|e| {
         log::warn!(
             "Failed to load runtime voxel registry from {:?} / {:?}: {}",
@@ -392,8 +363,20 @@ fn run_app(run: RunArgs) {
         reg.clone(),
         run.watch_textures,
         run.watch_worldgen,
-        run.world_config.clone(),
+        // Use absolute path for worldgen watcher if available
+        {
+            use std::path::Path;
+            let cfgp = Path::new(&run.world_config);
+            let abs = if cfgp.is_absolute() {
+                cfgp.to_path_buf()
+            } else {
+                let p = assets_root.join(cfgp);
+                p
+            };
+            abs.to_string_lossy().to_string()
+        },
         run.rebuild_on_worldgen_change,
+        assets_root.clone(),
     );
 
     while !rl.window_should_close() {

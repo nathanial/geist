@@ -51,8 +51,43 @@ struct ToDef {
 }
 
 fn load_palette_map() -> Option<PaletteMapConfig> {
-    let path = std::path::Path::new("assets/voxels/palette_map.toml");
-    let s = fs::read_to_string(path).ok()?;
+    // Allow overriding via GEIST_ASSETS root; else search nearby folders
+    let path = if let Ok(p) = std::env::var("GEIST_ASSETS") {
+        std::path::PathBuf::from(p).join("assets/voxels/palette_map.toml")
+    } else {
+        // Candidates: CWD, exe dir, crate root (compile time)
+        let mut cands: Vec<std::path::PathBuf> = Vec::new();
+        if let Ok(cwd) = std::env::current_dir() {
+            cands.push(cwd);
+        }
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                cands.push(dir.to_path_buf());
+            }
+        }
+        cands.push(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+        let mut found = None;
+        for base in cands {
+            let mut cur = base.clone();
+            for _ in 0..5 {
+                let chk = cur.join("assets/voxels/palette_map.toml");
+                if chk.exists() {
+                    found = Some(chk);
+                    break;
+                }
+                if let Some(p) = cur.parent() {
+                    cur = p.to_path_buf();
+                } else {
+                    break;
+                }
+            }
+            if found.is_some() {
+                break;
+            }
+        }
+        found.unwrap_or_else(|| std::path::PathBuf::from("assets/voxels/palette_map.toml"))
+    };
+    let s = fs::read_to_string(&path).ok()?;
     toml::from_str::<PaletteMapConfig>(&s).ok()
 }
 

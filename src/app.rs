@@ -52,6 +52,10 @@ pub struct App {
     world_config_path: String,
     pub rebuild_on_worldgen: bool,
     worldgen_dirty: bool,
+    // Assets root for resolving paths
+    pub assets_root: std::path::PathBuf,
+    // Registry file watcher
+    reg_event_rx: std::sync::mpsc::Receiver<()>,
 }
 
 #[derive(Default)]
@@ -254,12 +258,12 @@ impl App {
             self.intents.remove(&k);
         }
     }
-    fn load_hotbar(reg: &BlockRegistry) -> Vec<Block> {
-        let path = std::path::Path::new("assets/voxels/hotbar.toml");
+    fn load_hotbar(reg: &BlockRegistry, assets_root: &std::path::Path) -> Vec<Block> {
+        let path = crate::assets::hotbar_path(assets_root);
         if !path.exists() {
             return Vec::new();
         }
-        match std::fs::read_to_string(path) {
+        match std::fs::read_to_string(&path) {
             Ok(s) => match toml::from_str::<HotbarConfig>(&s) {
                 Ok(cfg) => cfg
                     .items
@@ -350,6 +354,7 @@ impl App {
         watch_worldgen: bool,
         world_config_path: String,
         rebuild_on_worldgen: bool,
+        assets_root: std::path::PathBuf,
     ) -> Self {
         // Spawn: if flat world, start a few blocks above the slab; else near world top
         let spawn = if world.is_flat() {
@@ -368,13 +373,16 @@ impl App {
         let cam = crate::camera::FlyCamera::new(spawn + Vector3::new(0.0, 5.0, 20.0));
 
         // Renderer-side resources and file watchers (moved from Runtime in Phase 5)
-        let leaves_shader = LeavesShader::load(rl, thread);
-        let fog_shader = FogShader::load(rl, thread);
+        let leaves_shader = LeavesShader::load_with_base(rl, thread, &assets_root)
+            .or_else(|| LeavesShader::load(rl, thread));
+        let fog_shader =
+            FogShader::load_with_base(rl, thread, &assets_root).or_else(|| FogShader::load(rl, thread));
         let tex_cache = TextureCache::new();
         // File watcher for textures under assets/blocks
         let (tex_tx, tex_rx) = std::sync::mpsc::channel::<String>();
         if watch_textures {
             let tex_tx = tex_tx.clone();
+            let tex_dir = crate::assets::textures_dir(&assets_root);
             std::thread::spawn(move || {
                 use notify::{EventKind, RecursiveMode, Watcher};
                 let mut watcher = notify::recommended_watcher(
@@ -401,10 +409,7 @@ impl App {
                     },
                 )
                 .unwrap();
-                let _ = watcher.watch(
-                    std::path::Path::new("assets/blocks"),
-                    RecursiveMode::Recursive,
-                );
+                let _ = watcher.watch(tex_dir.as_path(), RecursiveMode::Recursive);
                 loop {
                     std::thread::sleep(std::time::Duration::from_secs(3600));
                 }
@@ -440,19 +445,19 @@ impl App {
             });
         }
 
-        let runtime = Runtime::new(world.clone(), lighting.clone(), reg.clone());
+        let runtime = Runtime::new(world.clone(), lighting.clone());
         let mut gs = GameState::new(world.clone(), edits, lighting.clone(), cam.position);
         let mut queue = EventQueue::new();
-        let hotbar = Self::load_hotbar(&reg);
+        let hotbar = Self::load_hotbar(&reg, &assets_root);
 
         // Discover and load all .schem files in 'schematics/'.
         // Flat worlds: keep existing ground placement.
         // Non-flat worlds: compute a flying platform sized to hold all schematics and stamp them onto it.
         {
             use std::path::Path;
-            let dir = Path::new("schematics");
+            let dir = crate::assets::schematics_dir(&assets_root);
             if dir.exists() {
-                match geist_io::list_schematics_with_size(dir) {
+                match geist_io::list_schematics_with_size(dir.as_path()) {
                     Ok(mut list) => {
                         if list.is_empty() {
                             log::info!("No .schem files found under {:?}", dir);
@@ -714,6 +719,37 @@ impl App {
             world_config_path,
             rebuild_on_worldgen,
             worldgen_dirty: false,
+            assets_root: assets_root.clone(),
+            reg_event_rx: {
+                let (rtx, rrx) = std::sync::mpsc::channel::<()>();
+                let mats = crate::assets::materials_path(&assets_root);
+                let blks = crate::assets::blocks_path(&assets_root);
+                std::thread::spawn(move || {
+                    use notify::{EventKind, RecursiveMode, Watcher};
+                    if let Ok(mut watcher) = notify::recommended_watcher(
+                        move |res: Result<notify::Event, notify::Error>| {
+                            if let Ok(event) = res {
+                                match event.kind {
+                                    EventKind::Modify(_)
+                                    | EventKind::Create(_)
+                                    | EventKind::Remove(_)
+                                    | EventKind::Any => {
+                                        let _ = rtx.send(());
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        },
+                    ) {
+                        let _ = watcher.watch(mats.as_path(), RecursiveMode::NonRecursive);
+                        let _ = watcher.watch(blks.as_path(), RecursiveMode::NonRecursive);
+                        loop {
+                            std::thread::sleep(std::time::Duration::from_secs(3600));
+                        }
+                    }
+                });
+                rrx
+            },
         }
     }
 
@@ -1053,6 +1089,7 @@ impl App {
                     chunk_edits,
                     region_edits,
                     prev_buf,
+                    reg: self.reg.clone(),
                 };
                 match cause {
                     RebuildCause::Edit => {
@@ -1077,6 +1114,7 @@ impl App {
                         sz: st.sz,
                         base_blocks: st.blocks.clone(),
                         edits: st.edits.snapshot_all(),
+                        reg: self.reg.clone(),
                     };
                     self.runtime.submit_structure_build_job(job);
                 }
@@ -1577,6 +1615,34 @@ impl App {
     }
 
     pub fn step(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread, dt: f32) {
+        // Registry hot-reload (materials/blocks)
+        if self.reg_event_rx.try_iter().next().is_some() {
+            let mats = crate::assets::materials_path(&self.assets_root);
+            let blks = crate::assets::blocks_path(&self.assets_root);
+            match geist_blocks::BlockRegistry::load_from_paths(&mats, &blks) {
+                Ok(mut newreg) => {
+                    for m in &mut newreg.materials.materials {
+                        for p in &mut m.texture_candidates {
+                            if p.is_relative() {
+                                *p = self.assets_root.join(&p);
+                            }
+                        }
+                    }
+                    self.reg = std::sync::Arc::new(newreg);
+                    self.tex_cache.map.clear();
+                    let keys: Vec<(i32, i32)> = self.renders.keys().cloned().collect();
+                    for (cx, cz) in keys {
+                        self.queue.emit_now(Event::ChunkRebuildRequested { cx, cz, cause: RebuildCause::StreamLoad });
+                    }
+                    for (id, st) in self.gs.structures.iter() {
+                        let next_rev = st.built_rev.wrapping_add(1);
+                        self.queue.emit_now(Event::StructureBuildRequested { id: *id, rev: next_rev });
+                    }
+                    log::info!("Reloaded voxel registry and scheduled rebuilds");
+                }
+                Err(e) => log::warn!("Registry reload failed: {}", e),
+            }
+        }
         // Handle worldgen hot-reload
         // Always invalidate previous CPU buffers on change; optionally schedule rebuilds
         if self.take_worldgen_dirty() {

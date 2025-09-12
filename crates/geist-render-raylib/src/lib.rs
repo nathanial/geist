@@ -259,6 +259,49 @@ impl LeavesShader {
         );
         Some(s)
     }
+    pub fn load_with_base(
+        rl: &mut RaylibHandle,
+        thread: &RaylibThread,
+        base: &std::path::Path,
+    ) -> Option<Self> {
+        let vs = base.join("assets/shaders/voxel_fog_textured.vs");
+        let fs = base.join("assets/shaders/voxel_fog_leaves.fs");
+        let shader_strong = rl.load_shader(
+            thread,
+            Some(vs.to_string_lossy().as_ref()),
+            Some(fs.to_string_lossy().as_ref()),
+        );
+        let shader = unsafe { shader_strong.make_weak() };
+        let loc_fog_color = shader.get_shader_location("fogColor");
+        let loc_fog_start = shader.get_shader_location("fogStart");
+        let loc_fog_end = shader.get_shader_location("fogEnd");
+        let loc_camera_pos = shader.get_shader_location("cameraPos");
+        let loc_palette0 = shader.get_shader_location("palette0");
+        let loc_palette1 = shader.get_shader_location("palette1");
+        let loc_palette2 = shader.get_shader_location("palette2");
+        let loc_palette3 = shader.get_shader_location("palette3");
+        let loc_strength = shader.get_shader_location("autumnStrength");
+        let mut s = Self {
+            shader,
+            loc_fog_color,
+            loc_fog_start,
+            loc_fog_end,
+            loc_camera_pos,
+            loc_palette0,
+            loc_palette1,
+            loc_palette2,
+            loc_palette3,
+            loc_strength,
+        };
+        s.set_autumn_palette(
+            [0.905, 0.678, 0.161],
+            [0.847, 0.451, 0.122],
+            [0.710, 0.200, 0.153],
+            [0.431, 0.231, 0.039],
+            1.0,
+        );
+        Some(s)
+    }
     pub fn set_autumn_palette(
         &mut self,
         p0: [f32; 3],
@@ -319,6 +362,31 @@ impl FogShader {
         let vs = "assets/shaders/voxel_fog_textured.vs";
         let fs = "assets/shaders/voxel_fog_textured.fs";
         let shader_strong = rl.load_shader(thread, Some(vs), Some(fs));
+        let shader = unsafe { shader_strong.make_weak() };
+        let loc_fog_color = shader.get_shader_location("fogColor");
+        let loc_fog_start = shader.get_shader_location("fogStart");
+        let loc_fog_end = shader.get_shader_location("fogEnd");
+        let loc_camera_pos = shader.get_shader_location("cameraPos");
+        Some(Self {
+            shader,
+            loc_fog_color,
+            loc_fog_start,
+            loc_fog_end,
+            loc_camera_pos,
+        })
+    }
+    pub fn load_with_base(
+        rl: &mut RaylibHandle,
+        thread: &RaylibThread,
+        base: &std::path::Path,
+    ) -> Option<Self> {
+        let vs = base.join("assets/shaders/voxel_fog_textured.vs");
+        let fs = base.join("assets/shaders/voxel_fog_textured.fs");
+        let shader_strong = rl.load_shader(
+            thread,
+            Some(vs.to_string_lossy().as_ref()),
+            Some(fs.to_string_lossy().as_ref()),
+        );
         let shader = unsafe { shader_strong.make_weak() };
         let loc_fog_color = shader.get_shader_location("fogColor");
         let loc_fog_start = shader.get_shader_location("fogStart");

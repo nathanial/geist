@@ -22,6 +22,8 @@ pub struct BuildJob {
     pub region_edits: Vec<((i32, i32, i32), Block)>,
     // Optional previous buffer to reuse instead of regenerating from worldgen
     pub prev_buf: Option<chunkbuf::ChunkBuf>,
+    /// Runtime voxel registry for this job
+    pub reg: Arc<BlockRegistry>,
 }
 
 pub struct JobOut {
@@ -43,6 +45,7 @@ pub struct StructureBuildJob {
     pub sz: usize,
     pub base_blocks: Vec<Block>,
     pub edits: Vec<((i32, i32, i32), Block)>,
+    pub reg: Arc<BlockRegistry>,
 }
 
 pub struct StructureJobOut {
@@ -86,7 +89,7 @@ pub struct Runtime {
 }
 
 impl Runtime {
-    pub fn new(world: Arc<World>, lighting: Arc<LightingStore>, reg: Arc<BlockRegistry>) -> Self {
+    pub fn new(world: Arc<World>, lighting: Arc<LightingStore>) -> Self {
         // Worker threads (three lanes)
         let (job_tx_edit, job_rx_edit) = mpsc::channel::<BuildJob>();
         let (job_tx_light, job_rx_light) = mpsc::channel::<BuildJob>();
@@ -111,15 +114,14 @@ impl Runtime {
         let spawn_worker = |wrx: mpsc::Receiver<BuildJob>,
                             tx: mpsc::Sender<JobOut>,
                             w: Arc<World>,
-                            ls: Arc<LightingStore>,
-                            reg: Arc<BlockRegistry>| {
+                            ls: Arc<LightingStore>| {
             thread::spawn(move || {
                 while let Ok(job) = wrx.recv() {
                     // Start from previous buffer when provided; else regenerate from worldgen
                     let mut buf = if let Some(prev) = job.prev_buf {
                         prev
                     } else {
-                        chunkbuf::generate_chunk_buffer(&w, job.cx, job.cz, &reg)
+                        chunkbuf::generate_chunk_buffer(&w, job.cx, job.cz, &job.reg)
                     };
                     // Apply persistent edits for this chunk before meshing
                     let base_x = job.cx * buf.sx as i32;
@@ -146,7 +148,7 @@ impl Runtime {
                         job.neighbors,
                         job.cx,
                         job.cz,
-                        &reg,
+                        &job.reg,
                     );
                     if let Some((cpu, light_borders)) = built {
                         let _ = tx.send(JobOut {
@@ -169,8 +171,7 @@ impl Runtime {
             let tx = res_tx.clone();
             let w = world.clone();
             let ls = lighting.clone();
-            let reg = reg.clone();
-            let _handle = spawn_worker(wrx, tx, w, ls, reg);
+            let _handle = spawn_worker(wrx, tx, w, ls);
         }
         // Spawn LIGHT workers
         for _ in 0..w_light {
@@ -179,8 +180,7 @@ impl Runtime {
             let tx = res_tx.clone();
             let w = world.clone();
             let ls = lighting.clone();
-            let reg = reg.clone();
-            let _handle = spawn_worker(wrx, tx, w, ls, reg);
+            let _handle = spawn_worker(wrx, tx, w, ls);
         }
         // Spawn BG workers
         for _ in 0..w_bg {
@@ -189,8 +189,7 @@ impl Runtime {
             let tx = res_tx.clone();
             let w = world.clone();
             let ls = lighting.clone();
-            let reg = reg.clone();
-            let _handle = spawn_worker(wrx, tx, w, ls, reg);
+            let _handle = spawn_worker(wrx, tx, w, ls);
         }
         // Counters (shared across threads)
         let q_edit_ctr = Arc::new(AtomicUsize::new(0));
@@ -272,7 +271,6 @@ impl Runtime {
 
         // Structure worker (single thread is fine for now)
         {
-            let reg = reg.clone();
             thread::spawn(move || {
                 while let Ok(job) = s_job_rx.recv() {
                     let mut buf = chunkbuf::ChunkBuf::from_blocks_local(
@@ -293,7 +291,7 @@ impl Runtime {
                             buf.blocks[idx] = b;
                         }
                     }
-                    let cpu = geist_mesh_cpu::build_voxel_body_cpu_buf(&buf, 96, &reg);
+                    let cpu = geist_mesh_cpu::build_voxel_body_cpu_buf(&buf, 96, &job.reg);
                     let _ = s_res_tx.send(StructureJobOut {
                         id: job.id,
                         rev: job.rev,
