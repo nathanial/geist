@@ -154,12 +154,6 @@ fn parity_area_random_full_cubes_s1() {
         0,
         &world,
         None,
-        NeighborsLoaded {
-            neg_x: false,
-            pos_x: false,
-            neg_z: false,
-            pos_z: false,
-        },
     );
     for z in 0..sz {
         for y in 0..sy {
@@ -236,12 +230,6 @@ fn seam_stitch_no_faces_on_shared_plane_s1() {
         0,
         &world,
         None,
-        NeighborsLoaded {
-            neg_x: false,
-            pos_x: true,
-            neg_z: false,
-            pos_z: false,
-        },
     );
     let mut wb = WccMesher::new(
         &buf_b,
@@ -252,12 +240,6 @@ fn seam_stitch_no_faces_on_shared_plane_s1() {
         0,
         &world,
         None,
-        NeighborsLoaded {
-            neg_x: true,
-            pos_x: false,
-            neg_z: false,
-            pos_z: false,
-        },
     );
     for z in 0..sz {
         for y in 0..sy {
@@ -373,12 +355,6 @@ fn merge_reduces_triangles_on_slab() {
         0,
         &world,
         None,
-        NeighborsLoaded {
-            neg_x: false,
-            pos_x: false,
-            neg_z: false,
-            pos_z: false,
-        },
     );
     for z in 0..sz {
         for y in 0..sy {
