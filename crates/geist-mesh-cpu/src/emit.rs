@@ -1,0 +1,194 @@
+use std::collections::HashMap;
+
+use geist_blocks::types::MaterialId;
+use geist_geom::Vec3;
+
+use crate::mesh_build::MeshBuild;
+use crate::face::Face;
+
+#[inline]
+pub(crate) fn emit_face_rect_for(
+    builds: &mut HashMap<MaterialId, MeshBuild>,
+    mid: MaterialId,
+    face: Face,
+    origin: Vec3,
+    u1: f32,
+    v1: f32,
+    rgba: [u8; 4],
+) {
+    let mb = builds.entry(mid).or_default();
+    mb.add_face_rect(face, origin, u1, v1, false, rgba);
+}
+
+// Clip a face-aligned rectangle against the current chunk's interior bounds and emit if any portion remains.
+// Chunk interior bounds: X in [base_x, base_x+sx), Z in [base_z, base_z+sz), Y in [0, sy).
+#[inline]
+pub(crate) fn emit_face_rect_for_clipped(
+    builds: &mut HashMap<MaterialId, MeshBuild>,
+    mid: MaterialId,
+    face: Face,
+    origin: Vec3,
+    u1: f32,
+    v1: f32,
+    rgba: [u8; 4],
+    base_x: i32,
+    sx: usize,
+    sy: usize,
+    base_z: i32,
+    sz: usize,
+) {
+    #[inline]
+    fn clip_span(start: f32, len: f32, lo: f32, hi: f32) -> Option<(f32, f32)> {
+        let s0 = start.max(lo);
+        let s1 = (start + len).min(hi);
+        if s1 <= s0 { None } else { Some((s0, s1 - s0)) }
+    }
+    let bx0 = base_x as f32;
+    let bx1 = (base_x + sx as i32) as f32;
+    let bz0 = base_z as f32;
+    let bz1 = (base_z + sz as i32) as f32;
+    let by0 = 0.0f32;
+    let by1 = sy as f32;
+
+    let mut out = None;
+    match face {
+        Face::PosX | Face::NegX => {
+            if origin.x >= bx0 && origin.x < bx1 {
+                if let Some((z, u)) = clip_span(origin.z, u1, bz0, bz1) {
+                    if let Some((y, v)) = clip_span(origin.y, v1, by0, by1) {
+                        let mut o = origin;
+                        o.z = z;
+                        o.y = y;
+                        out = Some((o, u, v));
+                    }
+                }
+            }
+        }
+        Face::PosZ | Face::NegZ => {
+            if origin.z >= bz0 && origin.z < bz1 {
+                if let Some((x, u)) = clip_span(origin.x, u1, bx0, bx1) {
+                    if let Some((y, v)) = clip_span(origin.y, v1, by0, by1) {
+                        let mut o = origin;
+                        o.x = x;
+                        o.y = y;
+                        out = Some((o, u, v));
+                    }
+                }
+            }
+        }
+        Face::PosY | Face::NegY => {
+            if origin.y >= by0 && origin.y < by1 {
+                if let Some((x, u)) = clip_span(origin.x, u1, bx0, bx1) {
+                    if let Some((z, v)) = clip_span(origin.z, v1, bz0, bz1) {
+                        let mut o = origin;
+                        o.x = x;
+                        o.z = z;
+                        out = Some((o, u, v));
+                    }
+                }
+            }
+        }
+    }
+    if let Some((o, cu, cv)) = out {
+        emit_face_rect_for(builds, mid, face, o, cu, cv, rgba);
+    }
+}
+
+#[inline]
+pub(crate) fn emit_box_faces(
+    builds: &mut HashMap<MaterialId, MeshBuild>,
+    min: Vec3,
+    max: Vec3,
+    mut choose: impl FnMut(Face) -> Option<(MaterialId, [u8; 4])>,
+) {
+    const FACE_DATA: [(Face, [usize; 4], (f32, f32, f32)); 6] = [
+        (Face::PosY, [0, 2, 6, 4], (0.0, 1.0, 0.0)),
+        (Face::NegY, [5, 7, 3, 1], (0.0, -1.0, 0.0)),
+        (Face::PosX, [6, 2, 3, 7], (1.0, 0.0, 0.0)),
+        (Face::NegX, [0, 4, 5, 1], (-1.0, 0.0, 0.0)),
+        (Face::PosZ, [4, 6, 7, 5], (0.0, 0.0, 1.0)),
+        (Face::NegZ, [2, 0, 1, 3], (0.0, 0.0, -1.0)),
+    ];
+
+    let corners = [
+        Vec3 { x: min.x, y: max.y, z: min.z },
+        Vec3 { x: min.x, y: min.y, z: min.z },
+        Vec3 { x: max.x, y: max.y, z: min.z },
+        Vec3 { x: max.x, y: min.y, z: min.z },
+        Vec3 { x: min.x, y: max.y, z: max.z },
+        Vec3 { x: min.x, y: min.y, z: max.z },
+        Vec3 { x: max.x, y: max.y, z: max.z },
+        Vec3 { x: max.x, y: min.y, z: max.z },
+    ];
+
+    for &(face, indices, normal) in &FACE_DATA {
+        if let Some((mid, rgba)) = choose(face) {
+            let (u1, v1) = match face {
+                Face::PosY | Face::NegY => (max.x - min.x, max.z - min.z),
+                Face::PosX | Face::NegX => (max.z - min.z, max.y - min.y),
+                Face::PosZ | Face::NegZ => (max.x - min.x, max.y - min.y),
+            };
+            let n = Vec3 { x: normal.0, y: normal.1, z: normal.2 };
+            builds.entry(mid).or_default().add_quad(
+                corners[indices[0]],
+                corners[indices[1]],
+                corners[indices[2]],
+                corners[indices[3]],
+                n,
+                u1,
+                v1,
+                false,
+                rgba,
+            );
+        }
+    }
+}
+
+#[inline]
+pub(crate) fn emit_box_generic(
+    builds: &mut HashMap<MaterialId, MeshBuild>,
+    min: Vec3,
+    max: Vec3,
+    fm_for_face: &dyn Fn(Face) -> MaterialId,
+    mut occludes: impl FnMut(Face) -> bool,
+    mut sample_light: impl FnMut(Face) -> u8,
+) {
+    emit_box_faces(builds, min, max, |face| {
+        if occludes(face) { return None; }
+        let lv = sample_light(face);
+        let rgba = [lv, lv, lv, 255];
+        let mid = fm_for_face(face);
+        Some((mid, rgba))
+    });
+}
+
+#[inline]
+pub(crate) fn emit_box_generic_clipped(
+    builds: &mut HashMap<MaterialId, MeshBuild>,
+    mut min: Vec3,
+    mut max: Vec3,
+    fm_for_face: &dyn Fn(Face) -> MaterialId,
+    occludes: impl FnMut(Face) -> bool,
+    sample_light: impl FnMut(Face) -> u8,
+    base_x: i32,
+    sx: usize,
+    sy: usize,
+    base_z: i32,
+    sz: usize,
+) {
+    let bx0 = base_x as f32;
+    let bx1 = (base_x + sx as i32) as f32;
+    let by0 = 0.0f32;
+    let by1 = sy as f32;
+    let bz0 = base_z as f32;
+    let bz1 = (base_z + sz as i32) as f32;
+    min.x = min.x.max(bx0);
+    min.y = min.y.max(by0);
+    min.z = min.z.max(bz0);
+    max.x = max.x.min(bx1);
+    max.y = max.y.min(by1);
+    max.z = max.z.min(bz1);
+    if !(min.x < max.x && min.y < max.y && min.z < max.z) { return; }
+    emit_box_generic(builds, min, max, fm_for_face, occludes, sample_light);
+}
+
