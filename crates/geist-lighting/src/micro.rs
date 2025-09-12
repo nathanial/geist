@@ -122,8 +122,67 @@ pub fn compute_light_with_borders_buf_micro(
 
     // BFS queues (stable order). We seed as we write, so no full-volume scan needed.
     use std::collections::VecDeque;
-    let mut q_blk: VecDeque<(usize, usize, usize, u8)> = VecDeque::with_capacity(mxs * mzs);
-    let mut q_sky: VecDeque<(usize, usize, usize, u8)> = VecDeque::with_capacity(mxs * mzs);
+    #[cfg(feature = "dial_queues")]
+    struct DialQ {
+        buckets: [VecDeque<(usize, usize, usize, u8)>; 16],
+        cur_d: u16,
+        pending: usize,
+    }
+    #[cfg(feature = "dial_queues")]
+    impl DialQ {
+        fn new() -> Self {
+            Self {
+                buckets: std::array::from_fn(|_| VecDeque::new()),
+                cur_d: 0,
+                pending: 0,
+            }
+        }
+        #[inline]
+        fn push(&mut self, mx: usize, my: usize, mz: usize, level: u8) {
+            let d = (MAX_LIGHT as u16).wrapping_sub(level as u16);
+            let bi = (d & 15) as usize;
+            self.buckets[bi].push_back((mx, my, mz, level));
+            if self.pending == 0 || d < self.cur_d {
+                self.cur_d = d;
+            }
+            self.pending += 1;
+        }
+        #[inline]
+        fn pop(&mut self) -> Option<(usize, usize, usize, u8)> {
+            if self.pending == 0 {
+                return None;
+            }
+            loop {
+                let bi = (self.cur_d & 15) as usize;
+                if let Some(v) = self.buckets[bi].pop_front() {
+                    self.pending -= 1;
+                    return Some(v);
+                }
+                self.cur_d = self.cur_d.wrapping_add(1);
+            }
+        }
+    }
+    #[cfg(not(feature = "dial_queues"))]
+    struct DialQ {
+        q: VecDeque<(usize, usize, usize, u8)>,
+    }
+    #[cfg(not(feature = "dial_queues"))]
+    impl DialQ {
+        fn new() -> Self {
+            Self { q: VecDeque::new() }
+        }
+        #[inline]
+        fn push(&mut self, mx: usize, my: usize, mz: usize, level: u8) {
+            self.q.push_back((mx, my, mz, level));
+        }
+        #[inline]
+        fn pop(&mut self) -> Option<(usize, usize, usize, u8)> {
+            self.q.pop_front()
+        }
+    }
+
+    let mut q_blk: DialQ = DialQ::new();
+    let mut q_sky: DialQ = DialQ::new();
 
     // Seed skylight from open-above micro columns (world-local within chunk)
     for mz in 0..mzs {
@@ -135,7 +194,7 @@ pub fn compute_light_with_borders_buf_micro(
                         let i = midx(mx, my, mz, mxs, mzs);
                         if micro_sky[i] == 0 {
                             micro_sky[i] = MAX_LIGHT;
-                            q_sky.push_back((mx, my, mz, MAX_LIGHT));
+                            q_sky.push(mx, my, mz, MAX_LIGHT);
                         }
                     } else {
                         open_above = false;
@@ -208,14 +267,14 @@ pub fn compute_light_with_borders_buf_micro(
                             && micro_blk[i] < seed_blk_nx
                         {
                             micro_blk[i] = seed_blk_nx;
-                            q_blk.push_back((0, my, mz, seed_blk_nx));
+                            q_blk.push(0, my, mz, seed_blk_nx);
                         }
                         if seed_sky_nx > 0
                             && !micro_solid_at_fast(0, my, mz, buf, &occ8, &full)
                             && micro_sky[i] < seed_sky_nx
                         {
                             micro_sky[i] = seed_sky_nx;
-                            q_sky.push_back((0, my, mz, seed_sky_nx));
+                            q_sky.push(0, my, mz, seed_sky_nx);
                         }
                     }
                     // +X
@@ -246,14 +305,14 @@ pub fn compute_light_with_borders_buf_micro(
                             && micro_blk[i] < seed_blk_px
                         {
                             micro_blk[i] = seed_blk_px;
-                            q_blk.push_back((mxs - 1, my, mz, seed_blk_px));
+                            q_blk.push(mxs - 1, my, mz, seed_blk_px);
                         }
                         if seed_sky_px > 0
                             && !micro_solid_at_fast(mxs - 1, my, mz, buf, &occ8, &full)
                             && micro_sky[i] < seed_sky_px
                         {
                             micro_sky[i] = seed_sky_px;
-                            q_sky.push_back((mxs - 1, my, mz, seed_sky_px));
+                            q_sky.push(mxs - 1, my, mz, seed_sky_px);
                         }
                     }
                 }
@@ -312,14 +371,14 @@ pub fn compute_light_with_borders_buf_micro(
                             && micro_blk[i] < seed_blk_nz
                         {
                             micro_blk[i] = seed_blk_nz;
-                            q_blk.push_back((mx, my, 0, seed_blk_nz));
+                            q_blk.push(mx, my, 0, seed_blk_nz);
                         }
                         if seed_sky_nz > 0
                             && !micro_solid_at_fast(mx, my, 0, buf, &occ8, &full)
                             && micro_sky[i] < seed_sky_nz
                         {
                             micro_sky[i] = seed_sky_nz;
-                            q_sky.push_back((mx, my, 0, seed_sky_nz));
+                            q_sky.push(mx, my, 0, seed_sky_nz);
                         }
                     }
                     // +Z
@@ -350,14 +409,14 @@ pub fn compute_light_with_borders_buf_micro(
                             && micro_blk[i] < seed_blk_pz
                         {
                             micro_blk[i] = seed_blk_pz;
-                            q_blk.push_back((mx, my, mzs - 1, seed_blk_pz));
+                            q_blk.push(mx, my, mzs - 1, seed_blk_pz);
                         }
                         if seed_sky_pz > 0
                             && !micro_solid_at_fast(mx, my, mzs - 1, buf, &occ8, &full)
                             && micro_sky[i] < seed_sky_pz
                         {
                             micro_sky[i] = seed_sky_pz;
-                            q_sky.push_back((mx, my, mzs - 1, seed_sky_pz));
+                            q_sky.push(mx, my, mzs - 1, seed_sky_pz);
                         }
                     }
                 }
@@ -380,7 +439,7 @@ pub fn compute_light_with_borders_buf_micro(
                         let i = midx(mx, my, mz, mxs, mzs);
                         if micro_blk[i] < level {
                             micro_blk[i] = level;
-                            q_blk.push_back((mx, my, mz, level));
+                            q_blk.push(mx, my, mz, level);
                         }
                     }
                 }
@@ -423,7 +482,7 @@ pub fn compute_light_with_borders_buf_micro(
     };
 
     // BFS over block-light queue
-    while let Some((mx, my, mz, level)) = q_blk.pop_front() {
+    while let Some((mx, my, mz, level)) = q_blk.pop() {
         if level <= 1 {
             continue;
         }
@@ -454,7 +513,7 @@ pub fn compute_light_with_borders_buf_micro(
                 if nxu < mxs && nyu < mys && nzu < mzs {
                     let ii = midx(nxu, nyu, nzu, mxs, mzs);
                     if (micro_blk[ii] as u16 + att_blk as u16) == (lvl as u16) {
-                        q_blk.push_back((nxu, nyu, nzu, micro_blk[ii]));
+                        q_blk.push(nxu, nyu, nzu, micro_blk[ii]);
                     }
                 }
             }
@@ -462,7 +521,7 @@ pub fn compute_light_with_borders_buf_micro(
     }
 
     // BFS over skylight queue
-    while let Some((mx, my, mz, level)) = q_sky.pop_front() {
+    while let Some((mx, my, mz, level)) = q_sky.pop() {
         if level <= 1 {
             continue;
         }
@@ -493,7 +552,7 @@ pub fn compute_light_with_borders_buf_micro(
                 if nxu < mxs && nyu < mys && nzu < mzs {
                     let ii = midx(nxu, nyu, nzu, mxs, mzs);
                     if (micro_sky[ii] as u16 + att_sky as u16) == (lvl as u16) {
-                        q_sky.push_back((nxu, nyu, nzu, micro_sky[ii]));
+                        q_sky.push(nxu, nyu, nzu, micro_sky[ii]);
                     }
                 }
             }

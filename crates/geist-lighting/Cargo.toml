@@ -13,3 +13,7 @@ geist-world = { path = "../geist-world" }
 
 [dev-dependencies]
 proptest = "1"
+
+[features]
+default = []
+dial_queues = []
