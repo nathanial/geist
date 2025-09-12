@@ -638,6 +638,11 @@ pub fn build_chunk_wcc_cpu_buf(
                         wm.add_micro(x, y, z, b, occ);
                         continue;
                     }
+                    // Water: mesh only surfaces against air, so terrain under water remains visible
+                    if ty.name == "water" {
+                        wm.add_water_cube(x, y, z, b);
+                        continue;
+                    }
                 }
                 if is_full_cube(reg, b) {
                     wm.add_cube(x, y, z, b);
@@ -1776,6 +1781,118 @@ impl<'a> WccMesher<'a> {
         let z1 = (z + 1) * S;
         let mid_for = |f: Face| registry_material_for_or_unknown(b, f, self.reg);
         self.toggle_box(x, y, z, (x0, x1, y0, y1, z0, z1), mid_for);
+    }
+    /// Water meshing path: only toggle faces against air to avoid occluding terrain under water.
+    pub fn add_water_cube(&mut self, x: usize, y: usize, z: usize, b: Block) {
+        let S = self.S;
+        let x0 = x * S;
+        let x1 = (x + 1) * S;
+        let y0 = y * S;
+        let y1 = (y + 1) * S;
+        let z0 = z * S;
+        let z1 = (z + 1) * S;
+        let mid_for = |f: Face| registry_material_for_or_unknown(b, f, self.reg);
+        let wx = self.base_x + x as i32;
+        let wy = y as i32;
+        let wz = self.base_z + z as i32;
+        let air_id = self.reg.id_by_name("air").unwrap_or(0);
+
+        // +X neighbor
+        if self.world_block(wx + 1, wy, wz).id == air_id {
+            self.toggle_x(
+                x,
+                y,
+                z,
+                x1,
+                y0,
+                y1,
+                z0,
+                z1,
+                true,
+                mid_for(Face::PosX),
+                self.light_bin(x, y, z, Face::PosX),
+            );
+        }
+        // -X neighbor
+        if self.world_block(wx - 1, wy, wz).id == air_id {
+            self.toggle_x(
+                x,
+                y,
+                z,
+                x0,
+                y0,
+                y1,
+                z0,
+                z1,
+                false,
+                mid_for(Face::NegX),
+                self.light_bin(x, y, z, Face::NegX),
+            );
+        }
+        // +Y neighbor
+        if self.world_block(wx, wy + 1, wz).id == air_id {
+            self.toggle_y(
+                x,
+                y,
+                z,
+                y1,
+                x0,
+                x1,
+                z0,
+                z1,
+                true,
+                mid_for(Face::PosY),
+                self.light_bin(x, y, z, Face::PosY),
+            );
+        }
+        // -Y neighbor
+        if self.world_block(wx, wy - 1, wz).id == air_id {
+            self.toggle_y(
+                x,
+                y,
+                z,
+                y0,
+                x0,
+                x1,
+                z0,
+                z1,
+                false,
+                mid_for(Face::NegY),
+                self.light_bin(x, y, z, Face::NegY),
+            );
+        }
+        // +Z neighbor
+        if self.world_block(wx, wy, wz + 1).id == air_id {
+            self.toggle_z(
+                x,
+                y,
+                z,
+                z1,
+                x0,
+                x1,
+                y0,
+                y1,
+                true,
+                mid_for(Face::PosZ),
+                self.light_bin(x, y, z, Face::PosZ),
+            );
+        }
+        // -Z neighbor
+        if self.world_block(wx, wy, wz - 1).id == air_id {
+            self.toggle_z(
+                x,
+                y,
+                z,
+                z0,
+                x0,
+                x1,
+                y0,
+                y1,
+                false,
+                mid_for(Face::NegZ),
+                self.light_bin(x, y, z, Face::NegZ),
+            );
+        }
     }
     pub fn add_micro(&mut self, x: usize, y: usize, z: usize, b: Block, occ: u8) {
         use crate::microgrid_tables::occ8_to_boxes;

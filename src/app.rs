@@ -2158,7 +2158,9 @@ impl App {
                 ws.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end, time_now, underwater);
             }
 
-            for cr in self.renders.values() {
+            // First pass: draw opaque parts and gather visible chunks for transparent pass
+            let mut visible_chunks: Vec<((i32, i32), f32)> = Vec::new();
+            for (ckey, cr) in self.renders.iter() {
                 // Check if chunk is within frustum
                 if self.gs.frustum_culling_enabled && !frustum.contains_bounding_box(&cr.bbox) {
                     self.debug_stats.chunks_culled += 1;
@@ -2166,6 +2168,13 @@ impl App {
                 }
 
                 self.debug_stats.chunks_rendered += 1;
+                // Record for transparent pass (sort by distance from camera)
+                let center = (cr.bbox.min + cr.bbox.max) * 0.5;
+                let dx = center.x - self.cam.position.x;
+                let dy = center.y - self.cam.position.y;
+                let dz = center.z - self.cam.position.z;
+                let dist2 = dx * dx + dy * dy + dz * dz;
+                visible_chunks.push((*ckey, dist2));
                 // Set biome-based leaf palette per chunk if available
                 if let Some(ref mut ls) = self.leaves_shader {
                     if let Some(t) = cr.leaf_tint {
@@ -2185,24 +2194,31 @@ impl App {
                         );
                     }
                 }
-                for (_fm, model) in &cr.parts {
+                for (mid, model) in &cr.parts {
                     // Get mesh stats from the model
                     unsafe {
                         let mesh = &*model.meshes;
                         self.debug_stats.total_vertices += mesh.vertexCount as usize;
                         self.debug_stats.total_triangles += mesh.triangleCount as usize;
                     }
-                    self.debug_stats.draw_calls += 1;
-
-                    if self.gs.wireframe {
-                        d3.draw_model_wires(model, Vector3::zero(), 1.0, Color::WHITE);
-                    } else {
-                        d3.draw_model(model, Vector3::zero(), 1.0, Color::WHITE);
+                    let tag = self
+                        .reg
+                        .materials
+                        .get(*mid)
+                        .and_then(|m| m.render_tag.as_deref());
+                    if tag != Some("water") {
+                        self.debug_stats.draw_calls += 1;
+                        if self.gs.wireframe {
+                            d3.draw_model_wires(model, Vector3::zero(), 1.0, Color::WHITE);
+                        } else {
+                            d3.draw_model(model, Vector3::zero(), 1.0, Color::WHITE);
+                        }
                     }
                 }
             }
 
             // Draw structures with transform (translation + yaw)
+            let mut visible_structs: Vec<(StructureId, f32)> = Vec::new();
             for (id, cr) in &self.structure_renders {
                 if let Some(st) = self.gs.structures.get(id) {
                     // Translate bounding box to structure position for frustum check
@@ -2220,19 +2236,90 @@ impl App {
                     }
 
                     self.debug_stats.structures_rendered += 1;
-                    for (_fm, model) in &cr.parts {
-                        // Get mesh stats from the model
-                        unsafe {
-                            let mesh = &*model.meshes;
-                            self.debug_stats.total_vertices += mesh.vertexCount as usize;
-                            self.debug_stats.total_triangles += mesh.triangleCount as usize;
-                        }
+                    // Record for transparent pass
+                    let center = (translated_bbox.min + translated_bbox.max) * 0.5;
+                    let dx = center.x - self.cam.position.x;
+                    let dy = center.y - self.cam.position.y;
+                    let dz = center.z - self.cam.position.z;
+                    let dist2 = dx * dx + dy * dy + dz * dz;
+                    visible_structs.push((*id, dist2));
+                    for (mid, model) in &cr.parts {
+                    // Get mesh stats from the model
+                    unsafe {
+                        let mesh = &*model.meshes;
+                        self.debug_stats.total_vertices += mesh.vertexCount as usize;
+                        self.debug_stats.total_triangles += mesh.triangleCount as usize;
+                    }
+                    // Only draw opaque parts in first pass (water is transparent)
+                    let tag = self
+                        .reg
+                        .materials
+                        .get(*mid)
+                        .and_then(|m| m.render_tag.as_deref());
+                    if tag != Some("water") {
                         self.debug_stats.draw_calls += 1;
-
-                        // Yaw is ignored here if draw_model_ex isn't available; translation still applies
                         d3.draw_model(model, vec3_to_rl(st.pose.pos), 1.0, Color::WHITE);
                     }
                 }
+            }
+            }
+
+            // Transparent pass: draw water parts back-to-front (blend on, depth write off)
+            unsafe {
+                // Keep depth test enabled but stop writing depth for transparent surfaces
+                raylib::ffi::rlDisableDepthMask();
+            }
+            visible_chunks.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            for (ckey, _) in visible_chunks {
+                if let Some(cr) = self.renders.get(&ckey) {
+                    if self.gs.frustum_culling_enabled && !frustum.contains_bounding_box(&cr.bbox) {
+                        continue;
+                    }
+                    for (mid, model) in &cr.parts {
+                        let tag = self
+                            .reg
+                            .materials
+                            .get(*mid)
+                            .and_then(|m| m.render_tag.as_deref());
+                        if tag == Some("water") {
+                            self.debug_stats.draw_calls += 1;
+                            d3.draw_model(model, Vector3::zero(), 1.0, Color::WHITE);
+                        }
+                    }
+                }
+            }
+
+            // Transparent pass for structures (back-to-front)
+            visible_structs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            for (sid, _) in visible_structs {
+                if let Some(cr) = self.structure_renders.get(&sid) {
+                    if let Some(st) = self.gs.structures.get(&sid) {
+                        let translated_bbox = raylib::core::math::BoundingBox {
+                            min: cr.bbox.min + vec3_to_rl(st.pose.pos),
+                            max: cr.bbox.max + vec3_to_rl(st.pose.pos),
+                        };
+                        if self.gs.frustum_culling_enabled
+                            && !frustum.contains_bounding_box(&translated_bbox)
+                        {
+                            continue;
+                        }
+                        for (mid, model) in &cr.parts {
+                            let tag = self
+                                .reg
+                                .materials
+                                .get(*mid)
+                                .and_then(|m| m.render_tag.as_deref());
+                            if tag == Some("water") {
+                                self.debug_stats.draw_calls += 1;
+                                d3.draw_model(model, vec3_to_rl(st.pose.pos), 1.0, Color::WHITE);
+                            }
+                        }
+                    }
+                }
+            }
+            unsafe {
+                // Restore depth writes
+                raylib::ffi::rlEnableDepthMask();
             }
 
             // Raycast highlight: show where a placed block would go (world only for now)

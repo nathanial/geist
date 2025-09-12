@@ -76,6 +76,7 @@ propagates_light = false
 emission = 0
 shape = "cube"
 materials = { all = "water" }
+seam = "dont_occlude_same"
 
 [[blocks]]
 name = "glowstone"
