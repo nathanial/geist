@@ -148,7 +148,6 @@ pub(crate) fn is_occluder(
     occludes_face(nb, face, reg)
 }
 
-// Note: Former greedy rectangle merging removed by request.
 
 #[inline]
 /// Applies an optional minimum light floor to avoid too-dark faces in rendering.

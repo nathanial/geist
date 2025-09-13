@@ -1,6 +1,6 @@
 # geist-mesh-cpu — WCC Meshing (CPU)
 
-This crate builds chunk meshes on the CPU using a Watertight Cubical Complex (WCC) approach. It computes the boundary of solids with parity toggles, emits one quad per boundary cell (no greedy merging), and stitches chunk seams without cracks.
+This crate builds chunk meshes on the CPU using a Watertight Cubical Complex (WCC) approach. It computes the boundary of solids with parity toggles, emits one quad per boundary cell, and stitches chunk seams without cracks.
 
 Highlights
 - Watertight by construction: interior faces cancel via XOR parity; only boundaries remain.

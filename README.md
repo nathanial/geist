@@ -87,7 +87,7 @@ Bedrock .mcworld
 Highlights
 
 - Multi‑chunk world (grid) with seamless noise generation.
-- Per‑face meshing (no greedy merge): one quad per boundary face cell for watertight output.
+- Per‑face meshing: one quad per boundary face cell for watertight output.
 - Per‑face textures for grass (top/side/bottom) with corrected side orientation.
 - Texture and worldgen config hot‑reload (see Assets).
 

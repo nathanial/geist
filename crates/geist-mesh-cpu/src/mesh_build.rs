@@ -64,7 +64,10 @@ impl MeshBuild {
             vs.swap(1, 3);
             uvs.swap(1, 3);
         }
-        if flip_v { /* absolute UVs: no-op */ }
+        // Flip V axis so textures aren't upside-down (top-left origin vs bottom-left)
+        for uv in &mut uvs {
+            uv.1 = -uv.1;
+        }
         for i in 0..4 {
             self.pos.extend_from_slice(&[vs[i].x, vs[i].y, vs[i].z]);
             self.norm.extend_from_slice(&[n.x, n.y, n.z]);

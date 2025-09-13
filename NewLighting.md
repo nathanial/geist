@@ -3,7 +3,7 @@
 - The root cause is a mismatch between how meshing decides face visibility (WCC at S=2) and how lighting samples/propagates brightness (voxel grid with heuristics for S=2).
 
 **Current Behavior (Summary)**
-- Meshing: crates/geist-mesh-cpu uses WCC at S=2 for full cubes and micro-occupancy; thin dynamics (pane/fence/gate/carpet) are emitted via a thin‑box pass. Emission is per boundary cell (no greedy merge), keyed by `(MaterialId, LightBin)`.
+- Meshing: crates/geist-mesh-cpu uses WCC at S=2 for full cubes and micro-occupancy; thin dynamics (pane/fence/gate/carpet) are emitted via a thin‑box pass. Emission is per boundary cell, keyed by `(MaterialId, LightBin)`.
 - Lighting: crates/geist-lighting computes a per‑voxel LightGrid with three channels: `skylight`, `block_light`, and `beacon` (+ direction). Propagation is BFS-like and “face-aware” at S=2 via `can_cross_face_s2(...)`. Per-face sampling uses `sample_face_local_s2(...)` to approximate micro openings.
 - Shading: The mesher encodes a per-vertex grayscale light in `MeshBuild.col`. Shaders multiply texture by vertex color and apply fog.
 
@@ -59,7 +59,7 @@
 
 **Proposed Rollout Plan**
 - Step 1: Replace `sample_face_local(...)` with `sample_face_local_s2(...)` in thin‑shape emitters; set `propagates_light = true` for glass panes and other open thin blocks; verify dark‑face regressions.
-- Step 2: Add a micro‑aware face sampler and use it in WCC emit to compute per‑plane‑cell light bins; gate merges by this finer bin to avoid over‑merging across brightness seams.
+- Step 2: Add a micro‑aware face sampler and use it in WCC emit to compute per‑plane‑cell light bins; avoid over‑aggregation across brightness seams.
 - Step 3: Unify the sealed‑plane predicate and expose it from `geist-lighting` so both lighting and mesher use the same function.
 - Step 4 (optional): Implement micro‑voxel lighting for a test world size and compare memory/time vs visual uplift. If too heavy, try the hybrid per‑plane micro sampler/border approach instead.
 

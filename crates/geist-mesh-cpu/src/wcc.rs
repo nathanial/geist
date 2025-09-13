@@ -34,7 +34,7 @@ macro_rules! emit_plane_mask {
                     }
                 }
             }
-            // Emit each face-cell as an individual quad (no greedy merge)
+            // Emit each face-cell as an individual quad
             for v0 in 0..height {
                 for u0 in 0..width {
                     if let Some(((mid, pos), l)) = mask[v0 * width + u0] {
@@ -69,7 +69,7 @@ macro_rules! emit_plane_mask {
                     }
                 }
             }
-            // Emit each face-cell as an individual quad (no greedy merge)
+            // Emit each face-cell as an individual quad
             for v0 in 0..height {
                 for u0 in 0..width {
                     if let Some(((mid, pos), l)) = mask[v0 * width + u0] {
@@ -104,7 +104,7 @@ macro_rules! emit_plane_mask {
                     }
                 }
             }
-            // Emit each face-cell as an individual quad (no greedy merge)
+            // Emit each face-cell as an individual quad
             for v0 in 0..height {
                 for u0 in 0..width {
                     if let Some(((mid, pos), l)) = mask[v0 * width + u0] {
