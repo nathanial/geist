@@ -36,6 +36,16 @@ pub struct MicroBorders {
     pub zm: usize,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BorderChangeMask {
+    pub xn: bool,
+    pub xp: bool,
+    pub zn: bool,
+    pub zp: bool,
+    pub yn: bool,
+    pub yp: bool,
+}
+
 pub struct NeighborMicroBorders {
     pub xm_sk_neg: Option<Arc<[u8]>>,
     pub xm_sk_pos: Option<Arc<[u8]>>,
@@ -1427,21 +1437,60 @@ impl LightingStore {
         }
         nb
     }
-    pub fn update_borders(&self, cx: i32, cz: i32, lb: LightBorders) -> bool {
+    /// Update stored borders and return whether anything changed, plus a per-face change mask.
+    pub fn update_borders_mask(
+        &self,
+        cx: i32,
+        cz: i32,
+        lb: LightBorders,
+    ) -> (bool, BorderChangeMask) {
         let mut map = self.borders.lock().unwrap();
         match map.get_mut(&(cx, cz)) {
             Some(existing) => {
-                let changed = !equal_planes(existing, &lb);
-                if changed {
+                let mut mask = BorderChangeMask::default();
+                // Per-face change detection (coarse + skylight + beacon planes)
+                mask.xn = existing.xn.as_ref() != lb.xn.as_ref()
+                    || existing.sk_xn.as_ref() != lb.sk_xn.as_ref()
+                    || existing.bcn_xn.as_ref() != lb.bcn_xn.as_ref()
+                    || existing.bcn_dir_xn.as_ref() != lb.bcn_dir_xn.as_ref();
+                mask.xp = existing.xp.as_ref() != lb.xp.as_ref()
+                    || existing.sk_xp.as_ref() != lb.sk_xp.as_ref()
+                    || existing.bcn_xp.as_ref() != lb.bcn_xp.as_ref()
+                    || existing.bcn_dir_xp.as_ref() != lb.bcn_dir_xp.as_ref();
+                mask.zn = existing.zn.as_ref() != lb.zn.as_ref()
+                    || existing.sk_zn.as_ref() != lb.sk_zn.as_ref()
+                    || existing.bcn_zn.as_ref() != lb.bcn_zn.as_ref()
+                    || existing.bcn_dir_zn.as_ref() != lb.bcn_dir_zn.as_ref();
+                mask.zp = existing.zp.as_ref() != lb.zp.as_ref()
+                    || existing.sk_zp.as_ref() != lb.sk_zp.as_ref()
+                    || existing.bcn_zp.as_ref() != lb.bcn_zp.as_ref()
+                    || existing.bcn_dir_zp.as_ref() != lb.bcn_dir_zp.as_ref();
+                mask.yn = existing.yn.as_ref() != lb.yn.as_ref()
+                    || existing.sk_yn.as_ref() != lb.sk_yn.as_ref()
+                    || existing.bcn_yn.as_ref() != lb.bcn_yn.as_ref();
+                mask.yp = existing.yp.as_ref() != lb.yp.as_ref()
+                    || existing.sk_yp.as_ref() != lb.sk_yp.as_ref()
+                    || existing.bcn_yp.as_ref() != lb.bcn_yp.as_ref();
+                let any = mask.xn || mask.xp || mask.zn || mask.zp || mask.yn || mask.yp;
+                if any {
                     *existing = lb;
                 }
-                changed
+                (any, mask)
             }
             None => {
+                // New entry: treat as a change; mark +X and +Z as changed for owner notification.
+                let mut mask = BorderChangeMask::default();
+                mask.xp = true;
+                mask.zp = true;
                 map.insert((cx, cz), lb);
-                true
+                (true, mask)
             }
         }
+    }
+    /// Backward-compatible update that only returns 'changed' (any face).
+    pub fn update_borders(&self, cx: i32, cz: i32, lb: LightBorders) -> bool {
+        let (changed, _mask) = self.update_borders_mask(cx, cz, lb);
+        changed
     }
     pub fn add_emitter_world(&self, wx: i32, wy: i32, wz: i32, level: u8) {
         self.add_emitter_world_typed(wx, wy, wz, level, false);

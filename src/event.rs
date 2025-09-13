@@ -146,6 +146,8 @@ pub enum Event {
     LightBordersUpdated {
         cx: i32,
         cz: i32,
+        xp_changed: bool,
+        zp_changed: bool,
     },
 }
 

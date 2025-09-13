@@ -1307,10 +1307,15 @@ impl App {
 
                 // Update light borders in main thread; if changed, emit a dedicated event
                 if let Some(lb) = light_borders {
-                    let changed = self.gs.lighting.update_borders(cx, cz, lb);
+                    let (changed, mask) = self.gs.lighting.update_borders_mask(cx, cz, lb);
                     // Only notify neighbors when borders actually change to avoid cascades
                     if changed {
-                        self.queue.emit_now(Event::LightBordersUpdated { cx, cz });
+                        self.queue.emit_now(Event::LightBordersUpdated {
+                            cx,
+                            cz,
+                            xp_changed: mask.xp,
+                            zp_changed: mask.zp,
+                        });
                     }
                 }
             }
@@ -1607,25 +1612,31 @@ impl App {
                     cause: RebuildCause::Edit,
                 });
             }
-            Event::LightBordersUpdated { cx, cz } => {
+            Event::LightBordersUpdated { cx, cz, xp_changed, zp_changed } => {
                 // Canonical seam ownership: only +X and +Z neighbors depend on our seam planes.
                 // Notify just those two neighbors to avoid redundant rebuilds on the other sides.
                 let (ccx, ccz) = self.gs.center_chunk;
                 let r_gate = self.gs.view_radius_chunks + 1; // small hysteresis
-                for (nx, nz) in [(cx + 1, cz), (cx, cz + 1)] {
-                    // Distance gating to avoid far-away lighting backlogs
+                if xp_changed {
+                    let nx = cx + 1;
+                    let nz = cz;
                     let ring = (nx - ccx).abs().max((nz - ccz).abs());
-                    if ring > r_gate {
-                        continue;
-                    }
-                    if self.renders.contains_key(&(nx, nz))
+                    if ring <= r_gate
+                        && self.renders.contains_key(&(nx, nz))
                         && !self.gs.inflight_rev.contains_key(&(nx, nz))
                     {
-                        self.queue.emit_now(Event::ChunkRebuildRequested {
-                            cx: nx,
-                            cz: nz,
-                            cause: RebuildCause::LightingBorder,
-                        });
+                        self.queue.emit_now(Event::ChunkRebuildRequested { cx: nx, cz: nz, cause: RebuildCause::LightingBorder });
+                    }
+                }
+                if zp_changed {
+                    let nx = cx;
+                    let nz = cz + 1;
+                    let ring = (nx - ccx).abs().max((nz - ccz).abs());
+                    if ring <= r_gate
+                        && self.renders.contains_key(&(nx, nz))
+                        && !self.gs.inflight_rev.contains_key(&(nx, nz))
+                    {
+                        self.queue.emit_now(Event::ChunkRebuildRequested { cx: nx, cz: nz, cause: RebuildCause::LightingBorder });
                     }
                 }
             }
@@ -3047,8 +3058,8 @@ impl App {
             E::LightEmitterRemoved { wx, wy, wz } => {
                 log::info!(target: "events", "[tick {}] LightEmitterRemoved ({},{},{})", tick, wx, wy, wz);
             }
-            E::LightBordersUpdated { cx, cz } => {
-                log::debug!(target: "events", "[tick {}] LightBordersUpdated ({}, {})", tick, cx, cz);
+            E::LightBordersUpdated { cx, cz, xp_changed, zp_changed } => {
+                log::debug!(target: "events", "[tick {}] LightBordersUpdated ({}, {}) xp={} zp={}", tick, cx, cz, xp_changed, zp_changed);
             }
         }
     }
