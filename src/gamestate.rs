@@ -15,6 +15,14 @@ pub struct ChunkEntry {
     pub built_rev: u64,
 }
 
+#[derive(Default, Clone, Copy)]
+pub struct FinalizeState {
+    pub owner_x_ready: bool, // left owner (cx-1,cz) published +X
+    pub owner_z_ready: bool, // front owner (cx,cz-1) published +Z
+    pub finalize_requested: bool,
+    pub finalized: bool,
+}
+
 pub struct GameState {
     pub tick: u64,
     pub world: Arc<World>,
@@ -28,6 +36,8 @@ pub struct GameState {
     pub mesh_counts: HashMap<(i32, i32), u32>,
     // Track newest rev sent to workers per chunk to avoid redundant requeues
     pub inflight_rev: HashMap<(i32, i32), u64>,
+    // Finalization tracking per chunk (no-timeout finalize after both owners publish)
+    pub finalize: HashMap<(i32, i32), FinalizeState>,
 
     // Edits + lighting (authoritative overlays)
     pub edits: EditStore,
@@ -74,11 +84,12 @@ impl GameState {
         Self {
             tick: 0,
             center_chunk: (i32::MIN, i32::MIN),
-            view_radius_chunks: 6,
+            view_radius_chunks: 10,
             loaded: HashSet::new(),
             chunks: HashMap::new(),
             mesh_counts: HashMap::new(),
             inflight_rev: HashMap::new(),
+            finalize: HashMap::new(),
             edits,
             lighting,
             walker,

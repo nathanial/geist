@@ -5,7 +5,7 @@ use geist_render_raylib::conv::{vec3_from_rl, vec3_to_rl};
 use raylib::prelude::*;
 
 use crate::event::{Event, EventEnvelope, EventQueue, RebuildCause};
-use crate::gamestate::{ChunkEntry, GameState};
+use crate::gamestate::{ChunkEntry, GameState, FinalizeState};
 use crate::raycast;
 use geist_blocks::{Block, BlockRegistry};
 use geist_edit::EditStore;
@@ -94,6 +94,24 @@ struct IntentEntry {
 }
 
 impl App {
+    fn try_schedule_finalize(&mut self, cx: i32, cz: i32) {
+        let st = self.gs.finalize.entry((cx, cz)).or_insert(FinalizeState::default());
+        if st.finalized || st.finalize_requested {
+            return;
+        }
+        if !(st.owner_x_ready && st.owner_z_ready) {
+            return;
+        }
+        if !self.renders.contains_key(&(cx, cz)) {
+            return;
+        }
+        // Avoid duplicate/inflight
+        if self.gs.inflight_rev.contains_key(&(cx, cz)) {
+            return;
+        }
+        self.queue.emit_now(Event::ChunkRebuildRequested { cx, cz, cause: RebuildCause::LightingBorder });
+        st.finalize_requested = true;
+    }
     fn record_intent(&mut self, cx: i32, cz: i32, cause: IntentCause) {
         // Skip recording if already rendered and no rebuild needed
         let cur_rev = self.gs.edits.get_rev(cx, cz);
@@ -1083,6 +1101,7 @@ impl App {
                 self.gs.chunks.remove(&(cx, cz));
                 self.gs.loaded.remove(&(cx, cz));
                 self.gs.inflight_rev.remove(&(cx, cz));
+                self.gs.finalize.remove(&(cx, cz));
                 // Also drop any persisted lighting state for this chunk to prevent growth
                 self.gs.lighting.clear_chunk(cx, cz);
             }
@@ -1092,6 +1111,11 @@ impl App {
                 {
                     return;
                 }
+                // Init finalization tracking entry
+                self.gs
+                    .finalize
+                    .entry((cx, cz))
+                    .or_insert(FinalizeState::default());
                 // Record load intent; scheduler will cap and prioritize
                 self.record_intent(cx, cz, IntentCause::StreamLoad);
             }
@@ -1316,6 +1340,19 @@ impl App {
                             xp_changed: mask.xp,
                             zp_changed: mask.zp,
                         });
+                    }
+                }
+                // If both owners are ready and finalize not yet requested, schedule finalize now
+                if let Some(st) = self.gs.finalize.get(&(cx, cz)).copied() {
+                    if st.owner_x_ready && st.owner_z_ready && !st.finalized && !st.finalize_requested {
+                        self.try_schedule_finalize(cx, cz);
+                    }
+                }
+                // If this build was the finalize pass, mark completion
+                if let Some(st) = self.gs.finalize.get_mut(&(cx, cz)) {
+                    if st.finalize_requested {
+                        st.finalize_requested = false;
+                        st.finalized = true;
                     }
                 }
             }
@@ -1614,29 +1651,33 @@ impl App {
             }
             Event::LightBordersUpdated { cx, cz, xp_changed, zp_changed } => {
                 // Canonical seam ownership: only +X and +Z neighbors depend on our seam planes.
-                // Notify just those two neighbors to avoid redundant rebuilds on the other sides.
+                // Mark owner readiness on neighbors and only schedule finalize when both owners are ready.
                 let (ccx, ccz) = self.gs.center_chunk;
                 let r_gate = self.gs.view_radius_chunks + 1; // small hysteresis
                 if xp_changed {
-                    let nx = cx + 1;
-                    let nz = cz;
-                    let ring = (nx - ccx).abs().max((nz - ccz).abs());
-                    if ring <= r_gate
-                        && self.renders.contains_key(&(nx, nz))
-                        && !self.gs.inflight_rev.contains_key(&(nx, nz))
-                    {
-                        self.queue.emit_now(Event::ChunkRebuildRequested { cx: nx, cz: nz, cause: RebuildCause::LightingBorder });
+                    let k = (cx + 1, cz);
+                    let st = self
+                        .gs
+                        .finalize
+                        .entry(k)
+                        .or_insert(FinalizeState::default());
+                    st.owner_x_ready = true;
+                    let ring = (k.0 - ccx).abs().max((k.1 - ccz).abs());
+                    if ring <= r_gate {
+                        self.try_schedule_finalize(k.0, k.1);
                     }
                 }
                 if zp_changed {
-                    let nx = cx;
-                    let nz = cz + 1;
-                    let ring = (nx - ccx).abs().max((nz - ccz).abs());
-                    if ring <= r_gate
-                        && self.renders.contains_key(&(nx, nz))
-                        && !self.gs.inflight_rev.contains_key(&(nx, nz))
-                    {
-                        self.queue.emit_now(Event::ChunkRebuildRequested { cx: nx, cz: nz, cause: RebuildCause::LightingBorder });
+                    let k = (cx, cz + 1);
+                    let st = self
+                        .gs
+                        .finalize
+                        .entry(k)
+                        .or_insert(FinalizeState::default());
+                    st.owner_z_ready = true;
+                    let ring = (k.0 - ccx).abs().max((k.1 - ccz).abs());
+                    if ring <= r_gate {
+                        self.try_schedule_finalize(k.0, k.1);
                     }
                 }
             }
