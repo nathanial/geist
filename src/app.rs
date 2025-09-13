@@ -1608,10 +1608,11 @@ impl App {
                 });
             }
             Event::LightBordersUpdated { cx, cz } => {
-                // Neighbor rebuilds in response to border changes, if loaded and not already inflight
+                // Canonical seam ownership: only +X and +Z neighbors depend on our seam planes.
+                // Notify just those two neighbors to avoid redundant rebuilds on the other sides.
                 let (ccx, ccz) = self.gs.center_chunk;
                 let r_gate = self.gs.view_radius_chunks + 1; // small hysteresis
-                for (nx, nz) in [(cx - 1, cz), (cx + 1, cz), (cx, cz - 1), (cx, cz + 1)] {
+                for (nx, nz) in [(cx + 1, cz), (cx, cz + 1)] {
                     // Distance gating to avoid far-away lighting backlogs
                     let ring = (nx - ccx).abs().max((nz - ccz).abs());
                     if ring > r_gate {
