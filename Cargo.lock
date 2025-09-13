@@ -674,6 +674,7 @@ dependencies = [
  "geist-chunk",
  "geist-world",
  "proptest",
+ "rayon",
 ]
 
 [[package]]

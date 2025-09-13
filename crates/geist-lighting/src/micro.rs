@@ -1,4 +1,5 @@
 use crate::{LightGrid, LightingStore, MicroBorders};
+use rayon::prelude::*;
 // (Arc used via .into() conversions when publishing planes)
 use geist_blocks::micro::{micro_cell_solid_s2, micro_face_cell_open_s2};
 use geist_blocks::{BlockRegistry, types::Block};
@@ -680,154 +681,210 @@ pub fn compute_light_with_borders_buf_micro(
     // Use per-micro step attenuation constants
     let att_blk: u8 = MICRO_BLOCK_ATTENUATION;
     let att_sky: u8 = MICRO_SKY_ATTENUATION;
-    let mut push = |mx: i32,
-                    my: i32,
-                    mz: i32,
-                    mxs: usize,
-                    mys: usize,
-                    mzs: usize,
-                    arr: &mut [u8],
-                    lvl: u8,
-                    att: u8| {
-        if mx < 0 || my < 0 || mz < 0 {
-            return;
-        }
-        let (mxu, myu, mzu) = (mx as usize, my as usize, mz as usize);
-        if mxu >= mxs || myu >= mys || mzu >= mzs {
-            return;
-        }
-        let v = clamp_sub_u8(lvl, att);
-        if v == 0 {
-            return;
-        }
-        let i = midx(mxu, myu, mzu, mxs, mzs);
-        if arr[i] >= v {
-            return;
-        }
-        if bs_get(&micro_solid_bits, i) {
-            return;
-        }
-        if arr[i] < v {
-            arr[i] = v;
-        }
-    };
+    // (push helper removed in favor of parallel per-bucket processing)
 
-    // BFS over block-light queue
-    while let Some((idx0, level)) = q_blk.pop_idx() {
-        if level <= 1 {
+    // BFS over block-light queue (parallel per-bucket)
+    while q_blk.pending > 0 {
+        let bi = (q_blk.cur_d & 15) as usize;
+        let bucket = &mut q_blk.buckets[bi];
+        // If current bucket empty, advance
+        if bucket.read >= bucket.data.len() {
+            bucket.reset_if_empty();
+            q_blk.cur_d = q_blk.cur_d.wrapping_add(1);
             continue;
         }
-        let lvl = level;
-        let my = idx0 / (mzs * mxs);
-        let rem = idx0 - my * (mzs * mxs);
-        let mz = rem / mxs;
-        let mx = rem - mz * mxs;
-        let (mx_i, my_i, mz_i) = (mx as i32, my as i32, mz as i32);
-        let before = micro_blk[idx0];
-        if before != lvl {
-            continue;
-        }
-        push(mx_i + 1, my_i, mz_i, mxs, mys, mzs, &mut micro_blk, lvl, att_blk);
-        push(mx_i - 1, my_i, mz_i, mxs, mys, mzs, &mut micro_blk, lvl, att_blk);
-        push(mx_i, my_i + 1, mz_i, mxs, mys, mzs, &mut micro_blk, lvl, att_blk);
-        push(mx_i, my_i - 1, mz_i, mxs, mys, mzs, &mut micro_blk, lvl, att_blk);
-        push(mx_i, my_i, mz_i + 1, mxs, mys, mzs, &mut micro_blk, lvl, att_blk);
-        push(mx_i, my_i, mz_i - 1, mxs, mys, mzs, &mut micro_blk, lvl, att_blk);
-        // enqueue neighbors that we updated (index-based to avoid midx)
-        if mx + 1 < mxs {
-            let ii = idx0 + 1;
-            if (micro_blk[ii] as u16 + att_blk as u16) == (lvl as u16) {
-                q_blk.push_idx(ii, micro_blk[ii]);
+        // Drain current frontier
+        let frontier: Vec<(usize, u8)> = bucket.data[bucket.read..].to_vec();
+        q_blk.pending -= frontier.len();
+        bucket.read = bucket.data.len();
+        bucket.reset_if_empty();
+
+        // Parallel neighbor proposals
+        let proposals: Vec<(usize, u8)> = frontier
+            .par_iter()
+            .fold(
+                || Vec::new(),
+                |mut out, &(idx0, level)| {
+                    if level <= 1 {
+                        return out;
+                    }
+                    // Skip stale entries
+                    if micro_blk[idx0] != level {
+                        return out;
+                    }
+                    let lvl = level;
+                    let v = clamp_sub_u8(lvl, att_blk);
+                    if v == 0 {
+                        return out;
+                    }
+                    let my = idx0 / (mzs * mxs);
+                    let rem = idx0 - my * (mzs * mxs);
+                    let mz = rem / mxs;
+                    let mx = rem - mz * mxs;
+                    // +X
+                    if mx + 1 < mxs {
+                        let ii = idx0 + 1;
+                        if micro_blk[ii] < v && !bs_get(&micro_solid_bits, ii) {
+                            out.push((ii, v));
+                        }
+                    }
+                    // -X
+                    if mx > 0 {
+                        let ii = idx0 - 1;
+                        if micro_blk[ii] < v && !bs_get(&micro_solid_bits, ii) {
+                            out.push((ii, v));
+                        }
+                    }
+                    // +Y
+                    if my + 1 < mys {
+                        let ii = idx0 + stride_y_m;
+                        if micro_blk[ii] < v && !bs_get(&micro_solid_bits, ii) {
+                            out.push((ii, v));
+                        }
+                    }
+                    // -Y
+                    if my > 0 {
+                        let ii = idx0 - stride_y_m;
+                        if micro_blk[ii] < v && !bs_get(&micro_solid_bits, ii) {
+                            out.push((ii, v));
+                        }
+                    }
+                    // +Z
+                    if mz + 1 < mzs {
+                        let ii = idx0 + stride_z_m;
+                        if micro_blk[ii] < v && !bs_get(&micro_solid_bits, ii) {
+                            out.push((ii, v));
+                        }
+                    }
+                    // -Z
+                    if mz > 0 {
+                        let ii = idx0 - stride_z_m;
+                        if micro_blk[ii] < v && !bs_get(&micro_solid_bits, ii) {
+                            out.push((ii, v));
+                        }
+                    }
+                    out
+                },
+            )
+            .reduce(
+                || Vec::new(),
+                |mut a, mut b| {
+                    a.append(&mut b);
+                    a
+                },
+            );
+
+        // Merge proposals sequentially: apply updates and enqueue
+        for (ii, v) in proposals {
+            if v == 0 {
+                continue;
             }
-        }
-        if mx > 0 {
-            let ii = idx0 - 1;
-            if (micro_blk[ii] as u16 + att_blk as u16) == (lvl as u16) {
-                q_blk.push_idx(ii, micro_blk[ii]);
-            }
-        }
-        if my + 1 < mys {
-            let ii = idx0 + stride_y_m;
-            if (micro_blk[ii] as u16 + att_blk as u16) == (lvl as u16) {
-                q_blk.push_idx(ii, micro_blk[ii]);
-            }
-        }
-        if my > 0 {
-            let ii = idx0 - stride_y_m;
-            if (micro_blk[ii] as u16 + att_blk as u16) == (lvl as u16) {
-                q_blk.push_idx(ii, micro_blk[ii]);
-            }
-        }
-        if mz + 1 < mzs {
-            let ii = idx0 + stride_z_m;
-            if (micro_blk[ii] as u16 + att_blk as u16) == (lvl as u16) {
-                q_blk.push_idx(ii, micro_blk[ii]);
-            }
-        }
-        if mz > 0 {
-            let ii = idx0 - stride_z_m;
-            if (micro_blk[ii] as u16 + att_blk as u16) == (lvl as u16) {
-                q_blk.push_idx(ii, micro_blk[ii]);
+            if micro_blk[ii] < v && !bs_get(&micro_solid_bits, ii) {
+                micro_blk[ii] = v;
+                q_blk.push_idx(ii, v);
             }
         }
     }
 
-    // BFS over skylight queue
-    while let Some((idx0, level)) = q_sky.pop_idx() {
-        if level <= 1 {
+    // BFS over skylight queue (parallel per-bucket)
+    while q_sky.pending > 0 {
+        let bi = (q_sky.cur_d & 15) as usize;
+        let bucket = &mut q_sky.buckets[bi];
+        // If current bucket empty, advance
+        if bucket.read >= bucket.data.len() {
+            bucket.reset_if_empty();
+            q_sky.cur_d = q_sky.cur_d.wrapping_add(1);
             continue;
         }
-        let lvl = level;
-        let my = idx0 / (mzs * mxs);
-        let rem = idx0 - my * (mzs * mxs);
-        let mz = rem / mxs;
-        let mx = rem - mz * mxs;
-        let (mx_i, my_i, mz_i) = (mx as i32, my as i32, mz as i32);
-        let before = micro_sky[idx0];
-        if before != lvl {
-            continue;
-        }
-        push(mx_i + 1, my_i, mz_i, mxs, mys, mzs, &mut micro_sky, lvl, att_sky);
-        push(mx_i - 1, my_i, mz_i, mxs, mys, mzs, &mut micro_sky, lvl, att_sky);
-        push(mx_i, my_i + 1, mz_i, mxs, mys, mzs, &mut micro_sky, lvl, att_sky);
-        push(mx_i, my_i - 1, mz_i, mxs, mys, mzs, &mut micro_sky, lvl, att_sky);
-        push(mx_i, my_i, mz_i + 1, mxs, mys, mzs, &mut micro_sky, lvl, att_sky);
-        push(mx_i, my_i, mz_i - 1, mxs, mys, mzs, &mut micro_sky, lvl, att_sky);
-        // enqueue neighbors that we updated (index-based)
-        if mx + 1 < mxs {
-            let ii = idx0 + 1;
-            if (micro_sky[ii] as u16 + att_sky as u16) == (lvl as u16) {
-                q_sky.push_idx(ii, micro_sky[ii]);
+        // Drain current frontier
+        let frontier: Vec<(usize, u8)> = bucket.data[bucket.read..].to_vec();
+        q_sky.pending -= frontier.len();
+        bucket.read = bucket.data.len();
+        bucket.reset_if_empty();
+
+        // Parallel neighbor proposals
+        let proposals: Vec<(usize, u8)> = frontier
+            .par_iter()
+            .fold(
+                || Vec::new(),
+                |mut out, &(idx0, level)| {
+                    if level <= 1 {
+                        return out;
+                    }
+                    // Skip stale entries
+                    if micro_sky[idx0] != level {
+                        return out;
+                    }
+                    let lvl = level;
+                    let v = clamp_sub_u8(lvl, att_sky);
+                    if v == 0 {
+                        return out;
+                    }
+                    let my = idx0 / (mzs * mxs);
+                    let rem = idx0 - my * (mzs * mxs);
+                    let mz = rem / mxs;
+                    let mx = rem - mz * mxs;
+                    // +X
+                    if mx + 1 < mxs {
+                        let ii = idx0 + 1;
+                        if micro_sky[ii] < v && !bs_get(&micro_solid_bits, ii) {
+                            out.push((ii, v));
+                        }
+                    }
+                    // -X
+                    if mx > 0 {
+                        let ii = idx0 - 1;
+                        if micro_sky[ii] < v && !bs_get(&micro_solid_bits, ii) {
+                            out.push((ii, v));
+                        }
+                    }
+                    // +Y
+                    if my + 1 < mys {
+                        let ii = idx0 + stride_y_m;
+                        if micro_sky[ii] < v && !bs_get(&micro_solid_bits, ii) {
+                            out.push((ii, v));
+                        }
+                    }
+                    // -Y
+                    if my > 0 {
+                        let ii = idx0 - stride_y_m;
+                        if micro_sky[ii] < v && !bs_get(&micro_solid_bits, ii) {
+                            out.push((ii, v));
+                        }
+                    }
+                    // +Z
+                    if mz + 1 < mzs {
+                        let ii = idx0 + stride_z_m;
+                        if micro_sky[ii] < v && !bs_get(&micro_solid_bits, ii) {
+                            out.push((ii, v));
+                        }
+                    }
+                    // -Z
+                    if mz > 0 {
+                        let ii = idx0 - stride_z_m;
+                        if micro_sky[ii] < v && !bs_get(&micro_solid_bits, ii) {
+                            out.push((ii, v));
+                        }
+                    }
+                    out
+                },
+            )
+            .reduce(
+                || Vec::new(),
+                |mut a, mut b| {
+                    a.append(&mut b);
+                    a
+                },
+            );
+
+        // Merge proposals sequentially: apply updates and enqueue
+        for (ii, v) in proposals {
+            if v == 0 {
+                continue;
             }
-        }
-        if mx > 0 {
-            let ii = idx0 - 1;
-            if (micro_sky[ii] as u16 + att_sky as u16) == (lvl as u16) {
-                q_sky.push_idx(ii, micro_sky[ii]);
-            }
-        }
-        if my + 1 < mys {
-            let ii = idx0 + stride_y_m;
-            if (micro_sky[ii] as u16 + att_sky as u16) == (lvl as u16) {
-                q_sky.push_idx(ii, micro_sky[ii]);
-            }
-        }
-        if my > 0 {
-            let ii = idx0 - stride_y_m;
-            if (micro_sky[ii] as u16 + att_sky as u16) == (lvl as u16) {
-                q_sky.push_idx(ii, micro_sky[ii]);
-            }
-        }
-        if mz + 1 < mzs {
-            let ii = idx0 + stride_z_m;
-            if (micro_sky[ii] as u16 + att_sky as u16) == (lvl as u16) {
-                q_sky.push_idx(ii, micro_sky[ii]);
-            }
-        }
-        if mz > 0 {
-            let ii = idx0 - stride_z_m;
-            if (micro_sky[ii] as u16 + att_sky as u16) == (lvl as u16) {
-                q_sky.push_idx(ii, micro_sky[ii]);
+            if micro_sky[ii] < v && !bs_get(&micro_solid_bits, ii) {
+                micro_sky[ii] = v;
+                q_sky.push_idx(ii, v);
             }
         }
     }
