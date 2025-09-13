@@ -136,6 +136,74 @@ Rough Impact Estimates (cumulative if combined)
 - Skylight specialization: 2–3x of skylight share
 - Combined (CPU path): realistic 4–8x; with GPU, 8–15x
 
+## Avoiding Remesh After Neighbors (Meshing Stability)
+
+Problem
+- We often remesh chunks as neighbors arrive because light propagates over seams and changes face lighting.
+- Goal: make the first mesh “stick” by stabilizing seam lighting or decoupling lighting updates from geometry rebuilds.
+
+A) Ghost Halo BFS at Borders (seam-stable lighting)
+- Idea: Extend lighting a small halo beyond the chunk (1–2 macro cells, or K micro steps) using worldgen lookups for occupancy/gates, so seam planes are correct without the neighbor present.
+- Mechanics:
+  - During lighting, treat a thin region outside the chunk as virtual cells; gate with S=2 rules via `world.block_at_runtime_with` and propagate a limited-depth BFS into that halo.
+  - Publish seam planes from our side; neighbor does the same. Because both use the same halo rule, load order doesn’t change the final plane values.
+- Pros: No remesh when neighbors load; fully local computation; works with current CPU path; parallelizable.
+- Cons: Extra BFS work near borders; must exactly match S=2 semantics to avoid visual drift; small worldgen cost.
+- Impact: Eliminates order-dependence; slight lighting CPU increase, but avoids remesh.
+
+B) Mesh Once, Update Lighting Only (decouple geom from light)
+- Idea: Keep indices/vertices stable; update only lighting data when light changes (no geometry rebuild).
+- Mechanics:
+  - Option 1: Per-vertex colors in a dynamic VBO; when light changes in a macro cell, recompute affected vertex colors from 8 micro samples and stream color-only updates.
+  - Option 2: GPU light texture/SSBO storing the light grid; vertices carry positions/UV-to-light; fragment shader samples current light. Update texture when lighting changes.
+- Pros: No remeshing; small, bounded updates; great for frequent light-plane changes during streaming.
+- Cons: Requires renderer changes; shader sampling adds bandwidth (Option 2); color-only updates need a vertex→macro mapping.
+- Impact: Removes 90–100% of remesh due to lighting; shifts work to small buffer updates.
+
+C) Core + Seam Band Partitioning (limited rebuilds)
+- Idea: Split each chunk’s mesh into an interior “core” and a thin border “seam band” (1–2 macro cells wide). Only rebuild the seam band when seam light changes.
+- Mechanics:
+  - Tag faces by distance-to-border at meshing time; emit separate draw batches (core, seam-XN/XP, seam-ZN/ZP, optionally seam-Y).
+  - On neighbor arrival or border-plane update, remesh just the affected seam band(s).
+- Pros: Large reduction in remesh cost; simple to adopt; keeps current shading model.
+- Cons: More draw calls/batches; still some rebuild cost; slightly more complex batching.
+- Impact: Typical 70–90% reduction in remesh time in streaming scenarios.
+
+D) Load/Build Scheduling Barrier (one-and-done mesh)
+- Idea: Wait to mesh until immediate neighbors’ seam planes (or halo) are available.
+- Mechanics:
+  - Lighting step publishes seam planes early; meshing for a chunk is triggered only after a 1-ring plane barrier is satisfied (or after a timeout, using halo fallback).
+- Pros: First mesh is final; simple scheduling logic.
+- Cons: Higher initial latency for isolated chunks; needs careful UX for pop-in.
+- Impact: Eliminates remesh at the cost of delayed first draw.
+
+E) Small-Region Lighting Solve (batch with virtual neighbors)
+- Idea: When a chunk is requested, solve lighting for a 3×3 (or 2×2) region using worldgen to synthesize missing neighbors, then mesh them together.
+- Mechanics:
+  - Run BFS across the region with per-chunk micro arrays and border exchange; synthesize neighbors’ occupancy/seed planes deterministically.
+- Pros: Stable seams on first draw; good cache locality for both lighting and meshing.
+- Cons: More upfront CPU/memory; heavier than halo-only.
+- Impact: Removes remesh; higher spike cost amortized if streaming contiguous areas.
+
+F) Deterministic Seam Contract (order independence)
+- Idea: Ensure border values are defined solely by local + halo world state using the same S=2 rules and attenuation on both sides.
+- Mechanics:
+  - Treat neighbor planes as optional hints; correctness is guaranteed by halo rules. Both chunks compute the same planes regardless of load order.
+- Pros: Architectural guarantee; pairs well with A and D.
+- Cons: Requires tight agreement on S=2 gates/attenuation across code paths.
+
+G) Incremental Light-Only Updates (diff-based coloring)
+- Idea: Track changed macro cells after lighting; update only corresponding vertex colors or light-texture texels.
+- Mechanics:
+  - Maintain a macro→vertex index mapping or light-atlas UVs; on light diff, push small CPU→GPU updates without geometry rebuild.
+- Pros: Minimal CPU; meshes remain intact; composes with core+seam splitting.
+- Cons: Adds bookkeeping; shader path (if used) changes sampling.
+
+Recommended path
+- Short term: C + G (seam bands + light-only updates) to slash remesh cost quickly.
+- Medium term: A + F (ghost halo + deterministic contract) to remove load-order dependence and avoid remesh entirely.
+- Optional: B (GPU light sampling) for maximal decoupling in the renderer.
+
 ## Appendix — Hybrid Solver Post‑Mortem (Issues & Lessons)
 
 Context
