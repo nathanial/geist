@@ -77,6 +77,8 @@ pub fn compute_light_with_borders_buf_micro(
     let (mxs, mys, mzs) = micro_dims(buf);
     let mut micro_sky = vec![0u8; mxs * mys * mzs];
     let mut micro_blk = vec![0u8; mxs * mys * mzs];
+    let stride_z_m = mxs; // +1 micro Z
+    let stride_y_m = mxs * mzs; // +1 micro Y
 
     // Precompute per-macro-cell micro occupancy to accelerate micro solid checks
     let mut occ8 = vec![0u8; buf.sx * buf.sy * buf.sz];
@@ -96,6 +98,70 @@ pub fn compute_light_with_borders_buf_micro(
     #[inline]
     fn occ_bit8(o: u8, x: usize, y: usize, z: usize) -> bool {
         ((o >> (((y & 1) << 2) | ((z & 1) << 1) | (x & 1))) & 1) != 0
+    }
+    // Build a 1-bit-per-micro-cell occupancy bitset
+    let micro_bit_count = mxs * mys * mzs;
+    let mut micro_solid_bits = vec![0u64; (micro_bit_count + 63) / 64];
+    #[inline]
+    fn bs_set(bits: &mut [u64], idx: usize) {
+        let w = idx >> 6;
+        let b = idx & 63;
+        bits[w] |= 1u64 << b;
+    }
+    #[inline]
+    fn bs_get(bits: &[u64], idx: usize) -> bool {
+        let w = idx >> 6;
+        let b = idx & 63;
+        ((bits[w] >> b) & 1) != 0
+    }
+    // Fill bitset using macro occupancy
+    for z in 0..buf.sz {
+        for y in 0..buf.sy {
+            for x in 0..buf.sx {
+                let i3 = (y * buf.sz + z) * buf.sx + x;
+                let o = occ8[i3];
+                let f = full[i3] != 0;
+                let mx0 = x * 2;
+                let my0 = y * 2;
+                let mz0 = z * 2;
+                let base = (my0 * mzs + mz0) * mxs + mx0;
+                if f {
+                    bs_set(&mut micro_solid_bits, base);
+                    bs_set(&mut micro_solid_bits, base + 1);
+                    bs_set(&mut micro_solid_bits, base + stride_z_m);
+                    bs_set(&mut micro_solid_bits, base + stride_z_m + 1);
+                    bs_set(&mut micro_solid_bits, base + stride_y_m);
+                    bs_set(&mut micro_solid_bits, base + stride_y_m + 1);
+                    bs_set(&mut micro_solid_bits, base + stride_y_m + stride_z_m);
+                    bs_set(&mut micro_solid_bits, base + stride_y_m + stride_z_m + 1);
+                } else if o != 0 {
+                    if (o & (1 << 0)) != 0 {
+                        bs_set(&mut micro_solid_bits, base);
+                    }
+                    if (o & (1 << 1)) != 0 {
+                        bs_set(&mut micro_solid_bits, base + 1);
+                    }
+                    if (o & (1 << 2)) != 0 {
+                        bs_set(&mut micro_solid_bits, base + stride_z_m);
+                    }
+                    if (o & (1 << 3)) != 0 {
+                        bs_set(&mut micro_solid_bits, base + stride_z_m + 1);
+                    }
+                    if (o & (1 << 4)) != 0 {
+                        bs_set(&mut micro_solid_bits, base + stride_y_m);
+                    }
+                    if (o & (1 << 5)) != 0 {
+                        bs_set(&mut micro_solid_bits, base + stride_y_m + 1);
+                    }
+                    if (o & (1 << 6)) != 0 {
+                        bs_set(&mut micro_solid_bits, base + stride_y_m + stride_z_m);
+                    }
+                    if (o & (1 << 7)) != 0 {
+                        bs_set(&mut micro_solid_bits, base + stride_y_m + stride_z_m + 1);
+                    }
+                }
+            }
+        }
     }
     #[inline]
     fn micro_solid_at_fast(
@@ -173,7 +239,8 @@ pub fn compute_light_with_borders_buf_micro(
             let mut start = 0usize;
             let mut y = mys as i32 - 1;
             while y >= 0 {
-                if micro_solid_at_fast(mx, y as usize, mz, buf, &occ8, &full) {
+                let ii = midx(mx, y as usize, mz, mxs, mzs);
+                if bs_get(&micro_solid_bits, ii) {
                     start = (y as usize).saturating_add(1);
                     found_solid = true;
                     break;
@@ -297,14 +364,14 @@ pub fn compute_light_with_borders_buf_micro(
                         // Gate based only on our micro occupancy
                         let my = (ly << 1) | iym;
                         let mz = (lz << 1) | izm;
-                        !micro_solid_at_fast(0, my, mz, buf, &occ8, &full)
+                        !bs_get(&micro_solid_bits, midx(0, my, mz, mxs, mzs))
                     } else {
                         micro_face_cell_open_s2(reg, here_nx, there_nx, 3, iym, izm)
                     };
                     gate_px[iym][izm] = if have_micro_px {
                         let my = (ly << 1) | iym;
                         let mz = (lz << 1) | izm;
-                        !micro_solid_at_fast(mxs - 1, my, mz, buf, &occ8, &full)
+                        !bs_get(&micro_solid_bits, midx(mxs - 1, my, mz, mxs, mzs))
                     } else {
                         micro_face_cell_open_s2(reg, here_px, there_px, 2, iym, izm)
                     };
@@ -339,14 +406,14 @@ pub fn compute_light_with_borders_buf_micro(
                     if use_xn && (seed_blk_nx > 0 || seed_sky_nx > 0) && gate_nx[iym][izm] {
                         let i = midx(0, my, mz, mxs, mzs);
                         if seed_blk_nx > 0
-                            && !micro_solid_at_fast(0, my, mz, buf, &occ8, &full)
+                            && !bs_get(&micro_solid_bits, midx(0, my, mz, mxs, mzs))
                             && micro_blk[i] < seed_blk_nx
                         {
                             micro_blk[i] = seed_blk_nx;
                             q_blk.push(0, my, mz, seed_blk_nx);
                         }
                         if seed_sky_nx > 0
-                            && !micro_solid_at_fast(0, my, mz, buf, &occ8, &full)
+                            && !bs_get(&micro_solid_bits, midx(0, my, mz, mxs, mzs))
                             && micro_sky[i] < seed_sky_nx
                         {
                             micro_sky[i] = seed_sky_nx;
@@ -377,14 +444,14 @@ pub fn compute_light_with_borders_buf_micro(
                     if use_xp && (seed_blk_px > 0 || seed_sky_px > 0) && gate_px[iym][izm] {
                         let i = midx(mxs - 1, my, mz, mxs, mzs);
                         if seed_blk_px > 0
-                            && !micro_solid_at_fast(mxs - 1, my, mz, buf, &occ8, &full)
+                            && !bs_get(&micro_solid_bits, midx(mxs - 1, my, mz, mxs, mzs))
                             && micro_blk[i] < seed_blk_px
                         {
                             micro_blk[i] = seed_blk_px;
                             q_blk.push(mxs - 1, my, mz, seed_blk_px);
                         }
                         if seed_sky_px > 0
-                            && !micro_solid_at_fast(mxs - 1, my, mz, buf, &occ8, &full)
+                            && !bs_get(&micro_solid_bits, midx(mxs - 1, my, mz, mxs, mzs))
                             && micro_sky[i] < seed_sky_px
                         {
                             micro_sky[i] = seed_sky_px;
@@ -427,14 +494,14 @@ pub fn compute_light_with_borders_buf_micro(
                     gate_nz[iym][ixm] = if have_micro_nz {
                         let mx = (lx << 1) | ixm;
                         let my = (ly << 1) | iym;
-                        !micro_solid_at_fast(mx, my, 0, buf, &occ8, &full)
+                        !bs_get(&micro_solid_bits, midx(mx, my, 0, mxs, mzs))
                     } else {
                         micro_face_cell_open_s2(reg, here_nz, there_nz, 5, ixm, iym)
                     };
                     gate_pz[iym][ixm] = if have_micro_pz {
                         let mx = (lx << 1) | ixm;
                         let my = (ly << 1) | iym;
-                        !micro_solid_at_fast(mx, my, mzs - 1, buf, &occ8, &full)
+                        !bs_get(&micro_solid_bits, midx(mx, my, mzs - 1, mxs, mzs))
                     } else {
                         micro_face_cell_open_s2(reg, here_pz, there_pz, 4, ixm, iym)
                     };
@@ -468,14 +535,14 @@ pub fn compute_light_with_borders_buf_micro(
                     if use_zn && (seed_blk_nz > 0 || seed_sky_nz > 0) && gate_nz[iym][ixm] {
                         let i = midx(mx, my, 0, mxs, mzs);
                         if seed_blk_nz > 0
-                            && !micro_solid_at_fast(mx, my, 0, buf, &occ8, &full)
+                            && !bs_get(&micro_solid_bits, midx(mx, my, 0, mxs, mzs))
                             && micro_blk[i] < seed_blk_nz
                         {
                             micro_blk[i] = seed_blk_nz;
                             q_blk.push(mx, my, 0, seed_blk_nz);
                         }
                         if seed_sky_nz > 0
-                            && !micro_solid_at_fast(mx, my, 0, buf, &occ8, &full)
+                            && !bs_get(&micro_solid_bits, midx(mx, my, 0, mxs, mzs))
                             && micro_sky[i] < seed_sky_nz
                         {
                             micro_sky[i] = seed_sky_nz;
@@ -506,14 +573,14 @@ pub fn compute_light_with_borders_buf_micro(
                     if use_zp && (seed_blk_pz > 0 || seed_sky_pz > 0) && gate_pz[iym][ixm] {
                         let i = midx(mx, my, mzs - 1, mxs, mzs);
                         if seed_blk_pz > 0
-                            && !micro_solid_at_fast(mx, my, mzs - 1, buf, &occ8, &full)
+                            && !bs_get(&micro_solid_bits, midx(mx, my, mzs - 1, mxs, mzs))
                             && micro_blk[i] < seed_blk_pz
                         {
                             micro_blk[i] = seed_blk_pz;
                             q_blk.push(mx, my, mzs - 1, seed_blk_pz);
                         }
                         if seed_sky_pz > 0
-                            && !micro_solid_at_fast(mx, my, mzs - 1, buf, &occ8, &full)
+                            && !bs_get(&micro_solid_bits, midx(mx, my, mzs - 1, mxs, mzs))
                             && micro_sky[i] < seed_sky_pz
                         {
                             micro_sky[i] = seed_sky_pz;
@@ -536,7 +603,7 @@ pub fn compute_light_with_borders_buf_micro(
         for mx in mx0..(mx0 + MICRO_SCALE) {
             for my in my0..(my0 + MICRO_SCALE) {
                 for mz in mz0..(mz0 + MICRO_SCALE) {
-                    if !micro_solid_at_fast(mx, my, mz, buf, &occ8, &full) {
+                    if !bs_get(&micro_solid_bits, midx(mx, my, mz, mxs, mzs)) {
                         let i = midx(mx, my, mz, mxs, mzs);
                         if micro_blk[i] < level {
                             micro_blk[i] = level;
@@ -569,14 +636,17 @@ pub fn compute_light_with_borders_buf_micro(
         if mxu >= mxs || myu >= mys || mzu >= mzs {
             return;
         }
-        if micro_solid_at_fast(mxu, myu, mzu, buf, &occ8, &full) {
-            return;
-        }
         let v = clamp_sub_u8(lvl, att);
         if v == 0 {
             return;
         }
         let i = midx(mxu, myu, mzu, mxs, mzs);
+        if arr[i] >= v {
+            return;
+        }
+        if bs_get(&micro_solid_bits, i) {
+            return;
+        }
         if arr[i] < v {
             arr[i] = v;
         }
@@ -589,7 +659,8 @@ pub fn compute_light_with_borders_buf_micro(
         }
         let lvl = level;
         let (mx_i, my_i, mz_i) = (mx as i32, my as i32, mz as i32);
-        let before = micro_blk[midx(mx, my, mz, mxs, mzs)];
+        let idx0 = (my * mzs + mz) * mxs + mx;
+        let before = micro_blk[idx0];
         if before != lvl {
             continue;
         }
@@ -599,24 +670,41 @@ pub fn compute_light_with_borders_buf_micro(
         push(mx_i, my_i - 1, mz_i, mxs, mys, mzs, &mut micro_blk, lvl, att_blk);
         push(mx_i, my_i, mz_i + 1, mxs, mys, mzs, &mut micro_blk, lvl, att_blk);
         push(mx_i, my_i, mz_i - 1, mxs, mys, mzs, &mut micro_blk, lvl, att_blk);
-        // enqueue neighbors that we updated
-        let neigh = [
-            (mx_i + 1, my_i, mz_i),
-            (mx_i - 1, my_i, mz_i),
-            (mx_i, my_i + 1, mz_i),
-            (mx_i, my_i - 1, mz_i),
-            (mx_i, my_i, mz_i + 1),
-            (mx_i, my_i, mz_i - 1),
-        ];
-        for &(nx, ny, nz) in &neigh {
-            if nx >= 0 && ny >= 0 && nz >= 0 {
-                let (nxu, nyu, nzu) = (nx as usize, ny as usize, nz as usize);
-                if nxu < mxs && nyu < mys && nzu < mzs {
-                    let ii = midx(nxu, nyu, nzu, mxs, mzs);
-                    if (micro_blk[ii] as u16 + att_blk as u16) == (lvl as u16) {
-                        q_blk.push(nxu, nyu, nzu, micro_blk[ii]);
-                    }
-                }
+        // enqueue neighbors that we updated (index-based to avoid midx)
+        if mx + 1 < mxs {
+            let ii = idx0 + 1;
+            if (micro_blk[ii] as u16 + att_blk as u16) == (lvl as u16) {
+                q_blk.push(mx + 1, my, mz, micro_blk[ii]);
+            }
+        }
+        if mx > 0 {
+            let ii = idx0 - 1;
+            if (micro_blk[ii] as u16 + att_blk as u16) == (lvl as u16) {
+                q_blk.push(mx - 1, my, mz, micro_blk[ii]);
+            }
+        }
+        if my + 1 < mys {
+            let ii = idx0 + stride_y_m;
+            if (micro_blk[ii] as u16 + att_blk as u16) == (lvl as u16) {
+                q_blk.push(mx, my + 1, mz, micro_blk[ii]);
+            }
+        }
+        if my > 0 {
+            let ii = idx0 - stride_y_m;
+            if (micro_blk[ii] as u16 + att_blk as u16) == (lvl as u16) {
+                q_blk.push(mx, my - 1, mz, micro_blk[ii]);
+            }
+        }
+        if mz + 1 < mzs {
+            let ii = idx0 + stride_z_m;
+            if (micro_blk[ii] as u16 + att_blk as u16) == (lvl as u16) {
+                q_blk.push(mx, my, mz + 1, micro_blk[ii]);
+            }
+        }
+        if mz > 0 {
+            let ii = idx0 - stride_z_m;
+            if (micro_blk[ii] as u16 + att_blk as u16) == (lvl as u16) {
+                q_blk.push(mx, my, mz - 1, micro_blk[ii]);
             }
         }
     }
@@ -628,7 +716,8 @@ pub fn compute_light_with_borders_buf_micro(
         }
         let lvl = level;
         let (mx_i, my_i, mz_i) = (mx as i32, my as i32, mz as i32);
-        let before = micro_sky[midx(mx, my, mz, mxs, mzs)];
+        let idx0 = (my * mzs + mz) * mxs + mx;
+        let before = micro_sky[idx0];
         if before != lvl {
             continue;
         }
@@ -638,24 +727,41 @@ pub fn compute_light_with_borders_buf_micro(
         push(mx_i, my_i - 1, mz_i, mxs, mys, mzs, &mut micro_sky, lvl, att_sky);
         push(mx_i, my_i, mz_i + 1, mxs, mys, mzs, &mut micro_sky, lvl, att_sky);
         push(mx_i, my_i, mz_i - 1, mxs, mys, mzs, &mut micro_sky, lvl, att_sky);
-        // enqueue neighbors that we updated
-        let neigh = [
-            (mx_i + 1, my_i, mz_i),
-            (mx_i - 1, my_i, mz_i),
-            (mx_i, my_i + 1, mz_i),
-            (mx_i, my_i - 1, mz_i),
-            (mx_i, my_i, mz_i + 1),
-            (mx_i, my_i, mz_i - 1),
-        ];
-        for &(nx, ny, nz) in &neigh {
-            if nx >= 0 && ny >= 0 && nz >= 0 {
-                let (nxu, nyu, nzu) = (nx as usize, ny as usize, nz as usize);
-                if nxu < mxs && nyu < mys && nzu < mzs {
-                    let ii = midx(nxu, nyu, nzu, mxs, mzs);
-                    if (micro_sky[ii] as u16 + att_sky as u16) == (lvl as u16) {
-                        q_sky.push(nxu, nyu, nzu, micro_sky[ii]);
-                    }
-                }
+        // enqueue neighbors that we updated (index-based)
+        if mx + 1 < mxs {
+            let ii = idx0 + 1;
+            if (micro_sky[ii] as u16 + att_sky as u16) == (lvl as u16) {
+                q_sky.push(mx + 1, my, mz, micro_sky[ii]);
+            }
+        }
+        if mx > 0 {
+            let ii = idx0 - 1;
+            if (micro_sky[ii] as u16 + att_sky as u16) == (lvl as u16) {
+                q_sky.push(mx - 1, my, mz, micro_sky[ii]);
+            }
+        }
+        if my + 1 < mys {
+            let ii = idx0 + stride_y_m;
+            if (micro_sky[ii] as u16 + att_sky as u16) == (lvl as u16) {
+                q_sky.push(mx, my + 1, mz, micro_sky[ii]);
+            }
+        }
+        if my > 0 {
+            let ii = idx0 - stride_y_m;
+            if (micro_sky[ii] as u16 + att_sky as u16) == (lvl as u16) {
+                q_sky.push(mx, my - 1, mz, micro_sky[ii]);
+            }
+        }
+        if mz + 1 < mzs {
+            let ii = idx0 + stride_z_m;
+            if (micro_sky[ii] as u16 + att_sky as u16) == (lvl as u16) {
+                q_sky.push(mx, my, mz + 1, micro_sky[ii]);
+            }
+        }
+        if mz > 0 {
+            let ii = idx0 - stride_z_m;
+            if (micro_sky[ii] as u16 + att_sky as u16) == (lvl as u16) {
+                q_sky.push(mx, my, mz - 1, micro_sky[ii]);
             }
         }
     }
