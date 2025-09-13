@@ -1302,6 +1302,9 @@ impl App {
                 self.gs.inflight_rev.remove(&(cx, cz));
                 self.gs.edits.mark_built(cx, cz, rev);
 
+                // Track mesh completion count for minimap/debug purposes
+                *self.gs.mesh_counts.entry((cx, cz)).or_insert(0) += 1;
+
                 // Update light borders in main thread; if changed, emit a dedicated event
                 if let Some(lb) = light_borders {
                     let _changed = self.gs.lighting.update_borders(cx, cz, lb);
@@ -2524,40 +2527,15 @@ impl App {
         d.draw_text(&debug_text, 10, y_pos, 20, Color::WHITE);
         d.draw_text(&debug_text, 11, y_pos + 1, 20, Color::BLACK); // Shadow for readability
 
-        // Right-side event overlay
-        let mut right_text = format!("Queued Events: {}", self.debug_stats.queued_events_total);
-        if self.debug_stats.queued_events_total > 0 {
-            let max_show = 10usize;
-            let shown = self.debug_stats.queued_events_by.len().min(max_show);
-            for (k, v) in self.debug_stats.queued_events_by.iter().take(shown) {
-                right_text.push_str(&format!("\n  {}: {}", k, v));
-            }
-            if self.debug_stats.queued_events_by.len() > shown {
-                right_text.push_str("\n  …");
-            }
-        }
+        // Right-side overlay (reduced to avoid jitter):
+        // - No queued events line or subtype lists
+        // - Keep processed total, intents, and runtime queues
+        let mut right_text = String::new();
         right_text.push_str(&format!(
-            "\nProcessed Events (session): {}",
+            "Processed Events (session): {}",
             self.evt_processed_total
         ));
         right_text.push_str(&format!("\nIntents: {}", self.debug_stats.intents_size));
-        if self.evt_processed_total > 0 {
-            let max_show = 10usize;
-            // Build a sorted list by count desc
-            let mut pairs: Vec<(&str, usize)> = self
-                .evt_processed_by
-                .iter()
-                .map(|(k, v)| (k.as_str(), *v))
-                .collect();
-            pairs.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
-            let shown = pairs.len().min(max_show);
-            for (k, v) in pairs.into_iter().take(shown) {
-                right_text.push_str(&format!("\n  {}: {}", k, v));
-            }
-            if self.evt_processed_by.len() > shown {
-                right_text.push_str("\n  …");
-            }
-        }
         // Runtime queue debug (vertical layout)
         let (q_e, if_e, q_l, if_l, q_b, if_b) = self.runtime.queue_debug_counts();
         right_text.push_str("\nRuntime Queues:");
@@ -2567,10 +2545,10 @@ impl App {
 
         let screen_width = d.get_screen_width();
         let font_size = 20;
-        // Fixed panel width: assume up to 1,000,000 counts and widest queue line
+        // Fixed panel width template samples
         let panel_templates = [
-            "Queued Events: 1,000,000",
             "Processed Events (session): 1,000,000",
+            "Intents: 1,000,000",
             "Runtime Queues:",
             "  Edit  - q=1,000,000 inflight=1,000,000",
             "  Light - q=1,000,000 inflight=1,000,000",
@@ -2592,6 +2570,78 @@ impl App {
         let ry = screen_height - (lines as i32 * line_height) - 10;
         d.draw_text(&right_text, rx, ry, font_size, Color::WHITE);
         d.draw_text(&right_text, rx + 1, ry + 1, font_size, Color::BLACK);
+
+        // Minimap (bottom-right): show chunks in view radius and mesh counts
+        {
+            let r = self.gs.view_radius_chunks.max(0);
+            let w = r * 2 + 1;
+            let h = r * 2 + 1;
+            if w > 0 && h > 0 {
+                let gap: i32 = 2;
+                let pad: i32 = 6;
+                // Pick a tile size that keeps minimap within ~1/2 screen in each dimension
+                let max_tile: i32 = 16;
+                let half_w = screen_width / 2;
+                let half_h = screen_height / 2;
+                let tile_w_fit = (half_w - pad * 2 - (w - 1) * gap) / w;
+                let tile_h_fit = (half_h - pad * 2 - (h - 1) * gap) / h;
+                let mut tile = max_tile.min(tile_w_fit.min(tile_h_fit)).max(6);
+                // Fallback if extreme aspect shrinks too far
+                if tile < 6 { tile = 6; }
+                let map_w: i32 = w * tile + (w - 1) * gap + pad * 2;
+                let map_h: i32 = h * tile + (h - 1) * gap + pad * 2;
+                let margin: i32 = 10;
+                let scr_w: i32 = screen_width;
+                let scr_h: i32 = screen_height;
+                // Prefer to place just above the right overlay block; fallback to bottom-right
+                let mut mx = scr_w - map_w - margin;
+                let mut my = ry - map_h - 8; // 8px spacing above the right panel
+                if my < margin { my = scr_h - map_h - margin; }
+                // Background panel
+                d.draw_rectangle(mx, my, map_w, map_h, Color::new(0, 0, 0, 120));
+                // Grid of chunks around center (x to the right, z downward)
+                let (ccx, ccz) = self.gs.center_chunk;
+                for dz in -r..=r {
+                    for dx in -r..=r {
+                        let cx = ccx + dx;
+                        let cz = ccz + dz;
+                        let ix = dx + r; // 0..w-1
+                        let iz = dz + r; // 0..h-1
+                        let cell_x = mx + pad + ix * (tile + gap);
+                        let cell_y = my + pad + iz * (tile + gap);
+                        let count = *self.gs.mesh_counts.get(&(cx, cz)).unwrap_or(&0);
+                        // Fill color based on count (simple green heat)
+                        let heat = count.min(12) as i32;
+                        let g = (40 + heat * 16).clamp(40, 255) as u8;
+                        let fill = if count == 0 {
+                            Color::new(60, 60, 60, 200)
+                        } else {
+                            Color::new(30, g, 50, 220)
+                        };
+                        d.draw_rectangle(cell_x, cell_y, tile, tile, fill);
+                        // Border: white for loaded chunks
+                        let border = if self.gs.loaded.contains(&(cx, cz)) {
+                            Color::RAYWHITE
+                        } else {
+                            Color::new(180, 180, 180, 200)
+                        };
+                        d.draw_rectangle_lines(cell_x, cell_y, tile, tile, border);
+                        // Count label
+                        let label = if count > 0 { count.to_string() } else { String::from("0") };
+                        let fs = 12;
+                        let tw = d.measure_text(&label, fs);
+                        let tx = cell_x + tile / 2 - tw / 2;
+                        let ty = cell_y + tile / 2 - fs / 2;
+                        d.draw_text(&label, tx + 1, ty + 1, fs, Color::BLACK);
+                        d.draw_text(&label, tx, ty, fs, Color::WHITE);
+                    }
+                }
+                // Highlight current center chunk
+                let hx = mx + pad + r * (tile + gap);
+                let hy = my + pad + r * (tile + gap);
+                d.draw_rectangle_lines(hx - 1, hy - 1, tile + 2, tile + 2, Color::YELLOW);
+            }
+        }
 
         // HUD
         let hud_mode = if self.gs.walk_mode { "Walk" } else { "Fly" };
