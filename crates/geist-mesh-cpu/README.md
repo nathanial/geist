@@ -49,6 +49,31 @@ Notes / Limitations
 Future work
 - Integrate micro‑voxel lighting for S=2 shapes (see the scaffolding in `geist-lighting/src/micro.rs`).
 
+## Profiling With Flamegraphs
+
+These benches are sizable; use cargo-flamegraph to get actionable profiles.
+
+Setup
+- Install cargo-flamegraph (system-wide):
+  - Linux: requires `perf` and appropriate kernel permissions.
+  - macOS: uses DTrace; you may need to run with `sudo` and allow tracing.
+- Ensure debug symbols for profiling builds: we provide a `flamegraph` profile with debug enabled.
+- For better stacks, force frame pointers: `RUSTFLAGS=-C force-frame-pointers=yes`.
+
+Run (helper script)
+- `scripts/flamegraph_wcc.sh` runs the WCC benches under cargo-flamegraph:
+  - All WCC benches: `./scripts/flamegraph_wcc.sh`
+  - Filter a specific bench: `./scripts/flamegraph_wcc.sh normal_32x256x32`
+
+Manual command
+- `RUSTFLAGS="-C force-frame-pointers=yes" \`
+  `cargo flamegraph -p geist-mesh-cpu --bench wcc --profile flamegraph -- normal_32x256x32`
+
+Outputs
+- SVGs are written under `target/flamegraph.svg` and Criterion reports:
+  `target/criterion/<bench-name>/report/flamegraph.svg`.
+
+
 ## Algorithm Glossary (Plain English)
 
 - Voxel: a single cube in the world grid with a block type/state.
