@@ -136,14 +136,19 @@ impl KeyTable {
     fn get(&self, idx: u16) -> (MaterialId, u8) { self.items[idx as usize] }
 }
 
+/// Simple growable bitset backed by `u64` words.
 struct Bitset { data: Vec<u64> }
 impl Bitset {
+    /// Creates a bitset large enough to hold `n` bits.
     fn new(n: usize) -> Self { Self { data: vec![0; (n + WORD_INDEX_MASK) / BITS_PER_WORD] } }
     #[inline]
+    /// Flips the bit at index `i`.
     fn toggle(&mut self, i: usize) { let w = i >> WORD_INDEX_SHIFT; let b = i & WORD_INDEX_MASK; self.data[w] ^= 1u64 << b; }
     #[inline]
+    /// Sets or clears the bit at index `i`.
     fn set(&mut self, i: usize, v: bool) { let w = i >> WORD_INDEX_SHIFT; let b = i & WORD_INDEX_MASK; if v { self.data[w] |= 1u64 << b; } else { self.data[w] &= !(1u64 << b); } }
     #[inline]
+    /// Returns `true` if the bit at index `i` is set.
     fn get(&self, i: usize) -> bool { let w = i >> WORD_INDEX_SHIFT; let b = i & WORD_INDEX_MASK; (self.data[w] >> b) & 1 != 0 }
 }
 
@@ -168,6 +173,7 @@ struct FaceGrids {
 }
 
 impl FaceGrids {
+    /// Creates face-grid storage sized for the given micro-scaling `S` and chunk dims.
     fn new(S: usize, sx: usize, sy: usize, sz: usize) -> Self {
         let nx = (S * sx + 1) * (S * sy) * (S * sz);
         let ny = (S * sx) * (S * sy + 1) * (S * sz);
@@ -179,9 +185,15 @@ impl FaceGrids {
             S, sx, sy, sz,
         }
     }
-    #[inline] fn idx_x(&self, ix: usize, iy: usize, iz: usize) -> usize { let wy = self.S * self.sy; let wz = self.S * self.sz; (ix * wy + iy) * wz + iz }
-    #[inline] fn idx_y(&self, ix: usize, iy: usize, iz: usize) -> usize { let wx = self.S * self.sx; let wz = self.S * self.sz; (iy * wz + iz) * wx + ix }
-    #[inline] fn idx_z(&self, ix: usize, iy: usize, iz: usize) -> usize { let wx = self.S * self.sx; let wy = self.S * self.sy; (iz * wy + iy) * wx + ix }
+    /// Linear index into +X face grid at `(ix,iy,iz)`.
+    #[inline]
+    fn idx_x(&self, ix: usize, iy: usize, iz: usize) -> usize { let wy = self.S * self.sy; let wz = self.S * self.sz; (ix * wy + iy) * wz + iz }
+    /// Linear index into +Y face grid at `(ix,iy,iz)`.
+    #[inline]
+    fn idx_y(&self, ix: usize, iy: usize, iz: usize) -> usize { let wx = self.S * self.sx; let wz = self.S * self.sz; (iy * wz + iz) * wx + ix }
+    /// Linear index into +Z face grid at `(ix,iy,iz)`.
+    #[inline]
+    fn idx_z(&self, ix: usize, iy: usize, iz: usize) -> usize { let wx = self.S * self.sx; let wy = self.S * self.sy; (iz * wy + iy) * wx + ix }
 }
 
 pub struct WccMesher<'a> {
@@ -201,6 +213,7 @@ pub struct WccMesher<'a> {
 }
 
 impl<'a> WccMesher<'a> {
+    /// Creates a new WCC mesher for the chunk buffer and lighting context.
     pub fn new(
         buf: &'a ChunkBuf,
         light: &'a LightGrid,
@@ -222,6 +235,7 @@ impl<'a> WccMesher<'a> {
 
     // Overscan: seed parity on our -X/-Z boundary planes using neighbor world blocks.
     // This cancels interior faces across seams and emits neighbor-owned faces when our side is empty.
+    /// Seeds parity on -X/-Z seams using neighbor world data to prevent cracks and duplicates.
     pub fn seed_neighbor_seams(&mut self) {
         // -X seam: toggle +X faces of neighbor cells onto ix==0
         for ly in 0..self.sy {
@@ -270,6 +284,7 @@ impl<'a> WccMesher<'a> {
     }
 
     #[inline]
+    /// Reads a block from edits (if present) or the world at the given coords.
     fn world_block(&self, nx: i32, ny: i32, nz: i32) -> Block {
         if let Some(es) = self.edits {
             es.get(&(nx, ny, nz))
@@ -281,11 +296,13 @@ impl<'a> WccMesher<'a> {
     }
 
     #[inline]
+    /// Samples light for a local cell face and applies the visual minimum.
     fn light_bin(&self, x: usize, y: usize, z: usize, face: Face) -> u8 {
         let l = self.light.sample_face_local_s2(self.buf, self.reg, x, y, z, face.index());
         l.max(VISUAL_LIGHT_MIN)
     }
 
+    /// Toggles parity and material/light keys over a span on an X-oriented face column.
     fn toggle_x(
         &mut self,
         bx: usize,
@@ -310,6 +327,7 @@ impl<'a> WccMesher<'a> {
         }
         let _ = (bx, by, bz);
     }
+    /// Toggles parity and material/light keys over a span on a Y-oriented face row.
     fn toggle_y(
         &mut self,
         bx: usize,
@@ -334,6 +352,7 @@ impl<'a> WccMesher<'a> {
         }
         let _ = (bx, by, bz);
     }
+    /// Toggles parity and material/light keys over a span on a Z-oriented face column.
     fn toggle_z(
         &mut self,
         bx: usize,
@@ -359,6 +378,7 @@ impl<'a> WccMesher<'a> {
         let _ = (bx, by, bz);
     }
 
+    /// Toggles all six faces of an axis-aligned box using provided material-per-face.
     fn toggle_box(
         &mut self,
         x: usize,
@@ -376,6 +396,7 @@ impl<'a> WccMesher<'a> {
         self.toggle_z(x, y, z, z0, x0, x1, y0, y1, false, mat_for(Face::NegZ), self.light_bin(x, y, z, Face::NegZ));
     }
 
+    /// Adds a full cube at `(x,y,z)` into the WCC grids.
     pub fn add_cube(&mut self, x: usize, y: usize, z: usize, b: Block) {
         let S = self.S;
         let (x0, x1, y0, y1, z0, z1) = (x * S, (x + 1) * S, y * S, (y + 1) * S, z * S, (z + 1) * S);
@@ -410,6 +431,7 @@ impl<'a> WccMesher<'a> {
         }
     }
 
+    /// Adds micro occupancy at `(x,y,z)` by toggling each micro-box from the occupancy mask.
     pub fn add_micro(&mut self, x: usize, y: usize, z: usize, b: Block, occ: u8) {
         use crate::microgrid_tables::occ8_to_boxes;
         let S = self.S;
@@ -425,6 +447,7 @@ impl<'a> WccMesher<'a> {
         }
     }
 
+    /// Emits the greedy-merged faces for all three axes into material builds.
     pub fn emit_into(&self, builds: &mut HashMap<MaterialId, MeshBuild>) {
         emit_plane_mask!(self, builds, X);
         emit_plane_mask!(self, builds, Y);

@@ -8,6 +8,7 @@ use crate::face::Face;
 use crate::constants::OPAQUE_ALPHA;
 
 #[inline]
+/// Emits a face-aligned rectangle into the material's mesh build.
 pub(crate) fn emit_face_rect_for(
     builds: &mut HashMap<MaterialId, MeshBuild>,
     mid: MaterialId,
@@ -21,8 +22,8 @@ pub(crate) fn emit_face_rect_for(
     mb.add_face_rect(face, origin, u1, v1, false, rgba);
 }
 
-// Clip a face-aligned rectangle against the current chunk's interior bounds and emit if any portion remains.
-// Chunk interior bounds: X in [base_x, base_x+sx), Z in [base_z, base_z+sz), Y in [0, sy).
+/// Clips a face-aligned rectangle to the current chunk interior and emits any visible portion.
+/// Chunk interior bounds: X in [base_x, base_x+sx), Z in [base_z, base_z+sz), Y in [0, sy).
 #[inline]
 pub(crate) fn emit_face_rect_for_clipped(
     builds: &mut HashMap<MaterialId, MeshBuild>,
@@ -96,6 +97,7 @@ pub(crate) fn emit_face_rect_for_clipped(
 }
 
 #[inline]
+/// Emits up to six faces of an axis-aligned box using a chooser to pick material and color.
 pub(crate) fn emit_box_faces(
     builds: &mut HashMap<MaterialId, MeshBuild>,
     min: Vec3,
@@ -146,6 +148,7 @@ pub(crate) fn emit_box_faces(
 }
 
 #[inline]
+/// Emits a box, skipping faces that occlude and sampling light per face.
 pub(crate) fn emit_box_generic(
     builds: &mut HashMap<MaterialId, MeshBuild>,
     min: Vec3,
@@ -164,6 +167,7 @@ pub(crate) fn emit_box_generic(
 }
 
 #[inline]
+/// Emits a box clipped to the chunk interior using occlusion and per-face light sampling.
 pub(crate) fn emit_box_generic_clipped(
     builds: &mut HashMap<MaterialId, MeshBuild>,
     mut min: Vec3,

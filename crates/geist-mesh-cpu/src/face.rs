@@ -12,9 +12,12 @@ pub enum Face {
 }
 
 impl Face {
+    /// Returns the `[0..6)` index of this face.
     #[inline]
     pub fn index(self) -> usize { self as usize }
 
+    /// Converts a face index `[0..6)` back into a `Face` value.
+    /// Falls back to `PosY` for out-of-range indices.
     #[inline]
     pub fn from_index(i: usize) -> Face {
         match i {
@@ -28,6 +31,7 @@ impl Face {
         }
     }
 
+    /// Returns the unit-normal vector for this face.
     #[inline]
     pub fn normal(self) -> Vec3 {
         match self {
@@ -40,6 +44,7 @@ impl Face {
         }
     }
 
+    /// Returns the integer grid delta `(dx,dy,dz)` when stepping out of this face.
     #[inline]
     pub fn delta(self) -> (i32, i32, i32) {
         match self {
@@ -52,6 +57,7 @@ impl Face {
         }
     }
 
+    /// Classifies the face into top/bottom/side role for material lookup.
     #[inline]
     pub fn role(self) -> FaceRole {
         match self {
@@ -62,10 +68,10 @@ impl Face {
     }
 }
 
+/// Neighbor offsets used for thin connector geometry on the four lateral sides.
 pub const SIDE_NEIGHBORS: [(i32, i32, Face, f32, f32); 4] = [
     (-1, 0, Face::PosX, 0.0, 0.0),
     (1, 0, Face::NegX, 1.0, 0.0),
     (0, -1, Face::PosZ, 0.0, 0.0),
     (0, 1, Face::NegZ, 0.0, 1.0),
 ];
-

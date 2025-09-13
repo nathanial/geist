@@ -12,6 +12,7 @@ pub type MicroBox = [u8; 6];
 // Rects on a 2x2 boundary plane: (u0, v0, du, dv) in half-steps [0,1,2]
 pub type MicroRect = [u8; 4];
 
+/// Greedily decomposes a 2x2x2 occupancy mask into micro-boxes (half-step coords).
 fn gen_boxes_for_occ(occ: u8) -> Vec<MicroBox> {
     // Recreate mesher's greedy decomposition exactly on a 2x2x2 occupancy grid.
     let mut out: Vec<MicroBox> = Vec::new();
@@ -65,6 +66,7 @@ fn gen_boxes_for_occ(occ: u8) -> Vec<MicroBox> {
     out
 }
 
+/// Greedily merges empty cells on a 2x2 boundary plane into micro-rectangles.
 fn gen_rects_for_mask(mask: u8) -> Vec<MicroRect> {
     // Boundary emptiness greedy merge on a 2x2 (u,v) grid. bit=(v<<1)|u
     let mut grid = [[false; MICROGRID_STEPS]; MICROGRID_STEPS]; // [v][u]
@@ -108,19 +110,23 @@ fn gen_rects_for_mask(mask: u8) -> Vec<MicroRect> {
     out
 }
 
+/// Builds the 256-entry lookup of micro-box decompositions for all 8-bit patterns.
 fn build_boxes_table() -> [Vec<MicroBox>; BOXES_TABLE_SIZE] {
     std::array::from_fn(|i| gen_boxes_for_occ(i as u8))
 }
+/// Builds the 16-entry lookup of micro-rect decompositions for all 4-bit patterns.
 fn build_rects_table() -> [Vec<MicroRect>; RECTS_TABLE_SIZE] {
     std::array::from_fn(|i| gen_rects_for_mask(i as u8))
 }
 
+/// Returns the cached micro-box decomposition for the given 8-bit occupancy.
 pub fn occ8_to_boxes(occ: u8) -> &'static [MicroBox] {
     static BOXES: OnceLock<[Vec<MicroBox>; BOXES_TABLE_SIZE]> = OnceLock::new();
     let t = BOXES.get_or_init(build_boxes_table);
     &t[occ as usize]
 }
 
+/// Returns the cached micro-rect decomposition for the given 4-bit emptiness mask.
 pub fn empty4_to_rects(mask: u8) -> &'static [MicroRect] {
     static RECTS: OnceLock<[Vec<MicroRect>; RECTS_TABLE_SIZE]> = OnceLock::new();
     let t = RECTS.get_or_init(build_rects_table);

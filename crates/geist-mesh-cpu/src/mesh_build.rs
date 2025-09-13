@@ -12,6 +12,7 @@ pub struct MeshBuild {
 }
 
 impl MeshBuild {
+    /// Appends a quad (two triangles) with normals, UVs, and color to the mesh buffers.
     pub fn add_quad(
         &mut self,
         a: Vec3,
@@ -68,6 +69,7 @@ impl MeshBuild {
         ]);
     }
 
+    /// Emits a face-aligned rectangle for the given face at `origin` with size `(u1,v1)`.
     pub fn add_face_rect(
         &mut self,
         face: Face,
@@ -143,7 +145,8 @@ impl MeshBuild {
         self.add_quad(a, b, c, d, n, u1, v1, flip_v, rgba);
     }
 
+    /// Returns a slice of interleaved vertex positions (x,y,z per vertex).
     pub fn positions(&self) -> &[f32] { &self.pos }
+    /// Returns a slice of interleaved vertex normals (x,y,z per vertex).
     pub fn normals(&self) -> &[f32] { &self.norm }
 }
-

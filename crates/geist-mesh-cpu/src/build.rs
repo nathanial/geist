@@ -17,6 +17,7 @@ use crate::constants::MICROGRID_STEPS;
 
 /// Build a chunk mesh using Watertight Cubical Complex (WCC) at S=1 (full cubes only).
 /// Phase 1: Only full cubes contribute; micro/dynamic shapes are ignored here.
+/// Builds a chunk mesh using WCC at micro scale, with seam handling and thin-shape pass.
 pub fn build_chunk_wcc_cpu_buf(
     buf: &ChunkBuf,
     lighting: Option<&LightingStore>,
@@ -196,6 +197,7 @@ pub fn build_chunk_wcc_cpu_buf(
     Some((ChunkMeshCPU { cx, cz, bbox, parts: builds }, light_borders))
 }
 
+/// Builds a simple voxel body mesh for debug/solid rendering using a flat ambient light.
 pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry) -> ChunkMeshCPU {
     let base_x = buf.cx * buf.sx as i32;
     let base_z = buf.cz * buf.sz as i32;
