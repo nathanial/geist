@@ -136,3 +136,63 @@ Rough Impact Estimates (cumulative if combined)
 - Skylight specialization: 2–3x of skylight share
 - Combined (CPU path): realistic 4–8x; with GPU, 8–15x
 
+## Appendix — Hybrid Solver Post‑Mortem (Issues & Lessons)
+
+Context
+- We prototyped a Macro+Micro Hybrid Solver: macro‑grid BFS using S=2 micro face‑gating, micro neighbor planes for seams, and micro planes synthesized by upsampling macro fields.
+- The intent was to keep seam/micro face correctness while dramatically reducing BFS work.
+
+Symptoms Observed (real scenes)
+- Dark X/Z faces next to thin geometry (e.g., carpet), despite correct mesh geometry.
+- Carpet blocking skylight incorrectly (or not blocking when it should) under different revisions.
+- Stairs next to full cubes causing unexpected darkening, sensitive to orientation/top/bottom state.
+- Intermittent “lightless faces” near seams; behavior depended on whether coarse vs micro planes seeded.
+- Unit tests passed, but visual regressions still appeared in complex arrangements.
+
+Primary Causes
+- Mixed semantics across phases:
+  - Seeding vs propagation used different rules (coarse blocks_skylight vs micro S=2 gates), causing non‑monotonic behavior.
+  - Vertical vs lateral moves treated inconsistently; thin full‑plane blockers (carpet) should block vertical skylight but allow lateral where the micro plane is open.
+- Loss of micro detail:
+  - Upsampling macro results to synthesize micro arrays removed intra‑macro gradients; face sampling relying on micro neighbors magnified edge cases.
+- Gating logic drift:
+  - S=2 face openness is “plane not sealed” (any of the four micro cells open). We mixed that with coarse passability checks in some paths.
+  - Target transparency checks (skylight) were sometimes coarse, sometimes S=2, breaking equivalence with the micro BFS.
+- Seeding details matter:
+  - Coarse neighbor seeds need precise attenuation to match micro semantics across the boundary and first interior step.
+  - Over‑eager queuing at edges created subtle priority/ordering differences.
+
+Lessons Learned
+- Maintain a single, precise contract for each axis of variation:
+  - Plane crossing gate = micro_face_cell_open_s2 (not sealed).
+  - Target skylight passability = S=2: full cubes block; shapes with occ8 are transparent for skylight BFS if the crossing plane is open.
+  - Target block‑light passability = propagates_light.
+  - Vertical vs lateral skylight: use the same S=2 transparency; let the face gate decide enterability. Full‑plane thin blocks (carpet) end up blocking vertical by lacking an open Y‑plane micro cell.
+- Keep seeding and propagation consistent with the same gates and attenuation. Do not special‑case one without the other.
+- Be wary of synthesizing micro arrays from macro fields; sampling logic expects real micro structure. If synthesis is required, bound its use (e.g., sampling fallback only, not as a source of truth).
+- Tests must cover thin‑shape edge cases:
+  - Carpet under a full cube; carpet next to a full cube; mixed seams.
+  - Stairs (all facings, top/bottom) next to full cubes and in stacks.
+  - Seams with both coarse and micro planes present; override precedence.
+  - Visual “goldens” for lighting around thin geometry.
+- Add debug tooling: render micro plane openness overlays and “why blocked” annotations.
+
+Safer Path Forward
+- Prefer Bitset Wavefront BFS (SIMD) at micro scale for skylight, keeping exact semantics, and layer performance optimizations around it (tiling, parallel buckets).
+- If adopting Hybrid again:
+  - Keep pure S=2 rules for both crossing and target checks.
+  - Treat coarse planes only as seeds (with carefully matched attenuation), never as gates.
+  - Avoid synthesizing full micro arrays; instead, compute and cache only the boundary planes from local micro passes or from neighbor planes.
+  - Introduce feature flags and A/B switch to compare visuals easily.
+- Consider ROI‑limited micro BFS near thin shapes and seams while using macro shortcuts elsewhere; define ROI deterministically to preserve semantics.
+
+Revert Plan (now)
+- Return to the previous Micro S=2 BFS path (compute_light_with_borders_buf_micro) to restore lighting correctness.
+- Retain safe performance wins (e.g., seam gating improvements, occupancy bitsets, queue tightening) if they don’t alter semantics.
+
+Checklist Before Next Attempt
+- Codify the S=2 lighting contract in tests (unit + scenario goldens).
+- Add per‑axis gates and target transparency helpers used uniformly by seeding and propagation.
+- Instrument with counters (gates passed/failed, seeds enqueue, neighbor overrides) and enable on hotkeys.
+- Provide a runtime toggle (Micro vs Hybrid) and a visual overlay of micro face openness.
+- Benchmark both correctness and speed on curated scenes (flat, caves, stairs fields, carpets, mixed seams).
