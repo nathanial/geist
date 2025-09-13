@@ -18,6 +18,15 @@ Key Failure Modes Today
 - Seams: neighbors can be out of sync; “owner vs dependent” handshakes reduce but don’t eliminate partial states.
 - Coupling: geometry remesh ties to lighting changes; even small light edits induce full remeshes.
 
+Minecraft Model (Decrease/Increase BFS)
+- Removal/downgrade uses two phases:
+  - Phase 1 — Decrease (darken): enqueue the removed position with its previous level and breadth‑first walk outward. Lower a neighbor only when its current value exactly matches what it would have received from the removed path; otherwise, leave it and mark that boundary for phase 2.
+  - Phase 2 — Increase (re‑light): from the still‑lit boundaries and any other active emitters/skylight, run a normal flood to refill valid light. This prevents over‑darkening and avoids full region recomputes.
+- Skylight and occluders follow the same pattern: placing/removing opaque blocks triggers a decrease along the affected columns, then an increase to re‑propagate skylight.
+- Scheduling/budgeting:
+  - Updates are processed off the main game thread on worker/executor pools (e.g., ServerLightingProvider with TaskExecutor/ChunkTaskPrioritySystem), effectively serialized per region via task queues.
+  - Work is batched with budgets similar to `doLightUpdates(maxCount, doSkylight, skipEdgeLightPropagation)`; cross‑section/edge work can be deferred until neighbors are resident (skip‑edge propagation) and finished later.
+
 Alternatives (with pros/cons)
 
 1) Emitter‑Centric Incremental Lighting with Counters
@@ -106,6 +115,18 @@ Alternatives (with pros/cons)
 - Intent queue prioritization by cause (Edit > Light > StreamLoad) and ring distance.
 - Budgets per lane (edit/light/bg) based on worker counts; skip far‑ring light updates.
 - Coalesce multiple dirty regions per chunk before scheduling a lighting job; favor finalize passes over speculative remeshes.
+ - Mirror Minecraft’s knobs: a per‑tick `maxUpdateCount` budget and a flag to defer cross‑chunk edges (our analogue to `skipEdgeLightPropagation`) until neighbor chunks/sections are ready.
+
+11) Two‑Phase Decrease/Increase BFS (Minecraft‑style)
+- Idea: On removal/downgrade, first run a targeted darkening pass that retracts only light that depended on the removed path; then run a normal propagation from remaining sources and the darkening boundary to restore persistent light.
+- Data: Two work queues per channel (decrease, increase). Optional bitmask/epoch per cell to avoid duplicate enqueues within a job. No per‑cell provenance required.
+- Ops:
+  - Decrease: seed with the removed position and previous value; for each popped cell, if a neighbor’s value equals the value it would have had via this path, lower it and enqueue; if not, push that neighbor into the increase queue (boundary).
+  - Increase: seed with boundary cells plus any nearby emitters/skylight; run standard BFS/Dijkstra to refill.
+  - Borders: enqueue cross‑chunk edges as “edge work”; if neighbor section isn’t loaded, tag it and complete once available (our skip‑edge analogue).
+- Pros: Precisely removes stale light without over‑darkening; cheap compared to full region recompute; matches well‑known behavior and expectations.
+- Cons: Slightly more complex control flow than a single flood; needs careful seam handling to avoid ping‑pong.
+- Notes: Applies to both block light and skylight; can be capped per tick via a budget like `doLightUpdates` and scheduled off‑thread.
 
 10) Data Packing & Performance Notes
 - Nibble packing (4‑bit) for macro light grids is feasible; micro planes remain u8.
@@ -113,10 +134,10 @@ Alternatives (with pros/cons)
 - Parallel frontier expansion is OK if merges are serialized; region recompute can be parallel by tiles.
 
 Recommended Path (practical, staged)
-- Stage 1: Region recompute for edits (Alternative 2)
-  - Add per‑chunk dirty AABB accumulation with radius based on attenuation/range.
-  - Recompute only within AABB; publish planes if AABB touches borders.
-  - Keep canonical seam ownership + finalize barrier.
+- Stage 1: Two‑phase decrease/increase BFS (Alternative 11)
+  - Implement Minecraft‑style darken‑then‑re‑light for block light and skylight, with separate decrease/increase queues and a per‑tick `maxUpdateCount` budget.
+  - Treat cross‑chunk edges as first‑class: defer edge work until neighbors are resident and finish it deterministically (skip‑edge analogue).
+  - Keep canonical seam ownership + finalize barrier and per‑face change masks.
 - Stage 2: Seam halo (Alternative 3)
   - Extend solve by a thin halo using world sampling; derive planes from halo.
   - This stabilizes first draw and reduces neighbor dependency.
@@ -130,27 +151,33 @@ Recommended Path (practical, staged)
 
 Edge Cases and Fixes for “Stuck” Light
 - Plane epochs + neighbor ignore: if a neighbor holds a brighter but older plane, it must ignore it; epochs solve this.
-- Region recompute on removal: guarantees local decreases even without provenance.
+- Two‑phase decrease then increase: guarantees stale light is removed, and remaining light flows back from valid sources without over‑darkening.
+- Region recompute on removal (fallback): guarantees local decreases even without provenance; keep as a safety net for complex edits.
 - Out‑of‑bounds owners: treat as “ready” in finalize, or synthesize halo planes; prevents dependent waiting at world edges.
 - Vertical seams: if/when vertically chunked, mirror ownership and plane exchange for +Y as needed.
 
 Testing Plan
 - Unit tests:
   - Add/remove omni emitter near each seam; assert neighbor planes lower accordingly.
+  - Removal darken‑then‑re‑light: after downgrading/removing a source, verify the darkening frontier retracts only dependent cells and relight restores brightness from other sources.
+  - Skylight occluder edits: place/remove opaque blocks in columns; confirm decrease followed by correct skylight re‑propagation across chunk borders.
   - Cross‑chunk removal with both owners missing or present; ensure finalize barrier triggers once.
   - Beacon beams across corners; verify direction preserved.
 - Property tests:
-  - Random emitter toggles with bounded region recompute; assert no cell exceeds expected max, and removal settles to expected baseline.
+  - Random emitter toggles with two‑phase BFS under a budget; assert no cell exceeds expected max and the system converges to the baseline.
 - Soak tests:
   - Repeated add/remove near seams while camera orbits; track rebuild counts; should settle with no long‑term cascades.
 
 Migration Notes
-- Start with 2) in the current micro engine: it requires only a dirty AABB queue and a bounded BFS invocation.
+- Start with 11) in the current micro engine: implement the decrease/increase queues and cross‑chunk edge deferral with a per‑tick budget.
 - Add plane epoching without changing consumers; wire masks/events later.
 - 6) can be prototyped behind a feature flag; keep CPU fallback.
+
+References
+- Spottedleaf, “The future of the Starlight mod” (decrease/increase overview)
+- Yarn docs: `LightingProvider#doLightUpdates`, `ServerLightingProvider`, `ThreadedAnvilChunkStorage`, `TaskExecutor`, `ChunkTaskPrioritySystem`
 
 Open Questions
 - How large should the region radius be? Use min(max_range, attenuation threshold to drop below VISUAL_LIGHT_MIN) with micro step units.
 - How to compress plane deltas efficiently? RLE or bitplane for non‑zeros is probably enough.
 - Where to keep emitter ids if we adopt provenance? Chunk‑local pool vs. world‑global small IDs.
-
