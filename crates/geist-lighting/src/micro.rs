@@ -205,16 +205,6 @@ pub fn compute_light_with_borders_buf_micro(
             self.data.push((idx, level));
         }
         #[inline]
-        fn pop_front(&mut self) -> Option<(usize, u8)> {
-            if self.read < self.data.len() {
-                let v = self.data[self.read];
-                self.read += 1;
-                Some(v)
-            } else {
-                None
-            }
-        }
-        #[inline]
         fn reset_if_empty(&mut self) {
             if self.read >= self.data.len() {
                 self.data.clear();
@@ -244,22 +234,6 @@ pub fn compute_light_with_borders_buf_micro(
                 self.cur_d = d;
             }
             self.pending += 1;
-        }
-        #[inline]
-        fn pop_idx(&mut self) -> Option<(usize, u8)> {
-            if self.pending == 0 {
-                return None;
-            }
-            loop {
-                let bi = (self.cur_d & 15) as usize;
-                if let Some(v) = self.buckets[bi].pop_front() {
-                    self.pending -= 1;
-                    return Some(v);
-                }
-                // advance to next bucket and reset the now-empty bucket for reuse
-                self.buckets[bi].reset_if_empty();
-                self.cur_d = self.cur_d.wrapping_add(1);
-            }
         }
     }
 
