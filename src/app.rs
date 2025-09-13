@@ -1112,10 +1112,21 @@ impl App {
                     return;
                 }
                 // Init finalization tracking entry
-                self.gs
-                    .finalize
-                    .entry((cx, cz))
-                    .or_insert(FinalizeState::default());
+                {
+                    let st = self
+                        .gs
+                        .finalize
+                        .entry((cx, cz))
+                        .or_insert(FinalizeState::default());
+                    // Prime readiness from currently available owner planes, so we don't wait for future events
+                    let nb = self.gs.lighting.get_neighbor_borders(cx, cz);
+                    if nb.xn.is_some() {
+                        st.owner_x_ready = true;
+                    }
+                    if nb.zn.is_some() {
+                        st.owner_z_ready = true;
+                    }
+                }
                 // Record load intent; scheduler will cap and prioritize
                 self.record_intent(cx, cz, IntentCause::StreamLoad);
             }
@@ -1337,7 +1348,9 @@ impl App {
                         self.queue.emit_now(Event::LightBordersUpdated {
                             cx,
                             cz,
+                            xn_changed: mask.xn,
                             xp_changed: mask.xp,
+                            zn_changed: mask.zn,
                             zp_changed: mask.zp,
                         });
                     }
@@ -1649,9 +1662,10 @@ impl App {
                     cause: RebuildCause::Edit,
                 });
             }
-            Event::LightBordersUpdated { cx, cz, xp_changed, zp_changed } => {
+            Event::LightBordersUpdated { cx, cz, xn_changed, xp_changed, zn_changed, zp_changed } => {
                 // Canonical seam ownership: only +X and +Z neighbors depend on our seam planes.
-                // Mark owner readiness on neighbors and only schedule finalize when both owners are ready.
+                // Proactively schedule a light-only rebuild for affected neighbors to clear stale seam light,
+                // then mark owner readiness and attempt finalize once both owners have published.
                 let (ccx, ccz) = self.gs.center_chunk;
                 let r_gate = self.gs.view_radius_chunks + 1; // small hysteresis
                 if xp_changed {
@@ -1663,10 +1677,21 @@ impl App {
                         .or_insert(FinalizeState::default());
                     st.owner_x_ready = true;
                     let ring = (k.0 - ccx).abs().max((k.1 - ccz).abs());
-                    if ring <= r_gate {
+                    if ring <= r_gate && !st.finalized && st.owner_z_ready {
+                        // Pre-finalization: do a single finalize rebuild only
                         self.try_schedule_finalize(k.0, k.1);
+                    } else if st.finalized {
+                        // Post-finalization steady-state: do a targeted light-only rebuild
+                        if self.renders.contains_key(&k) {
+                            self.queue.emit_now(Event::ChunkRebuildRequested {
+                                cx: k.0,
+                                cz: k.1,
+                                cause: RebuildCause::LightingBorder,
+                            });
+                        }
                     }
                 }
+                // Note: Do not schedule immediate rebuilds for -X/-Z neighbors to avoid ping-pong cascades.
                 if zp_changed {
                     let k = (cx, cz + 1);
                     let st = self
@@ -1676,8 +1701,18 @@ impl App {
                         .or_insert(FinalizeState::default());
                     st.owner_z_ready = true;
                     let ring = (k.0 - ccx).abs().max((k.1 - ccz).abs());
-                    if ring <= r_gate {
+                    if ring <= r_gate && !st.finalized && st.owner_x_ready {
+                        // Pre-finalization: single finalize rebuild only
                         self.try_schedule_finalize(k.0, k.1);
+                    } else if st.finalized {
+                        // Post-finalization steady-state: targeted light-only rebuild
+                        if self.renders.contains_key(&k) {
+                            self.queue.emit_now(Event::ChunkRebuildRequested {
+                                cx: k.0,
+                                cz: k.1,
+                                cause: RebuildCause::LightingBorder,
+                            });
+                        }
                     }
                 }
             }
@@ -3099,8 +3134,8 @@ impl App {
             E::LightEmitterRemoved { wx, wy, wz } => {
                 log::info!(target: "events", "[tick {}] LightEmitterRemoved ({},{},{})", tick, wx, wy, wz);
             }
-            E::LightBordersUpdated { cx, cz, xp_changed, zp_changed } => {
-                log::debug!(target: "events", "[tick {}] LightBordersUpdated ({}, {}) xp={} zp={}", tick, cx, cz, xp_changed, zp_changed);
+            E::LightBordersUpdated { cx, cz, xn_changed, xp_changed, zn_changed, zp_changed } => {
+                log::debug!(target: "events", "[tick {}] LightBordersUpdated ({}, {}) xn={} xp={} zn={} zp={}", tick, cx, cz, xn_changed, xp_changed, zn_changed, zp_changed);
             }
         }
     }

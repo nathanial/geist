@@ -1068,9 +1068,12 @@ impl LightGrid {
                 }
                 _ => {}
             }
-            // Also consider local beacon light at the macro sample as a safety net (micro beacons unsupported)
+            // Also consider local macro samples as safety nets
+            // Include block light (emissive cubes) and beacon macro light.
             let macro_i = self.idx(x, y, z);
-            return max_v.max(self.beacon_light[macro_i]);
+            return max_v
+                .max(self.block_light[macro_i])
+                .max(self.beacon_light[macro_i]);
         }
         let i = self.idx(x, y, z);
         let local = self.skylight[i]

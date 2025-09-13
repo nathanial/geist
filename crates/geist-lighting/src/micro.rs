@@ -767,21 +767,105 @@ pub fn compute_light_with_borders_buf_micro(
     }
 
     // Seed emissive blocks at micro resolution (fill interior air micro voxels of the macro cell)
-    for (lx, ly, lz, level, is_beacon) in store.emitters_for_chunk(buf.cx, buf.cz) {
-        if is_beacon {
-            continue;
-        } // beacons not supported in Micro S=2 path yet
+    // A) Scan the chunk buffer for emissive blocks (covers worldgen + edits folded into buf)
+    //    Seed at face boundaries so full-cube emitters (e.g., glowstone) light adjacent air.
+    for z in 0..buf.sz {
+        for y in 0..buf.sy {
+            for x in 0..buf.sx {
+                let b = buf.get_local(x, y, z);
+                if let Some(ty) = reg.get(b.id) {
+                    let level = ty.light_emission(b.state);
+                    if level == 0 { continue; }
+                    let bx = x * MICRO_SCALE;
+                    let by = y * MICRO_SCALE;
+                    let bz = z * MICRO_SCALE;
+                    // Helper to write and enqueue a micro cell
+                    let mut seed_idx = |ii: usize| {
+                        if micro_blk[ii] < level {
+                            micro_blk[ii] = level;
+                            q_blk.push_idx(ii, level);
+                            let mii = (y * buf.sz + z) * buf.sx + x;
+                            bs_set(&mut macro_touched, mii);
+                        }
+                    };
+                    // For each face, set the 2x2 micro cells on the emitter's face to `level` (even if solid),
+                    // and set the adjacent outside micro cells when they exist and are not solid.
+                    // +X face
+                    for oy in 0..MICRO_SCALE { for oz in 0..MICRO_SCALE {
+                        let ii_in = midx(bx + 1, by + oy, bz + oz, mxs, mzs);
+                        seed_idx(ii_in);
+                        let mx_out = bx + 2;
+                        if mx_out < mxs {
+                            let ii_out = midx(mx_out, by + oy, bz + oz, mxs, mzs);
+                            if !bs_get(&micro_solid_bits, ii_out) { seed_idx(ii_out); }
+                        }
+                    }}
+                    // -X face
+                    for oy in 0..MICRO_SCALE { for oz in 0..MICRO_SCALE {
+                        let ii_in = midx(bx + 0, by + oy, bz + oz, mxs, mzs);
+                        seed_idx(ii_in);
+                        if bx > 0 {
+                            let ii_out = midx(bx - 1, by + oy, bz + oz, mxs, mzs);
+                            if !bs_get(&micro_solid_bits, ii_out) { seed_idx(ii_out); }
+                        }
+                    }}
+                    // +Y face
+                    for oz in 0..MICRO_SCALE { for ox in 0..MICRO_SCALE {
+                        let ii_in = midx(bx + ox, by + 1, bz + oz, mxs, mzs);
+                        seed_idx(ii_in);
+                        let my_out = by + 2;
+                        if my_out < mys {
+                            let ii_out = midx(bx + ox, my_out, bz + oz, mxs, mzs);
+                            if !bs_get(&micro_solid_bits, ii_out) { seed_idx(ii_out); }
+                        }
+                    }}
+                    // -Y face
+                    for oz in 0..MICRO_SCALE { for ox in 0..MICRO_SCALE {
+                        let ii_in = midx(bx + ox, by + 0, bz + oz, mxs, mzs);
+                        seed_idx(ii_in);
+                        if by > 0 {
+                            let ii_out = midx(bx + ox, by - 1, bz + oz, mxs, mzs);
+                            if !bs_get(&micro_solid_bits, ii_out) { seed_idx(ii_out); }
+                        }
+                    }}
+                    // +Z face
+                    for oy in 0..MICRO_SCALE { for ox in 0..MICRO_SCALE {
+                        let ii_in = midx(bx + ox, by + oy, bz + 1, mxs, mzs);
+                        seed_idx(ii_in);
+                        let mz_out = bz + 2;
+                        if mz_out < mzs {
+                            let ii_out = midx(bx + ox, by + oy, mz_out, mxs, mzs);
+                            if !bs_get(&micro_solid_bits, ii_out) { seed_idx(ii_out); }
+                        }
+                    }}
+                    // -Z face
+                    for oy in 0..MICRO_SCALE { for ox in 0..MICRO_SCALE {
+                        let ii_in = midx(bx + ox, by + oy, bz + 0, mxs, mzs);
+                        seed_idx(ii_in);
+                        if bz > 0 {
+                            let ii_out = midx(bx + ox, by + oy, bz - 1, mxs, mzs);
+                            if !bs_get(&micro_solid_bits, ii_out) { seed_idx(ii_out); }
+                        }
+                    }}
+                }
+            }
+        }
+    }
+    // B) Overlay: also seed explicit runtime emitters from the store (e.g., interactive placements)
+    // Treat beacons as omni seeds for now to ensure visible emission in Micro S=2.
+    for (lx, ly, lz, level, _is_beacon) in store.emitters_for_chunk(buf.cx, buf.cz) {
+        if level == 0 { continue; }
         let mx0 = lx * MICRO_SCALE;
         let my0 = ly * MICRO_SCALE;
         let mz0 = lz * MICRO_SCALE;
         for mx in mx0..(mx0 + MICRO_SCALE) {
             for my in my0..(my0 + MICRO_SCALE) {
                 for mz in mz0..(mz0 + MICRO_SCALE) {
-                    if !bs_get(&micro_solid_bits, midx(mx, my, mz, mxs, mzs)) {
-                        let i = midx(mx, my, mz, mxs, mzs);
-                        if micro_blk[i] < level {
-                            micro_blk[i] = level;
-                            q_blk.push_idx(i, level);
+                    let ii = midx(mx, my, mz, mxs, mzs);
+                    if !bs_get(&micro_solid_bits, ii) {
+                        if micro_blk[ii] < level {
+                            micro_blk[ii] = level;
+                            q_blk.push_idx(ii, level);
                             let mii = (ly * buf.sz + lz) * buf.sx + lx;
                             bs_set(&mut macro_touched, mii);
                         }

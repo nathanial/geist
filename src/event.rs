@@ -146,7 +146,10 @@ pub enum Event {
     LightBordersUpdated {
         cx: i32,
         cz: i32,
+        // Per-face change flags (horizontal only)
+        xn_changed: bool,
         xp_changed: bool,
+        zn_changed: bool,
         zp_changed: bool,
     },
 }
