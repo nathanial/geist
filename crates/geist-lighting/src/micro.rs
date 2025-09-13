@@ -194,24 +194,51 @@ pub fn compute_light_with_borders_buf_micro(
     // Skylight neighbors: handled together with block after the coarse fallback expansion
 
     // Expanded implementation: X seams (block + sky) with macro-first loops and cached 2x2 gates
+    // Avoid expensive world noise sampling when micro neighbor planes exist by gating using our
+    // own micro occupancy only. When falling back to coarse neighbors, reuse a single GenCtx.
+    let mut reuse_ctx = world.make_gen_ctx();
     for lz in 0..buf.sz {
         for ly in 0..buf.sy {
             let here_nx = buf.get_local(0, ly, lz);
-            let there_nx = world.block_at_runtime(reg, base_x - 1, ly as i32, base_z + lz as i32);
             let here_px = buf.get_local(buf.sx - 1, ly, lz);
-            let there_px = world.block_at_runtime(
-                reg,
-                base_x + buf.sx as i32,
-                ly as i32,
-                base_z + lz as i32,
-            );
+            let have_micro_nx = nbm.xm_bl_neg.is_some() || nbm.xm_sk_neg.is_some();
+            let have_micro_px = nbm.xm_bl_pos.is_some() || nbm.xm_sk_pos.is_some();
+            // Only fetch neighbor blocks when we need coarse fallback gating
+            let (there_nx, there_px) = if !have_micro_nx || !have_micro_px {
+                (
+                    world.block_at_runtime_with(reg, &mut reuse_ctx, base_x - 1, ly as i32, base_z + lz as i32),
+                    world.block_at_runtime_with(
+                        reg,
+                        &mut reuse_ctx,
+                        base_x + buf.sx as i32,
+                        ly as i32,
+                        base_z + lz as i32,
+                    ),
+                )
+            } else {
+                // Dummy values; will not be used
+                (here_nx, here_px)
+            };
             // Precompute gate masks for -X (face=3) and +X (face=2)
             let mut gate_nx = [[false; 2]; 2];
             let mut gate_px = [[false; 2]; 2];
             for iym in 0..2 {
                 for izm in 0..2 {
-                    gate_nx[iym][izm] = micro_face_cell_open_s2(reg, here_nx, there_nx, 3, iym, izm);
-                    gate_px[iym][izm] = micro_face_cell_open_s2(reg, here_px, there_px, 2, iym, izm);
+                    gate_nx[iym][izm] = if have_micro_nx {
+                        // Gate based only on our micro occupancy
+                        let my = (ly << 1) | iym;
+                        let mz = (lz << 1) | izm;
+                        !micro_solid_at_fast(0, my, mz, buf, &occ8, &full)
+                    } else {
+                        micro_face_cell_open_s2(reg, here_nx, there_nx, 3, iym, izm)
+                    };
+                    gate_px[iym][izm] = if have_micro_px {
+                        let my = (ly << 1) | iym;
+                        let mz = (lz << 1) | izm;
+                        !micro_solid_at_fast(mxs - 1, my, mz, buf, &occ8, &full)
+                    } else {
+                        micro_face_cell_open_s2(reg, here_px, there_px, 2, iym, izm)
+                    };
                 }
             }
             // Process the four micro offsets within this macro pair
@@ -303,20 +330,42 @@ pub fn compute_light_with_borders_buf_micro(
     for ly in 0..buf.sy {
         for lx in 0..buf.sx {
             let here_nz = buf.get_local(lx, ly, 0);
-            let there_nz = world.block_at_runtime(reg, base_x + lx as i32, ly as i32, base_z - 1);
             let here_pz = buf.get_local(lx, ly, buf.sz - 1);
-            let there_pz = world.block_at_runtime(
-                reg,
-                base_x + lx as i32,
-                ly as i32,
-                base_z + buf.sz as i32,
-            );
+            let have_micro_nz = nbm.zm_bl_neg.is_some() || nbm.zm_sk_neg.is_some();
+            let have_micro_pz = nbm.zm_bl_pos.is_some() || nbm.zm_sk_pos.is_some();
+            // Only fetch neighbor blocks for coarse fallback
+            let (there_nz, there_pz) = if !have_micro_nz || !have_micro_pz {
+                (
+                    world.block_at_runtime_with(reg, &mut reuse_ctx, base_x + lx as i32, ly as i32, base_z - 1),
+                    world.block_at_runtime_with(
+                        reg,
+                        &mut reuse_ctx,
+                        base_x + lx as i32,
+                        ly as i32,
+                        base_z + buf.sz as i32,
+                    ),
+                )
+            } else {
+                (here_nz, here_pz)
+            };
             let mut gate_nz = [[false; 2]; 2];
             let mut gate_pz = [[false; 2]; 2];
             for ixm in 0..2 {
                 for iym in 0..2 {
-                    gate_nz[iym][ixm] = micro_face_cell_open_s2(reg, here_nz, there_nz, 5, ixm, iym);
-                    gate_pz[iym][ixm] = micro_face_cell_open_s2(reg, here_pz, there_pz, 4, ixm, iym);
+                    gate_nz[iym][ixm] = if have_micro_nz {
+                        let mx = (lx << 1) | ixm;
+                        let my = (ly << 1) | iym;
+                        !micro_solid_at_fast(mx, my, 0, buf, &occ8, &full)
+                    } else {
+                        micro_face_cell_open_s2(reg, here_nz, there_nz, 5, ixm, iym)
+                    };
+                    gate_pz[iym][ixm] = if have_micro_pz {
+                        let mx = (lx << 1) | ixm;
+                        let my = (ly << 1) | iym;
+                        !micro_solid_at_fast(mx, my, mzs - 1, buf, &occ8, &full)
+                    } else {
+                        micro_face_cell_open_s2(reg, here_pz, there_pz, 4, ixm, iym)
+                    };
                 }
             }
             for ixm in 0..2 {
