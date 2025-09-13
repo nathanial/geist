@@ -12,7 +12,8 @@ pub struct MeshBuild {
 }
 
 impl MeshBuild {
-    /// Appends a quad (two triangles) with normals, UVs, and color to the mesh buffers.
+    /// Appends a quad (two triangles) with normals, UVs derived from world-space and color.
+    /// Prefer `add_quad_uv` when explicit UVs are available.
     pub fn add_quad(
         &mut self,
         a: Vec3,
@@ -25,9 +26,25 @@ impl MeshBuild {
         flip_v: bool,
         rgba: [u8; 4],
     ) {
+        // Default relative UVs (legacy)
+        let mut uvs = [(0.0, 0.0), (0.0, v1), (u1, v1), (u1, 0.0)];
+        self.add_quad_uv(a, b, c, d, n, uvs, flip_v, rgba);
+    }
+
+    /// Appends a quad with explicit per-vertex UVs.
+    pub fn add_quad_uv(
+        &mut self,
+        a: Vec3,
+        b: Vec3,
+        c: Vec3,
+        d: Vec3,
+        n: Vec3,
+        mut uvs: [(f32, f32); 4],
+        flip_v: bool,
+        rgba: [u8; 4],
+    ) {
         let base = self.pos.len() as u32 / 3;
         let mut vs = [a, d, c, b];
-        let mut uvs = [(0.0, 0.0), (0.0, v1), (u1, v1), (u1, 0.0)];
         let e1 = Vec3 {
             x: vs[1].x - vs[0].x,
             y: vs[1].y - vs[0].y,
@@ -47,11 +64,7 @@ impl MeshBuild {
             vs.swap(1, 3);
             uvs.swap(1, 3);
         }
-        if flip_v {
-            for uv in &mut uvs {
-                uv.1 = v1 - uv.1;
-            }
-        }
+        if flip_v { /* absolute UVs: no-op */ }
         for i in 0..4 {
             self.pos.extend_from_slice(&[vs[i].x, vs[i].y, vs[i].z]);
             self.norm.extend_from_slice(&[n.x, n.y, n.z]);
@@ -142,7 +155,14 @@ impl MeshBuild {
                 origin,
             ),
         };
-        self.add_quad(a, b, c, d, n, u1, v1, flip_v, rgba);
+        // Derive absolute UVs from world-space coordinates per face orientation
+        let uv_from = |p: Vec3| match face {
+            Face::PosY | Face::NegY => (p.x, p.z),
+            Face::PosX | Face::NegX => (p.z, p.y),
+            Face::PosZ | Face::NegZ => (p.x, p.y),
+        };
+        let uvs = [uv_from(a), uv_from(d), uv_from(c), uv_from(b)];
+        self.add_quad_uv(a, b, c, d, n, uvs, flip_v, rgba);
     }
 
     /// Returns a slice of interleaved vertex positions (x,y,z per vertex).

@@ -87,9 +87,9 @@ Bedrock .mcworld
 Highlights
 
 - Multi‑chunk world (grid) with seamless noise generation.
-- Greedy meshing per chunk (hybrid plane merging) to reduce triangles.
+- Per‑face meshing (no greedy merge): one quad per boundary face cell for watertight output.
 - Per‑face textures for grass (top/side/bottom) with corrected side orientation.
- - Texture and worldgen config hot‑reload (see Assets).
+- Texture and worldgen config hot‑reload (see Assets).
 
 Controls
 
@@ -156,4 +156,3 @@ Dependency direction:
 - If you encounter build errors related to CMake or Clang/LLVM, install the prerequisites above and try again.
 - The `raylib` crate defaults to `bindgen` (generates C bindings at build time).
 - Engine crates deliberately avoid any Raylib types; conversions occur only in `geist-render-raylib`.
-

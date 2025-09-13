@@ -1,23 +1,23 @@
 # geist-mesh-cpu — WCC Meshing (CPU)
 
-This crate builds chunk meshes on the CPU using a Watertight Cubical Complex (WCC) approach. Instead of emitting faces per voxel, it computes the boundary of solids with parity toggles, greedily merges coplanar faces, and stitches chunk seams without cracks.
+This crate builds chunk meshes on the CPU using a Watertight Cubical Complex (WCC) approach. It computes the boundary of solids with parity toggles, emits one quad per boundary cell (no greedy merging), and stitches chunk seams without cracks.
 
 Highlights
 - Watertight by construction: interior faces cancel via XOR parity; only boundaries remain.
-- Greedy rectangle merging per plane dramatically reduces triangle count.
+- Per‑face emission (no merging): keeps one quad per boundary cell.
 - Half‑open seam rule on X/Z: emit on −X/−Z planes; +X/+Z are owned by neighbors. Y is local to a chunk.
 - Micro occupancy at S=2: slabs/stairs (and similar) are 2×2×2 “micro boxes” processed by the same WCC toggler.
 - Thin dynamics (pane/fence/carpet) are emitted in a lightweight secondary box pass.
 
 Key types
 - `ChunkMeshCPU`: output mesh per material; buffers include positions, normals, uvs, indices, and vertex colors.
-- `WccMesher`: accumulates parity/material keys on axis‑aligned face grids and emits merged quads.
+- `WccMesher`: accumulates parity/material keys on axis‑aligned face grids and emits per‑cell quads.
 
 Algorithm sketch
 1) Scale by S (default 2). For each solid volume (full cubes or micro boxes from occupancy), toggle six face planes in integer grid space:
    - +X/−X at x1/x0 across y0..y1, z0..z1, etc.
    - Toggling flips a parity bit; when parity becomes true, store a compact key (material id + light).
-2) For each plane family (−X, ±Y, −Z), build a 2‑D mask of keys and greedily merge rectangles; emit one quad per rect.
+2) For each plane family (−X, ±Y, −Z), build a 2‑D mask of keys and emit one quad per boundary cell.
 3) Seam ownership: do not emit on +X/+Z; for −X/−Z planes, seed/toggle using neighbor world blocks so faces match across chunk boundaries.
 
 Lighting (current behavior)
@@ -40,7 +40,7 @@ Tests
 - See `crates/geist-mesh-cpu/tests/wcc.rs`:
   - Random solids parity/area checks
   - Seam stitching on -X/-Z (no duplicate faces on shared planes)
-  - Greedy merges reduce triangles for slabs/micro shapes
+  - Per‑face emission triangle counts match expected surface area
 
 Notes / Limitations
 - Thin dynamics are emitted via a secondary pass (not through WCC grids) for simplicity.
@@ -91,7 +91,6 @@ Outputs
 - Half‑Open Seam Rule (X/Z): emit faces on −X/−Z borders; +X/+Z belong to neighbors; prevents duplicates.
 - Seeding From Neighbors: read the neighbor’s world data and toggle our −X/−Z planes so seams match exactly.
 
-- Greedy Rectangle Merging: merge adjacent same‑key cells on a plane into larger rectangles to reduce quads.
 - 2D Mask (of Keys): per‑plane grid of optional values; each value encodes material + light.
 - Compact Key: a small code that pairs a material id with a light level for merge decisions.
 
@@ -133,26 +132,14 @@ Step 2: Compute boundary via parity
 - Shared edges between two solids flip twice (cancel). Edges between solid/empty flip once (remain).
 - The remaining 1‑bits trace the closed boundary around the solids (watertight outline).
 
-Step 3: Build a 2D mask of keys and merge greedily
+Step 3: Build a 2D mask of keys and emit per cell
 
 - Rasterize boundary faces into a mask; each mask cell gets a key (material+light) or remains empty.
-- Merge adjacent same‑key cells into rectangles:
-
-    Before merging (letters = material+light keys):
-      A A . .
-      A A B .
-      . . B .
-      . . . .
-
-    After greedy merging:
-      [ A A ] . .   → one 2×2 rectangle for A, one 2×2 rectangle for B
-      [ A A ] B B
-      . . [ B B ]
-      . . . .
+- Emit one quad per occupied mask cell.
 
 Step 4: Emit quads and clip to chunk
 
-- Each rectangle becomes one quad with the correct face normal and UVs.
+- Each occupied cell becomes one quad with the correct face normal and world‑anchored UVs.
 - Quads are clipped to the chunk interior on −X/−Z seams (and fully for Y bounds).
 
 Seams (X/Z half‑open policy)

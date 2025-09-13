@@ -14,7 +14,7 @@ pub type MicroRect = [u8; 4];
 
 /// Greedily decomposes a 2x2x2 occupancy mask into micro-boxes (half-step coords).
 fn gen_boxes_for_occ(occ: u8) -> Vec<MicroBox> {
-    // Recreate mesher's greedy decomposition exactly on a 2x2x2 occupancy grid.
+    // Recreate boundary cell decomposition on a 2x2x2 occupancy grid.
     let mut out: Vec<MicroBox> = Vec::new();
     for y in 0..MICROGRID_STEPS {
         let mut grid = [[false; MICROGRID_STEPS]; MICROGRID_STEPS]; // [z][x]
@@ -68,7 +68,7 @@ fn gen_boxes_for_occ(occ: u8) -> Vec<MicroBox> {
 
 /// Greedily merges empty cells on a 2x2 boundary plane into micro-rectangles.
 fn gen_rects_for_mask(mask: u8) -> Vec<MicroRect> {
-    // Boundary emptiness greedy merge on a 2x2 (u,v) grid. bit=(v<<1)|u
+    // Boundary emptiness decomposition on a 2x2 (u,v) grid. bit=(v<<1)|u
     let mut grid = [[false; MICROGRID_STEPS]; MICROGRID_STEPS]; // [v][u]
     for v in 0..MICROGRID_STEPS {
         for u in 0..MICROGRID_STEPS {

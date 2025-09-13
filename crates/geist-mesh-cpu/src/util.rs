@@ -1,5 +1,4 @@
 use std::collections::HashMap;
-use std::hash::Hash;
 
 use geist_blocks::BlockRegistry;
 use geist_blocks::types::{Block, MaterialId};
@@ -149,45 +148,7 @@ pub(crate) fn is_occluder(
     occludes_face(nb, face, reg)
 }
 
-#[inline]
-/// Greedy rectangle packing over a 2D mask; calls `emit` for each rectangle found.
-pub(crate) fn greedy_rects<K: Copy + Eq + Hash>(
-    width: usize,
-    height: usize,
-    mask: &mut [Option<(K, u8)>],
-    mut emit: impl FnMut(usize, usize, usize, usize, (K, u8)),
-) {
-    let mut used = vec![false; width * height];
-    for y in 0..height {
-        for x in 0..width {
-            let idx = y * width + x;
-            let code = mask[idx];
-            if code.is_none() || used[idx] {
-                continue;
-            }
-            let mut w = 1;
-            while x + w < width && mask[y * width + (x + w)] == code && !used[y * width + (x + w)] {
-                w += 1;
-            }
-            let mut h = 1;
-            'expand: while y + h < height {
-                for i in 0..w {
-                    let j = (y + h) * width + (x + i);
-                    if mask[j] != code || used[j] {
-                        break 'expand;
-                    }
-                }
-                h += 1;
-            }
-            emit(x, y, w, h, code.unwrap());
-            for yy in 0..h {
-                for xx in 0..w {
-                    used[(y + yy) * width + (x + xx)] = true;
-                }
-            }
-        }
-    }
-}
+// Note: Former greedy rectangle merging removed by request.
 
 #[inline]
 /// Applies an optional minimum light floor to avoid too-dark faces in rendering.

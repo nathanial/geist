@@ -1,4 +1,4 @@
-//! CPU meshing crate: greedy mesher and helpers (engine-only).
+//! CPU meshing crate: watertight per-face mesher and helpers (engine-only).
 #![forbid(unsafe_code)]
 
 pub mod microgrid_tables;

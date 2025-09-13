@@ -132,17 +132,21 @@ pub(crate) fn emit_box_faces(
                 Face::PosZ | Face::NegZ => (max.x - min.x, max.y - min.y),
             };
             let n = Vec3 { x: normal.0, y: normal.1, z: normal.2 };
-            builds.entry(mid).or_default().add_quad(
-                corners[indices[0]],
-                corners[indices[1]],
-                corners[indices[2]],
-                corners[indices[3]],
-                n,
-                u1,
-                v1,
-                false,
-                rgba,
-            );
+            // Absolute UVs anchored to world-space
+            let a = corners[indices[0]];
+            let b = corners[indices[1]];
+            let c = corners[indices[2]];
+            let d = corners[indices[3]];
+            let uv_from = |p: Vec3| match face {
+                Face::PosY | Face::NegY => (p.x, p.z),
+                Face::PosX | Face::NegX => (p.z, p.y),
+                Face::PosZ | Face::NegZ => (p.x, p.y),
+            };
+            let uvs = [uv_from(a), uv_from(d), uv_from(c), uv_from(b)];
+            builds
+                .entry(mid)
+                .or_default()
+                .add_quad_uv(a, b, c, d, n, uvs, false, rgba);
         }
     }
 }

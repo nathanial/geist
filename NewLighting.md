@@ -3,7 +3,7 @@
 - The root cause is a mismatch between how meshing decides face visibility (WCC at S=2) and how lighting samples/propagates brightness (voxel grid with heuristics for S=2).
 
 **Current Behavior (Summary)**
-- Meshing: crates/geist-mesh-cpu uses WCC at S=2 for full cubes and micro-occupancy; thin dynamics (pane/fence/gate/carpet) are emitted via a thin‑box pass. Greedy merge uses a key of `(MaterialId, LightBin)` so lighting quantization affects merge boundaries.
+- Meshing: crates/geist-mesh-cpu uses WCC at S=2 for full cubes and micro-occupancy; thin dynamics (pane/fence/gate/carpet) are emitted via a thin‑box pass. Emission is per boundary cell (no greedy merge), keyed by `(MaterialId, LightBin)`.
 - Lighting: crates/geist-lighting computes a per‑voxel LightGrid with three channels: `skylight`, `block_light`, and `beacon` (+ direction). Propagation is BFS-like and “face-aware” at S=2 via `can_cross_face_s2(...)`. Per-face sampling uses `sample_face_local_s2(...)` to approximate micro openings.
 - Shading: The mesher encodes a per-vertex grayscale light in `MeshBuild.col`. Shaders multiply texture by vertex color and apply fog.
 
@@ -80,4 +80,3 @@
 - Quick wins: use the S=2 sampler everywhere, fix `propagates_light` for open thin blocks, and ensure a rebuild after borders arrive.
 - Better match: compute light per WCC micro face cell and unify the “sealed” predicate across mesher and lighting.
 - Ultimate: micro‑voxel lighting at S=2 for exact consistency with WCC.
-

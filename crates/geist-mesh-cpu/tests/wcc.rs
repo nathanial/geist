@@ -325,7 +325,7 @@ fn seam_stitch_no_faces_on_shared_plane_s1() {
 }
 
 #[test]
-fn merge_reduces_triangles_on_slab() {
+fn per_face_quads_triangle_count_on_slab() {
     let sx = 12;
     let sy = 6;
     let sz = 12;
@@ -385,15 +385,19 @@ fn merge_reduces_triangles_on_slab() {
         },
         parts,
     };
+    // Compute expected faces via exact surface area (half-open positive boundaries)
+    let blocks_clone = blocks.clone();
+    let solid_fn = |x: usize, y: usize, z: usize| {
+        blocks_clone[(y * sz + z) * sx + x].id == stone
+    };
+    let expected_faces = expected_surface_area_voxels(sx, sy, sz, &solid_fn) as usize;
+    let expected_tris = expected_faces * 2; // two triangles per quad
     let tris = cpu.parts.values().map(|p| p.idx.len() / 3).sum::<usize>();
-    let naive_top = sx * sz * 2; // two triangles per top face cell
-    let naive_bottom = sx * sz * 2;
-    let naive_sides = 2 * (sx * 2 + sz * 2) * 2; // over-count OK
-    let naive_total = naive_top + naive_bottom + naive_sides;
-    assert!(
-        tris < naive_total,
-        "expected fewer triangles than naive cover: tris={} naive={}",
+    assert_eq!(
         tris,
-        naive_total
+        expected_tris,
+        "triangle count should match per-face emission: got={} expected={}",
+        tris,
+        expected_tris
     );
 }

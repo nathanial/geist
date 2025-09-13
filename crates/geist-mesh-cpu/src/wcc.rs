@@ -11,10 +11,10 @@ use geist_world::World;
 use crate::emit::emit_face_rect_for_clipped;
 use crate::face::Face;
 use crate::mesh_build::MeshBuild;
-use crate::util::{apply_min_light, registry_material_for_or_unknown, VISUAL_LIGHT_MIN, greedy_rects};
+use crate::util::{apply_min_light, registry_material_for_or_unknown, VISUAL_LIGHT_MIN};
 use crate::constants::{OPAQUE_ALPHA, BITS_PER_WORD, WORD_INDEX_MASK, WORD_INDEX_SHIFT};
 
-// Emit greedy quads for a given axis by expanding a mask sourced from FaceGrids.
+// Emit per-cell face quads for a given axis by expanding a mask sourced from FaceGrids.
 macro_rules! emit_plane_mask {
     ($self:ident, $builds:ident, X) => {{
         let width = $self.S * $self.sz;
@@ -34,17 +34,21 @@ macro_rules! emit_plane_mask {
                     }
                 }
             }
-            greedy_rects(width, height, &mut mask, |u0, v0, w, h, codev| {
-                let ((mid, pos), l) = codev;
-                let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN));
-                let rgba = [lv, lv, lv, OPAQUE_ALPHA];
-                let face = if pos { Face::PosX } else { Face::NegX };
-                let scale = 1.0 / $self.S as f32;
-                let origin = Vec3 { x: ($self.base_x as f32) + (ix as f32) * scale, y: (v0 as f32) * scale, z: ($self.base_z as f32) + (u0 as f32) * scale };
-                let u1 = (w as f32) * scale;
-                let v1 = (h as f32) * scale;
-                emit_face_rect_for_clipped($builds, mid, face, origin, u1, v1, rgba, $self.base_x, $self.sx, $self.sy, $self.base_z, $self.sz);
-            });
+            // Emit each face-cell as an individual quad (no greedy merge)
+            for v0 in 0..height {
+                for u0 in 0..width {
+                    if let Some(((mid, pos), l)) = mask[v0 * width + u0] {
+                        let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN));
+                        let rgba = [lv, lv, lv, OPAQUE_ALPHA];
+                        let face = if pos { Face::PosX } else { Face::NegX };
+                        let scale = 1.0 / $self.S as f32;
+                        let origin = Vec3 { x: ($self.base_x as f32) + (ix as f32) * scale, y: (v0 as f32) * scale, z: ($self.base_z as f32) + (u0 as f32) * scale };
+                        let u1 = 1.0 * scale;
+                        let v1 = 1.0 * scale;
+                        emit_face_rect_for_clipped($builds, mid, face, origin, u1, v1, rgba, $self.base_x, $self.sx, $self.sy, $self.base_z, $self.sz);
+                    }
+                }
+            }
         }
     }};
     ($self:ident, $builds:ident, Y) => {{
@@ -65,17 +69,21 @@ macro_rules! emit_plane_mask {
                     }
                 }
             }
-            greedy_rects(width, height, &mut mask, |u0, v0, w, h, codev| {
-                let ((mid, pos), l) = codev;
-                let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN));
-                let rgba = [lv, lv, lv, OPAQUE_ALPHA];
-                let face = if pos { Face::PosY } else { Face::NegY };
-                let scale = 1.0 / $self.S as f32;
-                let origin = Vec3 { x: ($self.base_x as f32) + (u0 as f32) * scale, y: (iy as f32) * scale, z: ($self.base_z as f32) + (v0 as f32) * scale };
-                let u1 = (w as f32) * scale;
-                let v1 = (h as f32) * scale;
-                emit_face_rect_for_clipped($builds, mid, face, origin, u1, v1, rgba, $self.base_x, $self.sx, $self.sy, $self.base_z, $self.sz);
-            });
+            // Emit each face-cell as an individual quad (no greedy merge)
+            for v0 in 0..height {
+                for u0 in 0..width {
+                    if let Some(((mid, pos), l)) = mask[v0 * width + u0] {
+                        let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN));
+                        let rgba = [lv, lv, lv, OPAQUE_ALPHA];
+                        let face = if pos { Face::PosY } else { Face::NegY };
+                        let scale = 1.0 / $self.S as f32;
+                        let origin = Vec3 { x: ($self.base_x as f32) + (u0 as f32) * scale, y: (iy as f32) * scale, z: ($self.base_z as f32) + (v0 as f32) * scale };
+                        let u1 = 1.0 * scale;
+                        let v1 = 1.0 * scale;
+                        emit_face_rect_for_clipped($builds, mid, face, origin, u1, v1, rgba, $self.base_x, $self.sx, $self.sy, $self.base_z, $self.sz);
+                    }
+                }
+            }
         }
     }};
     ($self:ident, $builds:ident, Z) => {{
@@ -96,17 +104,21 @@ macro_rules! emit_plane_mask {
                     }
                 }
             }
-            greedy_rects(width, height, &mut mask, |u0, v0, w, h, codev| {
-                let ((mid, pos), l) = codev;
-                let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN));
-                let rgba = [lv, lv, lv, OPAQUE_ALPHA];
-                let face = if pos { Face::PosZ } else { Face::NegZ };
-                let scale = 1.0 / $self.S as f32;
-                let origin = Vec3 { x: ($self.base_x as f32) + (u0 as f32) * scale, y: (v0 as f32) * scale, z: ($self.base_z as f32) + (iz as f32) * scale };
-                let u1 = (w as f32) * scale;
-                let v1 = (h as f32) * scale;
-                emit_face_rect_for_clipped($builds, mid, face, origin, u1, v1, rgba, $self.base_x, $self.sx, $self.sy, $self.base_z, $self.sz);
-            });
+            // Emit each face-cell as an individual quad (no greedy merge)
+            for v0 in 0..height {
+                for u0 in 0..width {
+                    if let Some(((mid, pos), l)) = mask[v0 * width + u0] {
+                        let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN));
+                        let rgba = [lv, lv, lv, OPAQUE_ALPHA];
+                        let face = if pos { Face::PosZ } else { Face::NegZ };
+                        let scale = 1.0 / $self.S as f32;
+                        let origin = Vec3 { x: ($self.base_x as f32) + (u0 as f32) * scale, y: (v0 as f32) * scale, z: ($self.base_z as f32) + (iz as f32) * scale };
+                        let u1 = 1.0 * scale;
+                        let v1 = 1.0 * scale;
+                        emit_face_rect_for_clipped($builds, mid, face, origin, u1, v1, rgba, $self.base_x, $self.sx, $self.sy, $self.base_z, $self.sz);
+                    }
+                }
+            }
         }
     }};
 }
@@ -447,7 +459,7 @@ impl<'a> WccMesher<'a> {
         }
     }
 
-    /// Emits the greedy-merged faces for all three axes into material builds.
+    /// Emits the per-cell faces for all three axes into material builds.
     pub fn emit_into(&self, builds: &mut HashMap<MaterialId, MeshBuild>) {
         emit_plane_mask!(self, builds, X);
         emit_plane_mask!(self, builds, Y);

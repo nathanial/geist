@@ -41,7 +41,7 @@ Quick Wins
   diagnostics.
   - Ambient occlusion
       - Per-vertex AO for cubes/microshapes based on S=2 micro occupancy (cheap local lookup) and
-  fold AO into the merge key as hinted in MesherPlan.md. This materially improves depth without
+  fold AO into the material key. This materially improves depth without
   real-time lighting cost.
   - Texture atlas
       - Build an atlas at load time to reduce draw calls and binding changes. Your TextureCache
