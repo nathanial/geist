@@ -165,21 +165,64 @@ pub fn compute_light_with_borders_buf_micro(
     let mut q_sky: DialQ = DialQ::new();
 
     // Seed skylight from open-above micro columns (world-local within chunk)
+    // Phase 1: compute open-above start Y for each (mx, mz) column: the first Y such that all cells above are air.
+    let mut open_start = vec![mys; mxs * mzs];
     for mz in 0..mzs {
         for mx in 0..mxs {
-            let mut open_above = true;
-            for my in (0..mys).rev() {
-                if open_above {
-                    if !micro_solid_at_fast(mx, my, mz, buf, &occ8, &full) {
-                        let i = midx(mx, my, mz, mxs, mzs);
-                        if micro_sky[i] == 0 {
-                            micro_sky[i] = MAX_LIGHT;
-                            q_sky.push(mx, my, mz, MAX_LIGHT);
-                        }
-                    } else {
-                        open_above = false;
-                    }
+            let mut found_solid = false;
+            let mut start = 0usize;
+            let mut y = mys as i32 - 1;
+            while y >= 0 {
+                if micro_solid_at_fast(mx, y as usize, mz, buf, &occ8, &full) {
+                    start = (y as usize).saturating_add(1);
+                    found_solid = true;
+                    break;
                 }
+                y -= 1;
+            }
+            if !found_solid {
+                start = 0;
+            }
+            open_start[mz * mxs + mx] = start;
+        }
+    }
+    // Phase 2: fill all open-above cells to 255
+    for mz in 0..mzs {
+        for mx in 0..mxs {
+            let start = open_start[mz * mxs + mx];
+            if start >= mys {
+                continue;
+            }
+            for my in start..mys {
+                let i = midx(mx, my, mz, mxs, mzs);
+                micro_sky[i] = MAX_LIGHT;
+            }
+        }
+    }
+    // Phase 3: enqueue only boundary cells (open-above cells adjacent to a lateral neighbor that is NOT open-above at same Y)
+    let mut neighbor_start = |mx: isize, mz: isize| -> usize {
+        if mx < 0 || mz < 0 || mx >= mxs as isize || mz >= mzs as isize {
+            // Out of bounds: treat as same start to avoid wasting seeds on chunk edges; neighbor planes handle seams
+            return mys;
+        }
+        open_start[(mz as usize) * mxs + (mx as usize)]
+    };
+    for mz in 0..mzs {
+        for mx in 0..mxs {
+            let start = open_start[mz * mxs + mx];
+            if start >= mys {
+                continue;
+            }
+            let nxp = neighbor_start(mx as isize + 1, mz as isize);
+            let nxn = neighbor_start(mx as isize - 1, mz as isize);
+            let nzp = neighbor_start(mx as isize, mz as isize + 1);
+            let nzn = neighbor_start(mx as isize, mz as isize - 1);
+            let max_n_start = nxp.max(nxn).max(nzp).max(nzn);
+            let end_y = max_n_start.min(mys);
+            for my in start..end_y {
+                let i = midx(mx, my, mz, mxs, mzs);
+                // Already set to 255 in Phase 2
+                q_sky.push(mx, my, mz, MAX_LIGHT);
             }
         }
     }
@@ -187,6 +230,29 @@ pub fn compute_light_with_borders_buf_micro(
     // Seed from neighbor micro border planes with S=2 ghost halo; fall back to coarse upsample with proper seam gating
     let nbm = store.get_neighbor_micro_borders(buf.cx, buf.cz);
     let nb = store.get_neighbor_borders(buf.cx, buf.cz);
+    let plane_nonzero = |p: &Option<std::sync::Arc<[u8]>>| -> bool {
+        if let Some(a) = p {
+            a.iter().any(|&v| v != 0)
+        } else {
+            false
+        }
+    };
+    let use_xn = nbm.xm_bl_neg.is_some()
+        || nbm.xm_sk_neg.is_some()
+        || plane_nonzero(&nb.xn)
+        || plane_nonzero(&nb.sk_xn);
+    let use_xp = nbm.xm_bl_pos.is_some()
+        || nbm.xm_sk_pos.is_some()
+        || plane_nonzero(&nb.xp)
+        || plane_nonzero(&nb.sk_xp);
+    let use_zn = nbm.zm_bl_neg.is_some()
+        || nbm.zm_sk_neg.is_some()
+        || plane_nonzero(&nb.zn)
+        || plane_nonzero(&nb.sk_zn);
+    let use_zp = nbm.zm_bl_pos.is_some()
+        || nbm.zm_sk_pos.is_some()
+        || plane_nonzero(&nb.zp)
+        || plane_nonzero(&nb.sk_zp);
     let atten: u8 = COARSE_SEAM_ATTENUATION;
     let base_x = buf.cx * buf.sx as i32;
     let base_z = buf.cz * buf.sz as i32;
@@ -199,12 +265,15 @@ pub fn compute_light_with_borders_buf_micro(
     let mut reuse_ctx = world.make_gen_ctx();
     for lz in 0..buf.sz {
         for ly in 0..buf.sy {
+            if !(use_xn || use_xp) {
+                continue;
+            }
             let here_nx = buf.get_local(0, ly, lz);
             let here_px = buf.get_local(buf.sx - 1, ly, lz);
             let have_micro_nx = nbm.xm_bl_neg.is_some() || nbm.xm_sk_neg.is_some();
             let have_micro_px = nbm.xm_bl_pos.is_some() || nbm.xm_sk_pos.is_some();
             // Only fetch neighbor blocks when we need coarse fallback gating
-            let (there_nx, there_px) = if !have_micro_nx || !have_micro_px {
+            let (there_nx, there_px) = if (!have_micro_nx && use_xn) || (!have_micro_px && use_xp) {
                 (
                     world.block_at_runtime_with(reg, &mut reuse_ctx, base_x - 1, ly as i32, base_z + lz as i32),
                     world.block_at_runtime_with(
@@ -267,7 +336,7 @@ pub fn compute_light_with_borders_buf_micro(
                                 .map(|p| clamp_sub_u8(p[ly * buf.sz + lz], atten))
                                 .unwrap_or(0)
                         });
-                    if (seed_blk_nx > 0 || seed_sky_nx > 0) && gate_nx[iym][izm] {
+                    if use_xn && (seed_blk_nx > 0 || seed_sky_nx > 0) && gate_nx[iym][izm] {
                         let i = midx(0, my, mz, mxs, mzs);
                         if seed_blk_nx > 0
                             && !micro_solid_at_fast(0, my, mz, buf, &occ8, &full)
@@ -305,7 +374,7 @@ pub fn compute_light_with_borders_buf_micro(
                                 .map(|p| clamp_sub_u8(p[ly * buf.sz + lz], atten))
                                 .unwrap_or(0)
                         });
-                    if (seed_blk_px > 0 || seed_sky_px > 0) && gate_px[iym][izm] {
+                    if use_xp && (seed_blk_px > 0 || seed_sky_px > 0) && gate_px[iym][izm] {
                         let i = midx(mxs - 1, my, mz, mxs, mzs);
                         if seed_blk_px > 0
                             && !micro_solid_at_fast(mxs - 1, my, mz, buf, &occ8, &full)
@@ -329,12 +398,15 @@ pub fn compute_light_with_borders_buf_micro(
     // Z seams (block + sky) with macro-first loops and cached 2x2 gates
     for ly in 0..buf.sy {
         for lx in 0..buf.sx {
+            if !(use_zn || use_zp) {
+                continue;
+            }
             let here_nz = buf.get_local(lx, ly, 0);
             let here_pz = buf.get_local(lx, ly, buf.sz - 1);
             let have_micro_nz = nbm.zm_bl_neg.is_some() || nbm.zm_sk_neg.is_some();
             let have_micro_pz = nbm.zm_bl_pos.is_some() || nbm.zm_sk_pos.is_some();
             // Only fetch neighbor blocks for coarse fallback
-            let (there_nz, there_pz) = if !have_micro_nz || !have_micro_pz {
+            let (there_nz, there_pz) = if (!have_micro_nz && use_zn) || (!have_micro_pz && use_zp) {
                 (
                     world.block_at_runtime_with(reg, &mut reuse_ctx, base_x + lx as i32, ly as i32, base_z - 1),
                     world.block_at_runtime_with(
@@ -393,7 +465,7 @@ pub fn compute_light_with_borders_buf_micro(
                                 .map(|p| clamp_sub_u8(p[ly * buf.sx + lx], atten))
                                 .unwrap_or(0)
                         });
-                    if (seed_blk_nz > 0 || seed_sky_nz > 0) && gate_nz[iym][ixm] {
+                    if use_zn && (seed_blk_nz > 0 || seed_sky_nz > 0) && gate_nz[iym][ixm] {
                         let i = midx(mx, my, 0, mxs, mzs);
                         if seed_blk_nz > 0
                             && !micro_solid_at_fast(mx, my, 0, buf, &occ8, &full)
@@ -431,7 +503,7 @@ pub fn compute_light_with_borders_buf_micro(
                                 .map(|p| clamp_sub_u8(p[ly * buf.sx + lx], atten))
                                 .unwrap_or(0)
                         });
-                    if (seed_blk_pz > 0 || seed_sky_pz > 0) && gate_pz[iym][ixm] {
+                    if use_zp && (seed_blk_pz > 0 || seed_sky_pz > 0) && gate_pz[iym][ixm] {
                         let i = midx(mx, my, mzs - 1, mxs, mzs);
                         if seed_blk_pz > 0
                             && !micro_solid_at_fast(mx, my, mzs - 1, buf, &occ8, &full)
