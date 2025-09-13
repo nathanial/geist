@@ -11,7 +11,7 @@ use geist_blocks::{Block, BlockRegistry};
 use geist_edit::EditStore;
 use geist_lighting::LightingStore;
 use geist_mesh_cpu::NeighborsLoaded;
-use geist_render_raylib::{ChunkRender, FogShader, LeavesShader, TextureCache, upload_chunk_mesh};
+use geist_render_raylib::{ChunkRender, FogShader, LeavesShader, TextureCache, upload_chunk_mesh, update_chunk_colors};
 use geist_runtime::{BuildJob, JobOut, Runtime, StructureBuildJob};
 use geist_structures::{Pose, Structure, StructureId, rotate_yaw, rotate_yaw_inv};
 use geist_world::voxel::{World, WorldGenMode};
@@ -1191,12 +1191,12 @@ impl App {
                 if let Some(mut cr) =
                     upload_chunk_mesh(rl, thread, cpu, &mut self.tex_cache, &self.reg.materials)
                 {
-                    for (mid, model) in &mut cr.parts {
-                        if let Some(mat) = model.materials_mut().get_mut(0) {
+                    for part in &mut cr.parts {
+                        if let Some(mat) = part.model.materials_mut().get_mut(0) {
                             let tag = self
                                 .reg
                                 .materials
-                                .get(*mid)
+                                .get(part.mid)
                                 .and_then(|m| m.render_tag.as_deref());
                             if tag == Some("leaves") {
                                 if let Some(ref ls) = self.leaves_shader {
@@ -1288,12 +1288,12 @@ impl App {
                         }
                     }
                     // Assign shaders
-                    for (mid, model) in &mut cr.parts {
-                        if let Some(mat) = model.materials_mut().get_mut(0) {
+                    for part in &mut cr.parts {
+                        if let Some(mat) = part.model.materials_mut().get_mut(0) {
                             let tag = self
                                 .reg
                                 .materials
-                                .get(*mid)
+                                .get(part.mid)
                                 .and_then(|m| m.render_tag.as_deref());
                             if tag == Some("leaves") {
                                 if let Some(ref ls) = self.leaves_shader {
@@ -1324,6 +1324,8 @@ impl App {
                         }
                     }
                     self.renders.insert((cx, cz), cr);
+                    // Phase 1 lighting: schedule a color-only update immediately
+                    self.queue.emit_now(Event::ChunkRebuildRequested { cx, cz, cause: RebuildCause::LightingBorder });
                 }
                 // Update CPU buf & built rev
                 self.gs.chunks.insert(
@@ -1368,6 +1370,49 @@ impl App {
                         st.finalized = true;
                     }
                 }
+            }
+            Event::ChunkLightingRecomputed { cx, cz, rev, colors, light_borders, job_id: _ } => {
+                // Drop if stale
+                let cur_rev = self.gs.edits.get_rev(cx, cz);
+                if rev < cur_rev {
+                    self.gs.inflight_rev.remove(&(cx, cz));
+                    return;
+                }
+                // Gate by desired radius
+                let (ccx, ccz) = self.gs.center_chunk;
+                let dx = (cx - ccx).abs();
+                let dz = (cz - ccz).abs();
+                let ring = dx.max(dz);
+                if ring > self.gs.view_radius_chunks + 1 {
+                    self.gs.inflight_rev.remove(&(cx, cz));
+                    return;
+                }
+                // Update GPU color buffers for existing chunk
+                if let Some(cr) = self.renders.get_mut(&(cx, cz)) {
+                    update_chunk_colors(rl, thread, cr, &colors);
+                }
+                // Update light borders; if changed, notify neighbors
+                if let Some(lb) = light_borders {
+                    let (changed, mask) = self.gs.lighting.update_borders_mask(cx, cz, lb);
+                    if changed {
+                        self.queue.emit_now(Event::LightBordersUpdated {
+                            cx,
+                            cz,
+                            xn_changed: mask.xn,
+                            xp_changed: mask.xp,
+                            zn_changed: mask.zn,
+                            zp_changed: mask.zp,
+                        });
+                    }
+                }
+                // Finalization bookkeeping
+                if let Some(st) = self.gs.finalize.get_mut(&(cx, cz)) {
+                    if st.finalize_requested {
+                        st.finalize_requested = false;
+                        st.finalized = true;
+                    }
+                }
+                self.gs.inflight_rev.remove(&(cx, cz));
             }
             Event::ChunkRebuildRequested { cx, cz, cause } => {
                 if !self.renders.contains_key(&(cx, cz)) {
@@ -1782,13 +1827,13 @@ impl App {
                 self.water_shader = Some(ws);
             }
             // Rebind shaders on all existing models
-            let mut rebind = |parts: &mut Vec<(geist_blocks::types::MaterialId, raylib::core::models::Model)>| {
-                for (mid, model) in parts.iter_mut() {
-                    if let Some(mat) = model.materials_mut().get_mut(0) {
+            let mut rebind = |parts: &mut Vec<geist_render_raylib::ChunkPart>| {
+                for part in parts.iter_mut() {
+                    if let Some(mat) = part.model.materials_mut().get_mut(0) {
                         let tag = self
                             .reg
                             .materials
-                            .get(*mid)
+                            .get(part.mid)
                             .and_then(|m| m.render_tag.as_deref());
                         if tag == Some("leaves") {
                             if let Some(ref ls) = self.leaves_shader {
@@ -2072,15 +2117,26 @@ impl App {
         let mut results: Vec<JobOut> = self.runtime.drain_worker_results();
         results.sort_by_key(|r| r.job_id);
         for r in results {
-            self.queue.emit_now(Event::BuildChunkJobCompleted {
-                cx: r.cx,
-                cz: r.cz,
-                rev: r.rev,
-                cpu: r.cpu,
-                buf: r.buf,
-                light_borders: r.light_borders,
-                job_id: r.job_id,
-            });
+            if let Some(cpu) = r.cpu {
+                self.queue.emit_now(Event::BuildChunkJobCompleted {
+                    cx: r.cx,
+                    cz: r.cz,
+                    rev: r.rev,
+                    cpu,
+                    buf: r.buf,
+                    light_borders: r.light_borders,
+                    job_id: r.job_id,
+                });
+            } else if let Some(colors) = r.colors {
+                self.queue.emit_now(Event::ChunkLightingRecomputed {
+                    cx: r.cx,
+                    cz: r.cz,
+                    rev: r.rev,
+                    colors,
+                    light_borders: r.light_borders,
+                    job_id: r.job_id,
+                });
+            }
         }
 
         // Drain structure worker results
@@ -2126,6 +2182,7 @@ impl App {
                 Event::ChunkRebuildRequested { .. } => "ChunkRebuildRequested",
                 Event::BuildChunkJobRequested { .. } => "BuildChunkJobRequested",
                 Event::BuildChunkJobCompleted { .. } => "BuildChunkJobCompleted",
+                Event::ChunkLightingRecomputed { .. } => "ChunkLightingRecomputed",
                 Event::StructureBuildRequested { .. } => "StructureBuildRequested",
                 Event::StructureBuildCompleted { .. } => "StructureBuildCompleted",
                 Event::StructurePoseUpdated { .. } => "StructurePoseUpdated",
@@ -2296,24 +2353,24 @@ impl App {
                         );
                     }
                 }
-                for (mid, model) in &cr.parts {
+                for part in &cr.parts {
                     // Get mesh stats from the model
                     unsafe {
-                        let mesh = &*model.meshes;
+                        let mesh = &*part.model.meshes;
                         self.debug_stats.total_vertices += mesh.vertexCount as usize;
                         self.debug_stats.total_triangles += mesh.triangleCount as usize;
                     }
                     let tag = self
                         .reg
                         .materials
-                        .get(*mid)
+                        .get(part.mid)
                         .and_then(|m| m.render_tag.as_deref());
                     if tag != Some("water") {
                         self.debug_stats.draw_calls += 1;
                         if self.gs.wireframe {
-                            d3.draw_model_wires(model, Vector3::zero(), 1.0, Color::WHITE);
+                            d3.draw_model_wires(&part.model, Vector3::zero(), 1.0, Color::WHITE);
                         } else {
-                            d3.draw_model(model, Vector3::zero(), 1.0, Color::WHITE);
+                            d3.draw_model(&part.model, Vector3::zero(), 1.0, Color::WHITE);
                         }
                     }
                 }
@@ -2345,10 +2402,10 @@ impl App {
                     let dz = center.z - self.cam.position.z;
                     let dist2 = dx * dx + dy * dy + dz * dz;
                     visible_structs.push((*id, dist2));
-                    for (mid, model) in &cr.parts {
+                    for part in &cr.parts {
                     // Get mesh stats from the model
                     unsafe {
-                        let mesh = &*model.meshes;
+                        let mesh = &*part.model.meshes;
                         self.debug_stats.total_vertices += mesh.vertexCount as usize;
                         self.debug_stats.total_triangles += mesh.triangleCount as usize;
                     }
@@ -2356,11 +2413,11 @@ impl App {
                     let tag = self
                         .reg
                         .materials
-                        .get(*mid)
+                        .get(part.mid)
                         .and_then(|m| m.render_tag.as_deref());
                     if tag != Some("water") {
                         self.debug_stats.draw_calls += 1;
-                        d3.draw_model(model, vec3_to_rl(st.pose.pos), 1.0, Color::WHITE);
+                        d3.draw_model(&part.model, vec3_to_rl(st.pose.pos), 1.0, Color::WHITE);
                     }
                 }
             }
@@ -2377,16 +2434,16 @@ impl App {
                     if self.gs.frustum_culling_enabled && !frustum.contains_bounding_box(&cr.bbox) {
                         continue;
                     }
-                    for (mid, model) in &cr.parts {
+                    for part in &cr.parts {
                         let tag = self
                             .reg
                             .materials
-                            .get(*mid)
+                            .get(part.mid)
                             .and_then(|m| m.render_tag.as_deref());
                         if tag == Some("water") {
                             self.debug_stats.draw_calls += 1;
                             unsafe { raylib::ffi::rlDisableBackfaceCulling(); }
-                            d3.draw_model(model, Vector3::zero(), 1.0, Color::WHITE);
+                            d3.draw_model(&part.model, Vector3::zero(), 1.0, Color::WHITE);
                             unsafe { raylib::ffi::rlEnableBackfaceCulling(); }
                         }
                     }
@@ -2407,16 +2464,16 @@ impl App {
                         {
                             continue;
                         }
-                        for (mid, model) in &cr.parts {
+                        for part in &cr.parts {
                             let tag = self
                                 .reg
                                 .materials
-                                .get(*mid)
+                                .get(part.mid)
                                 .and_then(|m| m.render_tag.as_deref());
                             if tag == Some("water") {
                                 self.debug_stats.draw_calls += 1;
                                 unsafe { raylib::ffi::rlDisableBackfaceCulling(); }
-                                d3.draw_model(model, vec3_to_rl(st.pose.pos), 1.0, Color::WHITE);
+                                d3.draw_model(&part.model, vec3_to_rl(st.pose.pos), 1.0, Color::WHITE);
                                 unsafe { raylib::ffi::rlEnableBackfaceCulling(); }
                             }
                         }
@@ -3087,6 +3144,10 @@ impl App {
                 log::debug!(target: "events", "[tick {}] BuildChunkJobCompleted ({}, {}) rev={} job_id={:#x}",
                     tick, cx, cz, rev, job_id);
             }
+            E::ChunkLightingRecomputed { cx, cz, rev, job_id, .. } => {
+                log::debug!(target: "events", "[tick {}] ChunkLightingRecomputed ({}, {}) rev={} job_id={:#x}",
+                    tick, cx, cz, rev, job_id);
+            }
             E::StructureBuildRequested { id, rev } => {
                 log::info!(target: "events", "[tick {}] StructureBuildRequested id={} rev={}", tick, id, rev);
             }
@@ -3199,8 +3260,8 @@ impl App {
         let mut rebound: std::collections::HashMap<String, usize> = Default::default();
         // Rebind textures on existing chunk renders
         for (_k, cr) in self.renders.iter_mut() {
-            for (mid, model) in cr.parts.iter_mut() {
-                let Some(path) = choose_path(*mid) else {
+            for part in cr.parts.iter_mut() {
+                let Some(path) = choose_path(part.mid) else {
                     continue;
                 };
                 if !changed.contains(&path) {
@@ -3208,7 +3269,7 @@ impl App {
                 }
                 if let Some(mat) = {
                     use raylib::prelude::RaylibModel;
-                    model.materials_mut().get_mut(0)
+                    part.model.materials_mut().get_mut(0)
                 } {
                     if let Some(tex) = self.tex_cache.get_ref(&path) {
                         mat.set_material_texture(
@@ -3239,8 +3300,8 @@ impl App {
         }
         // Rebind for structure renders as well
         for (_id, cr) in self.structure_renders.iter_mut() {
-            for (mid, model) in cr.parts.iter_mut() {
-                let Some(path) = choose_path(*mid) else {
+            for part in cr.parts.iter_mut() {
+                let Some(path) = choose_path(part.mid) else {
                     continue;
                 };
                 if !changed.contains(&path) {
@@ -3248,7 +3309,7 @@ impl App {
                 }
                 if let Some(mat) = {
                     use raylib::prelude::RaylibModel;
-                    model.materials_mut().get_mut(0)
+                    part.model.materials_mut().get_mut(0)
                 } {
                     if let Some(tex) = self.tex_cache.get_ref(&path) {
                         mat.set_material_texture(

@@ -59,11 +59,18 @@ impl TextureCache {
     }
 }
 
+pub struct ChunkPart {
+    pub mid: geist_blocks::types::MaterialId,
+    pub model: raylib::core::models::Model,
+    pub v_start: usize,
+    pub v_count: usize,
+}
+
 pub struct ChunkRender {
     pub cx: i32,
     pub cz: i32,
     pub bbox: raylib::core::math::BoundingBox,
-    pub parts: Vec<(geist_blocks::types::MaterialId, raylib::core::models::Model)>,
+    pub parts: Vec<ChunkPart>,
     pub leaf_tint: Option<[f32; 3]>,
 }
 
@@ -74,7 +81,7 @@ pub fn upload_chunk_mesh(
     tex_cache: &mut TextureCache,
     mats: &MaterialCatalog,
 ) -> Option<ChunkRender> {
-    let mut parts_gpu = Vec::new();
+    let mut parts_gpu: Vec<ChunkPart> = Vec::new();
     for (mid, mb) in cpu.parts.into_iter() {
         let total_verts = mb.pos.len() / 3;
         if total_verts == 0 {
@@ -197,7 +204,7 @@ pub fn upload_chunk_mesh(
                     }
                 }
             }
-            parts_gpu.push((mid, model));
+            parts_gpu.push(ChunkPart { mid, model, v_start, v_count });
             q += take_q;
         }
     }
@@ -208,6 +215,36 @@ pub fn upload_chunk_mesh(
         parts: parts_gpu,
         leaf_tint: None,
     })
+}
+
+/// Update GPU color buffers for this chunk in-place, without changing geometry.
+/// `colors` maps material id -> per-vertex RGBA (4 bytes per vertex) for the full material build.
+pub fn update_chunk_colors(
+    _rl: &mut RaylibHandle,
+    _thread: &RaylibThread,
+    cr: &mut ChunkRender,
+    colors: &HashMap<geist_blocks::types::MaterialId, Vec<u8>>,
+) {
+    for part in &mut cr.parts {
+        if let Some(all_cols) = colors.get(&part.mid) {
+            let start = part.v_start * 4;
+            let end = start + part.v_count * 4;
+            if end <= all_cols.len() {
+                let slice = &all_cols[start..end];
+                unsafe {
+                    // Update buffer index 3 (colors) for this mesh. Raylib's FFI takes Mesh by value.
+                    let mesh_val: raylib::ffi::Mesh = *part.model.meshes;
+                    raylib::ffi::UpdateMeshBuffer(
+                        mesh_val,
+                        3,
+                        slice.as_ptr() as *const std::ffi::c_void,
+                        (slice.len()) as i32,
+                        0,
+                    );
+                }
+            }
+        }
+    }
 }
 
 pub struct LeavesShader {

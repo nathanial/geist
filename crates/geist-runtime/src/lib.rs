@@ -8,7 +8,7 @@ use std::thread;
 use geist_blocks::{Block, BlockRegistry};
 use geist_chunk as chunkbuf;
 use geist_lighting::{LightBorders, LightingStore};
-use geist_mesh_cpu::{ChunkMeshCPU, NeighborsLoaded, build_chunk_wcc_cpu_buf};
+use geist_mesh_cpu::{ChunkMeshCPU, NeighborsLoaded, build_chunk_wcc_cpu_buf, compute_chunk_colors_wcc_cpu_buf};
 use geist_world::World;
 
 #[derive(Clone, Debug)]
@@ -27,7 +27,8 @@ pub struct BuildJob {
 }
 
 pub struct JobOut {
-    pub cpu: ChunkMeshCPU,
+    pub cpu: Option<ChunkMeshCPU>,
+    pub colors: Option<std::collections::HashMap<geist_blocks::types::MaterialId, Vec<u8>>>,
     pub buf: chunkbuf::ChunkBuf,
     pub light_borders: Option<LightBorders>,
     pub cx: i32,
@@ -114,7 +115,8 @@ impl Runtime {
         let spawn_worker = |wrx: mpsc::Receiver<BuildJob>,
                             tx: mpsc::Sender<JobOut>,
                             w: Arc<World>,
-                            ls: Arc<LightingStore>| {
+                            ls: Arc<LightingStore>,
+                            lane: Lane| {
             thread::spawn(move || {
                 while let Ok(job) = wrx.recv() {
                     // Start from previous buffer when provided; else regenerate from worldgen
@@ -140,25 +142,52 @@ impl Runtime {
                     }
                     let snap_map: std::collections::HashMap<(i32, i32, i32), Block> =
                         job.region_edits.into_iter().collect();
-                    let built = build_chunk_wcc_cpu_buf(
-                        &buf,
-                        Some(&ls),
-                        &w,
-                        Some(&snap_map),
-                        job.cx,
-                        job.cz,
-                        &job.reg,
-                    );
-                    if let Some((cpu, light_borders)) = built {
-                        let _ = tx.send(JobOut {
-                            cpu,
-                            buf,
-                            light_borders,
-                            cx: job.cx,
-                            cz: job.cz,
-                            rev: job.rev,
-                            job_id: job.job_id,
-                        });
+                    match lane {
+                        Lane::Light => {
+                            if let Some((colors, light_borders)) = compute_chunk_colors_wcc_cpu_buf(
+                                &buf,
+                                &ls,
+                                &w,
+                                Some(&snap_map),
+                                job.cx,
+                                job.cz,
+                                &job.reg,
+                            ) {
+                                let _ = tx.send(JobOut {
+                                    cpu: None,
+                                    colors: Some(colors),
+                                    buf,
+                                    light_borders,
+                                    cx: job.cx,
+                                    cz: job.cz,
+                                    rev: job.rev,
+                                    job_id: job.job_id,
+                                });
+                            }
+                        }
+                        _ => {
+                            let built = build_chunk_wcc_cpu_buf(
+                                &buf,
+                                Some(&ls),
+                                &w,
+                                Some(&snap_map),
+                                job.cx,
+                                job.cz,
+                                &job.reg,
+                            );
+                            if let Some((cpu, light_borders)) = built {
+                                let _ = tx.send(JobOut {
+                                    cpu: Some(cpu),
+                                    colors: None,
+                                    buf,
+                                    light_borders,
+                                    cx: job.cx,
+                                    cz: job.cz,
+                                    rev: job.rev,
+                                    job_id: job.job_id,
+                                });
+                            }
+                        }
                     }
                 }
             })
@@ -170,7 +199,7 @@ impl Runtime {
             let tx = res_tx.clone();
             let w = world.clone();
             let ls = lighting.clone();
-            let _handle = spawn_worker(wrx, tx, w, ls);
+            let _handle = spawn_worker(wrx, tx, w, ls, Lane::Edit);
         }
         // Spawn LIGHT workers
         for _ in 0..w_light {
@@ -179,7 +208,7 @@ impl Runtime {
             let tx = res_tx.clone();
             let w = world.clone();
             let ls = lighting.clone();
-            let _handle = spawn_worker(wrx, tx, w, ls);
+            let _handle = spawn_worker(wrx, tx, w, ls, Lane::Light);
         }
         // Spawn BG workers
         for _ in 0..w_bg {
@@ -188,7 +217,7 @@ impl Runtime {
             let tx = res_tx.clone();
             let w = world.clone();
             let ls = lighting.clone();
-            let _handle = spawn_worker(wrx, tx, w, ls);
+            let _handle = spawn_worker(wrx, tx, w, ls, Lane::Bg);
         }
         // Counters (shared across threads)
         let q_edit_ctr = Arc::new(AtomicUsize::new(0));

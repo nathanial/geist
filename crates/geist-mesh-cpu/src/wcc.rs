@@ -11,7 +11,7 @@ use geist_world::World;
 use crate::emit::emit_face_rect_for_clipped;
 use crate::face::Face;
 use crate::mesh_build::MeshBuild;
-use crate::util::{apply_min_light, registry_material_for_or_unknown, VISUAL_LIGHT_MIN};
+use crate::util::{registry_material_for_or_unknown, VISUAL_LIGHT_MIN};
 use crate::constants::{OPAQUE_ALPHA, BITS_PER_WORD, WORD_INDEX_MASK, WORD_INDEX_SHIFT};
 
 // Emit per-cell face quads for a given axis by expanding a mask sourced from FaceGrids.
@@ -20,16 +20,16 @@ macro_rules! emit_plane_mask {
         let width = $self.S * $self.sz;
         let height = $self.S * $self.sy;
         for ix in 0..($self.S * $self.sx) {
-            let mut mask: Vec<Option<((MaterialId, bool), u8)>> = vec![None; width * height];
+            let mut mask: Vec<Option<(MaterialId, bool)>> = vec![None; width * height];
             for iy in 0..height {
                 for iz in 0..width {
                     let idx = $self.grids.idx_x(ix, iy, iz);
                     if $self.grids.px.get(idx) {
                         let key = $self.grids.kx[idx];
                         if key != 0 {
-                            let (mid, l) = $self.keys.get(key);
+                            let mid = $self.keys.get(key);
                             let pos = $self.grids.ox.get(idx);
-                            mask[iy * width + iz] = Some(((mid, pos), l));
+                            mask[iy * width + iz] = Some((mid, pos));
                         }
                     }
                 }
@@ -37,9 +37,8 @@ macro_rules! emit_plane_mask {
             // Emit each face-cell as an individual quad
             for v0 in 0..height {
                 for u0 in 0..width {
-                    if let Some(((mid, pos), l)) = mask[v0 * width + u0] {
-                        let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN));
-                        let rgba = [lv, lv, lv, OPAQUE_ALPHA];
+                    if let Some((mid, pos)) = mask[v0 * width + u0] {
+                        let rgba = [255u8, 255u8, 255u8, OPAQUE_ALPHA];
                         let face = if pos { Face::PosX } else { Face::NegX };
                         let scale = 1.0 / $self.S as f32;
                         let origin = Vec3 { x: ($self.base_x as f32) + (ix as f32) * scale, y: (v0 as f32) * scale, z: ($self.base_z as f32) + (u0 as f32) * scale };
@@ -55,16 +54,16 @@ macro_rules! emit_plane_mask {
         let width = $self.S * $self.sx;
         let height = $self.S * $self.sz;
         for iy in 0..($self.S * $self.sy) {
-            let mut mask: Vec<Option<((MaterialId, bool), u8)>> = vec![None; width * height];
+            let mut mask: Vec<Option<(MaterialId, bool)>> = vec![None; width * height];
             for iz in 0..height {
                 for ix in 0..width {
                     let idx = $self.grids.idx_y(ix, iy, iz);
                     if $self.grids.py.get(idx) {
                         let key = $self.grids.ky[idx];
                         if key != 0 {
-                            let (mid, l) = $self.keys.get(key);
+                            let mid = $self.keys.get(key);
                             let pos = $self.grids.oy.get(idx);
-                            mask[iz * width + ix] = Some(((mid, pos), l));
+                            mask[iz * width + ix] = Some((mid, pos));
                         }
                     }
                 }
@@ -72,9 +71,8 @@ macro_rules! emit_plane_mask {
             // Emit each face-cell as an individual quad
             for v0 in 0..height {
                 for u0 in 0..width {
-                    if let Some(((mid, pos), l)) = mask[v0 * width + u0] {
-                        let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN));
-                        let rgba = [lv, lv, lv, OPAQUE_ALPHA];
+                    if let Some((mid, pos)) = mask[v0 * width + u0] {
+                        let rgba = [255u8, 255u8, 255u8, OPAQUE_ALPHA];
                         let face = if pos { Face::PosY } else { Face::NegY };
                         let scale = 1.0 / $self.S as f32;
                         let origin = Vec3 { x: ($self.base_x as f32) + (u0 as f32) * scale, y: (iy as f32) * scale, z: ($self.base_z as f32) + (v0 as f32) * scale };
@@ -90,16 +88,16 @@ macro_rules! emit_plane_mask {
         let width = $self.S * $self.sx;
         let height = $self.S * $self.sy;
         for iz in 0..($self.S * $self.sz) {
-            let mut mask: Vec<Option<((MaterialId, bool), u8)>> = vec![None; width * height];
+            let mut mask: Vec<Option<(MaterialId, bool)>> = vec![None; width * height];
             for iy in 0..height {
                 for ix in 0..width {
                     let idx = $self.grids.idx_z(ix, iy, iz);
                     if $self.grids.pz.get(idx) {
                         let key = $self.grids.kz[idx];
                         if key != 0 {
-                            let (mid, l) = $self.keys.get(key);
+                            let mid = $self.keys.get(key);
                             let pos = $self.grids.oz.get(idx);
-                            mask[iy * width + ix] = Some(((mid, pos), l));
+                            mask[iy * width + ix] = Some((mid, pos));
                         }
                     }
                 }
@@ -107,9 +105,8 @@ macro_rules! emit_plane_mask {
             // Emit each face-cell as an individual quad
             for v0 in 0..height {
                 for u0 in 0..width {
-                    if let Some(((mid, pos), l)) = mask[v0 * width + u0] {
-                        let lv = apply_min_light(l, Some(VISUAL_LIGHT_MIN));
-                        let rgba = [lv, lv, lv, OPAQUE_ALPHA];
+                    if let Some((mid, pos)) = mask[v0 * width + u0] {
+                        let rgba = [255u8, 255u8, 255u8, OPAQUE_ALPHA];
                         let face = if pos { Face::PosZ } else { Face::NegZ };
                         let scale = 1.0 / $self.S as f32;
                         let origin = Vec3 { x: ($self.base_x as f32) + (u0 as f32) * scale, y: (v0 as f32) * scale, z: ($self.base_z as f32) + (iz as f32) * scale };
@@ -125,27 +122,27 @@ macro_rules! emit_plane_mask {
 
 #[derive(Default)]
 struct KeyTable {
-    items: Vec<(MaterialId, u8)>,
-    map: HashMap<(MaterialId, u8), u16>,
+    items: Vec<MaterialId>,
+    map: HashMap<MaterialId, u16>,
 }
 
 impl KeyTable {
     fn new() -> Self {
         let mut kt = KeyTable { items: Vec::new(), map: HashMap::new() };
         // Reserve 0 as None
-        kt.items.push((MaterialId(0), 0));
+        kt.items.push(MaterialId(0));
         kt
     }
     #[inline]
-    fn ensure(&mut self, mid: MaterialId, l: u8) -> u16 {
-        if let Some(&idx) = self.map.get(&(mid, l)) { return idx; }
+    fn ensure(&mut self, mid: MaterialId) -> u16 {
+        if let Some(&idx) = self.map.get(&mid) { return idx; }
         let idx = self.items.len() as u16;
-        self.items.push((mid, l));
-        self.map.insert((mid, l), idx);
+        self.items.push(mid);
+        self.map.insert(mid, idx);
         idx
     }
     #[inline]
-    fn get(&self, idx: u16) -> (MaterialId, u8) { self.items[idx as usize] }
+    fn get(&self, idx: u16) -> MaterialId { self.items[idx as usize] }
 }
 
 /// Simple growable bitset backed by `u64` words.
@@ -264,8 +261,7 @@ impl<'a> WccMesher<'a> {
                             let iy = ly * self.S + iym;
                             let iz = lz * self.S + izm;
                             let mid = registry_material_for_or_unknown(nb, Face::PosX, self.reg);
-                            let l = self.light_bin(0, ly, lz, Face::NegX);
-                            self.toggle_x(0, 0, 0, 0, iy, iy + 1, iz, iz + 1, true, mid, l);
+                            self.toggle_x(0, 0, 0, 0, iy, iy + 1, iz, iz + 1, true, mid);
                         }
                     }
                 }
@@ -286,8 +282,7 @@ impl<'a> WccMesher<'a> {
                             let ix = lx * self.S + ixm;
                             let iy = ly * self.S + iym;
                             let mid = registry_material_for_or_unknown(nb, Face::PosZ, self.reg);
-                            let l = self.light_bin(lx, ly, 0, Face::NegZ);
-                            self.toggle_z(0, 0, 0, 0, ix, ix + 1, iy, iy + 1, true, mid, l);
+                            self.toggle_z(0, 0, 0, 0, ix, ix + 1, iy, iy + 1, true, mid);
                         }
                     }
                 }
@@ -308,11 +303,7 @@ impl<'a> WccMesher<'a> {
     }
 
     #[inline]
-    /// Samples light for a local cell face and applies the visual minimum.
-    fn light_bin(&self, x: usize, y: usize, z: usize, face: Face) -> u8 {
-        let l = self.light.sample_face_local_s2(self.buf, self.reg, x, y, z, face.index());
-        l.max(VISUAL_LIGHT_MIN)
-    }
+    // Note: Lighting is decoupled from meshing in Phase 1. Colors are recomputed separately.
 
     /// Toggles parity and material/light keys over a span on an X-oriented face column.
     fn toggle_x(
@@ -327,9 +318,8 @@ impl<'a> WccMesher<'a> {
         z1: usize,
         pos: bool,
         mid: MaterialId,
-        l: u8,
     ) {
-        let key = self.keys.ensure(mid, l);
+        let key = self.keys.ensure(mid);
         for iy in y0..y1 {
             for iz in z0..z1 {
                 let idx = self.grids.idx_x(ix, iy, iz);
@@ -352,9 +342,8 @@ impl<'a> WccMesher<'a> {
         z1: usize,
         pos: bool,
         mid: MaterialId,
-        l: u8,
     ) {
-        let key = self.keys.ensure(mid, l);
+        let key = self.keys.ensure(mid);
         for iz in z0..z1 {
             for ix in x0..x1 {
                 let idx = self.grids.idx_y(ix, iy, iz);
@@ -377,9 +366,8 @@ impl<'a> WccMesher<'a> {
         y1: usize,
         pos: bool,
         mid: MaterialId,
-        l: u8,
     ) {
-        let key = self.keys.ensure(mid, l);
+        let key = self.keys.ensure(mid);
         for iy in y0..y1 {
             for ix in x0..x1 {
                 let idx = self.grids.idx_z(ix, iy, iz);
@@ -400,12 +388,12 @@ impl<'a> WccMesher<'a> {
         mat_for: impl Fn(Face) -> MaterialId,
     ) {
         let (x0, x1, y0, y1, z0, z1) = bx;
-        self.toggle_x(x, y, z, x1, y0, y1, z0, z1, true,  mat_for(Face::PosX), self.light_bin(x, y, z, Face::PosX));
-        self.toggle_x(x, y, z, x0, y0, y1, z0, z1, false, mat_for(Face::NegX), self.light_bin(x, y, z, Face::NegX));
-        self.toggle_y(x, y, z, y1, x0, x1, z0, z1, true,  mat_for(Face::PosY), self.light_bin(x, y, z, Face::PosY));
-        self.toggle_y(x, y, z, y0, x0, x1, z0, z1, false, mat_for(Face::NegY), self.light_bin(x, y, z, Face::NegY));
-        self.toggle_z(x, y, z, z1, x0, x1, y0, y1, true,  mat_for(Face::PosZ), self.light_bin(x, y, z, Face::PosZ));
-        self.toggle_z(x, y, z, z0, x0, x1, y0, y1, false, mat_for(Face::NegZ), self.light_bin(x, y, z, Face::NegZ));
+        self.toggle_x(x, y, z, x1, y0, y1, z0, z1, true,  mat_for(Face::PosX));
+        self.toggle_x(x, y, z, x0, y0, y1, z0, z1, false, mat_for(Face::NegX));
+        self.toggle_y(x, y, z, y1, x0, x1, z0, z1, true,  mat_for(Face::PosY));
+        self.toggle_y(x, y, z, y0, x0, x1, z0, z1, false, mat_for(Face::NegY));
+        self.toggle_z(x, y, z, z1, x0, x1, y0, y1, true,  mat_for(Face::PosZ));
+        self.toggle_z(x, y, z, z0, x0, x1, y0, y1, false, mat_for(Face::NegZ));
     }
 
     /// Adds a full cube at `(x,y,z)` into the WCC grids.
@@ -424,22 +412,22 @@ impl<'a> WccMesher<'a> {
         let (wx, wy, wz) = (self.base_x + x as i32, y as i32, self.base_z + z as i32);
         let air_id = self.reg.id_by_name("air").unwrap_or(0);
         if self.world_block(wx + 1, wy, wz).id == air_id {
-            self.toggle_x(x, y, z, x1, y0, y1, z0, z1, true,  mid_for(Face::PosX), self.light_bin(x, y, z, Face::PosX));
+            self.toggle_x(x, y, z, x1, y0, y1, z0, z1, true,  mid_for(Face::PosX));
         }
         if self.world_block(wx - 1, wy, wz).id == air_id {
-            self.toggle_x(x, y, z, x0, y0, y1, z0, z1, false, mid_for(Face::NegX), self.light_bin(x, y, z, Face::NegX));
+            self.toggle_x(x, y, z, x0, y0, y1, z0, z1, false, mid_for(Face::NegX));
         }
         if self.world_block(wx, wy + 1, wz).id == air_id {
-            self.toggle_y(x, y, z, y1, x0, x1, z0, z1, true,  mid_for(Face::PosY), self.light_bin(x, y, z, Face::PosY));
+            self.toggle_y(x, y, z, y1, x0, x1, z0, z1, true,  mid_for(Face::PosY));
         }
         if self.world_block(wx, wy - 1, wz).id == air_id {
-            self.toggle_y(x, y, z, y0, x0, x1, z0, z1, false, mid_for(Face::NegY), self.light_bin(x, y, z, Face::NegY));
+            self.toggle_y(x, y, z, y0, x0, x1, z0, z1, false, mid_for(Face::NegY));
         }
         if self.world_block(wx, wy, wz + 1).id == air_id {
-            self.toggle_z(x, y, z, z1, x0, x1, y0, y1, true,  mid_for(Face::PosZ), self.light_bin(x, y, z, Face::PosZ));
+            self.toggle_z(x, y, z, z1, x0, x1, y0, y1, true,  mid_for(Face::PosZ));
         }
         if self.world_block(wx, wy, wz - 1).id == air_id {
-            self.toggle_z(x, y, z, z0, x0, x1, y0, y1, false, mid_for(Face::NegZ), self.light_bin(x, y, z, Face::NegZ));
+            self.toggle_z(x, y, z, z0, x0, x1, y0, y1, false, mid_for(Face::NegZ));
         }
     }
 
@@ -464,6 +452,115 @@ impl<'a> WccMesher<'a> {
         emit_plane_mask!(self, builds, X);
         emit_plane_mask!(self, builds, Y);
         emit_plane_mask!(self, builds, Z);
+    }
+
+    /// Emits per-face uniform RGBA colors (computed from lighting) for all faces, in the same
+    /// deterministic order as `emit_into`, grouped by material id. Each face contributes 4
+    /// identical RGBA entries corresponding to its vertices.
+    pub fn emit_colors_into(
+        &self,
+        buf: &ChunkBuf,
+        reg: &BlockRegistry,
+        light: &LightGrid,
+        out: &mut HashMap<MaterialId, Vec<u8>>,
+    ) {
+        let scale = 1.0 / self.S as f32;
+        // X planes
+        let width_x = self.S * self.sz;
+        let height_x = self.S * self.sy;
+        for ix in 0..(self.S * self.sx) {
+            for iy in 0..height_x {
+                for iz in 0..width_x {
+                    let idx = self.grids.idx_x(ix, iy, iz);
+                    if !self.grids.px.get(idx) { continue; }
+                    let key = self.grids.kx[idx];
+                    if key == 0 { continue; }
+                    let mid = self.keys.get(key);
+                    let pos = self.grids.ox.get(idx);
+                    let face = if pos { Face::PosX } else { Face::NegX };
+                    let origin = Vec3 {
+                        x: (self.base_x as f32) + (ix as f32) * scale,
+                        y: (iy as f32) * scale,
+                        z: (self.base_z as f32) + (iz as f32) * scale,
+                    };
+                    let lx = ((origin.x.floor() as i32) - self.base_x) as usize;
+                    let ly = origin.y.floor() as usize;
+                    let lz = ((origin.z.floor() as i32) - self.base_z) as usize;
+                    let mut lv = light.sample_face_local_s2(buf, reg, lx, ly, lz, face.index());
+                    if lv < VISUAL_LIGHT_MIN { lv = VISUAL_LIGHT_MIN; }
+                    let rgba = [lv, lv, lv, OPAQUE_ALPHA];
+                    let v = out.entry(mid).or_default();
+                    v.extend_from_slice(&rgba);
+                    v.extend_from_slice(&rgba);
+                    v.extend_from_slice(&rgba);
+                    v.extend_from_slice(&rgba);
+                }
+            }
+        }
+        // Y planes
+        let width_y = self.S * self.sx;
+        let height_y = self.S * self.sz;
+        for iy in 0..(self.S * self.sy) {
+            for iz in 0..height_y {
+                for ix in 0..width_y {
+                    let idx = self.grids.idx_y(ix, iy, iz);
+                    if !self.grids.py.get(idx) { continue; }
+                    let key = self.grids.ky[idx];
+                    if key == 0 { continue; }
+                    let mid = self.keys.get(key);
+                    let pos = self.grids.oy.get(idx);
+                    let face = if pos { Face::PosY } else { Face::NegY };
+                    let origin = Vec3 {
+                        x: (self.base_x as f32) + (ix as f32) * scale,
+                        y: (iy as f32) * scale,
+                        z: (self.base_z as f32) + (iz as f32) * scale,
+                    };
+                    let lx = ((origin.x.floor() as i32) - self.base_x) as usize;
+                    let ly = origin.y.floor() as usize;
+                    let lz = ((origin.z.floor() as i32) - self.base_z) as usize;
+                    let mut lv = light.sample_face_local_s2(buf, reg, lx, ly, lz, face.index());
+                    if lv < VISUAL_LIGHT_MIN { lv = VISUAL_LIGHT_MIN; }
+                    let rgba = [lv, lv, lv, OPAQUE_ALPHA];
+                    let v = out.entry(mid).or_default();
+                    v.extend_from_slice(&rgba);
+                    v.extend_from_slice(&rgba);
+                    v.extend_from_slice(&rgba);
+                    v.extend_from_slice(&rgba);
+                }
+            }
+        }
+        // Z planes
+        let width_z = self.S * self.sx;
+        let height_z = self.S * self.sy;
+        for iz in 0..(self.S * self.sz) {
+            for iy in 0..height_z {
+                for ix in 0..width_z {
+                    let idx = self.grids.idx_z(ix, iy, iz);
+                    if !self.grids.pz.get(idx) { continue; }
+                    let key = self.grids.kz[idx];
+                    if key == 0 { continue; }
+                    let mid = self.keys.get(key);
+                    let pos = self.grids.oz.get(idx);
+                    let face = if pos { Face::PosZ } else { Face::NegZ };
+                    let origin = Vec3 {
+                        x: (self.base_x as f32) + (ix as f32) * scale,
+                        y: (iy as f32) * scale,
+                        z: (self.base_z as f32) + (iz as f32) * scale,
+                    };
+                    let lx = ((origin.x.floor() as i32) - self.base_x) as usize;
+                    let ly = origin.y.floor() as usize;
+                    let lz = ((origin.z.floor() as i32) - self.base_z) as usize;
+                    let mut lv = light.sample_face_local_s2(buf, reg, lx, ly, lz, face.index());
+                    if lv < VISUAL_LIGHT_MIN { lv = VISUAL_LIGHT_MIN; }
+                    let rgba = [lv, lv, lv, OPAQUE_ALPHA];
+                    let v = out.entry(mid).or_default();
+                    v.extend_from_slice(&rgba);
+                    v.extend_from_slice(&rgba);
+                    v.extend_from_slice(&rgba);
+                    v.extend_from_slice(&rgba);
+                }
+            }
+        }
     }
 }
 

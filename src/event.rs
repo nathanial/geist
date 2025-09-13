@@ -90,6 +90,16 @@ pub enum Event {
         job_id: u64,
     },
 
+    // Lighting-only recompute result (Phase 1 decoupling)
+    ChunkLightingRecomputed {
+        cx: i32,
+        cz: i32,
+        rev: u64,
+        colors: std::collections::HashMap<geist_blocks::types::MaterialId, Vec<u8>>,
+        light_borders: Option<LightBorders>,
+        job_id: u64,
+    },
+
     // Structures
     StructureBuildRequested {
         id: StructureId,
@@ -295,6 +305,7 @@ impl EventQueue {
                     Event::LightEmitterAdded { .. } => "LightEmitterAdded",
                     Event::LightEmitterRemoved { .. } => "LightEmitterRemoved",
                     Event::LightBordersUpdated { .. } => "LightBordersUpdated",
+                    Event::ChunkLightingRecomputed { .. } => "ChunkLightingRecomputed",
                 };
                 *by.entry(label).or_insert(0) += 1;
             }
