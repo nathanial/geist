@@ -1890,6 +1890,9 @@ impl App {
             Event::BiomeLabelToggled => {
                 self.gs.show_biome_label = !self.gs.show_biome_label;
             }
+            Event::DebugOverlayToggled => {
+                self.gs.show_debug_overlay = !self.gs.show_debug_overlay;
+            }
             Event::PlaceTypeSelected { block } => {
                 self.gs.place_type = block;
             }
@@ -2041,6 +2044,9 @@ impl App {
         }
         if rl.is_key_pressed(KeyboardKey::KEY_H) {
             self.queue.emit_now(Event::BiomeLabelToggled);
+        }
+        if rl.is_key_pressed(KeyboardKey::KEY_F3) {
+            self.queue.emit_now(Event::DebugOverlayToggled);
         }
         // Hotbar selection: if config present, use it; else fallback to legacy mapping
         if !self.hotbar.is_empty() {
@@ -2284,6 +2290,7 @@ impl App {
                 Event::ChunkBoundsToggled => "ChunkBoundsToggled",
                 Event::FrustumCullingToggled => "FrustumCullingToggled",
                 Event::BiomeLabelToggled => "BiomeLabelToggled",
+                Event::DebugOverlayToggled => "DebugOverlayToggled",
                 Event::PlaceTypeSelected { .. } => "PlaceTypeSelected",
                 Event::MovementRequested { .. } => "MovementRequested",
                 Event::RaycastEditRequested { .. } => "RaycastEditRequested",
@@ -2359,10 +2366,40 @@ impl App {
         let aspect_ratio = screen_width / screen_height;
         let frustum = self.cam.calculate_frustum(aspect_ratio, 0.1, 10000.0); // Increased far plane
 
-        let camera3d = self.cam.to_camera3d();
+        // Time-of-day sky color (used for clear background and surface fog)
         let time_now = rl.get_time() as f32;
+        let day_length_sec = 60.0_f32; // ~4 minutes per full cycle
+        let phase = (time_now / day_length_sec) * std::f32::consts::TAU; // 0..2pi
+        let sky_scale = 0.5 * (1.0 + phase.sin()); // 0..1 (0 = midnight, 1 = noon)
+        let day_sky = [210.0 / 255.0, 221.0 / 255.0, 235.0 / 255.0];
+        let night_sky = [10.0 / 255.0, 12.0 / 255.0, 20.0 / 255.0];
+        let t_gamma = sky_scale.powf(1.5);
+        // Base sky from night->day blend
+        let base_sky = [
+            night_sky[0] + (day_sky[0] - night_sky[0]) * t_gamma,
+            night_sky[1] + (day_sky[1] - night_sky[1]) * t_gamma,
+            night_sky[2] + (day_sky[2] - night_sky[2]) * t_gamma,
+        ];
+        // Dawn/Dusk warm tint: peak near sunrise/sunset, minimal at noon/midnight
+        let warm_tint = [1.0, 0.63, 0.32];
+        let twilight = phase.cos().abs().powf(3.0); // 0 at noon/midnight, 1 at dawn/dusk
+        // Scale warmth by how bright the sky is to avoid over-saturating at night
+        let warm_strength = (0.35 * twilight * sky_scale).clamp(0.0, 0.5);
+        let surface_sky = [
+            base_sky[0] * (1.0 - warm_strength) + warm_tint[0] * warm_strength,
+            base_sky[1] * (1.0 - warm_strength) + warm_tint[1] * warm_strength,
+            base_sky[2] * (1.0 - warm_strength) + warm_tint[2] * warm_strength,
+        ];
+
+        let camera3d = self.cam.to_camera3d();
         let mut d = rl.begin_drawing(thread);
-        d.clear_background(Color::new(210, 221, 235, 255));
+        // Skybox: clear background to time-of-day sky color
+        d.clear_background(Color::new(
+            (surface_sky[0] * 255.0) as u8,
+            (surface_sky[1] * 255.0) as u8,
+            (surface_sky[2] * 255.0) as u8,
+            255,
+        ));
         // Ensure the depth buffer is cleared every frame to avoid ghost silhouettes when moving
         unsafe {
             raylib::ffi::rlClearScreenBuffers();
@@ -2403,7 +2440,6 @@ impl App {
                 .unwrap_or(false);
 
             // Update shader uniforms
-            let surface_fog = [210.0 / 255.0, 221.0 / 255.0, 235.0 / 255.0];
             let cave_fog = [0.0, 0.0, 0.0];
             // Underwater tint: soft blue-green
             let water_fog = [0.16, 0.32, 0.45];
@@ -2415,15 +2451,11 @@ impl App {
             } else if underground {
                 cave_fog
             } else {
-                surface_fog
+                surface_sky
             };
             // Fog ranges: denser underwater
             let fog_start = if underwater { 4.0 } else { 64.0 };
             let fog_end = if underwater { 48.0 } else { 512.0 * 0.9 };
-            // Day/Night skylight scale: oscillates 0..1 over a configurable day length
-            let day_length_sec = 240.0_f32; // ~4 minutes per full cycle
-            let phase = (time_now / day_length_sec) * std::f32::consts::TAU; // 0..2pi
-            let sky_scale = 0.5 * (1.0 + phase.sin()); // 0..1 (0 = midnight, 1 = noon)
             if let Some(ref mut ls) = self.leaves_shader {
                 ls.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end, time_now, underwater, sky_scale);
             }
@@ -2815,6 +2847,7 @@ impl App {
             }
         }
 
+        if self.gs.show_debug_overlay {
         // Debug overlay (lower left)
         let fps = d.get_fps();
         let mut debug_text = format!(
@@ -2976,11 +3009,12 @@ impl App {
                 d.draw_rectangle_lines(hx - 1, hy - 1, tile + 2, tile + 2, Color::YELLOW);
             }
         }
+        } // end debug overlay
 
         // HUD
         let hud_mode = if self.gs.walk_mode { "Walk" } else { "Fly" };
         let hud = format!(
-            "{}: Tab capture, WASD{} move{}, V toggle mode, F wireframe, G grid, B bounds, C culling, H biome label, L add light, K remove light | Place: {:?} (1-7) | Castle vX={:.1} (-/= adj, 0 stop) vY={:.1} ([/] adj, \\ stop)",
+            "{}: Tab capture, WASD{} move{}, V toggle mode, F wireframe, G grid, B bounds, C culling, H biome label, F3 debug overlay, L add light, K remove light | Place: {:?} (1-7) | Castle vX={:.1} (-/= adj, 0 stop) vY={:.1} ([/] adj, \\ stop)",
             hud_mode,
             if self.gs.walk_mode { "" } else { "+QE" },
             if self.gs.walk_mode {
@@ -2993,9 +3027,10 @@ impl App {
             self.gs.structure_elev_speed,
         );
         d.draw_text(&hud, 12, 12, 18, Color::DARKGRAY);
-        d.draw_fps(12, 36);
+        if self.gs.show_debug_overlay { d.draw_fps(12, 36); }
 
         // Biome label moved to debug overlay above
+        if !self.gs.show_debug_overlay { return; }
 
         // Debug overlay for attachment status
         let mut debug_y = 60;
@@ -3270,6 +3305,9 @@ impl App {
             }
             E::BiomeLabelToggled => {
                 log::info!(target: "events", "[tick {}] BiomeLabelToggled", tick);
+            }
+            E::DebugOverlayToggled => {
+                log::info!(target: "events", "[tick {}] DebugOverlayToggled", tick);
             }
             E::PlaceTypeSelected { block } => {
                 log::info!(target: "events", "[tick {}] PlaceTypeSelected block={:?}", tick, block);

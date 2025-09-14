@@ -27,6 +27,7 @@ pub enum Event {
     ChunkBoundsToggled,
     FrustumCullingToggled,
     BiomeLabelToggled,
+    DebugOverlayToggled,
     PlaceTypeSelected {
         block: Block,
     },
@@ -284,6 +285,7 @@ impl EventQueue {
                     Event::ChunkBoundsToggled => "ChunkBoundsToggled",
                     Event::FrustumCullingToggled => "FrustumCullingToggled",
                     Event::BiomeLabelToggled => "BiomeLabelToggled",
+                    Event::DebugOverlayToggled => "DebugOverlayToggled",
                     Event::PlaceTypeSelected { .. } => "PlaceTypeSelected",
                     Event::MovementRequested { .. } => "MovementRequested",
                     Event::RaycastEditRequested { .. } => "RaycastEditRequested",
