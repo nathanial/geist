@@ -87,7 +87,7 @@ pub enum Event {
         cpu: ChunkMeshCPU,
         buf: ChunkBuf,
         light_borders: Option<LightBorders>,
-        light_atlas: Option<geist_lighting::LightAtlas>,
+        light_grid: Option<geist_lighting::LightGrid>,
         job_id: u64,
     },
 
@@ -96,7 +96,7 @@ pub enum Event {
         cx: i32,
         cz: i32,
         rev: u64,
-        light_atlas: geist_lighting::LightAtlas,
+        light_grid: geist_lighting::LightGrid,
         job_id: u64,
     },
 

@@ -1313,7 +1313,7 @@ impl App {
                 cpu,
                 buf,
                 light_borders,
-                light_atlas,
+                light_grid,
                 job_id: _,
             } => {
                 // Drop if stale
@@ -1399,8 +1399,9 @@ impl App {
                         }
                     }
                     self.renders.insert((cx, cz), cr);
-                    if let Some(atlas) = light_atlas {
-                        // Validate seam rings against neighbor planes to catch mismatches
+                    if let Some(lg) = light_grid {
+                        let nb = self.gs.lighting.get_neighbor_borders(cx, cz);
+                        let atlas = pack_light_grid_atlas_with_neighbors(&lg, &nb);
                         self.validate_chunk_light_atlas(cx, cz, &atlas);
                         if let Some(cr) = self.renders.get_mut(&(cx, cz)) {
                             update_chunk_light_texture(rl, thread, cr, &atlas);
@@ -1451,7 +1452,7 @@ impl App {
                     }
                 }
             }
-            Event::ChunkLightingRecomputed { cx, cz, rev, light_atlas, job_id: _ } => {
+            Event::ChunkLightingRecomputed { cx, cz, rev, light_grid, job_id: _ } => {
                 // Drop if stale
                 let cur_rev = self.gs.edits.get_rev(cx, cz);
                 if rev < cur_rev {
@@ -1467,11 +1468,11 @@ impl App {
                     self.gs.inflight_rev.remove(&(cx, cz));
                     return;
                 }
-                // Validate seam rings against neighbor planes to catch mismatches
-                self.validate_chunk_light_atlas(cx, cz, &light_atlas);
-                // Update GPU light texture for existing chunk
+                let nb = self.gs.lighting.get_neighbor_borders(cx, cz);
+                let atlas = pack_light_grid_atlas_with_neighbors(&light_grid, &nb);
+                self.validate_chunk_light_atlas(cx, cz, &atlas);
                 if let Some(cr) = self.renders.get_mut(&(cx, cz)) {
-                    update_chunk_light_texture(rl, thread, cr, &light_atlas);
+                    update_chunk_light_texture(rl, thread, cr, &atlas);
                 }
                 // If this was a finalize pass scheduled via lighting-only lane, mark completion
                 if let Some(st) = self.gs.finalize.get_mut(&(cx, cz)) {
@@ -2187,11 +2188,7 @@ impl App {
         results.sort_by_key(|r| r.job_id);
         for r in results {
             if let Some(cpu) = r.cpu {
-                // For mesh builds, pack atlas on main thread using freshest neighbor borders
-                let atlas = if let Some(ref lg) = r.light_grid {
-                    let nb = self.gs.lighting.get_neighbor_borders(r.cx, r.cz);
-                    Some(pack_light_grid_atlas_with_neighbors(lg, &nb))
-                } else { None };
+                // For mesh builds, pass through the grid; pack atlas later during event handling
                 self.queue.emit_now(Event::BuildChunkJobCompleted {
                     cx: r.cx,
                     cz: r.cz,
@@ -2199,10 +2196,10 @@ impl App {
                     cpu,
                     buf: r.buf,
                     light_borders: r.light_borders,
-                    light_atlas: atlas,
+                    light_grid: r.light_grid,
                     job_id: r.job_id,
                 });
-            } else if let Some(ref lg) = r.light_grid {
+            } else if let Some(lg) = r.light_grid {
                 // If macro light borders were computed on the light-only lane, update them here
                 // and notify neighbors on changes so they can refresh their seam rings.
                 if let Some(lb) = r.light_borders {
@@ -2218,14 +2215,11 @@ impl App {
                         });
                     }
                 }
-                // Pack atlas with live neighbor borders
-                let nb = self.gs.lighting.get_neighbor_borders(r.cx, r.cz);
-                let atlas = pack_light_grid_atlas_with_neighbors(lg, &nb);
                 self.queue.emit_now(Event::ChunkLightingRecomputed {
                     cx: r.cx,
                     cz: r.cz,
                     rev: r.rev,
-                    light_atlas: atlas,
+                    light_grid: lg,
                     job_id: r.job_id,
                 });
             }
