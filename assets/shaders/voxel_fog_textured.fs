@@ -11,6 +11,7 @@ uniform ivec3 lightDims;            // (sx, sy, sz)
 uniform ivec2 lightGrid;            // (grid_cols, grid_rows)
 uniform vec3  chunkOrigin;          // world-space min corner of this chunk
 uniform float visualLightMin;       // 0..1 brightness floor
+uniform float skyLightScale;        // 0..1 scale applied to skylight channel
 
 uniform vec3 fogColor;
 uniform float fogStart;
@@ -64,7 +65,10 @@ float sampleBrightness(vec3 worldPos, vec3 nrm) {
   vec3 l0 = texture(lightTex, uv0).rgb;
   vec2 uv1 = lightAtlasUV(vnAtlas);
   vec3 l1 = texture(lightTex, uv1).rgb;
-  float lv = max(max(max(l0.r, l0.g), l0.b), max(max(l1.r, l1.g), l1.b));
+  float blk = max(l0.r, l1.r);
+  float sky = max(l0.g, l1.g) * clamp(skyLightScale, 0.0, 1.0);
+  float bcn = max(l0.b, l1.b);
+  float lv = max(blk, max(sky, bcn));
   // Normalize from 0..1 (assuming input is 0..1 already from texture fetch)
   return max(lv, visualLightMin);
 }

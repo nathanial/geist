@@ -2169,31 +2169,7 @@ impl App {
                 .emit_now(Event::LightEmitterRemoved { wx, wy, wz });
         }
 
-        // Cycle lighting mode: FullMicro -> SeamMicro -> CoarseS2 -> FullMicro
-        if rl.is_key_pressed(KeyboardKey::KEY_M) {
-            use geist_lighting::LightingMode as LM;
-            let next = match self.gs.lighting.mode() {
-                LM::FullMicro => LM::SeamMicro,
-                LM::SeamMicro => LM::IterativeCPU,
-                LM::IterativeCPU => LM::CoarseS2,
-                LM::CoarseS2 => LM::FullMicro,
-            };
-            self.gs.lighting.set_mode(next);
-            // Schedule light-only recompute for visible chunks (hysteresis r+1)
-            let (ccx, ccz) = self.gs.center_chunk;
-            let r = self.gs.view_radius_chunks + 1;
-            let loaded: Vec<(i32, i32)> = self.gs.loaded.iter().cloned().collect();
-            for (cx, cz) in loaded {
-                let ring = (cx - ccx).abs().max((cz - ccz).abs());
-                if ring <= r {
-                    self.queue.emit_now(Event::ChunkRebuildRequested {
-                        cx,
-                        cz,
-                        cause: RebuildCause::LightingBorder,
-                    });
-                }
-            }
-        }
+        // Lighting mode cycling removed; FullMicro is the only supported mode.
 
         // Mouse edit intents
         let want_edit = rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT)
@@ -2444,14 +2420,18 @@ impl App {
             // Fog ranges: denser underwater
             let fog_start = if underwater { 4.0 } else { 64.0 };
             let fog_end = if underwater { 48.0 } else { 512.0 * 0.9 };
+            // Day/Night skylight scale: oscillates 0..1 over a configurable day length
+            let day_length_sec = 240.0_f32; // ~4 minutes per full cycle
+            let phase = (time_now / day_length_sec) * std::f32::consts::TAU; // 0..2pi
+            let sky_scale = 0.5 * (1.0 + phase.sin()); // 0..1 (0 = midnight, 1 = noon)
             if let Some(ref mut ls) = self.leaves_shader {
-                ls.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end, time_now, underwater);
+                ls.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end, time_now, underwater, sky_scale);
             }
             if let Some(ref mut fs) = self.fog_shader {
-                fs.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end, time_now, underwater);
+                fs.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end, time_now, underwater, sky_scale);
             }
             if let Some(ref mut ws) = self.water_shader {
-                ws.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end, time_now, underwater);
+                ws.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end, time_now, underwater, sky_scale);
             }
 
             // First pass: draw opaque parts and gather visible chunks for transparent pass
@@ -2873,14 +2853,8 @@ impl App {
             self.evt_processed_total
         ));
         right_text.push_str(&format!("\nIntents: {}", self.debug_stats.intents_size));
-        // Show lighting mode
-        let mode_lbl = match self.gs.lighting.mode() {
-            geist_lighting::LightingMode::FullMicro => "FullMicro",
-            geist_lighting::LightingMode::SeamMicro => "SeamMicro",
-            geist_lighting::LightingMode::IterativeCPU => "IterCPU",
-            geist_lighting::LightingMode::CoarseS2 => "CoarseS2",
-        };
-        right_text.push_str(&format!("\nLighting: {} (M to cycle)", mode_lbl));
+        // Show lighting mode (fixed)
+        right_text.push_str("\nLighting: FullMicro");
         // Runtime queue debug (vertical layout)
         let (q_e, if_e, q_l, if_l, q_b, if_b) = self.runtime.queue_debug_counts();
         right_text.push_str("\nRuntime Queues:");
@@ -2894,7 +2868,7 @@ impl App {
         let panel_templates = [
             "Processed Events (session): 1,000,000",
             "Intents: 1,000,000",
-            "Lighting: IterCPU (M to cycle)",
+            "Lighting: FullMicro",
             "Runtime Queues:",
             "  Edit  - q=1,000,000 inflight=1,000,000",
             "  Light - q=1,000,000 inflight=1,000,000",

@@ -251,6 +251,7 @@ pub struct LeavesShader {
     pub loc_light_grid: i32,
     pub loc_chunk_origin: i32,
     pub loc_vis_min: i32,
+    pub loc_sky_scale: i32,
 }
 
 impl LeavesShader {
@@ -275,6 +276,7 @@ impl LeavesShader {
         let loc_light_grid = shader.get_shader_location("lightGrid");
         let loc_chunk_origin = shader.get_shader_location("chunkOrigin");
         let loc_vis_min = shader.get_shader_location("visualLightMin");
+        let loc_sky_scale = shader.get_shader_location("skyLightScale");
         let mut s = Self {
             shader,
             loc_fog_color,
@@ -293,6 +295,7 @@ impl LeavesShader {
             loc_light_grid,
             loc_chunk_origin,
             loc_vis_min,
+            loc_sky_scale,
         };
         s.set_autumn_palette(
             [0.905, 0.678, 0.161],
@@ -332,6 +335,7 @@ impl LeavesShader {
         let loc_light_grid = shader.get_shader_location("lightGrid");
         let loc_chunk_origin = shader.get_shader_location("chunkOrigin");
         let loc_vis_min = shader.get_shader_location("visualLightMin");
+        let loc_sky_scale = shader.get_shader_location("skyLightScale");
         let mut s = Self {
             shader,
             loc_fog_color,
@@ -350,6 +354,7 @@ impl LeavesShader {
             loc_light_grid,
             loc_chunk_origin,
             loc_vis_min,
+            loc_sky_scale,
         };
         s.set_autumn_palette(
             [0.905, 0.678, 0.161],
@@ -392,6 +397,7 @@ impl LeavesShader {
         fog_end: f32,
         time: f32,
         underwater: bool,
+        sky_scale: f32,
     ) {
         if self.loc_fog_color >= 0 {
             self.shader.set_shader_value(self.loc_fog_color, fog_color);
@@ -412,6 +418,9 @@ impl LeavesShader {
         if self.loc_underwater >= 0 {
             let v: i32 = if underwater { 1 } else { 0 };
             self.shader.set_shader_value(self.loc_underwater, v);
+        }
+        if self.loc_sky_scale >= 0 {
+            self.shader.set_shader_value(self.loc_sky_scale, sky_scale);
         }
     }
     pub fn update_chunk_uniforms(
@@ -491,6 +500,7 @@ pub struct FogShader {
     pub loc_light_grid: i32,
     pub loc_chunk_origin: i32,
     pub loc_vis_min: i32,
+    pub loc_sky_scale: i32,
 }
 
 impl FogShader {
@@ -510,6 +520,7 @@ impl FogShader {
         let loc_light_grid = shader.get_shader_location("lightGrid");
         let loc_chunk_origin = shader.get_shader_location("chunkOrigin");
         let loc_vis_min = shader.get_shader_location("visualLightMin");
+        let loc_sky_scale = shader.get_shader_location("skyLightScale");
         Some(Self {
             shader,
             loc_fog_color,
@@ -523,6 +534,7 @@ impl FogShader {
             loc_light_grid,
             loc_chunk_origin,
             loc_vis_min,
+            loc_sky_scale,
         })
     }
     pub fn load_with_base(
@@ -549,6 +561,7 @@ impl FogShader {
         let loc_light_grid = shader.get_shader_location("lightGrid");
         let loc_chunk_origin = shader.get_shader_location("chunkOrigin");
         let loc_vis_min = shader.get_shader_location("visualLightMin");
+        let loc_sky_scale = shader.get_shader_location("skyLightScale");
         Some(Self {
             shader,
             loc_fog_color,
@@ -562,6 +575,7 @@ impl FogShader {
             loc_light_grid,
             loc_chunk_origin,
             loc_vis_min,
+            loc_sky_scale,
         })
     }
     pub fn update_frame_uniforms(
@@ -572,6 +586,7 @@ impl FogShader {
         fog_end: f32,
         time: f32,
         underwater: bool,
+        sky_scale: f32,
     ) {
         if self.loc_fog_color >= 0 {
             self.shader.set_shader_value(self.loc_fog_color, fog_color);
@@ -592,6 +607,9 @@ impl FogShader {
         if self.loc_underwater >= 0 {
             let v: i32 = if underwater { 1 } else { 0 };
             self.shader.set_shader_value(self.loc_underwater, v);
+        }
+        if self.loc_sky_scale >= 0 {
+            self.shader.set_shader_value(self.loc_sky_scale, sky_scale);
         }
     }
     pub fn update_chunk_uniforms(
@@ -671,6 +689,7 @@ pub struct WaterShader {
     pub loc_light_grid: i32,
     pub loc_chunk_origin: i32,
     pub loc_vis_min: i32,
+    pub loc_sky_scale: i32,
 }
 
 impl WaterShader {
@@ -698,6 +717,7 @@ impl WaterShader {
         let loc_light_grid = shader.get_shader_location("lightGrid");
         let loc_chunk_origin = shader.get_shader_location("chunkOrigin");
         let loc_vis_min = shader.get_shader_location("visualLightMin");
+        let loc_sky_scale = shader.get_shader_location("skyLightScale");
         Some(Self {
             loc_fog_color,
             loc_fog_start,
@@ -711,6 +731,7 @@ impl WaterShader {
             loc_chunk_origin,
             loc_vis_min,
             shader,
+            loc_sky_scale,
         })
     }
     pub fn update_frame_uniforms(
@@ -721,6 +742,7 @@ impl WaterShader {
         fog_end: f32,
         time: f32,
         underwater: bool,
+        sky_scale: f32,
     ) {
         if self.loc_fog_color >= 0 {
             self.shader.set_shader_value(self.loc_fog_color, fog_color);
@@ -741,6 +763,9 @@ impl WaterShader {
         if self.loc_underwater >= 0 {
             let v: i32 = if underwater { 1 } else { 0 };
             self.shader.set_shader_value(self.loc_underwater, v);
+        }
+        if self.loc_sky_scale >= 0 {
+            self.shader.set_shader_value(self.loc_sky_scale, sky_scale);
         }
     }
     pub fn update_chunk_uniforms(
