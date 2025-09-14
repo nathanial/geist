@@ -144,7 +144,7 @@ impl Runtime {
                         job.region_edits.into_iter().collect();
                     match lane {
                         Lane::Light => {
-                            if let Some((colors, light_borders)) = compute_chunk_colors_wcc_cpu_buf(
+                            if let Some(colors) = compute_chunk_colors_wcc_cpu_buf(
                                 &buf,
                                 &ls,
                                 &w,
@@ -157,7 +157,7 @@ impl Runtime {
                                     cpu: None,
                                     colors: Some(colors),
                                     buf,
-                                    light_borders,
+                                    light_borders: None,
                                     cx: job.cx,
                                     cz: job.cz,
                                     rev: job.rev,
@@ -176,9 +176,20 @@ impl Runtime {
                                 &job.reg,
                             );
                             if let Some((cpu, light_borders)) = built {
+                                // Also compute colors (read-only) to apply immediately after geometry upload
+                                let colors = compute_chunk_colors_wcc_cpu_buf(
+                                    &buf,
+                                    &ls,
+                                    &w,
+                                    Some(&snap_map),
+                                    job.cx,
+                                    job.cz,
+                                    &job.reg,
+                                )
+                                ;
                                 let _ = tx.send(JobOut {
                                     cpu: Some(cpu),
-                                    colors: None,
+                                    colors,
                                     buf,
                                     light_borders,
                                     cx: job.cx,

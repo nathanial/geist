@@ -409,7 +409,7 @@ pub fn compute_chunk_colors_wcc_cpu_buf(
     cx: i32,
     cz: i32,
     reg: &BlockRegistry,
-) -> Option<(HashMap<MaterialId, Vec<u8>>, Option<LightBorders>)> {
+) -> Option<HashMap<MaterialId, Vec<u8>>> {
     let sx = buf.sx; let sy = buf.sy; let sz = buf.sz;
     let base_x = buf.cx * sx as i32; let base_z = buf.cz * sz as i32;
     let light = compute_light_with_borders_buf(buf, lighting, reg, world);
@@ -526,6 +526,5 @@ pub fn compute_chunk_colors_wcc_cpu_buf(
             }
         }
     }}}
-    let light_borders = Some(LightBorders::from_grid(&light));
-    Some((colors, light_borders))
+    Some(colors)
 }

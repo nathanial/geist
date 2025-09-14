@@ -1239,6 +1239,7 @@ impl App {
                 cpu,
                 buf,
                 light_borders,
+                colors,
                 job_id: _,
             } => {
                 // Drop if stale
@@ -1324,8 +1325,11 @@ impl App {
                         }
                     }
                     self.renders.insert((cx, cz), cr);
-                    // Phase 1 lighting: schedule a color-only update immediately
-                    self.queue.emit_now(Event::ChunkRebuildRequested { cx, cz, cause: RebuildCause::LightingBorder });
+                    if let Some(cols) = colors {
+                        if let Some(cr) = self.renders.get_mut(&(cx, cz)) {
+                            update_chunk_colors(rl, thread, cr, &cols);
+                        }
+                    }
                 }
                 // Update CPU buf & built rev
                 self.gs.chunks.insert(
@@ -1371,7 +1375,7 @@ impl App {
                     }
                 }
             }
-            Event::ChunkLightingRecomputed { cx, cz, rev, colors, light_borders, job_id: _ } => {
+            Event::ChunkLightingRecomputed { cx, cz, rev, colors, job_id: _ } => {
                 // Drop if stale
                 let cur_rev = self.gs.edits.get_rev(cx, cz);
                 if rev < cur_rev {
@@ -1391,27 +1395,7 @@ impl App {
                 if let Some(cr) = self.renders.get_mut(&(cx, cz)) {
                     update_chunk_colors(rl, thread, cr, &colors);
                 }
-                // Update light borders; if changed, notify neighbors
-                if let Some(lb) = light_borders {
-                    let (changed, mask) = self.gs.lighting.update_borders_mask(cx, cz, lb);
-                    if changed {
-                        self.queue.emit_now(Event::LightBordersUpdated {
-                            cx,
-                            cz,
-                            xn_changed: mask.xn,
-                            xp_changed: mask.xp,
-                            zn_changed: mask.zn,
-                            zp_changed: mask.zp,
-                        });
-                    }
-                }
-                // Finalization bookkeeping
-                if let Some(st) = self.gs.finalize.get_mut(&(cx, cz)) {
-                    if st.finalize_requested {
-                        st.finalize_requested = false;
-                        st.finalized = true;
-                    }
-                }
+                // Do not update borders or trigger neighbors on color-only recomputes.
                 self.gs.inflight_rev.remove(&(cx, cz));
             }
             Event::ChunkRebuildRequested { cx, cz, cause } => {
@@ -2125,6 +2109,7 @@ impl App {
                     cpu,
                     buf: r.buf,
                     light_borders: r.light_borders,
+                    colors: r.colors,
                     job_id: r.job_id,
                 });
             } else if let Some(colors) = r.colors {
@@ -2133,7 +2118,6 @@ impl App {
                     cz: r.cz,
                     rev: r.rev,
                     colors,
-                    light_borders: r.light_borders,
                     job_id: r.job_id,
                 });
             }

@@ -87,6 +87,7 @@ pub enum Event {
         cpu: ChunkMeshCPU,
         buf: ChunkBuf,
         light_borders: Option<LightBorders>,
+        colors: Option<std::collections::HashMap<geist_blocks::types::MaterialId, Vec<u8>>>,
         job_id: u64,
     },
 
@@ -96,7 +97,6 @@ pub enum Event {
         cz: i32,
         rev: u64,
         colors: std::collections::HashMap<geist_blocks::types::MaterialId, Vec<u8>>,
-        light_borders: Option<LightBorders>,
         job_id: u64,
     },
 
