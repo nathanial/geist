@@ -1,6 +1,6 @@
 **Context**
 - Goal: decouple lighting from meshing and eliminate seam artifacts while retaining performance and determinism.
-- Outcome: moved light atlas ring packing to the main thread using live neighbor borders; added strict runtime validation to catch inconsistencies.
+- Outcome: moved light atlas ring packing to the main thread using live neighbor borders; added strict runtime validation to catch inconsistencies. Warning backlog across crates has been cleaned to zero.
 
 **What Made This Hard**
 - Asynchronous lifecycle/races
@@ -42,12 +42,11 @@
   - There are solid unit/property tests in `geist-lighting`, but no integration tests asserting that atlas rings equal neighbor planes for representative layouts.
   - Suggestion: add an integration test that creates two adjacent chunks with contrasting skylight/block values, feeds borders, packs atlas on main thread, and asserts ring equality; also test the shader addressing math via CPU emulation.
 
-- Warning backlog
-  - Numerous warnings across crates (unused imports/variables, snake_case, etc.). Not functionally broken, but they add noise and obscure meaningful warnings.
-  - Suggestion: gradually clean warnings or add `#![deny(warnings)]` behind a CI feature to keep drift small.
+~ Warning backlog
+  - Status: addressed. Cleaned unused imports/variables, dead code, and style warnings across crates. `cargo check` now reports zero warnings in dev profile. We kept some test-only helpers under `#[cfg(test)]` and explicitly marked a constant with `#[allow(dead_code)]` for future use to stay warning-free.
 
 **Follow‑Up Actions (High Value)**
-- Deprecate worker‑packed atlas API; mandate main‑thread packing with live borders.
+- Deprecate worker‑packed atlas API; mandate main‑thread packing with live borders. [Proposed next]
 - Add a debug flag to turn validation into log+requeue in non‑dev builds.
 - Write a small integration test harness for ring seams (X/Z, ± sides) and atlas packing.
 - Add a short design note documenting seam ownership, finalize gating, and shader ring sampling assumptions.
@@ -57,5 +56,11 @@
 - Consider a “seam cache” that precomputes rings for neighbor pairs and updates both owners atomically to reduce recompute fanout.
 
 **Summary**
-- The core issue was a race between when neighbor borders were read vs when they were used. The clean fix is to assemble seam rings at upload time from the authoritative store. The remaining debt is primarily around API sharp edges, event ordering complexity, and missing integration tests for seam correctness.
+- The core issue was a race between when neighbor borders were read vs when they were used. The clean fix is to assemble seam rings at upload time from the authoritative store. This is implemented, shaders now sample both ± ring sides, and a strict runtime validator catches regressions. The warning backlog has been cleared. Remaining debt is primarily around deprecating the worker‑packed atlas API, gating the validator in production, and adding integration tests plus a short design note.
 
+**Next Highest‑Value Improvement (Proposal)**
+- Deprecate and isolate worker‑side atlas packing to prevent regressions.
+  - Add `#[deprecated(note = "Use pack_light_grid_atlas_with_neighbors")]` to `pack_light_grid_atlas` in `geist-lighting`, or make it `pub(crate)`.
+  - Add a unit test ensuring app/runtime paths only call `pack_light_grid_atlas_with_neighbors`.
+  - Optional: behind a `strict-lighting` feature, `#[deny(deprecated)]` to force call‑site migration in CI.
+  - Rationale: this removes the primary footgun that can silently reintroduce seam races and requires minimal code churn with high long‑term safety.
