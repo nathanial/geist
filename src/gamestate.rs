@@ -34,6 +34,8 @@ pub struct GameState {
     pub chunks: HashMap<(i32, i32), ChunkEntry>,
     // How many times each chunk has completed meshing (by (cx, cz))
     pub mesh_counts: HashMap<(i32, i32), u32>,
+    // How many times each chunk has completed a light-only recompute (no mesh)
+    pub light_counts: HashMap<(i32, i32), u32>,
     // Track newest rev sent to workers per chunk to avoid redundant requeues
     pub inflight_rev: HashMap<(i32, i32), u64>,
     // Finalization tracking per chunk (no-timeout finalize after both owners publish)
@@ -88,6 +90,7 @@ impl GameState {
             loaded: HashSet::new(),
             chunks: HashMap::new(),
             mesh_counts: HashMap::new(),
+            light_counts: HashMap::new(),
             inflight_rev: HashMap::new(),
             finalize: HashMap::new(),
             edits,

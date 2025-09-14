@@ -1473,6 +1473,8 @@ impl App {
                 if let Some(cr) = self.renders.get_mut(&(cx, cz)) {
                     update_chunk_light_texture(rl, thread, cr, &atlas);
                 }
+                // Track light-only recompute count for minimap/debug
+                *self.gs.light_counts.entry((cx, cz)).or_insert(0) += 1;
                 // If this was a finalize pass scheduled via lighting-only lane, mark completion
                 if let Some(st) = self.gs.finalize.get_mut(&(cx, cz)) {
                     if st.finalize_requested {
@@ -2888,13 +2890,22 @@ impl App {
             if w > 0 && h > 0 {
                 let gap: i32 = 2;
                 let pad: i32 = 6;
-                // Pick a tile size that keeps minimap within ~1/2 screen in each dimension
-                let max_tile: i32 = 16;
-                let half_w = screen_width / 2;
-                let half_h = screen_height / 2;
-                let tile_w_fit = (half_w - pad * 2 - (w - 1) * gap) / w;
-                let tile_h_fit = (half_h - pad * 2 - (h - 1) * gap) / h;
-                let mut tile = max_tile.min(tile_w_fit.min(tile_h_fit)).max(6);
+                // Pick a tile size that keeps minimap within ~3/4 screen in each dimension
+                // Make tiles larger to fit mesh/light labels comfortably
+                let max_tile: i32 = 32;
+                let lim_w = (screen_width * 3) / 4;
+                let lim_h = (screen_height * 3) / 4;
+                let tile_w_fit = (lim_w - pad * 2 - (w - 1) * gap) / w;
+                let tile_h_fit = (lim_h - pad * 2 - (h - 1) * gap) / h;
+                let tile_fit = tile_w_fit.min(tile_h_fit);
+                let mut tile = max_tile.min(tile_fit).max(8);
+                // Ensure tile is large enough for label "mesh/light"
+                // using a conservative width sample
+                let fs_sample = 14;
+                let label_req = d.measure_text("9999/9999", fs_sample) + 8; // text + small padding
+                if label_req > tile {
+                    tile = label_req.min(tile_fit).max(8);
+                }
                 // Fallback if extreme aspect shrinks too far
                 if tile < 6 { tile = 6; }
                 let map_w: i32 = w * tile + (w - 1) * gap + pad * 2;
@@ -2918,11 +2929,12 @@ impl App {
                         let iz = dz + r; // 0..h-1
                         let cell_x = mx + pad + ix * (tile + gap);
                         let cell_y = my + pad + iz * (tile + gap);
-                        let count = *self.gs.mesh_counts.get(&(cx, cz)).unwrap_or(&0);
-                        // Fill color based on count (simple green heat)
-                        let heat = count.min(12) as i32;
+                        let mesh_c = *self.gs.mesh_counts.get(&(cx, cz)).unwrap_or(&0);
+                        let light_c = *self.gs.light_counts.get(&(cx, cz)).unwrap_or(&0);
+                        // Fill color based on mesh count (simple green heat)
+                        let heat = mesh_c.min(12) as i32;
                         let g = (40 + heat * 16).clamp(40, 255) as u8;
-                        let fill = if count == 0 {
+                        let fill = if mesh_c == 0 {
                             Color::new(60, 60, 60, 200)
                         } else {
                             Color::new(30, g, 50, 220)
@@ -2935,9 +2947,13 @@ impl App {
                             Color::new(180, 180, 180, 200)
                         };
                         d.draw_rectangle_lines(cell_x, cell_y, tile, tile, border);
-                        // Count label
-                        let label = if count > 0 { count.to_string() } else { String::from("0") };
-                        let fs = 12;
+                        // Count label: mesh/light
+                        let label = format!("{}/{}", mesh_c, light_c);
+                        // Pick a font size that fits inside the tile (width + height)
+                        let mut fs = 14;
+                        // bound by tile height too
+                        if fs > tile - 2 { fs = (tile - 2).max(8); }
+                        while fs > 8 && d.measure_text(&label, fs) > tile - 4 { fs -= 1; }
                         let tw = d.measure_text(&label, fs);
                         let tx = cell_x + tile / 2 - tw / 2;
                         let ty = cell_y + tile / 2 - fs / 2;
