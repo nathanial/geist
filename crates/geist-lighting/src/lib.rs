@@ -1405,7 +1405,7 @@ impl LightingStore {
             emitters: Mutex::new(HashMap::new()),
             micro_borders: Mutex::new(HashMap::new()),
             // Default to coarse BFS with S=2 gating (fast, no dark quads near stairs)
-            mode: AtomicU8::new(LightingMode::IterativeCPU as u8),
+            mode: AtomicU8::new(LightingMode::FullMicro as u8),
         }
     }
     /// Set the global lighting mode.
