@@ -423,8 +423,18 @@ impl LeavesShader {
         chunk_origin: [f32; 3],
         visual_min: f32,
     ) {
-        if self.loc_light_tex >= 0 {
-            unsafe { raylib::ffi::SetShaderValueTexture(*self.shader.as_ref(), self.loc_light_tex, *tex.as_ref()); }
+        // Bind light texture to a dedicated texture unit to avoid collisions with material maps
+        const LIGHT_TEX_SLOT: i32 = 7;
+        unsafe {
+            raylib::ffi::rlActiveTextureSlot(LIGHT_TEX_SLOT as i32);
+            let t = *tex.as_ref();
+            raylib::ffi::rlEnableTexture(t.id);
+            // Point the sampler uniform to LIGHT_TEX_SLOT
+            if self.loc_light_tex >= 0 {
+                self.shader.set_shader_value(self.loc_light_tex, LIGHT_TEX_SLOT);
+            }
+            // Restore default slot for subsequent material binds
+            raylib::ffi::rlActiveTextureSlot(0);
         }
         if self.loc_light_dims >= 0 {
             let v = [light_dims.0, light_dims.1, light_dims.2];
@@ -593,8 +603,18 @@ impl FogShader {
         chunk_origin: [f32; 3],
         visual_min: f32,
     ) {
-        if self.loc_light_tex >= 0 {
-            unsafe { raylib::ffi::SetShaderValueTexture(*self.shader.as_ref(), self.loc_light_tex, *tex.as_ref()); }
+        // Bind light texture to a dedicated texture unit to avoid collisions with material maps
+        const LIGHT_TEX_SLOT: i32 = 7;
+        unsafe {
+            raylib::ffi::rlActiveTextureSlot(LIGHT_TEX_SLOT as i32);
+            let t = *tex.as_ref();
+            raylib::ffi::rlEnableTexture(t.id);
+            // Point the sampler uniform to LIGHT_TEX_SLOT
+            if self.loc_light_tex >= 0 {
+                self.shader.set_shader_value(self.loc_light_tex, LIGHT_TEX_SLOT);
+            }
+            // Restore default slot for subsequent material binds
+            raylib::ffi::rlActiveTextureSlot(0);
         }
         if self.loc_light_dims >= 0 {
             let v = [light_dims.0, light_dims.1, light_dims.2];
@@ -732,8 +752,18 @@ impl WaterShader {
         chunk_origin: [f32; 3],
         visual_min: f32,
     ) {
-        if self.loc_light_tex >= 0 {
-            unsafe { raylib::ffi::SetShaderValueTexture(*self.shader.as_ref(), self.loc_light_tex, *tex.as_ref()); }
+        // Bind light texture to a dedicated texture unit to avoid collisions with material maps
+        const LIGHT_TEX_SLOT: i32 = 7;
+        unsafe {
+            raylib::ffi::rlActiveTextureSlot(LIGHT_TEX_SLOT as i32);
+            let t = *tex.as_ref();
+            raylib::ffi::rlEnableTexture(t.id);
+            // Point the sampler uniform to LIGHT_TEX_SLOT
+            if self.loc_light_tex >= 0 {
+                self.shader.set_shader_value(self.loc_light_tex, LIGHT_TEX_SLOT);
+            }
+            // Restore default slot for subsequent material binds
+            raylib::ffi::rlActiveTextureSlot(0);
         }
         if self.loc_light_dims >= 0 {
             let v = [light_dims.0, light_dims.1, light_dims.2];
