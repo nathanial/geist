@@ -1833,5 +1833,98 @@ pub fn pack_light_grid_atlas(light: &LightGrid) -> LightAtlas {
     LightAtlas { data, width, height, sx: sx + 2, sy, sz: sz + 2, grid_cols, grid_rows }
 }
 
+/// Packs a `LightGrid` into a 2D RGBA8 atlas using the provided neighbor borders
+/// (fetched live from the `LightingStore` or cached externally). This avoids races
+/// where the worker-computed grid's embedded neighbor planes may be stale by the
+/// time of upload.
+pub fn pack_light_grid_atlas_with_neighbors(light: &LightGrid, nb: &NeighborBorders) -> LightAtlas {
+    let sx = light.sx;
+    let sy = light.sy;
+    let sz = light.sz;
+    // Choose grid columns ~ sqrt(sy)
+    let mut grid_cols = (sy as f32).sqrt().ceil() as usize;
+    if grid_cols == 0 { grid_cols = 1; }
+    let grid_rows = ((sy + grid_cols - 1) / grid_cols).max(1);
+    // Include -X/+X and -Z/+Z border rings
+    let tile_w = sx + 2;
+    let tile_h = sz + 2;
+    let width = tile_w * grid_cols;
+    let height = tile_h * grid_rows;
+    let mut data: Vec<u8> = vec![0u8; width * height * 4];
+    let idx3 = |x: usize, y: usize, z: usize| -> usize { (y * sz + z) * sx + x };
+    for y in 0..sy {
+        let tx = y % grid_cols;
+        let ty = y / grid_cols;
+        let ox = tx * tile_w;
+        let oy = ty * tile_h;
+        // Interior
+        for z in 0..sz {
+            for x in 0..sx {
+                let src = idx3(x, y, z);
+                let dst_x = ox + 1 + x;
+                let dst_y = oy + 1 + z;
+                let di = (dst_y * width + dst_x) * 4;
+                data[di + 0] = light.block_light[src];
+                data[di + 1] = light.skylight[src];
+                data[di + 2] = light.beacon_light[src];
+                data[di + 3] = match light.beacon_dir[src] { v => (v as f32 * (255.0/5.0)).round() as u8 };
+            }
+        }
+        // +X ring (from nb.xp)
+        if let (Some(nb_blk), Some(nb_sky), Some(nb_bcn)) = (&nb.xp, &nb.sk_xp, &nb.bcn_xp) {
+            for z in 0..sz {
+                let dst_x = ox + (sx + 1);
+                let dst_y = oy + 1 + z;
+                let di = (dst_y * width + dst_x) * 4;
+                let ii = y * sz + z;
+                data[di + 0] = nb_blk.get(ii).cloned().unwrap_or(0);
+                data[di + 1] = nb_sky.get(ii).cloned().unwrap_or(0);
+                data[di + 2] = nb_bcn.get(ii).cloned().unwrap_or(0);
+                data[di + 3] = 0;
+            }
+        }
+        // -X ring (from nb.xn)
+        if let (Some(nb_blk), Some(nb_sky), Some(nb_bcn)) = (&nb.xn, &nb.sk_xn, &nb.bcn_xn) {
+            for z in 0..sz {
+                let dst_x = ox + 0;
+                let dst_y = oy + 1 + z;
+                let di = (dst_y * width + dst_x) * 4;
+                let ii = y * sz + z;
+                data[di + 0] = nb_blk.get(ii).cloned().unwrap_or(0);
+                data[di + 1] = nb_sky.get(ii).cloned().unwrap_or(0);
+                data[di + 2] = nb_bcn.get(ii).cloned().unwrap_or(0);
+                data[di + 3] = 0;
+            }
+        }
+        // +Z ring (from nb.zp)
+        if let (Some(nb_blk), Some(nb_sky), Some(nb_bcn)) = (&nb.zp, &nb.sk_zp, &nb.bcn_zp) {
+            for x in 0..sx {
+                let dst_x = ox + 1 + x;
+                let dst_y = oy + (sz + 1);
+                let di = (dst_y * width + dst_x) * 4;
+                let ii = y * sx + x;
+                data[di + 0] = nb_blk.get(ii).cloned().unwrap_or(0);
+                data[di + 1] = nb_sky.get(ii).cloned().unwrap_or(0);
+                data[di + 2] = nb_bcn.get(ii).cloned().unwrap_or(0);
+                data[di + 3] = 0;
+            }
+        }
+        // -Z ring (from nb.zn)
+        if let (Some(nb_blk), Some(nb_sky), Some(nb_bcn)) = (&nb.zn, &nb.sk_zn, &nb.bcn_zn) {
+            for x in 0..sx {
+                let dst_x = ox + 1 + x;
+                let dst_y = oy + 0;
+                let di = (dst_y * width + dst_x) * 4;
+                let ii = y * sx + x;
+                data[di + 0] = nb_blk.get(ii).cloned().unwrap_or(0);
+                data[di + 1] = nb_sky.get(ii).cloned().unwrap_or(0);
+                data[di + 2] = nb_bcn.get(ii).cloned().unwrap_or(0);
+                data[di + 3] = 0;
+            }
+        }
+    }
+    LightAtlas { data, width, height, sx: sx + 2, sy, sz: sz + 2, grid_cols, grid_rows }
+}
+
 #[cfg(test)]
 mod tests;

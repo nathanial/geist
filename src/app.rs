@@ -9,7 +9,7 @@ use crate::gamestate::{ChunkEntry, GameState, FinalizeState};
 use crate::raycast;
 use geist_blocks::{Block, BlockRegistry};
 use geist_edit::EditStore;
-use geist_lighting::LightingStore;
+use geist_lighting::{LightingStore, pack_light_grid_atlas_with_neighbors};
 use geist_mesh_cpu::NeighborsLoaded;
 use geist_render_raylib::{ChunkRender, FogShader, LeavesShader, TextureCache, upload_chunk_mesh, update_chunk_light_texture};
 use geist_runtime::{BuildJob, JobOut, Runtime, StructureBuildJob};
@@ -2187,6 +2187,11 @@ impl App {
         results.sort_by_key(|r| r.job_id);
         for r in results {
             if let Some(cpu) = r.cpu {
+                // For mesh builds, pack atlas on main thread using freshest neighbor borders
+                let atlas = if let Some(ref lg) = r.light_grid {
+                    let nb = self.gs.lighting.get_neighbor_borders(r.cx, r.cz);
+                    Some(pack_light_grid_atlas_with_neighbors(lg, &nb))
+                } else { None };
                 self.queue.emit_now(Event::BuildChunkJobCompleted {
                     cx: r.cx,
                     cz: r.cz,
@@ -2194,10 +2199,10 @@ impl App {
                     cpu,
                     buf: r.buf,
                     light_borders: r.light_borders,
-                    light_atlas: r.light_atlas,
+                    light_atlas: atlas,
                     job_id: r.job_id,
                 });
-            } else if let Some(atlas) = r.light_atlas {
+            } else if let Some(ref lg) = r.light_grid {
                 // If macro light borders were computed on the light-only lane, update them here
                 // and notify neighbors on changes so they can refresh their seam rings.
                 if let Some(lb) = r.light_borders {
@@ -2213,6 +2218,9 @@ impl App {
                         });
                     }
                 }
+                // Pack atlas with live neighbor borders
+                let nb = self.gs.lighting.get_neighbor_borders(r.cx, r.cz);
+                let atlas = pack_light_grid_atlas_with_neighbors(lg, &nb);
                 self.queue.emit_now(Event::ChunkLightingRecomputed {
                     cx: r.cx,
                     cz: r.cz,

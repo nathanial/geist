@@ -7,7 +7,7 @@ use std::thread;
 
 use geist_blocks::{Block, BlockRegistry};
 use geist_chunk as chunkbuf;
-use geist_lighting::{LightAtlas, LightBorders, LightingStore, pack_light_grid_atlas, compute_light_with_borders_buf};
+use geist_lighting::{LightAtlas, LightBorders, LightGrid, LightingStore, compute_light_with_borders_buf};
 use geist_mesh_cpu::{ChunkMeshCPU, NeighborsLoaded, build_chunk_wcc_cpu_buf_with_light};
 use geist_world::World;
 
@@ -29,6 +29,7 @@ pub struct BuildJob {
 pub struct JobOut {
     pub cpu: Option<ChunkMeshCPU>,
     pub light_atlas: Option<LightAtlas>,
+    pub light_grid: Option<LightGrid>,
     pub buf: chunkbuf::ChunkBuf,
     pub light_borders: Option<LightBorders>,
     pub cx: i32,
@@ -146,12 +147,12 @@ impl Runtime {
                         Lane::Light => {
                             // Compute light only; upload atlas on main thread.
                             let lg = compute_light_with_borders_buf(&buf, &ls, &job.reg, &w);
-                            let atlas = pack_light_grid_atlas(&lg);
                             // Also publish macro light borders so neighbors can stitch without requiring a remesh.
                             let borders = LightBorders::from_grid(&lg);
                             let _ = tx.send(JobOut {
                                 cpu: None,
-                                light_atlas: Some(atlas),
+                                light_atlas: None,
+                                light_grid: Some(lg),
                                 buf,
                                 light_borders: Some(borders),
                                 cx: job.cx,
@@ -173,10 +174,10 @@ impl Runtime {
                                 &job.reg,
                             );
                             if let Some((cpu, light_borders)) = built {
-                                let atlas = pack_light_grid_atlas(&lg);
                                 let _ = tx.send(JobOut {
                                     cpu: Some(cpu),
-                                    light_atlas: Some(atlas),
+                                    light_atlas: None,
+                                    light_grid: Some(lg),
                                     buf,
                                     light_borders,
                                     cx: job.cx,
