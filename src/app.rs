@@ -2318,26 +2318,18 @@ impl App {
                 let dz = center.z - self.cam.position.z;
                 let dist2 = dx * dx + dy * dy + dz * dz;
                 visible_chunks.push((*ckey, dist2));
-                // Bind per-chunk lighting uniforms
+                // Precompute per-chunk lighting parameters
                 let origin = [
                     (cr.cx * self.gs.world.chunk_size_x as i32) as f32,
                     0.0,
                     (cr.cz * self.gs.world.chunk_size_z as i32) as f32,
                 ];
                 let vis_min = 18.0f32 / 255.0f32;
-                if let Some(ref lt) = cr.light_tex {
-                    let dims = (lt.sx, lt.sy, lt.sz);
-                    let grid = (lt.grid_cols, lt.grid_rows);
-                    if let Some(ref mut fs) = self.fog_shader { fs.update_chunk_uniforms(thread, &lt.tex, dims, grid, origin, vis_min); }
-                    if let Some(ref mut ls) = self.leaves_shader { ls.update_chunk_uniforms(thread, &lt.tex, dims, grid, origin, vis_min); }
-                    if let Some(ref mut ws) = self.water_shader { ws.update_chunk_uniforms(thread, &lt.tex, dims, grid, origin, vis_min); }
+                let (dims_some, grid_some) = if let Some(ref lt) = cr.light_tex {
+                    ((lt.sx, lt.sy, lt.sz), (lt.grid_cols, lt.grid_rows))
                 } else {
-                    let dims = (0, 0, 0);
-                    let grid = (0, 0);
-                    if let Some(ref mut fs) = self.fog_shader { fs.update_chunk_uniforms_no_tex(thread, dims, grid, origin, vis_min); }
-                    if let Some(ref mut ls) = self.leaves_shader { ls.update_chunk_uniforms_no_tex(thread, dims, grid, origin, vis_min); }
-                    if let Some(ref mut ws) = self.water_shader { ws.update_chunk_uniforms_no_tex(thread, dims, grid, origin, vis_min); }
-                }
+                    ((0, 0, 0), (0, 0))
+                };
                 // Set biome-based leaf palette per chunk if available
                 if let Some(ref mut ls) = self.leaves_shader {
                     if let Some(t) = cr.leaf_tint {
@@ -2370,6 +2362,27 @@ impl App {
                         .get(part.mid)
                         .and_then(|m| m.render_tag.as_deref());
                     if tag != Some("water") {
+                        // Bind only the shader used by this part, right before draw
+                        match tag {
+                            Some("leaves") => {
+                                if let Some(ref mut ls) = self.leaves_shader {
+                                    if let Some(ref lt) = cr.light_tex {
+                                        ls.update_chunk_uniforms(thread, &lt.tex, dims_some, grid_some, origin, vis_min);
+                                    } else {
+                                        ls.update_chunk_uniforms_no_tex(thread, dims_some, grid_some, origin, vis_min);
+                                    }
+                                }
+                            }
+                            _ => {
+                                if let Some(ref mut fs) = self.fog_shader {
+                                    if let Some(ref lt) = cr.light_tex {
+                                        fs.update_chunk_uniforms(thread, &lt.tex, dims_some, grid_some, origin, vis_min);
+                                    } else {
+                                        fs.update_chunk_uniforms_no_tex(thread, dims_some, grid_some, origin, vis_min);
+                                    }
+                                }
+                            }
+                        }
                         self.debug_stats.draw_calls += 1;
                         if self.gs.wireframe {
                             d3.draw_model_wires(&part.model, Vector3::zero(), 1.0, Color::WHITE);
@@ -2438,26 +2451,18 @@ impl App {
                     if self.gs.frustum_culling_enabled && !frustum.contains_bounding_box(&cr.bbox) {
                         continue;
                     }
-                    // Bind per-chunk lighting uniforms
+                    // Precompute per-chunk lighting parameters
                     let origin = [
                         (cr.cx * self.gs.world.chunk_size_x as i32) as f32,
                         0.0,
                         (cr.cz * self.gs.world.chunk_size_z as i32) as f32,
                     ];
                     let vis_min = 18.0f32 / 255.0f32;
-                    if let Some(ref lt) = cr.light_tex {
-                        let dims = (lt.sx, lt.sy, lt.sz);
-                        let grid = (lt.grid_cols, lt.grid_rows);
-                        if let Some(ref mut fs) = self.fog_shader { fs.update_chunk_uniforms(thread, &lt.tex, dims, grid, origin, vis_min); }
-                        if let Some(ref mut ls) = self.leaves_shader { ls.update_chunk_uniforms(thread, &lt.tex, dims, grid, origin, vis_min); }
-                        if let Some(ref mut ws) = self.water_shader { ws.update_chunk_uniforms(thread, &lt.tex, dims, grid, origin, vis_min); }
+                    let (dims_some, grid_some) = if let Some(ref lt) = cr.light_tex {
+                        ((lt.sx, lt.sy, lt.sz), (lt.grid_cols, lt.grid_rows))
                     } else {
-                        let dims = (0, 0, 0);
-                        let grid = (0, 0);
-                        if let Some(ref mut fs) = self.fog_shader { fs.update_chunk_uniforms_no_tex(thread, dims, grid, origin, vis_min); }
-                        if let Some(ref mut ls) = self.leaves_shader { ls.update_chunk_uniforms_no_tex(thread, dims, grid, origin, vis_min); }
-                        if let Some(ref mut ws) = self.water_shader { ws.update_chunk_uniforms_no_tex(thread, dims, grid, origin, vis_min); }
-                    }
+                        ((0, 0, 0), (0, 0))
+                    };
                     for part in &cr.parts {
                         let tag = self
                             .reg
@@ -2465,6 +2470,14 @@ impl App {
                             .get(part.mid)
                             .and_then(|m| m.render_tag.as_deref());
                         if tag == Some("water") {
+                            // Bind only the shader used by this part, right before draw
+                            if let Some(ref mut ws) = self.water_shader {
+                                if let Some(ref lt) = cr.light_tex {
+                                    ws.update_chunk_uniforms(thread, &lt.tex, dims_some, grid_some, origin, vis_min);
+                                } else {
+                                    ws.update_chunk_uniforms_no_tex(thread, dims_some, grid_some, origin, vis_min);
+                                }
+                            }
                             self.debug_stats.draw_calls += 1;
                             unsafe { raylib::ffi::rlDisableBackfaceCulling(); }
                             d3.draw_model(&part.model, Vector3::zero(), 1.0, Color::WHITE);

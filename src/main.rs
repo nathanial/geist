@@ -97,6 +97,10 @@ struct RunArgs {
     /// Rebuild loaded chunks automatically when worldgen config changes
     #[arg(long, default_value_t = true)]
     rebuild_on_worldgen_change: bool,
+
+    /// Disable frustum culling (render all loaded chunks)
+    #[arg(long, default_value_t = false)]
+    no_frustum_culling: bool,
 }
 
 impl Default for RunArgs {
@@ -114,6 +118,7 @@ impl Default for RunArgs {
             world_config: "assets/worldgen/worldgen.toml".to_string(),
             watch_worldgen: true,
             rebuild_on_worldgen_change: true,
+            no_frustum_culling: false,
         }
     }
 }
@@ -374,6 +379,9 @@ fn run_app(run: RunArgs, assets_root: std::path::PathBuf) {
         run.rebuild_on_worldgen_change,
         assets_root.clone(),
     );
+
+    // Apply initial frustum culling preference from CLI
+    app.gs.frustum_culling_enabled = !run.no_frustum_culling;
 
     while !rl.window_should_close() {
         let dt = rl.get_frame_time();
