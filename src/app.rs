@@ -13,7 +13,7 @@ use geist_lighting::{LightingStore, pack_light_grid_atlas_with_neighbors};
 use geist_mesh_cpu::NeighborsLoaded;
 use geist_render_raylib::{ChunkRender, FogShader, LeavesShader, TextureCache, upload_chunk_mesh, update_chunk_light_texture};
 use geist_runtime::{BuildJob, JobOut, Runtime, StructureBuildJob};
-use geist_structures::{Pose, Structure, StructureId, rotate_yaw, rotate_yaw_inv};
+use geist_structures::{Structure, StructureId, rotate_yaw, rotate_yaw_inv};
 use geist_world::voxel::{World, WorldGenMode};
 use serde::Deserialize;
 
@@ -105,7 +105,7 @@ impl App {
         let inner_sz = tile_h.saturating_sub(2);
         let sy = atlas.sy;
         let data = &atlas.data;
-        let mut at = |x: usize, y: usize| -> (u8, u8, u8) {
+        let at = |x: usize, y: usize| -> (u8, u8, u8) {
             let di = (y * width + x) * 4;
             (data[di + 0], data[di + 1], data[di + 2])
         };
@@ -550,7 +550,6 @@ impl App {
         // Flat worlds: keep existing ground placement.
         // Non-flat worlds: compute a flying platform sized to hold all schematics and stamp them onto it.
         {
-            use std::path::Path;
             let dir = crate::assets::schematics_dir(&assets_root);
             if dir.exists() {
                 match geist_io::list_schematics_with_size(dir.as_path()) {
@@ -1777,7 +1776,7 @@ impl App {
                     cause: RebuildCause::Edit,
                 });
             }
-            Event::LightBordersUpdated { cx, cz, xn_changed, xp_changed, zn_changed, zp_changed } => {
+            Event::LightBordersUpdated { cx, cz, xn_changed: _, xp_changed, zn_changed: _, zp_changed } => {
                 // Canonical seam ownership: only +X and +Z neighbors depend on our seam planes.
                 // Proactively schedule a light-only rebuild for affected neighbors to clear stale seam light,
                 // then mark owner readiness and attempt finalize once both owners have published.
@@ -1897,7 +1896,7 @@ impl App {
                 self.water_shader = Some(ws);
             }
             // Rebind shaders on all existing models
-            let mut rebind = |parts: &mut Vec<geist_render_raylib::ChunkPart>| {
+            let rebind = |parts: &mut Vec<geist_render_raylib::ChunkPart>| {
                 for part in parts.iter_mut() {
                     if let Some(mat) = part.model.materials_mut().get_mut(0) {
                         let tag = self
@@ -2383,7 +2382,7 @@ impl App {
             let world_h = self.gs.world.world_size_y() as f32;
             let underground_thr = 0.30_f32 * world_h;
             let underground = self.cam.position.y < underground_thr;
-            let mut fog_color = if underwater {
+            let fog_color = if underwater {
                 water_fog
             } else if underground {
                 cave_fog
@@ -2391,8 +2390,8 @@ impl App {
                 surface_fog
             };
             // Fog ranges: denser underwater
-            let mut fog_start = if underwater { 4.0 } else { 64.0 };
-            let mut fog_end = if underwater { 48.0 } else { 512.0 * 0.9 };
+            let fog_start = if underwater { 4.0 } else { 64.0 };
+            let fog_end = if underwater { 48.0 } else { 512.0 * 0.9 };
             if let Some(ref mut ls) = self.leaves_shader {
                 ls.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end, time_now, underwater);
             }
@@ -2880,7 +2879,7 @@ impl App {
                 let scr_w: i32 = screen_width;
                 let scr_h: i32 = screen_height;
                 // Prefer to place just above the right overlay block; fallback to bottom-right
-                let mut mx = scr_w - map_w - margin;
+                let mx = scr_w - map_w - margin;
                 let mut my = ry - map_h - 8; // 8px spacing above the right panel
                 if my < margin { my = scr_h - map_h - margin; }
                 // Background panel

@@ -2,7 +2,7 @@
 #![forbid(unsafe_code)]
 
 use geist_blocks::BlockRegistry;
-use geist_blocks::micro::{micro_cell_solid_s2, micro_face_cell_open_s2};
+use geist_blocks::micro::micro_face_cell_open_s2;
 use geist_blocks::types::Block;
 use geist_chunk::ChunkBuf;
 use std::collections::HashMap;
@@ -64,6 +64,7 @@ pub struct NeighborMicroBorders {
     pub zm: usize,
 }
 
+#[cfg(test)]
 #[inline]
 fn occ_bit(occ: u8, x: usize, y: usize, z: usize) -> bool {
     let idx = ((y & 1) << 2) | ((z & 1) << 1) | (x & 1);
@@ -1591,6 +1592,7 @@ impl LightingStore {
     }
 }
 
+#[cfg(test)]
 fn equal_planes(a: &LightBorders, b: &LightBorders) -> bool {
     a.xn == b.xn
         && a.xp == b.xp
@@ -1661,7 +1663,7 @@ impl NeighborBorders {
 // Entry point that chooses the lighting algorithm based on LightingStore mode.
 use geist_world::World;
 
-use crate::micro::MICRO_SKY_ATTENUATION;
+// use crate::micro::MICRO_SKY_ATTENUATION; // unused in this module
 
 pub fn compute_light_with_borders_buf(
     buf: &ChunkBuf,

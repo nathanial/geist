@@ -1,7 +1,7 @@
 use crate::{LightGrid, LightingStore, MicroBorders};
 use rayon::prelude::*;
 // (Arc used via .into() conversions when publishing planes)
-use geist_blocks::micro::{micro_cell_solid_s2, micro_face_cell_open_s2};
+use geist_blocks::micro::micro_face_cell_open_s2;
 use geist_blocks::{BlockRegistry, types::Block};
 use geist_chunk::ChunkBuf;
 use geist_world::World;
@@ -50,21 +50,6 @@ fn is_full_cube(reg: &BlockRegistry, b: Block) -> bool {
 }
 
 #[inline]
-fn micro_solid_at(buf: &ChunkBuf, reg: &BlockRegistry, mx: usize, my: usize, mz: usize) -> bool {
-    let x = mx >> 1;
-    let y = my >> 1;
-    let z = mz >> 1;
-    if x >= buf.sx || y >= buf.sy || z >= buf.sz {
-        return true;
-    }
-    let b = buf.get_local(x, y, z);
-    let lx = mx & 1;
-    let ly = my & 1;
-    let lz = mz & 1;
-    micro_cell_solid_s2(reg, b, lx, ly, lz)
-}
-
-#[inline]
 fn clamp_sub_u8(v: u8, d: u8) -> u8 {
     v.saturating_sub(d)
 }
@@ -99,10 +84,7 @@ pub fn compute_light_with_borders_buf_micro(
             }
         }
     }
-    #[inline]
-    fn occ_bit8(o: u8, x: usize, y: usize, z: usize) -> bool {
-        ((o >> (((y & 1) << 2) | ((z & 1) << 1) | (x & 1))) & 1) != 0
-    }
+    
     // Build a 1-bit-per-micro-cell occupancy bitset
     let micro_bit_count = mxs * mys * mzs;
     let mut micro_solid_bits = vec![0u64; (micro_bit_count + 63) / 64];
@@ -167,28 +149,7 @@ pub fn compute_light_with_borders_buf_micro(
             }
         }
     }
-    #[inline]
-    fn micro_solid_at_fast(
-        mx: usize,
-        my: usize,
-        mz: usize,
-        buf: &ChunkBuf,
-        occ8: &[u8],
-        full: &[u8],
-    ) -> bool {
-        let x = mx >> 1;
-        let y = my >> 1;
-        let z = mz >> 1;
-        if x >= buf.sx || y >= buf.sy || z >= buf.sz {
-            return true;
-        }
-        let i = (y * buf.sz + z) * buf.sx + x;
-        let o = occ8[i];
-        if o != 0 {
-            return occ_bit8(o, mx & 1, my & 1, mz & 1);
-        }
-        full[i] != 0
-    }
+    
 
     // BFS queues (stable order). We seed as we write, so no full-volume scan needed.
     struct Bucket {
@@ -283,7 +244,7 @@ pub fn compute_light_with_borders_buf_micro(
         }
     }
     // Phase 3: enqueue only boundary cells (open-above cells adjacent to a lateral neighbor that is NOT open-above at same Y)
-    let mut neighbor_start = |mx: isize, mz: isize| -> usize {
+    let neighbor_start = |mx: isize, mz: isize| -> usize {
         if mx < 0 || mz < 0 || mx >= mxs as isize || mz >= mzs as isize {
             // Out of bounds: treat as same start to avoid wasting seeds on chunk edges; neighbor planes handle seams
             return mys;

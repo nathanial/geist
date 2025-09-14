@@ -5,7 +5,6 @@ use geist_blocks::micro::micro_cell_solid_s2;
 use geist_blocks::types::{Block, MaterialId};
 use geist_chunk::ChunkBuf;
 use geist_geom::Vec3;
-use geist_lighting::LightGrid;
 use geist_world::World;
 
 use crate::emit::emit_face_rect_for_clipped;
@@ -17,9 +16,9 @@ use crate::constants::{OPAQUE_ALPHA, BITS_PER_WORD, WORD_INDEX_MASK, WORD_INDEX_
 // Emit per-cell face quads for a given axis by expanding a mask sourced from FaceGrids.
 macro_rules! emit_plane_mask {
     ($self:ident, $builds:ident, X) => {{
-        let width = $self.S * $self.sz;
-        let height = $self.S * $self.sy;
-        for ix in 0..($self.S * $self.sx) {
+        let width = $self.s * $self.sz;
+        let height = $self.s * $self.sy;
+        for ix in 0..($self.s * $self.sx) {
             let mut mask: Vec<Option<(MaterialId, bool)>> = vec![None; width * height];
             for iy in 0..height {
                 for iz in 0..width {
@@ -40,7 +39,7 @@ macro_rules! emit_plane_mask {
                     if let Some((mid, pos)) = mask[v0 * width + u0] {
                         let rgba = [255u8, 255u8, 255u8, OPAQUE_ALPHA];
                         let face = if pos { Face::PosX } else { Face::NegX };
-                        let scale = 1.0 / $self.S as f32;
+                        let scale = 1.0 / $self.s as f32;
                         let origin = Vec3 { x: ($self.base_x as f32) + (ix as f32) * scale, y: (v0 as f32) * scale, z: ($self.base_z as f32) + (u0 as f32) * scale };
                         let u1 = 1.0 * scale;
                         let v1 = 1.0 * scale;
@@ -51,9 +50,9 @@ macro_rules! emit_plane_mask {
         }
     }};
     ($self:ident, $builds:ident, Y) => {{
-        let width = $self.S * $self.sx;
-        let height = $self.S * $self.sz;
-        for iy in 0..($self.S * $self.sy) {
+        let width = $self.s * $self.sx;
+        let height = $self.s * $self.sz;
+        for iy in 0..($self.s * $self.sy) {
             let mut mask: Vec<Option<(MaterialId, bool)>> = vec![None; width * height];
             for iz in 0..height {
                 for ix in 0..width {
@@ -74,7 +73,7 @@ macro_rules! emit_plane_mask {
                     if let Some((mid, pos)) = mask[v0 * width + u0] {
                         let rgba = [255u8, 255u8, 255u8, OPAQUE_ALPHA];
                         let face = if pos { Face::PosY } else { Face::NegY };
-                        let scale = 1.0 / $self.S as f32;
+                        let scale = 1.0 / $self.s as f32;
                         let origin = Vec3 { x: ($self.base_x as f32) + (u0 as f32) * scale, y: (iy as f32) * scale, z: ($self.base_z as f32) + (v0 as f32) * scale };
                         let u1 = 1.0 * scale;
                         let v1 = 1.0 * scale;
@@ -85,9 +84,9 @@ macro_rules! emit_plane_mask {
         }
     }};
     ($self:ident, $builds:ident, Z) => {{
-        let width = $self.S * $self.sx;
-        let height = $self.S * $self.sy;
-        for iz in 0..($self.S * $self.sz) {
+        let width = $self.s * $self.sx;
+        let height = $self.s * $self.sy;
+        for iz in 0..($self.s * $self.sz) {
             let mut mask: Vec<Option<(MaterialId, bool)>> = vec![None; width * height];
             for iy in 0..height {
                 for ix in 0..width {
@@ -108,7 +107,7 @@ macro_rules! emit_plane_mask {
                     if let Some((mid, pos)) = mask[v0 * width + u0] {
                         let rgba = [255u8, 255u8, 255u8, OPAQUE_ALPHA];
                         let face = if pos { Face::PosZ } else { Face::NegZ };
-                        let scale = 1.0 / $self.S as f32;
+                        let scale = 1.0 / $self.s as f32;
                         let origin = Vec3 { x: ($self.base_x as f32) + (u0 as f32) * scale, y: (v0 as f32) * scale, z: ($self.base_z as f32) + (iz as f32) * scale };
                         let u1 = 1.0 * scale;
                         let v1 = 1.0 * scale;
@@ -175,45 +174,44 @@ struct FaceGrids {
     ky: Vec<u16>,
     kz: Vec<u16>,
     // Scales and dims
-    S: usize,
+    s: usize,
     sx: usize,
     sy: usize,
     sz: usize,
 }
 
 impl FaceGrids {
-    /// Creates face-grid storage sized for the given micro-scaling `S` and chunk dims.
-    fn new(S: usize, sx: usize, sy: usize, sz: usize) -> Self {
-        let nx = (S * sx + 1) * (S * sy) * (S * sz);
-        let ny = (S * sx) * (S * sy + 1) * (S * sz);
-        let nz = (S * sx) * (S * sy) * (S * sz + 1);
+    /// Creates face-grid storage sized for the given micro-scaling `s` and chunk dims.
+    fn new(s: usize, sx: usize, sy: usize, sz: usize) -> Self {
+        let nx = (s * sx + 1) * (s * sy) * (s * sz);
+        let ny = (s * sx) * (s * sy + 1) * (s * sz);
+        let nz = (s * sx) * (s * sy) * (s * sz + 1);
         Self {
             px: Bitset::new(nx), py: Bitset::new(ny), pz: Bitset::new(nz),
             ox: Bitset::new(nx), oy: Bitset::new(ny), oz: Bitset::new(nz),
             kx: vec![0; nx], ky: vec![0; ny], kz: vec![0; nz],
-            S, sx, sy, sz,
+            s, sx, sy, sz,
         }
     }
     /// Linear index into +X face grid at `(ix,iy,iz)`.
     #[inline]
-    fn idx_x(&self, ix: usize, iy: usize, iz: usize) -> usize { let wy = self.S * self.sy; let wz = self.S * self.sz; (ix * wy + iy) * wz + iz }
+    fn idx_x(&self, ix: usize, iy: usize, iz: usize) -> usize { let wy = self.s * self.sy; let wz = self.s * self.sz; (ix * wy + iy) * wz + iz }
     /// Linear index into +Y face grid at `(ix,iy,iz)`.
     #[inline]
-    fn idx_y(&self, ix: usize, iy: usize, iz: usize) -> usize { let wx = self.S * self.sx; let wz = self.S * self.sz; (iy * wz + iz) * wx + ix }
+    fn idx_y(&self, ix: usize, iy: usize, iz: usize) -> usize { let wx = self.s * self.sx; let wz = self.s * self.sz; (iy * wz + iz) * wx + ix }
     /// Linear index into +Z face grid at `(ix,iy,iz)`.
     #[inline]
-    fn idx_z(&self, ix: usize, iy: usize, iz: usize) -> usize { let wx = self.S * self.sx; let wy = self.S * self.sy; (iz * wy + iy) * wx + ix }
+    fn idx_z(&self, ix: usize, iy: usize, iz: usize) -> usize { let wx = self.s * self.sx; let wy = self.s * self.sy; (iz * wy + iy) * wx + ix }
 }
 
 pub struct WccMesher<'a> {
-    S: usize,
+    s: usize,
     sx: usize,
     sy: usize,
     sz: usize,
     grids: FaceGrids,
     keys: KeyTable,
     reg: &'a BlockRegistry,
-    light: &'a LightGrid,
     buf: &'a ChunkBuf,
     world: &'a World,
     edits: Option<&'a HashMap<(i32, i32, i32), Block>>,
@@ -225,9 +223,8 @@ impl<'a> WccMesher<'a> {
     /// Creates a new WCC mesher for the chunk buffer and lighting context.
     pub fn new(
         buf: &'a ChunkBuf,
-        light: &'a LightGrid,
         reg: &'a BlockRegistry,
-        S: usize,
+        s: usize,
         base_x: i32,
         base_z: i32,
         world: &'a World,
@@ -235,10 +232,10 @@ impl<'a> WccMesher<'a> {
     ) -> Self {
         let (sx, sy, sz) = (buf.sx, buf.sy, buf.sz);
         Self {
-            S, sx, sy, sz,
-            grids: FaceGrids::new(S, sx, sy, sz),
+            s, sx, sy, sz,
+            grids: FaceGrids::new(s, sx, sy, sz),
             keys: KeyTable::new(),
-            reg, light, buf, world, edits, base_x, base_z,
+            reg, buf, world, edits, base_x, base_z,
         }
     }
 
@@ -255,11 +252,11 @@ impl<'a> WccMesher<'a> {
                 if let (Some(ht), Some(_nt)) = (self.reg.get(here.id), self.reg.get(nb.id)) {
                     if ht.seam.dont_occlude_same && here.id == nb.id { continue; }
                 }
-                for iym in 0..self.S {
-                    for izm in 0..self.S {
+                for iym in 0..self.s {
+                    for izm in 0..self.s {
                         if micro_cell_solid_s2(self.reg, nb, 1, iym, izm) {
-                            let iy = ly * self.S + iym;
-                            let iz = lz * self.S + izm;
+                            let iy = ly * self.s + iym;
+                            let iz = lz * self.s + izm;
                             let mid = registry_material_for_or_unknown(nb, Face::PosX, self.reg);
                             self.toggle_x(0, 0, 0, 0, iy, iy + 1, iz, iz + 1, true, mid);
                         }
@@ -276,11 +273,11 @@ impl<'a> WccMesher<'a> {
                 if let (Some(ht), Some(_nt)) = (self.reg.get(here.id), self.reg.get(nb.id)) {
                     if ht.seam.dont_occlude_same && here.id == nb.id { continue; }
                 }
-                for ixm in 0..self.S {
-                    for iym in 0..self.S {
+                for ixm in 0..self.s {
+                    for iym in 0..self.s {
                         if micro_cell_solid_s2(self.reg, nb, ixm, iym, 1) {
-                            let ix = lx * self.S + ixm;
-                            let iy = ly * self.S + iym;
+                            let ix = lx * self.s + ixm;
+                            let iy = ly * self.s + iym;
                             let mid = registry_material_for_or_unknown(nb, Face::PosZ, self.reg);
                             self.toggle_z(0, 0, 0, 0, ix, ix + 1, iy, iy + 1, true, mid);
                         }
@@ -398,16 +395,16 @@ impl<'a> WccMesher<'a> {
 
     /// Adds a full cube at `(x,y,z)` into the WCC grids.
     pub fn add_cube(&mut self, x: usize, y: usize, z: usize, b: Block) {
-        let S = self.S;
-        let (x0, x1, y0, y1, z0, z1) = (x * S, (x + 1) * S, y * S, (y + 1) * S, z * S, (z + 1) * S);
+        let s = self.s;
+        let (x0, x1, y0, y1, z0, z1) = (x * s, (x + 1) * s, y * s, (y + 1) * s, z * s, (z + 1) * s);
         let mid_for = |f: Face| registry_material_for_or_unknown(b, f, self.reg);
         self.toggle_box(x, y, z, (x0, x1, y0, y1, z0, z1), mid_for);
     }
 
     /// Water meshing path: only toggle faces against air to avoid occluding terrain under water.
     pub fn add_water_cube(&mut self, x: usize, y: usize, z: usize, b: Block) {
-        let S = self.S;
-        let (x0, x1, y0, y1, z0, z1) = (x * S, (x + 1) * S, y * S, (y + 1) * S, z * S, (z + 1) * S);
+        let s = self.s;
+        let (x0, x1, y0, y1, z0, z1) = (x * s, (x + 1) * s, y * s, (y + 1) * s, z * s, (z + 1) * s);
         let mid_for = |f: Face| registry_material_for_or_unknown(b, f, self.reg);
         let (wx, wy, wz) = (self.base_x + x as i32, y as i32, self.base_z + z as i32);
         let air_id = self.reg.id_by_name("air").unwrap_or(0);
@@ -434,15 +431,15 @@ impl<'a> WccMesher<'a> {
     /// Adds micro occupancy at `(x,y,z)` by toggling each micro-box from the occupancy mask.
     pub fn add_micro(&mut self, x: usize, y: usize, z: usize, b: Block, occ: u8) {
         use crate::microgrid_tables::occ8_to_boxes;
-        let S = self.S;
+        let s = self.s;
         let mid_for = |f: Face| registry_material_for_or_unknown(b, f, self.reg);
         for mb in occ8_to_boxes(occ) {
-            let bx0 = x * S + (mb[0] as usize);
-            let by0 = y * S + (mb[1] as usize);
-            let bz0 = z * S + (mb[2] as usize);
-            let bx1 = x * S + (mb[3] as usize);
-            let by1 = y * S + (mb[4] as usize);
-            let bz1 = z * S + (mb[5] as usize);
+            let bx0 = x * s + (mb[0] as usize);
+            let by0 = y * s + (mb[1] as usize);
+            let bz0 = z * s + (mb[2] as usize);
+            let bx1 = x * s + (mb[3] as usize);
+            let by1 = y * s + (mb[4] as usize);
+            let bz1 = z * s + (mb[5] as usize);
             self.toggle_box(x, y, z, (bx0, bx1, by0, by1, bz0, bz1), mid_for);
         }
     }

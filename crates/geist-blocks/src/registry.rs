@@ -5,7 +5,7 @@ use std::path::Path;
 
 use super::config::{
     BlocksConfig, LightProfile, MaterialSelector, MaterialsDef, SeamPolicyCfg, SeamPolicyFlagsCfg,
-    SeamPolicySimple, ShapeConfig, ShapeDetailed, SourceDirs,
+    SeamPolicySimple, ShapeConfig, SourceDirs,
 };
 use super::material::MaterialCatalog;
 use super::types::{Block, BlockId, BlockState, FaceRole, MaterialId, Shape};

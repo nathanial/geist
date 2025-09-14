@@ -16,4 +16,7 @@ pub(crate) const WORD_INDEX_MASK: usize = 63; // (1<<6) - 1
 
 // Colors
 pub(crate) const OPAQUE_ALPHA: u8 = 255;
-
+/// Visual-only lighting floor to avoid pitch-black faces in darkness.
+/// Does not affect logical light propagation.
+#[allow(dead_code)]
+pub(crate) const VISUAL_LIGHT_MIN: u8 = 18; // ~7% brightness floor

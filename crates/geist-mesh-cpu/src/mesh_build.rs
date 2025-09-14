@@ -27,7 +27,7 @@ impl MeshBuild {
         rgba: [u8; 4],
     ) {
         // Default relative UVs (legacy)
-        let mut uvs = [(0.0, 0.0), (0.0, v1), (u1, v1), (u1, 0.0)];
+        let uvs = [(0.0, 0.0), (0.0, v1), (u1, v1), (u1, 0.0)];
         self.add_quad_uv(a, b, c, d, n, uvs, flip_v, rgba);
     }
 
@@ -40,7 +40,7 @@ impl MeshBuild {
         d: Vec3,
         n: Vec3,
         mut uvs: [(f32, f32); 4],
-        flip_v: bool,
+        _flip_v: bool,
         rgba: [u8; 4],
     ) {
         let base = self.pos.len() as u32 / 3;

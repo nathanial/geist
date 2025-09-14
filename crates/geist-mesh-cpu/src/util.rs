@@ -9,9 +9,7 @@ use geist_geom::Vec3;
 use crate::face::Face;
 use crate::constants::MICRO_HALF_STEP_SIZE;
 
-// Visual-only lighting floor to avoid pitch-black faces in darkness.
-// Does not affect logical light propagation.
-pub(crate) const VISUAL_LIGHT_MIN: u8 = 18; // ~7% brightness floor
+// Visual lighting floor logic removed; renderer handles tone mapping and fog.
 
 #[inline]
 /// Returns the "unknown" material id, or `0` if missing from the registry.
@@ -149,11 +147,7 @@ pub(crate) fn is_occluder(
 }
 
 
-#[inline]
-/// Applies an optional minimum light floor to avoid too-dark faces in rendering.
-pub(crate) fn apply_min_light(l: u8, min: Option<u8>) -> u8 {
-    if let Some(m) = min { l.max(m) } else { l }
-}
+// apply_min_light deprecated; keep behavior in shaders if needed.
 
 #[inline]
 /// Converts a micro occupancy mask into world-space AABBs at half-step resolution.

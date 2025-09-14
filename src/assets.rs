@@ -63,11 +63,6 @@ pub fn shaders_dir(root: &Path) -> PathBuf {
     root.join("assets/shaders")
 }
 
-pub fn worldgen_default_path(root: &Path) -> PathBuf {
-    root.join("assets/worldgen/worldgen.toml")
-}
-
 pub fn schematics_dir(root: &Path) -> PathBuf {
     root.join("schematics")
 }
-

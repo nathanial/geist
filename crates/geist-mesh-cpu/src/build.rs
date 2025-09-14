@@ -26,12 +26,8 @@ pub fn build_chunk_wcc_cpu_buf(
     cx: i32,
     cz: i32,
     reg: &BlockRegistry,
+
 ) -> Option<(ChunkMeshCPU, Option<LightBorders>)> {
-    let sx = buf.sx;
-    let sy = buf.sy;
-    let sz = buf.sz;
-    let base_x = buf.cx * sx as i32;
-    let base_z = buf.cz * sz as i32;
 
     let light = match lighting {
         Some(store) => compute_light_with_borders_buf(buf, store, reg, world),
@@ -58,8 +54,8 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
     let base_z = buf.cz * sz as i32;
 
     // Phase 2: Use a single WCC mesher at S=MICROGRID_STEPS to cover full cubes and micro occupancy.
-    let S: usize = MICROGRID_STEPS;
-    let mut wm = WccMesher::new(buf, light, reg, S, base_x, base_z, world, edits);
+    let s: usize = MICROGRID_STEPS;
+    let mut wm = WccMesher::new(buf, reg, s, base_x, base_z, world, edits);
 
     for z in 0..sz {
         for y in 0..sy {
@@ -147,7 +143,7 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
                             let mut boxes: Vec<(Vec3, Vec3)> = Vec::new();
                             boxes.push((Vec3 { x: fx + 0.5 - t, y: fy, z: fz + 0.5 - t }, Vec3 { x: fx + 0.5 + t, y: fy + 1.0, z: fz + 0.5 + t }));
                             // Connectors by side neighbors
-                            for &(dx, dz, face, ox, oz) in &crate::face::SIDE_NEIGHBORS {
+                            for &(dx, dz, _face, ox, oz) in &crate::face::SIDE_NEIGHBORS {
                                 if let Some(nb) = buf.get_world((fx as i32) + dx, fy as i32, (fz as i32) + dz) {
                                     if let Some(nb_ty) = reg.get(nb.id) {
                                         if matches!(nb_ty.shape, geist_blocks::types::Shape::Fence | geist_blocks::types::Shape::Pane) {
@@ -251,7 +247,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                         let mut boxes: Vec<(Vec3, Vec3)> = Vec::new();
                         boxes.push((Vec3 { x: fx + 0.5 - t, y: fy, z: fz + 0.5 - t }, Vec3 { x: fx + 0.5 + t, y: fy + 1.0, z: fz + 0.5 + t }));
                         // Connectors by side neighbors
-                        for &(dx, dz, face, ox, oz) in &crate::face::SIDE_NEIGHBORS {
+                        for &(dx, dz, _face, ox, oz) in &crate::face::SIDE_NEIGHBORS {
                             if let Some(nb) = buf.get_world((fx as i32) + dx, fy as i32, (fz as i32) + dz) {
                                 if let Some(nb_ty) = reg.get(nb.id) {
                                     if matches!(nb_ty.shape, geist_blocks::types::Shape::Fence | geist_blocks::types::Shape::Pane) {
@@ -433,8 +429,8 @@ pub fn compute_chunk_colors_wcc_cpu_buf(
     let sx = buf.sx; let sy = buf.sy; let sz = buf.sz;
     let base_x = buf.cx * sx as i32; let base_z = buf.cz * sz as i32;
     let light = compute_light_with_borders_buf(buf, lighting, reg, world);
-    let S: usize = crate::constants::MICROGRID_STEPS;
-    let mut wm = crate::wcc::WccMesher::new(buf, &light, reg, S, base_x, base_z, world, edits);
+    let s: usize = crate::constants::MICROGRID_STEPS;
+    let mut wm = crate::wcc::WccMesher::new(buf, reg, s, base_x, base_z, world, edits);
     // Occupancy (same as geometry pass)
     for z in 0..sz { for y in 0..sy { for x in 0..sx {
         let b = buf.get_local(x, y, z);

@@ -145,16 +145,7 @@ fn parity_area_random_full_cubes_s1() {
     let light = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
     // Minimal world; neighbors disabled so seam logic does not run
     let world = World::new(1, 1, sx, sy, sz, 0, WorldGenMode::Flat { thickness: 0 });
-    let mut wm = WccMesher::new(
-        &buf,
-        &light,
-        &reg,
-        1,
-        0,
-        0,
-        &world,
-        None,
-    );
+    let mut wm = WccMesher::new(&buf, &reg, 1, 0, 0, &world, None);
     for z in 0..sz {
         for y in 0..sy {
             for x in 0..sx {
@@ -221,26 +212,8 @@ fn seam_stitch_no_faces_on_shared_plane_s1() {
     let light_b = LightGrid::compute_with_borders_buf(&buf_b, &store, &reg);
     let world = World::new(2, 1, sx, sy, sz, 0, WorldGenMode::Flat { thickness: 0 });
     // Indicate neighbor presence along X so stitch logic is active
-    let mut wa = WccMesher::new(
-        &buf_a,
-        &light_a,
-        &reg,
-        1,
-        0,
-        0,
-        &world,
-        None,
-    );
-    let mut wb = WccMesher::new(
-        &buf_b,
-        &light_b,
-        &reg,
-        1,
-        sx as i32,
-        0,
-        &world,
-        None,
-    );
+    let mut wa = WccMesher::new(&buf_a, &reg, 1, 0, 0, &world, None);
+    let mut wb = WccMesher::new(&buf_b, &reg, 1, sx as i32, 0, &world, None);
     for z in 0..sz {
         for y in 0..sy {
             for x in 0..sx {
@@ -346,16 +319,7 @@ fn per_face_quads_triangle_count_on_slab() {
     let store = LightingStore::new(sx, sy, sz);
     let light = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
     let world = World::new(1, 1, sx, sy, sz, 0, WorldGenMode::Flat { thickness: 0 });
-    let mut wm = WccMesher::new(
-        &buf,
-        &light,
-        &reg,
-        1,
-        0,
-        0,
-        &world,
-        None,
-    );
+    let mut wm = WccMesher::new(&buf, &reg, 1, 0, 0, &world, None);
     for z in 0..sz {
         for y in 0..sy {
             for x in 0..sx {

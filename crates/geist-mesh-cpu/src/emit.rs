@@ -126,7 +126,7 @@ pub(crate) fn emit_box_faces(
 
     for &(face, indices, normal) in &FACE_DATA {
         if let Some((mid, rgba)) = choose(face) {
-            let (u1, v1) = match face {
+            let (_u1, _v1) = match face {
                 Face::PosY | Face::NegY => (max.x - min.x, max.z - min.z),
                 Face::PosX | Face::NegX => (max.z - min.z, max.y - min.y),
                 Face::PosZ | Face::NegZ => (max.x - min.x, max.y - min.y),

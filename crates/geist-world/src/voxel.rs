@@ -96,7 +96,7 @@ pub fn build_showcase_stairs_cluster(reg: &BlockRegistry) -> Vec<ShowcasePlaceme
     } else {
         mats.first().map(|s| s.as_str()).unwrap_or("smooth_stone")
     };
-    let mut make = |half: &str, facing: &str| -> RtBlock {
+    let make = |half: &str, facing: &str| -> RtBlock {
         let mut props = std::collections::HashMap::new();
         props.insert("half".to_string(), half.to_string());
         props.insert("facing".to_string(), facing.to_string());
@@ -132,7 +132,7 @@ pub fn build_showcase_stairs_cluster(reg: &BlockRegistry) -> Vec<ShowcasePlaceme
         block: make("bottom", "east"),
         label: format!("stairs({},bottom,E)", material),
     });
-    x += 3;
+    // move to next cluster only when needed
     out.push(ShowcasePlacement {
         dx: x,
         dz: dz0,
@@ -145,7 +145,7 @@ pub fn build_showcase_stairs_cluster(reg: &BlockRegistry) -> Vec<ShowcasePlaceme
         block: make("top", "east"),
         label: format!("stairs({},top,E)", material),
     });
-    x += 3;
+    // end of first row; start next row at fixed x positions
     out.push(ShowcasePlacement {
         dx: x,
         dz: dz0,
@@ -158,7 +158,7 @@ pub fn build_showcase_stairs_cluster(reg: &BlockRegistry) -> Vec<ShowcasePlaceme
         block: make("bottom", "west"),
         label: format!("stairs({},bottom,W)", material),
     });
-    x += 3;
+    // x advanced for previous row; unused thereafter
 
     let dz1 = 1i32;
     out.push(ShowcasePlacement {
@@ -557,7 +557,7 @@ impl World {
                 let yp = wyf + wyw * warp_y;
                 let zp = wz + wzw * warp_xy;
                 let tn = fractal3(&ctx.tunnel, xp, yp * y_scale, zp, &ctx.params.tunnel);
-                let mut depth01 = (soil / (self.chunk_size_y as f32)).clamp(0.0, 1.0);
+                let depth01 = (soil / (self.chunk_size_y as f32)).clamp(0.0, 1.0);
                 let eps = eps_base + eps_add * depth01;
                 let wn = worley3_f1_norm(xp, yp, zp, room_cell);
                 let room_thr = room_thr_base + room_thr_add * depth01;
@@ -619,7 +619,7 @@ impl World {
                         let tn_n =
                             fractal3(&ctx.tunnel, nxp, nyp * y_scale, nzp, &ctx.params.tunnel);
                         let nsoil = nh as f32 - wyn;
-                        let mut n_depth = (nsoil / (self.chunk_size_y as f32)).clamp(0.0, 1.0);
+                        let n_depth = (nsoil / (self.chunk_size_y as f32)).clamp(0.0, 1.0);
                         let eps_n = eps_base + eps_add * n_depth;
                         let wn_n = worley3_f1_norm(nxp, nyp, nzp, room_cell);
                         let room_thr_n = room_thr_base + room_thr_add * n_depth;

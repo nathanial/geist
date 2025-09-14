@@ -91,7 +91,7 @@ fn bench_wcc_toggle_emit_normal_dims(c: &mut Criterion) {
         b.iter(|| {
             let base_x = buf.cx * sx as i32;
             let base_z = buf.cz * sz as i32;
-            let mut wm = WccMesher::new(&buf, &light, &reg, 2, base_x, base_z, &world, None);
+            let mut wm = WccMesher::new(&buf, &reg, 2, base_x, base_z, &world, None);
             for z in 0..sz {
                 for y in 0..sy {
                     for x in 0..sx {
@@ -157,7 +157,7 @@ fn bench_wcc_mesher_s1_uniform(c: &mut Criterion) {
     let light = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
     group.bench_function("toggle_emit_solid_32x64x32", |b| {
         b.iter(|| {
-            let mut wm = WccMesher::new(&buf, &light, &reg, 1, 0, 0, &world, None);
+            let mut wm = WccMesher::new(&buf, &reg, 1, 0, 0, &world, None);
             for z in 0..sz { for y in 0..sy { for x in 0..sx { wm.add_cube(x, y, z, Block { id: stone, state: 0 }); }}}
             wm.seed_neighbor_seams();
             let mut parts: HashMap<_, _> = HashMap::new();
@@ -202,7 +202,7 @@ fn bench_wcc_mesher_s2_mixed(c: &mut Criterion) {
     let light = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
     group.bench_function("toggle_emit_mixed_s2_16x64x16", |b| {
         b.iter(|| {
-            let mut wm = WccMesher::new(&buf, &light, &reg, 2, 0, 0, &world, None);
+            let mut wm = WccMesher::new(&buf, &reg, 2, 0, 0, &world, None);
             for z in 0..sz {
                 for y in 0..sy {
                     for x in 0..sx {
