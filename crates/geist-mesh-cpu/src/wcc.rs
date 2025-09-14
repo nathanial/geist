@@ -10,140 +10,215 @@ use geist_world::World;
 use crate::emit::emit_face_rect_for_clipped;
 use crate::face::Face;
 use crate::mesh_build::MeshBuild;
-use crate::util::{registry_material_for_or_unknown};
+use crate::util::registry_material_for_or_unknown;
 use crate::constants::{OPAQUE_ALPHA, BITS_PER_WORD, WORD_INDEX_MASK, WORD_INDEX_SHIFT};
 
 // Emit per-cell face quads for a given axis by expanding a mask sourced from FaceGrids.
-macro_rules! emit_plane_mask {
-    ($self:ident, $builds:ident, X) => {{
-        let width = $self.s * $self.sz;
-        let height = $self.s * $self.sy;
-        for ix in 0..($self.s * $self.sx) {
-            let mut mask: Vec<Option<(MaterialId, bool)>> = vec![None; width * height];
-            for iy in 0..height {
-                for iz in 0..width {
-                    let idx = $self.grids.idx_x(ix, iy, iz);
-                    if $self.grids.px.get(idx) {
-                        let key = $self.grids.kx[idx];
-                        if key != 0 {
-                            let mid = $self.keys.get(key);
-                            let pos = $self.grids.ox.get(idx);
-                            mask[iy * width + iz] = Some((mid, pos));
+// Greedy plane emission: merges adjacent face-cells with the same material/orientation into rectangles.
+// This replaces the previous per-cell emission and avoids large temporary masks.
+fn emit_plane_x(
+    s: usize,
+    sx: usize,
+    sy: usize,
+    sz: usize,
+    base_x: i32,
+    base_z: i32,
+    grids: &FaceGrids,
+    builds: &mut HashMap<MaterialId, MeshBuild>,
+) {
+    let scale = 1.0 / s as f32;
+    let width = s * sz; // u across +Z
+    let height = s * sy; // v across +Y
+    for ix in 0..(s * sx) {
+        let mut visited = vec![false; width * height];
+        let idx2d = |u: usize, v: usize| v * width + u;
+        for v in 0..height {
+            for u in 0..width {
+                let vi = idx2d(u, v);
+                if visited[vi] { continue; }
+                let idx = grids.idx_x(ix, v, u);
+                if !grids.px.get(idx) { continue; }
+                let mid = grids.kx[idx];
+                if mid.0 == 0 { continue; }
+                let pos = grids.ox.get(idx);
+                // Greedily extend width
+                let mut run_w = 1usize;
+                while u + run_w < width {
+                    if visited[idx2d(u + run_w, v)] { break; }
+                    let idx_n = grids.idx_x(ix, v, u + run_w);
+                    if !grids.px.get(idx_n) || grids.kx[idx_n] != mid || grids.ox.get(idx_n) != pos {
+                        break;
+                    }
+                    run_w += 1;
+                }
+                // Greedily extend height
+                let mut run_h = 1usize;
+                'outer: while v + run_h < height {
+                    for uu in u..(u + run_w) {
+                        if visited[idx2d(uu, v + run_h)] { run_h = run_h; break 'outer; }
+                        let idx_n = grids.idx_x(ix, v + run_h, uu);
+                        if !grids.px.get(idx_n) || grids.kx[idx_n] != mid || grids.ox.get(idx_n) != pos {
+                            break 'outer;
                         }
                     }
+                    run_h += 1;
                 }
-            }
-            // Emit each face-cell as an individual quad
-            for v0 in 0..height {
-                for u0 in 0..width {
-                    if let Some((mid, pos)) = mask[v0 * width + u0] {
-                        let rgba = [255u8, 255u8, 255u8, OPAQUE_ALPHA];
-                        let face = if pos { Face::PosX } else { Face::NegX };
-                        let scale = 1.0 / $self.s as f32;
-                        let origin = Vec3 { x: ($self.base_x as f32) + (ix as f32) * scale, y: (v0 as f32) * scale, z: ($self.base_z as f32) + (u0 as f32) * scale };
-                        let u1 = 1.0 * scale;
-                        let v1 = 1.0 * scale;
-                        emit_face_rect_for_clipped($builds, mid, face, origin, u1, v1, rgba, $self.base_x, $self.sx, $self.sy, $self.base_z, $self.sz);
-                    }
-                }
-            }
-        }
-    }};
-    ($self:ident, $builds:ident, Y) => {{
-        let width = $self.s * $self.sx;
-        let height = $self.s * $self.sz;
-        for iy in 0..($self.s * $self.sy) {
-            let mut mask: Vec<Option<(MaterialId, bool)>> = vec![None; width * height];
-            for iz in 0..height {
-                for ix in 0..width {
-                    let idx = $self.grids.idx_y(ix, iy, iz);
-                    if $self.grids.py.get(idx) {
-                        let key = $self.grids.ky[idx];
-                        if key != 0 {
-                            let mid = $self.keys.get(key);
-                            let pos = $self.grids.oy.get(idx);
-                            mask[iz * width + ix] = Some((mid, pos));
-                        }
-                    }
-                }
-            }
-            // Emit each face-cell as an individual quad
-            for v0 in 0..height {
-                for u0 in 0..width {
-                    if let Some((mid, pos)) = mask[v0 * width + u0] {
-                        let rgba = [255u8, 255u8, 255u8, OPAQUE_ALPHA];
-                        let face = if pos { Face::PosY } else { Face::NegY };
-                        let scale = 1.0 / $self.s as f32;
-                        let origin = Vec3 { x: ($self.base_x as f32) + (u0 as f32) * scale, y: (iy as f32) * scale, z: ($self.base_z as f32) + (v0 as f32) * scale };
-                        let u1 = 1.0 * scale;
-                        let v1 = 1.0 * scale;
-                        emit_face_rect_for_clipped($builds, mid, face, origin, u1, v1, rgba, $self.base_x, $self.sx, $self.sy, $self.base_z, $self.sz);
-                    }
-                }
+                // Emit merged rectangle
+                let face = if pos { Face::PosX } else { Face::NegX };
+                let origin = Vec3 {
+                    x: (base_x as f32) + (ix as f32) * scale,
+                    y: (v as f32) * scale,
+                    z: (base_z as f32) + (u as f32) * scale,
+                };
+                let u1 = (run_w as f32) * scale;
+                let v1 = (run_h as f32) * scale;
+                let rgba = [255u8, 255u8, 255u8, OPAQUE_ALPHA];
+                emit_face_rect_for_clipped(
+                    builds,
+                    mid,
+                    face,
+                    origin,
+                    u1,
+                    v1,
+                    rgba,
+                    base_x,
+                    sx,
+                    sy,
+                    base_z,
+                    sz,
+                );
+                // Mark visited
+                for dv in 0..run_h { for du in 0..run_w { visited[idx2d(u + du, v + dv)] = true; } }
             }
         }
-    }};
-    ($self:ident, $builds:ident, Z) => {{
-        let width = $self.s * $self.sx;
-        let height = $self.s * $self.sy;
-        for iz in 0..($self.s * $self.sz) {
-            let mut mask: Vec<Option<(MaterialId, bool)>> = vec![None; width * height];
-            for iy in 0..height {
-                for ix in 0..width {
-                    let idx = $self.grids.idx_z(ix, iy, iz);
-                    if $self.grids.pz.get(idx) {
-                        let key = $self.grids.kz[idx];
-                        if key != 0 {
-                            let mid = $self.keys.get(key);
-                            let pos = $self.grids.oz.get(idx);
-                            mask[iy * width + ix] = Some((mid, pos));
-                        }
-                    }
+    }
+}
+
+fn emit_plane_y(
+    s: usize,
+    sx: usize,
+    sy: usize,
+    sz: usize,
+    base_x: i32,
+    base_z: i32,
+    grids: &FaceGrids,
+    builds: &mut HashMap<MaterialId, MeshBuild>,
+) {
+    let scale = 1.0 / s as f32;
+    let width = s * sx; // u across +X
+    let height = s * sz; // v across +Z
+    for iy in 0..(s * sy) {
+        let mut visited = vec![false; width * height];
+        let idx2d = |u: usize, v: usize| v * width + u;
+        for v in 0..height {
+            for u in 0..width {
+                let vi = idx2d(u, v);
+                if visited[vi] { continue; }
+                let idx = grids.idx_y(u, iy, v);
+                if !grids.py.get(idx) { continue; }
+                let mid = grids.ky[idx];
+                if mid.0 == 0 { continue; }
+                let pos = grids.oy.get(idx);
+                // Greedy width
+                let mut run_w = 1usize;
+                while u + run_w < width {
+                    if visited[idx2d(u + run_w, v)] { break; }
+                    let idx_n = grids.idx_y(u + run_w, iy, v);
+                    if !grids.py.get(idx_n) || grids.ky[idx_n] != mid || grids.oy.get(idx_n) != pos { break; }
+                    run_w += 1;
                 }
-            }
-            // Emit each face-cell as an individual quad
-            for v0 in 0..height {
-                for u0 in 0..width {
-                    if let Some((mid, pos)) = mask[v0 * width + u0] {
-                        let rgba = [255u8, 255u8, 255u8, OPAQUE_ALPHA];
-                        let face = if pos { Face::PosZ } else { Face::NegZ };
-                        let scale = 1.0 / $self.s as f32;
-                        let origin = Vec3 { x: ($self.base_x as f32) + (u0 as f32) * scale, y: (v0 as f32) * scale, z: ($self.base_z as f32) + (iz as f32) * scale };
-                        let u1 = 1.0 * scale;
-                        let v1 = 1.0 * scale;
-                        emit_face_rect_for_clipped($builds, mid, face, origin, u1, v1, rgba, $self.base_x, $self.sx, $self.sy, $self.base_z, $self.sz);
+                // Greedy height
+                let mut run_h = 1usize;
+                'outer: while v + run_h < height {
+                    for uu in u..(u + run_w) {
+                        if visited[idx2d(uu, v + run_h)] { run_h = run_h; break 'outer; }
+                        let idx_n = grids.idx_y(uu, iy, v + run_h);
+                        if !grids.py.get(idx_n) || grids.ky[idx_n] != mid || grids.oy.get(idx_n) != pos { break 'outer; }
                     }
+                    run_h += 1;
                 }
+                // Emit
+                let face = if pos { Face::PosY } else { Face::NegY };
+                let origin = Vec3 {
+                    x: (base_x as f32) + (u as f32) * scale,
+                    y: (iy as f32) * scale,
+                    z: (base_z as f32) + (v as f32) * scale,
+                };
+                let u1 = (run_w as f32) * scale;
+                let v1 = (run_h as f32) * scale;
+                let rgba = [255u8, 255u8, 255u8, OPAQUE_ALPHA];
+                emit_face_rect_for_clipped(
+                    builds, mid, face, origin, u1, v1, rgba, base_x, sx, sy, base_z, sz,
+                );
+                for dv in 0..run_h { for du in 0..run_w { visited[idx2d(u + du, v + dv)] = true; } }
             }
         }
-    }};
+    }
+}
+
+fn emit_plane_z(
+    s: usize,
+    sx: usize,
+    sy: usize,
+    sz: usize,
+    base_x: i32,
+    base_z: i32,
+    grids: &FaceGrids,
+    builds: &mut HashMap<MaterialId, MeshBuild>,
+) {
+    let scale = 1.0 / s as f32;
+    let width = s * sx; // u across +X
+    let height = s * sy; // v across +Y
+    for iz in 0..(s * sz) {
+        let mut visited = vec![false; width * height];
+        let idx2d = |u: usize, v: usize| v * width + u;
+        for v in 0..height {
+            for u in 0..width {
+                let vi = idx2d(u, v);
+                if visited[vi] { continue; }
+                let idx = grids.idx_z(u, v, iz);
+                if !grids.pz.get(idx) { continue; }
+                let mid = grids.kz[idx];
+                if mid.0 == 0 { continue; }
+                let pos = grids.oz.get(idx);
+                // Greedy width
+                let mut run_w = 1usize;
+                while u + run_w < width {
+                    if visited[idx2d(u + run_w, v)] { break; }
+                    let idx_n = grids.idx_z(u + run_w, v, iz);
+                    if !grids.pz.get(idx_n) || grids.kz[idx_n] != mid || grids.oz.get(idx_n) != pos { break; }
+                    run_w += 1;
+                }
+                // Greedy height
+                let mut run_h = 1usize;
+                'outer: while v + run_h < height {
+                    for uu in u..(u + run_w) {
+                        if visited[idx2d(uu, v + run_h)] { run_h = run_h; break 'outer; }
+                        let idx_n = grids.idx_z(uu, v + run_h, iz);
+                        if !grids.pz.get(idx_n) || grids.kz[idx_n] != mid || grids.oz.get(idx_n) != pos { break 'outer; }
+                    }
+                    run_h += 1;
+                }
+                // Emit
+                let face = if pos { Face::PosZ } else { Face::NegZ };
+                let origin = Vec3 {
+                    x: (base_x as f32) + (u as f32) * scale,
+                    y: (v as f32) * scale,
+                    z: (base_z as f32) + (iz as f32) * scale,
+                };
+                let u1 = (run_w as f32) * scale;
+                let v1 = (run_h as f32) * scale;
+                let rgba = [255u8, 255u8, 255u8, OPAQUE_ALPHA];
+                emit_face_rect_for_clipped(
+                    builds, mid, face, origin, u1, v1, rgba, base_x, sx, sy, base_z, sz,
+                );
+                for dv in 0..run_h { for du in 0..run_w { visited[idx2d(u + du, v + dv)] = true; } }
+            }
+        }
+    }
 }
 
 #[derive(Default)]
-struct KeyTable {
-    items: Vec<MaterialId>,
-    map: HashMap<MaterialId, u16>,
-}
-
-impl KeyTable {
-    fn new() -> Self {
-        let mut kt = KeyTable { items: Vec::new(), map: HashMap::new() };
-        // Reserve 0 as None
-        kt.items.push(MaterialId(0));
-        kt
-    }
-    #[inline]
-    fn ensure(&mut self, mid: MaterialId) -> u16 {
-        if let Some(&idx) = self.map.get(&mid) { return idx; }
-        let idx = self.items.len() as u16;
-        self.items.push(mid);
-        self.map.insert(mid, idx);
-        idx
-    }
-    #[inline]
-    fn get(&self, idx: u16) -> MaterialId { self.items[idx as usize] }
-}
-
 /// Simple growable bitset backed by `u64` words.
 struct Bitset { data: Vec<u64> }
 impl Bitset {
@@ -169,10 +244,10 @@ struct FaceGrids {
     ox: Bitset,
     oy: Bitset,
     oz: Bitset,
-    // Key indices per face-cell (0 = None)
-    kx: Vec<u16>,
-    ky: Vec<u16>,
-    kz: Vec<u16>,
+    // Material id per face-cell (MaterialId(0) = None)
+    kx: Vec<MaterialId>,
+    ky: Vec<MaterialId>,
+    kz: Vec<MaterialId>,
     // Scales and dims
     s: usize,
     sx: usize,
@@ -189,7 +264,7 @@ impl FaceGrids {
         Self {
             px: Bitset::new(nx), py: Bitset::new(ny), pz: Bitset::new(nz),
             ox: Bitset::new(nx), oy: Bitset::new(ny), oz: Bitset::new(nz),
-            kx: vec![0; nx], ky: vec![0; ny], kz: vec![0; nz],
+            kx: vec![MaterialId(0); nx], ky: vec![MaterialId(0); ny], kz: vec![MaterialId(0); nz],
             s, sx, sy, sz,
         }
     }
@@ -210,7 +285,6 @@ pub struct WccMesher<'a> {
     sy: usize,
     sz: usize,
     grids: FaceGrids,
-    keys: KeyTable,
     reg: &'a BlockRegistry,
     buf: &'a ChunkBuf,
     world: &'a World,
@@ -234,7 +308,6 @@ impl<'a> WccMesher<'a> {
         Self {
             s, sx, sy, sz,
             grids: FaceGrids::new(s, sx, sy, sz),
-            keys: KeyTable::new(),
             reg, buf, world, edits, base_x, base_z,
         }
     }
@@ -316,12 +389,11 @@ impl<'a> WccMesher<'a> {
         pos: bool,
         mid: MaterialId,
     ) {
-        let key = self.keys.ensure(mid);
         for iy in y0..y1 {
             for iz in z0..z1 {
                 let idx = self.grids.idx_x(ix, iy, iz);
                 self.grids.px.toggle(idx);
-                if self.grids.px.get(idx) { self.grids.kx[idx] = key; self.grids.ox.set(idx, pos); } else { self.grids.kx[idx] = 0; }
+                if self.grids.px.get(idx) { self.grids.kx[idx] = mid; self.grids.ox.set(idx, pos); } else { self.grids.kx[idx] = MaterialId(0); }
             }
         }
         let _ = (bx, by, bz);
@@ -340,12 +412,11 @@ impl<'a> WccMesher<'a> {
         pos: bool,
         mid: MaterialId,
     ) {
-        let key = self.keys.ensure(mid);
         for iz in z0..z1 {
             for ix in x0..x1 {
                 let idx = self.grids.idx_y(ix, iy, iz);
                 self.grids.py.toggle(idx);
-                if self.grids.py.get(idx) { self.grids.ky[idx] = key; self.grids.oy.set(idx, pos); } else { self.grids.ky[idx] = 0; }
+                if self.grids.py.get(idx) { self.grids.ky[idx] = mid; self.grids.oy.set(idx, pos); } else { self.grids.ky[idx] = MaterialId(0); }
             }
         }
         let _ = (bx, by, bz);
@@ -364,12 +435,11 @@ impl<'a> WccMesher<'a> {
         pos: bool,
         mid: MaterialId,
     ) {
-        let key = self.keys.ensure(mid);
         for iy in y0..y1 {
             for ix in x0..x1 {
                 let idx = self.grids.idx_z(ix, iy, iz);
                 self.grids.pz.toggle(idx);
-                if self.grids.pz.get(idx) { self.grids.kz[idx] = key; self.grids.oz.set(idx, pos); } else { self.grids.kz[idx] = 0; }
+                if self.grids.pz.get(idx) { self.grids.kz[idx] = mid; self.grids.oz.set(idx, pos); } else { self.grids.kz[idx] = MaterialId(0); }
             }
         }
         let _ = (bx, by, bz);
@@ -446,9 +516,9 @@ impl<'a> WccMesher<'a> {
 
     /// Emits the per-cell faces for all three axes into material builds.
     pub fn emit_into(&self, builds: &mut HashMap<MaterialId, MeshBuild>) {
-        emit_plane_mask!(self, builds, X);
-        emit_plane_mask!(self, builds, Y);
-        emit_plane_mask!(self, builds, Z);
+        emit_plane_x(self.s, self.sx, self.sy, self.sz, self.base_x, self.base_z, &self.grids, builds);
+        emit_plane_y(self.s, self.sx, self.sy, self.sz, self.base_x, self.base_z, &self.grids, builds);
+        emit_plane_z(self.s, self.sx, self.sy, self.sz, self.base_x, self.base_z, &self.grids, builds);
     }
 
 }
