@@ -2169,6 +2169,26 @@ impl App {
                 .emit_now(Event::LightEmitterRemoved { wx, wy, wz });
         }
 
+        // Toggle S=2 micro lighting runtime flag and reschedule light-only rebuilds
+        if rl.is_key_pressed(KeyboardKey::KEY_M) {
+            let cur = self.gs.lighting.disable_micro_s2();
+            self.gs.lighting.set_disable_micro_s2(!cur);
+            // Schedule light-only recompute for visible chunks (hysteresis r+1)
+            let (ccx, ccz) = self.gs.center_chunk;
+            let r = self.gs.view_radius_chunks + 1;
+            let loaded: Vec<(i32, i32)> = self.gs.loaded.iter().cloned().collect();
+            for (cx, cz) in loaded {
+                let ring = (cx - ccx).abs().max((cz - ccz).abs());
+                if ring <= r {
+                    self.queue.emit_now(Event::ChunkRebuildRequested {
+                        cx,
+                        cz,
+                        cause: RebuildCause::LightingBorder,
+                    });
+                }
+            }
+        }
+
         // Mouse edit intents
         let want_edit = rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT)
             || rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_RIGHT);
@@ -2847,6 +2867,9 @@ impl App {
             self.evt_processed_total
         ));
         right_text.push_str(&format!("\nIntents: {}", self.debug_stats.intents_size));
+        // Show S=2 lighting toggle state
+        let s2_off = self.gs.lighting.disable_micro_s2();
+        right_text.push_str(&format!("\nS2 Lighting: {}", if s2_off {"Disabled"} else {"Enabled"}));
         // Runtime queue debug (vertical layout)
         let (q_e, if_e, q_l, if_l, q_b, if_b) = self.runtime.queue_debug_counts();
         right_text.push_str("\nRuntime Queues:");
@@ -2860,6 +2883,7 @@ impl App {
         let panel_templates = [
             "Processed Events (session): 1,000,000",
             "Intents: 1,000,000",
+            "S2 Lighting: Disabled",
             "Runtime Queues:",
             "  Edit  - q=1,000,000 inflight=1,000,000",
             "  Light - q=1,000,000 inflight=1,000,000",

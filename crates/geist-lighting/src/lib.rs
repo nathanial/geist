@@ -7,10 +7,12 @@ use geist_blocks::types::Block;
 use geist_chunk::ChunkBuf;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 mod micro;
 
-// Lighting mode toggle removed; Micro S=2 is always used.
+// Runtime toggle: allow disabling S=2 micro lighting entirely.
+// When disabled, the engine runs a coarse voxel BFS with coarse face gates.
 
 // Micro border planes for S=2 lighting exchange across seams.
 // Arrays are stored per-face at micro resolution:
@@ -552,7 +554,7 @@ impl LightGrid {
                 }
             }
         }
-        // Propagate omni block light (face-aware at S=2 for micro occupancy)
+        // Propagate omni block light
         while let Some((x, y, z, level, atten)) = q.pop_front() {
             let level_i = level as i32;
             if level_i <= 1 {
@@ -568,14 +570,16 @@ impl LightGrid {
                 {
                     return;
                 }
-                // Face-aware crossing: allow step only if crossing plane is open at S=2, or
-                // fall back to legacy passability when neither side uses micro occupancy.
+                // Gating policy: when S=2 is disabled, use only coarse passability; otherwise require S=2-open plane.
+                let disable_s2 = store.disable_micro_s2();
                 let nb = buf.get_local(nx as usize, ny as usize, nz as usize);
                 if !block_light_passable(nb, reg) {
                     return;
                 }
-                if !can_cross_face_s2(buf, reg, x, y, z, face) {
-                    return;
+                if !disable_s2 {
+                    if !can_cross_face_s2(buf, reg, x, y, z, face) {
+                        return;
+                    }
                 }
                 let idx = lg.idx(nx as usize, ny as usize, nz as usize);
                 let v = level_i - atten as i32;
@@ -666,7 +670,7 @@ impl LightGrid {
             push_dir(x as i32, y as i32 + 1, z as i32, 5); // vertical/non-cardinal
             push_dir(x as i32, y as i32 - 1, z as i32, 5);
         }
-        // Skylight propagation (face-aware at S=2)
+        // Skylight propagation
         while let Some((x, y, z, level)) = q_sky.pop_front() {
             if level <= 1 {
                 continue;
@@ -681,12 +685,19 @@ impl LightGrid {
                 {
                     return;
                 }
-                // Require the crossing plane to be open at S=2, and the target voxel to be skylight transparent
-                if !can_cross_face_s2(buf, reg, x, y, z, face) {
-                    return;
+                // Gating policy: when S=2 is disabled, use coarse skylight transparency without S=2 face checks.
+                let disable_s2 = store.disable_micro_s2();
+                if !disable_s2 {
+                    if !can_cross_face_s2(buf, reg, x, y, z, face) {
+                        return;
+                    }
                 }
                 let nb = buf.get_local(nx as usize, ny as usize, nz as usize);
-                if !skylight_transparent_s2(nb, reg) {
+                if if disable_s2 {
+                    !skylight_transparent(nb, reg)
+                } else {
+                    !skylight_transparent_s2(nb, reg)
+                } {
                     return;
                 }
                 let idx = lg.idx(nx as usize, ny as usize, nz as usize);
@@ -1381,6 +1392,8 @@ pub struct LightingStore {
     borders: Mutex<HashMap<(i32, i32), LightBorders>>,
     emitters: Mutex<HashMap<(i32, i32), Vec<(usize, usize, usize, u8, bool)>>>,
     micro_borders: Mutex<HashMap<(i32, i32), MicroBorders>>,
+    // Runtime toggle: when true, disables S=2 micro lighting entirely.
+    disable_micro_s2: AtomicBool,
 }
 
 impl LightingStore {
@@ -1392,7 +1405,17 @@ impl LightingStore {
             borders: Mutex::new(HashMap::new()),
             emitters: Mutex::new(HashMap::new()),
             micro_borders: Mutex::new(HashMap::new()),
+            // Default: disable S=2 to evaluate coarse-only visuals/perf.
+            disable_micro_s2: AtomicBool::new(true),
         }
+    }
+    /// Enable or disable S=2 micro lighting at runtime.
+    pub fn set_disable_micro_s2(&self, v: bool) {
+        self.disable_micro_s2.store(v, Ordering::Relaxed);
+    }
+    /// Returns true if S=2 micro lighting is disabled.
+    pub fn disable_micro_s2(&self) -> bool {
+        self.disable_micro_s2.load(Ordering::Relaxed)
     }
     pub fn clear_chunk(&self, cx: i32, cz: i32) {
         {
@@ -1660,7 +1683,7 @@ impl NeighborBorders {
     }
 }
 
-// Entry point that chooses the lighting algorithm based on LightingStore mode.
+// Entry point that chooses the lighting algorithm based on LightingStore runtime toggle.
 use geist_world::World;
 
 // use crate::micro::MICRO_SKY_ATTENUATION; // unused in this module
@@ -1671,7 +1694,11 @@ pub fn compute_light_with_borders_buf(
     reg: &BlockRegistry,
     world: &World,
 ) -> LightGrid {
-    micro::compute_light_with_borders_buf_micro(buf, store, reg, world)
+    if store.disable_micro_s2() {
+        LightGrid::compute_with_borders_buf(buf, store, reg)
+    } else {
+        micro::compute_light_with_borders_buf_micro(buf, store, reg, world)
+    }
 }
 
 // --- GPU lightfield (Phase 2) helpers ---
