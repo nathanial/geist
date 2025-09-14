@@ -2174,7 +2174,8 @@ impl App {
             use geist_lighting::LightingMode as LM;
             let next = match self.gs.lighting.mode() {
                 LM::FullMicro => LM::SeamMicro,
-                LM::SeamMicro => LM::CoarseS2,
+                LM::SeamMicro => LM::IterativeCPU,
+                LM::IterativeCPU => LM::CoarseS2,
                 LM::CoarseS2 => LM::FullMicro,
             };
             self.gs.lighting.set_mode(next);
@@ -2876,6 +2877,7 @@ impl App {
         let mode_lbl = match self.gs.lighting.mode() {
             geist_lighting::LightingMode::FullMicro => "FullMicro",
             geist_lighting::LightingMode::SeamMicro => "SeamMicro",
+            geist_lighting::LightingMode::IterativeCPU => "IterCPU",
             geist_lighting::LightingMode::CoarseS2 => "CoarseS2",
         };
         right_text.push_str(&format!("\nLighting: {} (M to cycle)", mode_lbl));
@@ -2892,7 +2894,7 @@ impl App {
         let panel_templates = [
             "Processed Events (session): 1,000,000",
             "Intents: 1,000,000",
-            "Lighting: SeamMicro (M to cycle)",
+            "Lighting: IterCPU (M to cycle)",
             "Runtime Queues:",
             "  Edit  - q=1,000,000 inflight=1,000,000",
             "  Light - q=1,000,000 inflight=1,000,000",

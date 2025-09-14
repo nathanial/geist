@@ -10,6 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU8, Ordering};
 
 mod micro;
+mod micro_iter;
 
 // Runtime toggle: allow disabling S=2 micro lighting entirely.
 // When disabled, the engine runs a coarse voxel BFS with coarse face gates.
@@ -1380,6 +1381,7 @@ pub enum LightingMode {
     FullMicro = 0,
     CoarseS2 = 1,
     SeamMicro = 2,
+    IterativeCPU = 3,
 }
 
 pub struct LightingStore {
@@ -1403,7 +1405,7 @@ impl LightingStore {
             emitters: Mutex::new(HashMap::new()),
             micro_borders: Mutex::new(HashMap::new()),
             // Default to coarse BFS with S=2 gating (fast, no dark quads near stairs)
-            mode: AtomicU8::new(LightingMode::CoarseS2 as u8),
+            mode: AtomicU8::new(LightingMode::IterativeCPU as u8),
         }
     }
     /// Set the global lighting mode.
@@ -1415,6 +1417,7 @@ impl LightingStore {
         match self.mode.load(Ordering::Relaxed) {
             0 => LightingMode::FullMicro,
             2 => LightingMode::SeamMicro,
+            3 => LightingMode::IterativeCPU,
             _ => LightingMode::CoarseS2,
         }
     }
@@ -1703,6 +1706,7 @@ pub fn compute_light_with_borders_buf(
             publish_seam_micro_borders(buf, &lg, store);
             lg
         }
+        LightingMode::IterativeCPU => micro_iter::compute_light_with_borders_buf_iterative(buf, store, reg),
     }
 }
 
