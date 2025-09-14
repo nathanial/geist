@@ -48,7 +48,8 @@ float sampleBrightness(vec3 worldPos, vec3 nrm) {
   } else {
     step.y = (nrm.y > 0.0) ? 1 : -1;
   }
-  ivec3 vnInner = clamp(vInner + step, ivec3(-1), innerDims - ivec3(1));
+  // Allow sampling of both -X/-Z and +X/+Z atlas rings by clamping up to innerDims (inclusive)
+  ivec3 vnInner = clamp(vInner + step, ivec3(-1), innerDims);
   ivec3 vAtlas = vInner + ivec3(1, 0, 1);
   ivec3 vnAtlas = vnInner + ivec3(1, 0, 1);
   vec2 uv0 = lightAtlasUV(vAtlas);

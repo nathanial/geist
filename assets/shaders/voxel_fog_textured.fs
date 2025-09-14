@@ -54,7 +54,8 @@ float sampleBrightness(vec3 worldPos, vec3 nrm) {
     step.y = (nrm.y > 0.0) ? 1 : -1;
   }
   // Clamp neighbor within [-1 .. inner-1] so we can shift by +1 into ring-inclusive atlas coords
-  ivec3 vnInner = clamp(vInner + step, ivec3(-1), innerDims - ivec3(1));
+  // Allow sampling of both -X/-Z and +X/+Z atlas rings by clamping up to innerDims (inclusive)
+  ivec3 vnInner = clamp(vInner + step, ivec3(-1), innerDims);
   // Shift to atlas coords (+1 offset to account for -X/-Z rings at index 0)
   ivec3 vAtlas = vInner + ivec3(1, 0, 1);
   ivec3 vnAtlas = vnInner + ivec3(1, 0, 1);

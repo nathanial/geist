@@ -1395,6 +1395,13 @@ impl App {
                 if let Some(cr) = self.renders.get_mut(&(cx, cz)) {
                     update_chunk_light_texture(rl, thread, cr, &light_atlas);
                 }
+                // If this was a finalize pass scheduled via lighting-only lane, mark completion
+                if let Some(st) = self.gs.finalize.get_mut(&(cx, cz)) {
+                    if st.finalize_requested {
+                        st.finalize_requested = false;
+                        st.finalized = true;
+                    }
+                }
                 // Do not update borders or trigger neighbors on color-only recomputes.
                 self.gs.inflight_rev.remove(&(cx, cz));
             }
@@ -2113,6 +2120,21 @@ impl App {
                     job_id: r.job_id,
                 });
             } else if let Some(atlas) = r.light_atlas {
+                // If macro light borders were computed on the light-only lane, update them here
+                // and notify neighbors on changes so they can refresh their seam rings.
+                if let Some(lb) = r.light_borders {
+                    let (changed, mask) = self.gs.lighting.update_borders_mask(r.cx, r.cz, lb);
+                    if changed {
+                        self.queue.emit_now(Event::LightBordersUpdated {
+                            cx: r.cx,
+                            cz: r.cz,
+                            xn_changed: mask.xn,
+                            xp_changed: mask.xp,
+                            zn_changed: mask.zn,
+                            zp_changed: mask.zp,
+                        });
+                    }
+                }
                 self.queue.emit_now(Event::ChunkLightingRecomputed {
                     cx: r.cx,
                     cz: r.cz,

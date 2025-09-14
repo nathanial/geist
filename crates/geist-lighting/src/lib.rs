@@ -1805,6 +1805,7 @@ pub fn pack_light_grid_atlas(light: &LightGrid) -> LightAtlas {
                     b = b.max(bcn.get(ii).cloned().unwrap_or(0));
                 }
             }
+            // If neither neighbor provided a value, fall back to replicating the nearest interior corner sample
             data[di + 0] = r; data[di + 1] = g; data[di + 2] = b; data[di + 3] = 0;
         };
         // Top-left (0,0): -X ∩ -Z

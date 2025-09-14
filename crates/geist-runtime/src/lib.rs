@@ -147,11 +147,13 @@ impl Runtime {
                             // Compute light only; upload atlas on main thread.
                             let lg = compute_light_with_borders_buf(&buf, &ls, &job.reg, &w);
                             let atlas = pack_light_grid_atlas(&lg);
+                            // Also publish macro light borders so neighbors can stitch without requiring a remesh.
+                            let borders = LightBorders::from_grid(&lg);
                             let _ = tx.send(JobOut {
                                 cpu: None,
                                 light_atlas: Some(atlas),
                                 buf,
-                                light_borders: None,
+                                light_borders: Some(borders),
                                 cx: job.cx,
                                 cz: job.cz,
                                 rev: job.rev,
