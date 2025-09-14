@@ -40,9 +40,10 @@ float sampleBrightness(vec3 worldPos, vec3 nrm) {
   if (lightDims.x == 0 || lightDims.y == 0 || lightDims.z == 0) {
     return visualLightMin;
   }
-  // Voxel indices in chunk-local space
+  // Voxel indices in chunk-local space (interior dims exclude 2 ring texels on X/Z)
   vec3 p = worldPos - chunkOrigin;
-  ivec3 v = ivec3(clamp(floor(p), vec3(0.0), vec3(lightDims) - vec3(1.0)));
+  ivec3 innerDims = ivec3(lightDims.x - 2, lightDims.y, lightDims.z - 2);
+  ivec3 vInner = ivec3(clamp(floor(p), vec3(0.0), vec3(innerDims) - vec3(1.0)));
   // Determine neighbor direction from dominant normal axis
   ivec3 step = ivec3(0,0,0);
   if (abs(nrm.x) > abs(nrm.y) && abs(nrm.x) > abs(nrm.z)) {
@@ -52,11 +53,15 @@ float sampleBrightness(vec3 worldPos, vec3 nrm) {
   } else {
     step.y = (nrm.y > 0.0) ? 1 : -1;
   }
-  ivec3 vn = clamp(v + step, ivec3(0), lightDims - ivec3(1));
+  // Clamp neighbor within [-1 .. inner-1] so we can shift by +1 into ring-inclusive atlas coords
+  ivec3 vnInner = clamp(vInner + step, ivec3(-1), innerDims - ivec3(1));
+  // Shift to atlas coords (+1 offset to account for -X/-Z rings at index 0)
+  ivec3 vAtlas = vInner + ivec3(1, 0, 1);
+  ivec3 vnAtlas = vnInner + ivec3(1, 0, 1);
   // Fetch R,G,B = block, sky, beacon; take max of local and neighbor
-  vec2 uv0 = lightAtlasUV(v);
+  vec2 uv0 = lightAtlasUV(vAtlas);
   vec3 l0 = texture(lightTex, uv0).rgb;
-  vec2 uv1 = lightAtlasUV(vn);
+  vec2 uv1 = lightAtlasUV(vnAtlas);
   vec3 l1 = texture(lightTex, uv1).rgb;
   float lv = max(max(max(l0.r, l0.g), l0.b), max(max(l1.r, l1.g), l1.b));
   // Normalize from 0..1 (assuming input is 0..1 already from texture fetch)

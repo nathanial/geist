@@ -1675,8 +1675,10 @@ pub fn compute_light_with_borders_buf(
 // --- GPU lightfield (Phase 2) helpers ---
 
 /// Packed 2D atlas representation of a chunk lightfield for shader sampling.
-/// Layout: each Y slice [0..sy) is a tile of size (sx x sz) arranged in a grid
-/// of (grid_cols x grid_rows). Pixel format is RGBA8 where:
+/// Layout: each Y slice [0..sy) is a tile of size ((sx+2) x (sz+2)) arranged in a grid
+/// of (grid_cols x grid_rows). The +2 accounts for border rings on both -X/+X and -Z/+Z
+/// sides to enable seamless sampling across chunk boundaries in the shader.
+/// Pixel format is RGBA8 where:
 /// - R = block light (0..255)
 /// - G = skylight (0..255)
 /// - B = beacon light (0..255)
@@ -1704,8 +1706,9 @@ pub fn pack_light_grid_atlas(light: &LightGrid) -> LightAtlas {
     let mut grid_cols = (sy as f32).sqrt().ceil() as usize;
     if grid_cols == 0 { grid_cols = 1; }
     let grid_rows = ((sy + grid_cols - 1) / grid_cols).max(1);
-    let tile_w = sx + 1; // include +X border ring
-    let tile_h = sz + 1; // include +Z border ring
+    // Include -X/+X and -Z/+Z border rings
+    let tile_w = sx + 2;
+    let tile_h = sz + 2;
     let width = tile_w * grid_cols;
     let height = tile_h * grid_rows;
     let mut data: Vec<u8> = vec![0u8; width * height * 4];
@@ -1715,11 +1718,12 @@ pub fn pack_light_grid_atlas(light: &LightGrid) -> LightAtlas {
         let ty = y / grid_cols;
         let ox = tx * tile_w;
         let oy = ty * tile_h;
+        // Interior: offset by +1 to leave room for -X/-Z rings at 0 indices
         for z in 0..sz {
             for x in 0..sx {
                 let src = idx3(x, y, z);
-                let dst_x = ox + x;
-                let dst_y = oy + z;
+                let dst_x = ox + 1 + x;
+                let dst_y = oy + 1 + z;
                 let di = (dst_y * width + dst_x) * 4;
                 data[di + 0] = light.block_light[src];
                 data[di + 1] = light.skylight[src];
@@ -1727,11 +1731,11 @@ pub fn pack_light_grid_atlas(light: &LightGrid) -> LightAtlas {
                 data[di + 3] = match light.beacon_dir[src] { v => (v as f32 * (255.0/5.0)).round() as u8 };
             }
         }
-        // +X border ring from neighbor plane (y,z) indexed
+        // +X border ring from neighbor plane (y,z) indexed → last column (sx+1)
         if let (Some(nb_blk), Some(nb_sky), Some(nb_bcn)) = (&light.nb_xp_blk, &light.nb_xp_sky, &light.nb_xp_bcn) {
             for z in 0..sz {
-                let dst_x = ox + sx; // last column
-                let dst_y = oy + z;
+                let dst_x = ox + (sx + 1);
+                let dst_y = oy + 1 + z;
                 let di = (dst_y * width + dst_x) * 4;
                 let ii = y * sz + z;
                 data[di + 0] = nb_blk.get(ii).cloned().unwrap_or(0);
@@ -1740,11 +1744,24 @@ pub fn pack_light_grid_atlas(light: &LightGrid) -> LightAtlas {
                 data[di + 3] = 0;
             }
         }
-        // +Z border ring from neighbor plane (y,x) indexed
+        // -X border ring from neighbor plane (y,z) indexed → first column (0)
+        if let (Some(nb_blk), Some(nb_sky), Some(nb_bcn)) = (&light.nb_xn_blk, &light.nb_xn_sky, &light.nb_xn_bcn) {
+            for z in 0..sz {
+                let dst_x = ox + 0;
+                let dst_y = oy + 1 + z;
+                let di = (dst_y * width + dst_x) * 4;
+                let ii = y * sz + z;
+                data[di + 0] = nb_blk.get(ii).cloned().unwrap_or(0);
+                data[di + 1] = nb_sky.get(ii).cloned().unwrap_or(0);
+                data[di + 2] = nb_bcn.get(ii).cloned().unwrap_or(0);
+                data[di + 3] = 0;
+            }
+        }
+        // +Z border ring from neighbor plane (y,x) indexed → last row (sz+1)
         if let (Some(nb_blk), Some(nb_sky), Some(nb_bcn)) = (&light.nb_zp_blk, &light.nb_zp_sky, &light.nb_zp_bcn) {
             for x in 0..sx {
-                let dst_x = ox + x;
-                let dst_y = oy + sz; // last row
+                let dst_x = ox + 1 + x;
+                let dst_y = oy + (sz + 1);
                 let di = (dst_y * width + dst_x) * 4;
                 let ii = y * sx + x;
                 data[di + 0] = nb_blk.get(ii).cloned().unwrap_or(0);
@@ -1753,29 +1770,66 @@ pub fn pack_light_grid_atlas(light: &LightGrid) -> LightAtlas {
                 data[di + 3] = 0;
             }
         }
-        // Corner (sx, sz): take max of adjacent borders if available
-        {
-            let dst_x = ox + sx;
-            let dst_y = oy + sz;
+        // -Z border ring from neighbor plane (y,x) indexed → first row (0)
+        if let (Some(nb_blk), Some(nb_sky), Some(nb_bcn)) = (&light.nb_zn_blk, &light.nb_zn_sky, &light.nb_zn_bcn) {
+            for x in 0..sx {
+                let dst_x = ox + 1 + x;
+                let dst_y = oy + 0;
+                let di = (dst_y * width + dst_x) * 4;
+                let ii = y * sx + x;
+                data[di + 0] = nb_blk.get(ii).cloned().unwrap_or(0);
+                data[di + 1] = nb_sky.get(ii).cloned().unwrap_or(0);
+                data[di + 2] = nb_bcn.get(ii).cloned().unwrap_or(0);
+                data[di + 3] = 0;
+            }
+        }
+        // Corners: combine adjacent rings (max of available)
+        let mut set_corner = |dx: usize, dz: usize, from_x: Option<(usize, &Option<Arc<[u8]>>, &Option<Arc<[u8]>>, &Option<Arc<[u8]>>)>, from_z: Option<(usize, &Option<Arc<[u8]>>, &Option<Arc<[u8]>>, &Option<Arc<[u8]>>)>, idx_x: usize, idx_z: usize| {
+            let dst_x = ox + dx;
+            let dst_y = oy + dz;
             let di = (dst_y * width + dst_x) * 4;
             let mut r = 0u8; let mut g = 0u8; let mut b = 0u8;
-            if let (Some(nb_blk), Some(nb_sky), Some(nb_bcn)) = (&light.nb_xp_blk, &light.nb_xp_sky, &light.nb_xp_bcn) {
-                let ii = y * sz + (sz-1);
-                r = r.max(nb_blk.get(ii).cloned().unwrap_or(0));
-                g = g.max(nb_sky.get(ii).cloned().unwrap_or(0));
-                b = b.max(nb_bcn.get(ii).cloned().unwrap_or(0));
+            if let Some((_iy, blk, sky, bcn)) = from_x {
+                if let (Some(blk), Some(sky), Some(bcn)) = (blk, sky, bcn) {
+                    let ii = y * _iy + idx_z; // for X faces, index by (y,z)
+                    r = r.max(blk.get(ii).cloned().unwrap_or(0));
+                    g = g.max(sky.get(ii).cloned().unwrap_or(0));
+                    b = b.max(bcn.get(ii).cloned().unwrap_or(0));
+                }
             }
-            if let (Some(nb_blk), Some(nb_sky), Some(nb_bcn)) = (&light.nb_zp_blk, &light.nb_zp_sky, &light.nb_zp_bcn) {
-                let ii = y * sx + (sx-1);
-                r = r.max(nb_blk.get(ii).cloned().unwrap_or(0));
-                g = g.max(nb_sky.get(ii).cloned().unwrap_or(0));
-                b = b.max(nb_bcn.get(ii).cloned().unwrap_or(0));
+            if let Some((_ix, blk, sky, bcn)) = from_z {
+                if let (Some(blk), Some(sky), Some(bcn)) = (blk, sky, bcn) {
+                    let ii = y * _ix + idx_x; // for Z faces, index by (y,x)
+                    r = r.max(blk.get(ii).cloned().unwrap_or(0));
+                    g = g.max(sky.get(ii).cloned().unwrap_or(0));
+                    b = b.max(bcn.get(ii).cloned().unwrap_or(0));
+                }
             }
             data[di + 0] = r; data[di + 1] = g; data[di + 2] = b; data[di + 3] = 0;
-        }
+        };
+        // Top-left (0,0): -X ∩ -Z
+        set_corner(0, 0,
+            Some((sz, &light.nb_xn_blk, &light.nb_xn_sky, &light.nb_xn_bcn)),
+            Some((sx, &light.nb_zn_blk, &light.nb_zn_sky, &light.nb_zn_bcn)),
+            0, 0);
+        // Top-right (sx+1,0): +X ∩ -Z
+        set_corner(sx + 1, 0,
+            Some((sz, &light.nb_xp_blk, &light.nb_xp_sky, &light.nb_xp_bcn)),
+            Some((sx, &light.nb_zn_blk, &light.nb_zn_sky, &light.nb_zn_bcn)),
+            sx - 1, 0);
+        // Bottom-left (0,sz+1): -X ∩ +Z
+        set_corner(0, sz + 1,
+            Some((sz, &light.nb_xn_blk, &light.nb_xn_sky, &light.nb_xn_bcn)),
+            Some((sx, &light.nb_zp_blk, &light.nb_zp_sky, &light.nb_zp_bcn)),
+            0, sz - 1);
+        // Bottom-right (sx+1,sz+1): +X ∩ +Z
+        set_corner(sx + 1, sz + 1,
+            Some((sz, &light.nb_xp_blk, &light.nb_xp_sky, &light.nb_xp_bcn)),
+            Some((sx, &light.nb_zp_blk, &light.nb_zp_sky, &light.nb_zp_bcn)),
+            sx - 1, sz - 1);
     }
-    // Expose extended dims (with +X/+Z rings) to enable neighbor sampling without clamp
-    LightAtlas { data, width, height, sx: sx + 1, sy, sz: sz + 1, grid_cols, grid_rows }
+    // Expose extended dims (with -X/+X and -Z/+Z rings) to enable neighbor sampling without discontinuities
+    LightAtlas { data, width, height, sx: sx + 2, sy, sz: sz + 2, grid_cols, grid_rows }
 }
 
 #[cfg(test)]
