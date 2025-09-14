@@ -2169,10 +2169,15 @@ impl App {
                 .emit_now(Event::LightEmitterRemoved { wx, wy, wz });
         }
 
-        // Toggle S=2 micro lighting runtime flag and reschedule light-only rebuilds
+        // Cycle lighting mode: FullMicro -> SeamMicro -> CoarseS2 -> FullMicro
         if rl.is_key_pressed(KeyboardKey::KEY_M) {
-            let cur = self.gs.lighting.disable_micro_s2();
-            self.gs.lighting.set_disable_micro_s2(!cur);
+            use geist_lighting::LightingMode as LM;
+            let next = match self.gs.lighting.mode() {
+                LM::FullMicro => LM::SeamMicro,
+                LM::SeamMicro => LM::CoarseS2,
+                LM::CoarseS2 => LM::FullMicro,
+            };
+            self.gs.lighting.set_mode(next);
             // Schedule light-only recompute for visible chunks (hysteresis r+1)
             let (ccx, ccz) = self.gs.center_chunk;
             let r = self.gs.view_radius_chunks + 1;
@@ -2867,9 +2872,13 @@ impl App {
             self.evt_processed_total
         ));
         right_text.push_str(&format!("\nIntents: {}", self.debug_stats.intents_size));
-        // Show S=2 lighting toggle state
-        let s2_off = self.gs.lighting.disable_micro_s2();
-        right_text.push_str(&format!("\nS2 Lighting: {}", if s2_off {"Disabled"} else {"Enabled"}));
+        // Show lighting mode
+        let mode_lbl = match self.gs.lighting.mode() {
+            geist_lighting::LightingMode::FullMicro => "FullMicro",
+            geist_lighting::LightingMode::SeamMicro => "SeamMicro",
+            geist_lighting::LightingMode::CoarseS2 => "CoarseS2",
+        };
+        right_text.push_str(&format!("\nLighting: {} (M to cycle)", mode_lbl));
         // Runtime queue debug (vertical layout)
         let (q_e, if_e, q_l, if_l, q_b, if_b) = self.runtime.queue_debug_counts();
         right_text.push_str("\nRuntime Queues:");
@@ -2883,7 +2892,7 @@ impl App {
         let panel_templates = [
             "Processed Events (session): 1,000,000",
             "Intents: 1,000,000",
-            "S2 Lighting: Disabled",
+            "Lighting: SeamMicro (M to cycle)",
             "Runtime Queues:",
             "  Edit  - q=1,000,000 inflight=1,000,000",
             "  Light - q=1,000,000 inflight=1,000,000",

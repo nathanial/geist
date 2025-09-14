@@ -7,7 +7,7 @@ use geist_blocks::types::Block;
 use geist_chunk::ChunkBuf;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 
 mod micro;
 
@@ -570,16 +570,13 @@ impl LightGrid {
                 {
                     return;
                 }
-                // Gating policy: when S=2 is disabled, use only coarse passability; otherwise require S=2-open plane.
-                let disable_s2 = store.disable_micro_s2();
                 let nb = buf.get_local(nx as usize, ny as usize, nz as usize);
                 if !block_light_passable(nb, reg) {
                     return;
                 }
-                if !disable_s2 {
-                    if !can_cross_face_s2(buf, reg, x, y, z, face) {
-                        return;
-                    }
+                // Require S=2 face-open plane to cross
+                if !can_cross_face_s2(buf, reg, x, y, z, face) {
+                    return;
                 }
                 let idx = lg.idx(nx as usize, ny as usize, nz as usize);
                 let v = level_i - atten as i32;
@@ -685,19 +682,12 @@ impl LightGrid {
                 {
                     return;
                 }
-                // Gating policy: when S=2 is disabled, use coarse skylight transparency without S=2 face checks.
-                let disable_s2 = store.disable_micro_s2();
-                if !disable_s2 {
-                    if !can_cross_face_s2(buf, reg, x, y, z, face) {
-                        return;
-                    }
+                // Require S=2 face-open plane and transparent destination
+                if !can_cross_face_s2(buf, reg, x, y, z, face) {
+                    return;
                 }
                 let nb = buf.get_local(nx as usize, ny as usize, nz as usize);
-                if if disable_s2 {
-                    !skylight_transparent(nb, reg)
-                } else {
-                    !skylight_transparent_s2(nb, reg)
-                } {
+                if !skylight_transparent_s2(nb, reg) {
                     return;
                 }
                 let idx = lg.idx(nx as usize, ny as usize, nz as usize);
@@ -1385,6 +1375,13 @@ impl LightBorders {
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum LightingMode {
+    FullMicro = 0,
+    CoarseS2 = 1,
+    SeamMicro = 2,
+}
+
 pub struct LightingStore {
     sx: usize,
     sy: usize,
@@ -1392,8 +1389,8 @@ pub struct LightingStore {
     borders: Mutex<HashMap<(i32, i32), LightBorders>>,
     emitters: Mutex<HashMap<(i32, i32), Vec<(usize, usize, usize, u8, bool)>>>,
     micro_borders: Mutex<HashMap<(i32, i32), MicroBorders>>,
-    // Runtime toggle: when true, disables S=2 micro lighting entirely.
-    disable_micro_s2: AtomicBool,
+    // Runtime mode selection
+    mode: AtomicU8,
 }
 
 impl LightingStore {
@@ -1405,17 +1402,21 @@ impl LightingStore {
             borders: Mutex::new(HashMap::new()),
             emitters: Mutex::new(HashMap::new()),
             micro_borders: Mutex::new(HashMap::new()),
-            // Default: disable S=2 to evaluate coarse-only visuals/perf.
-            disable_micro_s2: AtomicBool::new(true),
+            // Default to coarse BFS with S=2 gating (fast, no dark quads near stairs)
+            mode: AtomicU8::new(LightingMode::CoarseS2 as u8),
         }
     }
-    /// Enable or disable S=2 micro lighting at runtime.
-    pub fn set_disable_micro_s2(&self, v: bool) {
-        self.disable_micro_s2.store(v, Ordering::Relaxed);
+    /// Set the global lighting mode.
+    pub fn set_mode(&self, m: LightingMode) {
+        self.mode.store(m as u8, Ordering::Relaxed);
     }
-    /// Returns true if S=2 micro lighting is disabled.
-    pub fn disable_micro_s2(&self) -> bool {
-        self.disable_micro_s2.load(Ordering::Relaxed)
+    /// Read the global lighting mode.
+    pub fn mode(&self) -> LightingMode {
+        match self.mode.load(Ordering::Relaxed) {
+            0 => LightingMode::FullMicro,
+            2 => LightingMode::SeamMicro,
+            _ => LightingMode::CoarseS2,
+        }
     }
     pub fn clear_chunk(&self, cx: i32, cz: i32) {
         {
@@ -1694,11 +1695,91 @@ pub fn compute_light_with_borders_buf(
     reg: &BlockRegistry,
     world: &World,
 ) -> LightGrid {
-    if store.disable_micro_s2() {
-        LightGrid::compute_with_borders_buf(buf, store, reg)
-    } else {
-        micro::compute_light_with_borders_buf_micro(buf, store, reg, world)
+    match store.mode() {
+        LightingMode::FullMicro => micro::compute_light_with_borders_buf_micro(buf, store, reg, world),
+        LightingMode::CoarseS2 => LightGrid::compute_with_borders_buf(buf, store, reg),
+        LightingMode::SeamMicro => {
+            let lg = LightGrid::compute_with_borders_buf(buf, store, reg);
+            publish_seam_micro_borders(buf, &lg, store);
+            lg
+        }
     }
+}
+
+fn publish_seam_micro_borders(buf: &ChunkBuf, lg: &LightGrid, store: &LightingStore) {
+    let mxs = buf.sx * 2;
+    let mys = buf.sy * 2;
+    let mzs = buf.sz * 2;
+    let mut xm_sk_neg = vec![0u8; mys * mzs];
+    let mut xm_bl_neg = vec![0u8; mys * mzs];
+    let mut xm_sk_pos = vec![0u8; mys * mzs];
+    let mut xm_bl_pos = vec![0u8; mys * mzs];
+    let mut zm_sk_neg = vec![0u8; mys * mxs];
+    let mut zm_bl_neg = vec![0u8; mys * mxs];
+    let mut zm_sk_pos = vec![0u8; mys * mxs];
+    let mut zm_bl_pos = vec![0u8; mys * mxs];
+    let mut ym_sk_neg = vec![0u8; mzs * mxs];
+    let mut ym_bl_neg = vec![0u8; mzs * mxs];
+    let mut ym_sk_pos = vec![0u8; mzs * mxs];
+    let mut ym_bl_pos = vec![0u8; mzs * mxs];
+    let idx3 = |x: usize, y: usize, z: usize| -> usize { (y * buf.sz + z) * buf.sx + x };
+    // X planes
+    for my in 0..mys {
+        let y = my >> 1;
+        for mz in 0..mzs {
+            let z = mz >> 1;
+            let ii = my * mzs + mz;
+            xm_sk_neg[ii] = lg.skylight[idx3(0, y, z)];
+            xm_bl_neg[ii] = lg.block_light[idx3(0, y, z)];
+            xm_sk_pos[ii] = lg.skylight[idx3(buf.sx - 1, y, z)];
+            xm_bl_pos[ii] = lg.block_light[idx3(buf.sx - 1, y, z)];
+        }
+    }
+    // Z planes
+    for my in 0..mys {
+        let y = my >> 1;
+        for mx in 0..mxs {
+            let x = mx >> 1;
+            let ii = my * mxs + mx;
+            zm_sk_neg[ii] = lg.skylight[idx3(x, y, 0)];
+            zm_bl_neg[ii] = lg.block_light[idx3(x, y, 0)];
+            zm_sk_pos[ii] = lg.skylight[idx3(x, y, buf.sz - 1)];
+            zm_bl_pos[ii] = lg.block_light[idx3(x, y, buf.sz - 1)];
+        }
+    }
+    // Y planes
+    for mz in 0..mzs {
+        let z = mz >> 1;
+        for mx in 0..mxs {
+            let x = mx >> 1;
+            let ii = mz * mxs + mx;
+            ym_sk_neg[ii] = lg.skylight[idx3(x, 0, z)];
+            ym_bl_neg[ii] = lg.block_light[idx3(x, 0, z)];
+            ym_sk_pos[ii] = lg.skylight[idx3(x, buf.sy - 1, z)];
+            ym_bl_pos[ii] = lg.block_light[idx3(x, buf.sy - 1, z)];
+        }
+    }
+    store.update_micro_borders(
+        buf.cx,
+        buf.cz,
+        MicroBorders {
+            xm_sk_neg: xm_sk_neg.into(),
+            xm_sk_pos: xm_sk_pos.into(),
+            ym_sk_neg: ym_sk_neg.into(),
+            ym_sk_pos: ym_sk_pos.into(),
+            zm_sk_neg: zm_sk_neg.into(),
+            zm_sk_pos: zm_sk_pos.into(),
+            xm_bl_neg: xm_bl_neg.into(),
+            xm_bl_pos: xm_bl_pos.into(),
+            ym_bl_neg: ym_bl_neg.into(),
+            ym_bl_pos: ym_bl_pos.into(),
+            zm_bl_neg: zm_bl_neg.into(),
+            zm_bl_pos: zm_bl_pos.into(),
+            xm: mxs,
+            ym: mys,
+            zm: mzs,
+        },
+    );
 }
 
 // --- GPU lightfield (Phase 2) helpers ---
