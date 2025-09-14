@@ -19,8 +19,7 @@
 
 **Architectural Concerns / Technical Debt**
 - Worker‑packed atlas API still exists
-  - `pack_light_grid_atlas(light)` is still exported and easy to misuse. If future code reintroduces worker‑side packing, the race can return.
-  - Suggestion: deprecate or hide `pack_light_grid_atlas`, and route all callers through `pack_light_grid_atlas_with_neighbors` (or make the former call the latter with a required neighbor provider).
+  - Status: removed. `pack_light_grid_atlas(light)` has been deleted; only `pack_light_grid_atlas_with_neighbors` remains, assembling rings from authoritative borders at upload time.
 
 - Event ordering and finalize state
   - Finalize readiness and LightBordersUpdated fanout is nuanced. Missing a single border publish or finalize mark can stall neighbor refreshes.

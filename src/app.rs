@@ -1776,7 +1776,7 @@ impl App {
                     cause: RebuildCause::Edit,
                 });
             }
-            Event::LightBordersUpdated { cx, cz, xn_changed: _, xp_changed, zn_changed: _, zp_changed } => {
+            Event::LightBordersUpdated { cx, cz, xn_changed, xp_changed, zn_changed, zp_changed } => {
                 // Canonical seam ownership: only +X and +Z neighbors depend on our seam planes.
                 // Proactively schedule a light-only rebuild for affected neighbors to clear stale seam light,
                 // then mark owner readiness and attempt finalize once both owners have published.
@@ -1805,7 +1805,7 @@ impl App {
                         }
                     }
                 }
-                // Note: Do not schedule immediate rebuilds for -X/-Z neighbors to avoid ping-pong cascades.
+                // For -X/-Z neighbors, schedule gated light-only rebuilds (avoid finalize and ping-pong).
                 if zp_changed {
                     let k = (cx, cz + 1);
                     let st = self
@@ -1827,6 +1827,30 @@ impl App {
                                 cause: RebuildCause::LightingBorder,
                             });
                         }
+                    }
+                }
+                // Also schedule light-only rebuilds for -X/-Z neighbors when our -X/-Z planes change,
+                // so they can pick up new seam seeds and then trigger our repack via their +X/+Z updates.
+                if xn_changed {
+                    let k = (cx - 1, cz);
+                    let ring = (k.0 - ccx).abs().max((k.1 - ccz).abs());
+                    if ring <= r_gate && self.renders.contains_key(&k) {
+                        self.queue.emit_now(Event::ChunkRebuildRequested {
+                            cx: k.0,
+                            cz: k.1,
+                            cause: RebuildCause::LightingBorder,
+                        });
+                    }
+                }
+                if zn_changed {
+                    let k = (cx, cz - 1);
+                    let ring = (k.0 - ccx).abs().max((k.1 - ccz).abs());
+                    if ring <= r_gate && self.renders.contains_key(&k) {
+                        self.queue.emit_now(Event::ChunkRebuildRequested {
+                            cx: k.0,
+                            cz: k.1,
+                            cause: RebuildCause::LightingBorder,
+                        });
                     }
                 }
             }

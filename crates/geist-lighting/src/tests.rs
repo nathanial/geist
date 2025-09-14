@@ -603,6 +603,197 @@ fn lightingstore_clear_chunk_and_all_borders() {
 }
 
 #[test]
+fn atlas_border_rings_match_neighbors() {
+    // Build a tiny grid and explicit neighbor planes; verify atlas rings match exactly.
+    let (sx, sy, sz) = (3usize, 2usize, 4usize);
+    let mut lg = LightGrid::new(sx, sy, sz);
+    // Interior doesn't matter for ring checks; leave zeros.
+    // Compose NeighborBorders with distinct patterns per plane and channel
+    let mut nb = NeighborBorders::empty(sx, sy, sz);
+    let mut xn_blk = vec![0u8; sy * sz];
+    let mut xn_sky = vec![0u8; sy * sz];
+    let mut xn_bcn = vec![0u8; sy * sz];
+    let mut xp_blk = vec![0u8; sy * sz];
+    let mut xp_sky = vec![0u8; sy * sz];
+    let mut xp_bcn = vec![0u8; sy * sz];
+    let mut zn_blk = vec![0u8; sy * sx];
+    let mut zn_sky = vec![0u8; sy * sx];
+    let mut zn_bcn = vec![0u8; sy * sx];
+    let mut zp_blk = vec![0u8; sy * sx];
+    let mut zp_sky = vec![0u8; sy * sx];
+    let mut zp_bcn = vec![0u8; sy * sx];
+    // Fill plane patterns
+    for y in 0..sy {
+        for z in 0..sz {
+            let ii = y * sz + z;
+            xn_blk[ii] = 10 + (y as u8) * 3 + (z as u8);
+            xn_sky[ii] = 20 + (y as u8) * 3 + (z as u8);
+            xn_bcn[ii] = 30 + (y as u8) * 3 + (z as u8);
+            xp_blk[ii] = 40 + (y as u8) * 3 + (z as u8);
+            xp_sky[ii] = 50 + (y as u8) * 3 + (z as u8);
+            xp_bcn[ii] = 60 + (y as u8) * 3 + (z as u8);
+        }
+        for x in 0..sx {
+            let ii = y * sx + x;
+            zn_blk[ii] = 70 + (y as u8) * 5 + (x as u8);
+            zn_sky[ii] = 80 + (y as u8) * 5 + (x as u8);
+            zn_bcn[ii] = 90 + (y as u8) * 5 + (x as u8);
+            zp_blk[ii] = 100 + (y as u8) * 5 + (x as u8);
+            zp_sky[ii] = 110 + (y as u8) * 5 + (x as u8);
+            zp_bcn[ii] = 120 + (y as u8) * 5 + (x as u8);
+        }
+    }
+    nb.xn = Some(xn_blk.into());
+    nb.sk_xn = Some(xn_sky.into());
+    nb.bcn_xn = Some(xn_bcn.into());
+    nb.xp = Some(xp_blk.into());
+    nb.sk_xp = Some(xp_sky.into());
+    nb.bcn_xp = Some(xp_bcn.into());
+    nb.zn = Some(zn_blk.into());
+    nb.sk_zn = Some(zn_sky.into());
+    nb.bcn_zn = Some(zn_bcn.into());
+    nb.zp = Some(zp_blk.into());
+    nb.sk_zp = Some(zp_sky.into());
+    nb.bcn_zp = Some(zp_bcn.into());
+    let atlas = super::pack_light_grid_atlas_with_neighbors(&lg, &nb);
+    let width = atlas.width;
+    let grid_cols = atlas.grid_cols;
+    let tile_w = atlas.sx; // sx + 2
+    let tile_h = atlas.sz; // sz + 2
+    let at = |x: usize, y: usize| -> (u8, u8, u8) {
+        let di = (y * width + x) * 4;
+        (atlas.data[di + 0], atlas.data[di + 1], atlas.data[di + 2])
+    };
+    for y in 0..sy {
+        let tx = y % grid_cols;
+        let ty = y / grid_cols;
+        let ox = tx * tile_w;
+        let oy = ty * tile_h;
+        // -X ring x=0, z in [0..sz)
+        for z in 0..sz {
+            let (r, g, b) = at(ox + 0, oy + 1 + z);
+            let ii = y * sz + z;
+            assert_eq!(r, nb.xn.as_ref().unwrap()[ii], "xn.r mismatch y={} z={}", y, z);
+            assert_eq!(g, nb.sk_xn.as_ref().unwrap()[ii], "xn.g mismatch y={} z={}", y, z);
+            assert_eq!(b, nb.bcn_xn.as_ref().unwrap()[ii], "xn.b mismatch y={} z={}", y, z);
+        }
+        // +X ring x=sx+1
+        for z in 0..sz {
+            let (r, g, b) = at(ox + (sx + 1), oy + 1 + z);
+            let ii = y * sz + z;
+            assert_eq!(r, nb.xp.as_ref().unwrap()[ii], "xp.r mismatch y={} z={}", y, z);
+            assert_eq!(g, nb.sk_xp.as_ref().unwrap()[ii], "xp.g mismatch y={} z={}", y, z);
+            assert_eq!(b, nb.bcn_xp.as_ref().unwrap()[ii], "xp.b mismatch y={} z={}", y, z);
+        }
+        // -Z ring y=0 (oy + 0)
+        for x in 0..sx {
+            let (r, g, b) = at(ox + 1 + x, oy + 0);
+            let ii = y * sx + x;
+            assert_eq!(r, nb.zn.as_ref().unwrap()[ii], "zn.r mismatch y={} x={}", y, x);
+            assert_eq!(g, nb.sk_zn.as_ref().unwrap()[ii], "zn.g mismatch y={} x={}", y, x);
+            assert_eq!(b, nb.bcn_zn.as_ref().unwrap()[ii], "zn.b mismatch y={} x={}", y, x);
+        }
+        // +Z ring y=sz+1
+        for x in 0..sx {
+            let (r, g, b) = at(ox + 1 + x, oy + (sz + 1));
+            let ii = y * sx + x;
+            assert_eq!(r, nb.zp.as_ref().unwrap()[ii], "zp.r mismatch y={} x={}", y, x);
+            assert_eq!(g, nb.sk_zp.as_ref().unwrap()[ii], "zp.g mismatch y={} x={}", y, x);
+            assert_eq!(b, nb.bcn_zp.as_ref().unwrap()[ii], "zp.b mismatch y={} x={}", y, x);
+        }
+    }
+}
+
+#[test]
+fn atlas_interior_and_missing_ring_corners() {
+    // Verify interior pixels copy LightGrid values, and missing rings/corners remain zero.
+    let (sx, sy, sz) = (3usize, 2usize, 2usize);
+    let mut lg = LightGrid::new(sx, sy, sz);
+    for y in 0..sy {
+        for z in 0..sz {
+            for x in 0..sx {
+                let v = (x as u8) + 10 * (y as u8) + 100 * (z as u8);
+                let i = lg.idx(x, y, z);
+                lg.block_light[i] = v;
+                lg.skylight[i] = v.saturating_add(1);
+                lg.beacon_light[i] = v.saturating_add(2);
+                lg.beacon_dir[i] = 0;
+            }
+        }
+    }
+    // Only provide +X neighbor planes; others are None
+    let mut nb = NeighborBorders::empty(sx, sy, sz);
+    let mut xp_blk = vec![0u8; sy * sz];
+    let mut xp_sky = vec![0u8; sy * sz];
+    let mut xp_bcn = vec![0u8; sy * sz];
+    for y in 0..sy {
+        for z in 0..sz {
+            let ii = y * sz + z;
+            xp_blk[ii] = 200 + (ii as u8);
+            xp_sky[ii] = 150 + (ii as u8);
+            xp_bcn[ii] = 50 + (ii as u8);
+        }
+    }
+    nb.xp = Some(xp_blk.into());
+    nb.sk_xp = Some(xp_sky.into());
+    nb.bcn_xp = Some(xp_bcn.into());
+
+    let atlas = super::pack_light_grid_atlas_with_neighbors(&lg, &nb);
+    let width = atlas.width;
+    let grid_cols = atlas.grid_cols;
+    let tile_w = atlas.sx;
+    let tile_h = atlas.sz;
+    let at = |x: usize, y: usize| -> (u8, u8, u8) {
+        let di = (y * width + x) * 4;
+        (atlas.data[di + 0], atlas.data[di + 1], atlas.data[di + 2])
+    };
+    for y in 0..sy {
+        let tx = y % grid_cols;
+        let ty = y / grid_cols;
+        let ox = tx * tile_w;
+        let oy = ty * tile_h;
+        // Interior matches light grid
+        for z in 0..sz {
+            for x in 0..sx {
+                let (r, g, b) = at(ox + 1 + x, oy + 1 + z);
+                let i = lg.idx(x, y, z);
+                assert_eq!((r, g, b), (lg.block_light[i], lg.skylight[i], lg.beacon_light[i]), "interior mismatch at x={},y={},z={}", x, y, z);
+            }
+        }
+        // +X ring present
+        for z in 0..sz {
+            let (r, g, b) = at(ox + (sx + 1), oy + 1 + z);
+            let ii = y * sz + z;
+            assert_eq!(r, nb.xp.as_ref().unwrap()[ii]);
+            assert_eq!(g, nb.sk_xp.as_ref().unwrap()[ii]);
+            assert_eq!(b, nb.bcn_xp.as_ref().unwrap()[ii]);
+        }
+        // -X, -Z, +Z rings absent -> zero
+        for z in 0..sz {
+            let (r, g, b) = at(ox + 0, oy + 1 + z);
+            assert_eq!((r, g, b), (0, 0, 0), "-X ring not zero at y={}, z={}", y, z);
+        }
+        for x in 0..sx {
+            let (r0, g0, b0) = at(ox + 1 + x, oy + 0);
+            let (r1, g1, b1) = at(ox + 1 + x, oy + (sz + 1));
+            assert_eq!((r0, g0, b0), (0, 0, 0), "-Z ring not zero at y={}, x={}", y, x);
+            assert_eq!((r1, g1, b1), (0, 0, 0), "+Z ring not zero at y={}, x={}", y, x);
+        }
+        // Corners remain zero
+        let corners = [
+            (ox + 0, oy + 0),
+            (ox + (sx + 1), oy + 0),
+            (ox + 0, oy + (sz + 1)),
+            (ox + (sx + 1), oy + (sz + 1)),
+        ];
+        for &(cx, cy) in &corners {
+            let (r, g, b) = at(cx, cy);
+            assert_eq!((r, g, b), (0, 0, 0), "corner not zero at tile origin ({},{})", cx, cy);
+        }
+    }
+}
+
+#[test]
 fn seam_symmetry_block_and_sky_z_plus_minus_with_micro_override() {
     let reg = make_test_registry();
     let sx = 2;
