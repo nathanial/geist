@@ -94,6 +94,80 @@ struct IntentEntry {
 }
 
 impl App {
+    fn validate_chunk_light_atlas(&self, cx: i32, cz: i32, atlas: &geist_lighting::LightAtlas) {
+        // Compare atlas border rings against LightingStore neighbor planes; panic on mismatch.
+        let nb = self.gs.lighting.get_neighbor_borders(cx, cz);
+        let width = atlas.width;
+        let grid_cols = atlas.grid_cols;
+        let tile_w = atlas.sx; // extended: sx + 2
+        let tile_h = atlas.sz; // extended: sz + 2
+        let inner_sx = tile_w.saturating_sub(2);
+        let inner_sz = tile_h.saturating_sub(2);
+        let sy = atlas.sy;
+        let data = &atlas.data;
+        let mut at = |x: usize, y: usize| -> (u8, u8, u8) {
+            let di = (y * width + x) * 4;
+            (data[di + 0], data[di + 1], data[di + 2])
+        };
+        for y in 0..sy {
+            let tx = y % grid_cols;
+            let ty = y / grid_cols;
+            let ox = tx * tile_w;
+            let oy = ty * tile_h;
+            // -X ring (x=0, z in 1..=inner_sz)
+            if let (Some(ref blk), Some(ref sky), Some(ref bcn)) = (nb.xn.as_ref(), nb.sk_xn.as_ref(), nb.bcn_xn.as_ref()) {
+                for z in 0..inner_sz {
+                    let (r, g, b) = at(ox + 0, oy + 1 + z);
+                    let ii = y * inner_sz + z;
+                    let er = blk.get(ii).cloned().unwrap_or(0);
+                    let eg = sky.get(ii).cloned().unwrap_or(0);
+                    let eb = bcn.get(ii).cloned().unwrap_or(0);
+                    if r != er || g != eg || b != eb {
+                        panic!("Light atlas -X ring mismatch at chunk ({},{}) slice y={} z={} got=({},{},{}) exp=({},{},{})", cx, cz, y, z, r, g, b, er, eg, eb);
+                    }
+                }
+            }
+            // +X ring (x=inner_sx+1)
+            if let (Some(ref blk), Some(ref sky), Some(ref bcn)) = (nb.xp.as_ref(), nb.sk_xp.as_ref(), nb.bcn_xp.as_ref()) {
+                for z in 0..inner_sz {
+                    let (r, g, b) = at(ox + (inner_sx + 1), oy + 1 + z);
+                    let ii = y * inner_sz + z;
+                    let er = blk.get(ii).cloned().unwrap_or(0);
+                    let eg = sky.get(ii).cloned().unwrap_or(0);
+                    let eb = bcn.get(ii).cloned().unwrap_or(0);
+                    if r != er || g != eg || b != eb {
+                        panic!("Light atlas +X ring mismatch at chunk ({},{}) slice y={} z={} got=({},{},{}) exp=({},{},{})", cx, cz, y, z, r, g, b, er, eg, eb);
+                    }
+                }
+            }
+            // -Z ring (z=0, x in 1..=inner_sx)
+            if let (Some(ref blk), Some(ref sky), Some(ref bcn)) = (nb.zn.as_ref(), nb.sk_zn.as_ref(), nb.bcn_zn.as_ref()) {
+                for x in 0..inner_sx {
+                    let (r, g, b) = at(ox + 1 + x, oy + 0);
+                    let ii = y * inner_sx + x;
+                    let er = blk.get(ii).cloned().unwrap_or(0);
+                    let eg = sky.get(ii).cloned().unwrap_or(0);
+                    let eb = bcn.get(ii).cloned().unwrap_or(0);
+                    if r != er || g != eg || b != eb {
+                        panic!("Light atlas -Z ring mismatch at chunk ({},{}) slice y={} x={} got=({},{},{}) exp=({},{},{})", cx, cz, y, x, r, g, b, er, eg, eb);
+                    }
+                }
+            }
+            // +Z ring (z=inner_sz+1)
+            if let (Some(ref blk), Some(ref sky), Some(ref bcn)) = (nb.zp.as_ref(), nb.sk_zp.as_ref(), nb.bcn_zp.as_ref()) {
+                for x in 0..inner_sx {
+                    let (r, g, b) = at(ox + 1 + x, oy + (inner_sz + 1));
+                    let ii = y * inner_sx + x;
+                    let er = blk.get(ii).cloned().unwrap_or(0);
+                    let eg = sky.get(ii).cloned().unwrap_or(0);
+                    let eb = bcn.get(ii).cloned().unwrap_or(0);
+                    if r != er || g != eg || b != eb {
+                        panic!("Light atlas +Z ring mismatch at chunk ({},{}) slice y={} x={} got=({},{},{}) exp=({},{},{})", cx, cz, y, x, r, g, b, er, eg, eb);
+                    }
+                }
+            }
+        }
+    }
     fn try_schedule_finalize(&mut self, cx: i32, cz: i32) {
         let st = self.gs.finalize.entry((cx, cz)).or_insert(FinalizeState::default());
         if st.finalized || st.finalize_requested {
@@ -1326,6 +1400,8 @@ impl App {
                     }
                     self.renders.insert((cx, cz), cr);
                     if let Some(atlas) = light_atlas {
+                        // Validate seam rings against neighbor planes to catch mismatches
+                        self.validate_chunk_light_atlas(cx, cz, &atlas);
                         if let Some(cr) = self.renders.get_mut(&(cx, cz)) {
                             update_chunk_light_texture(rl, thread, cr, &atlas);
                         }
@@ -1391,6 +1467,8 @@ impl App {
                     self.gs.inflight_rev.remove(&(cx, cz));
                     return;
                 }
+                // Validate seam rings against neighbor planes to catch mismatches
+                self.validate_chunk_light_atlas(cx, cz, &light_atlas);
                 // Update GPU light texture for existing chunk
                 if let Some(cr) = self.renders.get_mut(&(cx, cz)) {
                     update_chunk_light_texture(rl, thread, cr, &light_atlas);
