@@ -66,12 +66,24 @@ pub struct ChunkPart {
     pub v_count: usize,
 }
 
+pub struct ChunkLightTex {
+    pub tex: raylib::core::texture::Texture2D,
+    pub width: i32,
+    pub height: i32,
+    pub sx: i32,
+    pub sy: i32,
+    pub sz: i32,
+    pub grid_cols: i32,
+    pub grid_rows: i32,
+}
+
 pub struct ChunkRender {
     pub cx: i32,
     pub cz: i32,
     pub bbox: raylib::core::math::BoundingBox,
     pub parts: Vec<ChunkPart>,
     pub leaf_tint: Option<[f32; 3]>,
+    pub light_tex: Option<ChunkLightTex>,
 }
 
 pub fn upload_chunk_mesh(
@@ -214,38 +226,11 @@ pub fn upload_chunk_mesh(
         bbox: conv::aabb_to_rl(cpu.bbox),
         parts: parts_gpu,
         leaf_tint: None,
+        light_tex: None,
     })
 }
 
-/// Update GPU color buffers for this chunk in-place, without changing geometry.
-/// `colors` maps material id -> per-vertex RGBA (4 bytes per vertex) for the full material build.
-pub fn update_chunk_colors(
-    _rl: &mut RaylibHandle,
-    _thread: &RaylibThread,
-    cr: &mut ChunkRender,
-    colors: &HashMap<geist_blocks::types::MaterialId, Vec<u8>>,
-) {
-    for part in &mut cr.parts {
-        if let Some(all_cols) = colors.get(&part.mid) {
-            let start = part.v_start * 4;
-            let end = start + part.v_count * 4;
-            if end <= all_cols.len() {
-                let slice = &all_cols[start..end];
-                unsafe {
-                    // Update buffer index 3 (colors) for this mesh. Raylib's FFI takes Mesh by value.
-                    let mesh_val: raylib::ffi::Mesh = *part.model.meshes;
-                    raylib::ffi::UpdateMeshBuffer(
-                        mesh_val,
-                        3,
-                        slice.as_ptr() as *const std::ffi::c_void,
-                        (slice.len()) as i32,
-                        0,
-                    );
-                }
-            }
-        }
-    }
-}
+// Phase 1 color buffer updates removed in Phase 2.
 
 pub struct LeavesShader {
     pub shader: raylib::shaders::WeakShader,
@@ -260,6 +245,12 @@ pub struct LeavesShader {
     pub loc_strength: i32,
     pub loc_time: i32,
     pub loc_underwater: i32,
+    // Lighting (Phase 2)
+    pub loc_light_tex: i32,
+    pub loc_light_dims: i32,
+    pub loc_light_grid: i32,
+    pub loc_chunk_origin: i32,
+    pub loc_vis_min: i32,
 }
 
 impl LeavesShader {
@@ -279,6 +270,11 @@ impl LeavesShader {
         let loc_strength = shader.get_shader_location("autumnStrength");
         let loc_time = shader.get_shader_location("time");
         let loc_underwater = shader.get_shader_location("underwater");
+        let loc_light_tex = shader.get_shader_location("lightTex");
+        let loc_light_dims = shader.get_shader_location("lightDims");
+        let loc_light_grid = shader.get_shader_location("lightGrid");
+        let loc_chunk_origin = shader.get_shader_location("chunkOrigin");
+        let loc_vis_min = shader.get_shader_location("visualLightMin");
         let mut s = Self {
             shader,
             loc_fog_color,
@@ -292,6 +288,11 @@ impl LeavesShader {
             loc_strength,
             loc_time,
             loc_underwater,
+            loc_light_tex,
+            loc_light_dims,
+            loc_light_grid,
+            loc_chunk_origin,
+            loc_vis_min,
         };
         s.set_autumn_palette(
             [0.905, 0.678, 0.161],
@@ -326,6 +327,11 @@ impl LeavesShader {
         let loc_strength = shader.get_shader_location("autumnStrength");
         let loc_time = shader.get_shader_location("time");
         let loc_underwater = shader.get_shader_location("underwater");
+        let loc_light_tex = shader.get_shader_location("lightTex");
+        let loc_light_dims = shader.get_shader_location("lightDims");
+        let loc_light_grid = shader.get_shader_location("lightGrid");
+        let loc_chunk_origin = shader.get_shader_location("chunkOrigin");
+        let loc_vis_min = shader.get_shader_location("visualLightMin");
         let mut s = Self {
             shader,
             loc_fog_color,
@@ -339,6 +345,11 @@ impl LeavesShader {
             loc_strength,
             loc_time,
             loc_underwater,
+            loc_light_tex,
+            loc_light_dims,
+            loc_light_grid,
+            loc_chunk_origin,
+            loc_vis_min,
         };
         s.set_autumn_palette(
             [0.905, 0.678, 0.161],
@@ -403,6 +414,57 @@ impl LeavesShader {
             self.shader.set_shader_value(self.loc_underwater, v);
         }
     }
+    pub fn update_chunk_uniforms(
+        &mut self,
+        thread: &RaylibThread,
+        tex: &raylib::core::texture::Texture2D,
+        light_dims: (i32, i32, i32),
+        light_grid: (i32, i32),
+        chunk_origin: [f32; 3],
+        visual_min: f32,
+    ) {
+        if self.loc_light_tex >= 0 {
+            unsafe { raylib::ffi::SetShaderValueTexture(*self.shader.as_ref(), self.loc_light_tex, *tex.as_ref()); }
+        }
+        if self.loc_light_dims >= 0 {
+            let v = [light_dims.0, light_dims.1, light_dims.2];
+            self.shader.set_shader_value(self.loc_light_dims, v);
+        }
+        if self.loc_light_grid >= 0 {
+            let v = [light_grid.0, light_grid.1];
+            self.shader.set_shader_value(self.loc_light_grid, v);
+        }
+        if self.loc_chunk_origin >= 0 {
+            self.shader.set_shader_value(self.loc_chunk_origin, chunk_origin);
+        }
+        if self.loc_vis_min >= 0 {
+            self.shader.set_shader_value(self.loc_vis_min, visual_min);
+        }
+        let _ = thread; // unused here but kept for parity
+    }
+    pub fn update_chunk_uniforms_no_tex(
+        &mut self,
+        _thread: &RaylibThread,
+        light_dims: (i32, i32, i32),
+        light_grid: (i32, i32),
+        chunk_origin: [f32; 3],
+        visual_min: f32,
+    ) {
+        if self.loc_light_dims >= 0 {
+            let v = [light_dims.0, light_dims.1, light_dims.2];
+            self.shader.set_shader_value(self.loc_light_dims, v);
+        }
+        if self.loc_light_grid >= 0 {
+            let v = [light_grid.0, light_grid.1];
+            self.shader.set_shader_value(self.loc_light_grid, v);
+        }
+        if self.loc_chunk_origin >= 0 {
+            self.shader.set_shader_value(self.loc_chunk_origin, chunk_origin);
+        }
+        if self.loc_vis_min >= 0 {
+            self.shader.set_shader_value(self.loc_vis_min, visual_min);
+        }
+    }
 }
 
 pub struct FogShader {
@@ -413,6 +475,12 @@ pub struct FogShader {
     pub loc_camera_pos: i32,
     pub loc_time: i32,
     pub loc_underwater: i32,
+    // Lighting (Phase 2)
+    pub loc_light_tex: i32,
+    pub loc_light_dims: i32,
+    pub loc_light_grid: i32,
+    pub loc_chunk_origin: i32,
+    pub loc_vis_min: i32,
 }
 
 impl FogShader {
@@ -427,6 +495,11 @@ impl FogShader {
         let loc_camera_pos = shader.get_shader_location("cameraPos");
         let loc_time = shader.get_shader_location("time");
         let loc_underwater = shader.get_shader_location("underwater");
+        let loc_light_tex = shader.get_shader_location("lightTex");
+        let loc_light_dims = shader.get_shader_location("lightDims");
+        let loc_light_grid = shader.get_shader_location("lightGrid");
+        let loc_chunk_origin = shader.get_shader_location("chunkOrigin");
+        let loc_vis_min = shader.get_shader_location("visualLightMin");
         Some(Self {
             shader,
             loc_fog_color,
@@ -435,6 +508,11 @@ impl FogShader {
             loc_camera_pos,
             loc_time,
             loc_underwater,
+            loc_light_tex,
+            loc_light_dims,
+            loc_light_grid,
+            loc_chunk_origin,
+            loc_vis_min,
         })
     }
     pub fn load_with_base(
@@ -456,6 +534,11 @@ impl FogShader {
         let loc_camera_pos = shader.get_shader_location("cameraPos");
         let loc_time = shader.get_shader_location("time");
         let loc_underwater = shader.get_shader_location("underwater");
+        let loc_light_tex = shader.get_shader_location("lightTex");
+        let loc_light_dims = shader.get_shader_location("lightDims");
+        let loc_light_grid = shader.get_shader_location("lightGrid");
+        let loc_chunk_origin = shader.get_shader_location("chunkOrigin");
+        let loc_vis_min = shader.get_shader_location("visualLightMin");
         Some(Self {
             shader,
             loc_fog_color,
@@ -464,6 +547,11 @@ impl FogShader {
             loc_camera_pos,
             loc_time,
             loc_underwater,
+            loc_light_tex,
+            loc_light_dims,
+            loc_light_grid,
+            loc_chunk_origin,
+            loc_vis_min,
         })
     }
     pub fn update_frame_uniforms(
@@ -496,6 +584,57 @@ impl FogShader {
             self.shader.set_shader_value(self.loc_underwater, v);
         }
     }
+    pub fn update_chunk_uniforms(
+        &mut self,
+        thread: &RaylibThread,
+        tex: &raylib::core::texture::Texture2D,
+        light_dims: (i32, i32, i32),
+        light_grid: (i32, i32),
+        chunk_origin: [f32; 3],
+        visual_min: f32,
+    ) {
+        if self.loc_light_tex >= 0 {
+            unsafe { raylib::ffi::SetShaderValueTexture(*self.shader.as_ref(), self.loc_light_tex, *tex.as_ref()); }
+        }
+        if self.loc_light_dims >= 0 {
+            let v = [light_dims.0, light_dims.1, light_dims.2];
+            self.shader.set_shader_value(self.loc_light_dims, v);
+        }
+        if self.loc_light_grid >= 0 {
+            let v = [light_grid.0, light_grid.1];
+            self.shader.set_shader_value(self.loc_light_grid, v);
+        }
+        if self.loc_chunk_origin >= 0 {
+            self.shader.set_shader_value(self.loc_chunk_origin, chunk_origin);
+        }
+        if self.loc_vis_min >= 0 {
+            self.shader.set_shader_value(self.loc_vis_min, visual_min);
+        }
+        let _ = thread;
+    }
+    pub fn update_chunk_uniforms_no_tex(
+        &mut self,
+        _thread: &RaylibThread,
+        light_dims: (i32, i32, i32),
+        light_grid: (i32, i32),
+        chunk_origin: [f32; 3],
+        visual_min: f32,
+    ) {
+        if self.loc_light_dims >= 0 {
+            let v = [light_dims.0, light_dims.1, light_dims.2];
+            self.shader.set_shader_value(self.loc_light_dims, v);
+        }
+        if self.loc_light_grid >= 0 {
+            let v = [light_grid.0, light_grid.1];
+            self.shader.set_shader_value(self.loc_light_grid, v);
+        }
+        if self.loc_chunk_origin >= 0 {
+            self.shader.set_shader_value(self.loc_chunk_origin, chunk_origin);
+        }
+        if self.loc_vis_min >= 0 {
+            self.shader.set_shader_value(self.loc_vis_min, visual_min);
+        }
+    }
 }
 
 pub struct WaterShader {
@@ -506,6 +645,12 @@ pub struct WaterShader {
     pub loc_camera_pos: i32,
     pub loc_time: i32,
     pub loc_underwater: i32,
+    // Lighting (Phase 2)
+    pub loc_light_tex: i32,
+    pub loc_light_dims: i32,
+    pub loc_light_grid: i32,
+    pub loc_chunk_origin: i32,
+    pub loc_vis_min: i32,
 }
 
 impl WaterShader {
@@ -522,13 +667,29 @@ impl WaterShader {
             Some(fs.to_string_lossy().as_ref()),
         );
         let shader = unsafe { shader_strong.make_weak() };
+        let loc_fog_color = shader.get_shader_location("fogColor");
+        let loc_fog_start = shader.get_shader_location("fogStart");
+        let loc_fog_end = shader.get_shader_location("fogEnd");
+        let loc_camera_pos = shader.get_shader_location("cameraPos");
+        let loc_time = shader.get_shader_location("time");
+        let loc_underwater = shader.get_shader_location("underwater");
+        let loc_light_tex = shader.get_shader_location("lightTex");
+        let loc_light_dims = shader.get_shader_location("lightDims");
+        let loc_light_grid = shader.get_shader_location("lightGrid");
+        let loc_chunk_origin = shader.get_shader_location("chunkOrigin");
+        let loc_vis_min = shader.get_shader_location("visualLightMin");
         Some(Self {
-            loc_fog_color: shader.get_shader_location("fogColor"),
-            loc_fog_start: shader.get_shader_location("fogStart"),
-            loc_fog_end: shader.get_shader_location("fogEnd"),
-            loc_camera_pos: shader.get_shader_location("cameraPos"),
-            loc_time: shader.get_shader_location("time"),
-            loc_underwater: shader.get_shader_location("underwater"),
+            loc_fog_color,
+            loc_fog_start,
+            loc_fog_end,
+            loc_camera_pos,
+            loc_time,
+            loc_underwater,
+            loc_light_tex,
+            loc_light_dims,
+            loc_light_grid,
+            loc_chunk_origin,
+            loc_vis_min,
             shader,
         })
     }
@@ -562,4 +723,118 @@ impl WaterShader {
             self.shader.set_shader_value(self.loc_underwater, v);
         }
     }
+    pub fn update_chunk_uniforms(
+        &mut self,
+        thread: &RaylibThread,
+        tex: &raylib::core::texture::Texture2D,
+        light_dims: (i32, i32, i32),
+        light_grid: (i32, i32),
+        chunk_origin: [f32; 3],
+        visual_min: f32,
+    ) {
+        if self.loc_light_tex >= 0 {
+            unsafe { raylib::ffi::SetShaderValueTexture(*self.shader.as_ref(), self.loc_light_tex, *tex.as_ref()); }
+        }
+        if self.loc_light_dims >= 0 {
+            let v = [light_dims.0, light_dims.1, light_dims.2];
+            self.shader.set_shader_value(self.loc_light_dims, v);
+        }
+        if self.loc_light_grid >= 0 {
+            let v = [light_grid.0, light_grid.1];
+            self.shader.set_shader_value(self.loc_light_grid, v);
+        }
+        if self.loc_chunk_origin >= 0 {
+            self.shader.set_shader_value(self.loc_chunk_origin, chunk_origin);
+        }
+        if self.loc_vis_min >= 0 {
+            self.shader.set_shader_value(self.loc_vis_min, visual_min);
+        }
+        let _ = thread;
+    }
+    pub fn update_chunk_uniforms_no_tex(
+        &mut self,
+        _thread: &RaylibThread,
+        light_dims: (i32, i32, i32),
+        light_grid: (i32, i32),
+        chunk_origin: [f32; 3],
+        visual_min: f32,
+    ) {
+        if self.loc_light_dims >= 0 {
+            let v = [light_dims.0, light_dims.1, light_dims.2];
+            self.shader.set_shader_value(self.loc_light_dims, v);
+        }
+        if self.loc_light_grid >= 0 {
+            let v = [light_grid.0, light_grid.1];
+            self.shader.set_shader_value(self.loc_light_grid, v);
+        }
+        if self.loc_chunk_origin >= 0 {
+            self.shader.set_shader_value(self.loc_chunk_origin, chunk_origin);
+        }
+        if self.loc_vis_min >= 0 {
+            self.shader.set_shader_value(self.loc_vis_min, visual_min);
+        }
+    }
+}
+
+/// Create or update the per-chunk light texture from a packed atlas.
+pub fn update_chunk_light_texture(
+    rl: &mut RaylibHandle,
+    thread: &RaylibThread,
+    cr: &mut ChunkRender,
+    atlas: &geist_lighting::LightAtlas,
+) {
+    let width = atlas.width as i32;
+    let height = atlas.height as i32;
+    let format = raylib::consts::PixelFormat::PIXELFORMAT_UNCOMPRESSED_R8G8B8A8;
+    // Create or update texture
+    if let Some(ref mut lt) = cr.light_tex {
+        // If size changed, reload; else update in place
+        if lt.width != width || lt.height != height {
+            // Drop old and recreate
+            let img = raylib::core::texture::Image::gen_image_color(width, height, Color::BLACK);
+            let tex = rl.load_texture_from_image(thread, &img).ok();
+            if let Some(tex) = tex {
+                tex.set_texture_filter(thread, raylib::consts::TextureFilter::TEXTURE_FILTER_POINT);
+                tex.set_texture_wrap(thread, raylib::consts::TextureWrap::TEXTURE_WRAP_CLAMP);
+                lt.tex = tex;
+                unsafe { raylib::ffi::UpdateTexture(*lt.tex.as_ref(), atlas.data.as_ptr() as *const _); }
+                lt.width = width;
+                lt.height = height;
+                lt.sx = atlas.sx as i32;
+                lt.sy = atlas.sy as i32;
+                lt.sz = atlas.sz as i32;
+                lt.grid_cols = atlas.grid_cols as i32;
+                lt.grid_rows = atlas.grid_rows as i32;
+            }
+        } else {
+            unsafe { raylib::ffi::UpdateTexture(*lt.tex.as_ref(), atlas.data.as_ptr() as *const _); }
+            lt.sx = atlas.sx as i32;
+            lt.sy = atlas.sy as i32;
+            lt.sz = atlas.sz as i32;
+            lt.grid_cols = atlas.grid_cols as i32;
+            lt.grid_rows = atlas.grid_rows as i32;
+        }
+    } else {
+        // Create new texture
+        // Build an Image from raw RGBA pixels
+        let img = raylib::core::texture::Image::gen_image_color(width, height, Color::BLACK);
+        if let Ok(tex) = rl.load_texture_from_image(thread, &img) {
+            let tex = tex;
+            tex.set_texture_filter(thread, raylib::consts::TextureFilter::TEXTURE_FILTER_POINT);
+            tex.set_texture_wrap(thread, raylib::consts::TextureWrap::TEXTURE_WRAP_CLAMP);
+            unsafe { raylib::ffi::UpdateTexture(*tex.as_ref(), atlas.data.as_ptr() as *const _); }
+            let lt = ChunkLightTex {
+                tex,
+                width,
+                height,
+                sx: atlas.sx as i32,
+                sy: atlas.sy as i32,
+                sz: atlas.sz as i32,
+                grid_cols: atlas.grid_cols as i32,
+                grid_rows: atlas.grid_rows as i32,
+            };
+            cr.light_tex = Some(lt);
+        }
+    }
+    let _ = format; // currently unused, but documents pixel format intent
 }

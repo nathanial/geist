@@ -11,7 +11,7 @@ use geist_blocks::{Block, BlockRegistry};
 use geist_edit::EditStore;
 use geist_lighting::LightingStore;
 use geist_mesh_cpu::NeighborsLoaded;
-use geist_render_raylib::{ChunkRender, FogShader, LeavesShader, TextureCache, upload_chunk_mesh, update_chunk_colors};
+use geist_render_raylib::{ChunkRender, FogShader, LeavesShader, TextureCache, upload_chunk_mesh, update_chunk_light_texture};
 use geist_runtime::{BuildJob, JobOut, Runtime, StructureBuildJob};
 use geist_structures::{Pose, Structure, StructureId, rotate_yaw, rotate_yaw_inv};
 use geist_world::voxel::{World, WorldGenMode};
@@ -1239,7 +1239,7 @@ impl App {
                 cpu,
                 buf,
                 light_borders,
-                colors,
+                light_atlas,
                 job_id: _,
             } => {
                 // Drop if stale
@@ -1325,9 +1325,9 @@ impl App {
                         }
                     }
                     self.renders.insert((cx, cz), cr);
-                    if let Some(cols) = colors {
+                    if let Some(atlas) = light_atlas {
                         if let Some(cr) = self.renders.get_mut(&(cx, cz)) {
-                            update_chunk_colors(rl, thread, cr, &cols);
+                            update_chunk_light_texture(rl, thread, cr, &atlas);
                         }
                     }
                 }
@@ -1375,7 +1375,7 @@ impl App {
                     }
                 }
             }
-            Event::ChunkLightingRecomputed { cx, cz, rev, colors, job_id: _ } => {
+            Event::ChunkLightingRecomputed { cx, cz, rev, light_atlas, job_id: _ } => {
                 // Drop if stale
                 let cur_rev = self.gs.edits.get_rev(cx, cz);
                 if rev < cur_rev {
@@ -1391,9 +1391,9 @@ impl App {
                     self.gs.inflight_rev.remove(&(cx, cz));
                     return;
                 }
-                // Update GPU color buffers for existing chunk
+                // Update GPU light texture for existing chunk
                 if let Some(cr) = self.renders.get_mut(&(cx, cz)) {
-                    update_chunk_colors(rl, thread, cr, &colors);
+                    update_chunk_light_texture(rl, thread, cr, &light_atlas);
                 }
                 // Do not update borders or trigger neighbors on color-only recomputes.
                 self.gs.inflight_rev.remove(&(cx, cz));
@@ -2109,15 +2109,15 @@ impl App {
                     cpu,
                     buf: r.buf,
                     light_borders: r.light_borders,
-                    colors: r.colors,
+                    light_atlas: r.light_atlas,
                     job_id: r.job_id,
                 });
-            } else if let Some(colors) = r.colors {
+            } else if let Some(atlas) = r.light_atlas {
                 self.queue.emit_now(Event::ChunkLightingRecomputed {
                     cx: r.cx,
                     cz: r.cz,
                     rev: r.rev,
-                    colors,
+                    light_atlas: atlas,
                     job_id: r.job_id,
                 });
             }
@@ -2318,6 +2318,26 @@ impl App {
                 let dz = center.z - self.cam.position.z;
                 let dist2 = dx * dx + dy * dy + dz * dz;
                 visible_chunks.push((*ckey, dist2));
+                // Bind per-chunk lighting uniforms
+                let origin = [
+                    (cr.cx * self.gs.world.chunk_size_x as i32) as f32,
+                    0.0,
+                    (cr.cz * self.gs.world.chunk_size_z as i32) as f32,
+                ];
+                let vis_min = 18.0f32 / 255.0f32;
+                if let Some(ref lt) = cr.light_tex {
+                    let dims = (lt.sx, lt.sy, lt.sz);
+                    let grid = (lt.grid_cols, lt.grid_rows);
+                    if let Some(ref mut fs) = self.fog_shader { fs.update_chunk_uniforms(thread, &lt.tex, dims, grid, origin, vis_min); }
+                    if let Some(ref mut ls) = self.leaves_shader { ls.update_chunk_uniforms(thread, &lt.tex, dims, grid, origin, vis_min); }
+                    if let Some(ref mut ws) = self.water_shader { ws.update_chunk_uniforms(thread, &lt.tex, dims, grid, origin, vis_min); }
+                } else {
+                    let dims = (0, 0, 0);
+                    let grid = (0, 0);
+                    if let Some(ref mut fs) = self.fog_shader { fs.update_chunk_uniforms_no_tex(thread, dims, grid, origin, vis_min); }
+                    if let Some(ref mut ls) = self.leaves_shader { ls.update_chunk_uniforms_no_tex(thread, dims, grid, origin, vis_min); }
+                    if let Some(ref mut ws) = self.water_shader { ws.update_chunk_uniforms_no_tex(thread, dims, grid, origin, vis_min); }
+                }
                 // Set biome-based leaf palette per chunk if available
                 if let Some(ref mut ls) = self.leaves_shader {
                     if let Some(t) = cr.leaf_tint {
@@ -2417,6 +2437,26 @@ impl App {
                 if let Some(cr) = self.renders.get(&ckey) {
                     if self.gs.frustum_culling_enabled && !frustum.contains_bounding_box(&cr.bbox) {
                         continue;
+                    }
+                    // Bind per-chunk lighting uniforms
+                    let origin = [
+                        (cr.cx * self.gs.world.chunk_size_x as i32) as f32,
+                        0.0,
+                        (cr.cz * self.gs.world.chunk_size_z as i32) as f32,
+                    ];
+                    let vis_min = 18.0f32 / 255.0f32;
+                    if let Some(ref lt) = cr.light_tex {
+                        let dims = (lt.sx, lt.sy, lt.sz);
+                        let grid = (lt.grid_cols, lt.grid_rows);
+                        if let Some(ref mut fs) = self.fog_shader { fs.update_chunk_uniforms(thread, &lt.tex, dims, grid, origin, vis_min); }
+                        if let Some(ref mut ls) = self.leaves_shader { ls.update_chunk_uniforms(thread, &lt.tex, dims, grid, origin, vis_min); }
+                        if let Some(ref mut ws) = self.water_shader { ws.update_chunk_uniforms(thread, &lt.tex, dims, grid, origin, vis_min); }
+                    } else {
+                        let dims = (0, 0, 0);
+                        let grid = (0, 0);
+                        if let Some(ref mut fs) = self.fog_shader { fs.update_chunk_uniforms_no_tex(thread, dims, grid, origin, vis_min); }
+                        if let Some(ref mut ls) = self.leaves_shader { ls.update_chunk_uniforms_no_tex(thread, dims, grid, origin, vis_min); }
+                        if let Some(ref mut ws) = self.water_shader { ws.update_chunk_uniforms_no_tex(thread, dims, grid, origin, vis_min); }
                     }
                     for part in &cr.parts {
                         let tag = self

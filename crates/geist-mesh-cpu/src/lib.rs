@@ -18,5 +18,5 @@ pub use mesh_build::MeshBuild;
 pub use neighbors::NeighborsLoaded;
 pub use chunk::ChunkMeshCPU;
 pub use wcc::WccMesher;
-pub use build::{build_chunk_wcc_cpu_buf, build_voxel_body_cpu_buf, compute_chunk_colors_wcc_cpu_buf};
+pub use build::{build_chunk_wcc_cpu_buf, build_chunk_wcc_cpu_buf_with_light, build_voxel_body_cpu_buf};
 pub use util::is_full_cube;

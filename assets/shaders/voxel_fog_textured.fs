@@ -2,8 +2,16 @@
 in vec2 fragTexCoord;
 in vec4 fragColor;
 in vec3 fragWorldPos;
+in vec3 fragNormal;
 out vec4 finalColor;
 uniform sampler2D texture0;
+// Phase 2 lighting
+uniform sampler2D lightTex;         // packed 2D atlas of (sx x sz) tiles across Y slices
+uniform ivec3 lightDims;            // (sx, sy, sz)
+uniform ivec2 lightGrid;            // (grid_cols, grid_rows)
+uniform vec3  chunkOrigin;          // world-space min corner of this chunk
+uniform float visualLightMin;       // 0..1 brightness floor
+
 uniform vec3 fogColor;
 uniform float fogStart;
 uniform float fogEnd;
@@ -11,6 +19,50 @@ uniform vec3 cameraPos;
 // Underwater enhancements
 uniform float time;
 uniform int underwater;
+
+// Map voxel coords (vx, vy, vz) to atlas UV
+vec2 lightAtlasUV(ivec3 v) {
+  int tile_w = lightDims.x;
+  int tile_h = lightDims.z;
+  int cols = max(lightGrid.x, 1);
+  int tx = v.y % cols;
+  int ty = v.y / cols;
+  int px = tx * tile_w + v.x;
+  int py = ty * tile_h + v.z;
+  float u = (float(px) + 0.5) / float(tile_w * cols);
+  float vuv = (float(py) + 0.5) / float(tile_h * max(lightGrid.y, 1));
+  return vec2(u, vuv);
+}
+
+// Sample brightness from local voxel and its neighbor along face normal
+float sampleBrightness(vec3 worldPos, vec3 nrm) {
+  // If lighting uniforms are unset for this draw, avoid sampling a stale texture
+  if (lightDims.x == 0 || lightDims.y == 0 || lightDims.z == 0) {
+    return visualLightMin;
+  }
+  // Voxel indices in chunk-local space
+  vec3 p = worldPos - chunkOrigin;
+  ivec3 v = ivec3(clamp(floor(p), vec3(0.0), vec3(lightDims) - vec3(1.0)));
+  // Determine neighbor direction from dominant normal axis
+  ivec3 step = ivec3(0,0,0);
+  if (abs(nrm.x) > abs(nrm.y) && abs(nrm.x) > abs(nrm.z)) {
+    step.x = (nrm.x > 0.0) ? 1 : -1;
+  } else if (abs(nrm.z) > abs(nrm.y)) {
+    step.z = (nrm.z > 0.0) ? 1 : -1;
+  } else {
+    step.y = (nrm.y > 0.0) ? 1 : -1;
+  }
+  ivec3 vn = clamp(v + step, ivec3(0), lightDims - ivec3(1));
+  // Fetch R,G,B = block, sky, beacon; take max of local and neighbor
+  vec2 uv0 = lightAtlasUV(v);
+  vec3 l0 = texture(lightTex, uv0).rgb;
+  vec2 uv1 = lightAtlasUV(vn);
+  vec3 l1 = texture(lightTex, uv1).rgb;
+  float lv = max(max(max(l0.r, l0.g), l0.b), max(max(l1.r, l1.g), l1.b));
+  // Normalize from 0..1 (assuming input is 0..1 already from texture fetch)
+  return max(lv, visualLightMin);
+}
+
 void main(){
   // Subtle UV warp when underwater to simulate refractive wobble
   vec2 uv = fragTexCoord;
@@ -19,6 +71,9 @@ void main(){
     uv += vec2(w, w);
   }
   vec4 base = texture(texture0, uv) * fragColor;
+  // Apply shader-sampled lighting
+  float bright = sampleBrightness(fragWorldPos, fragNormal);
+  base.rgb *= bright;
   // Simple linear fog based on world-space distance from camera
   float dist = length(fragWorldPos - cameraPos);
   float f = clamp((fogEnd - dist) / max(fogEnd - fogStart, 0.0001), 0.0, 1.0);

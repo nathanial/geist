@@ -4,16 +4,16 @@ use geist_blocks::BlockRegistry;
 use geist_blocks::types::{Block, MaterialId};
 use geist_chunk::ChunkBuf;
 use geist_geom::{Aabb, Vec3};
-use geist_lighting::{LightBorders, LightingStore, compute_light_with_borders_buf};
+use geist_lighting::{LightBorders, LightGrid, LightingStore, compute_light_with_borders_buf};
 use geist_world::World;
 
 use crate::chunk::ChunkMeshCPU;
 use crate::emit::emit_box_generic_clipped;
 use crate::face::Face;
 use crate::mesh_build::MeshBuild;
-use crate::util::{VISUAL_LIGHT_MIN, is_occluder, is_full_cube, is_top_half_shape, microgrid_boxes, unknown_material_id};
+use crate::util::{is_occluder, is_full_cube, is_top_half_shape, microgrid_boxes, unknown_material_id};
 use crate::wcc::WccMesher;
-use crate::constants::{MICROGRID_STEPS, OPAQUE_ALPHA};
+use crate::constants::MICROGRID_STEPS;
 
 /// Build a chunk mesh using Watertight Cubical Complex (WCC) at S=1 (full cubes only).
 /// Phase 1: Only full cubes contribute; micro/dynamic shapes are ignored here.
@@ -38,9 +38,28 @@ pub fn build_chunk_wcc_cpu_buf(
         None => return None,
     };
 
+    build_chunk_wcc_cpu_buf_with_light(buf, &light, world, edits, cx, cz, reg)
+}
+
+/// Same as `build_chunk_wcc_cpu_buf` but reuses a precomputed `LightGrid`.
+pub fn build_chunk_wcc_cpu_buf_with_light(
+    buf: &ChunkBuf,
+    light: &LightGrid,
+    world: &World,
+    edits: Option<&HashMap<(i32, i32, i32), Block>>,
+    cx: i32,
+    cz: i32,
+    reg: &BlockRegistry,
+) -> Option<(ChunkMeshCPU, Option<LightBorders>)> {
+    let sx = buf.sx;
+    let sy = buf.sy;
+    let sz = buf.sz;
+    let base_x = buf.cx * sx as i32;
+    let base_z = buf.cz * sz as i32;
+
     // Phase 2: Use a single WCC mesher at S=MICROGRID_STEPS to cover full cubes and micro occupancy.
     let S: usize = MICROGRID_STEPS;
-    let mut wm = WccMesher::new(buf, &light, reg, S, base_x, base_z, world, edits);
+    let mut wm = WccMesher::new(buf, light, reg, S, base_x, base_z, world, edits);
 
     for z in 0..sz {
         for y in 0..sy {
@@ -176,7 +195,7 @@ pub fn build_chunk_wcc_cpu_buf(
         min: Vec3 { x: base_x as f32, y: 0.0, z: base_z as f32 },
         max: Vec3 { x: base_x as f32 + sx as f32, y: sy as f32, z: base_z as f32 + sz as f32 },
     };
-    let light_borders = Some(LightBorders::from_grid(&light));
+    let light_borders = Some(LightBorders::from_grid(light));
     Some((ChunkMeshCPU { cx, cz, bbox, parts: builds }, light_borders))
 }
 
@@ -272,6 +291,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
     }
 }
 
+/* PHASE 1 color path removed
 // Color-only emission helpers for Phase 1 decoupled lighting
 #[inline]
 fn collect_face_rect_colors(
@@ -528,3 +548,4 @@ pub fn compute_chunk_colors_wcc_cpu_buf(
     }}}
     Some(colors)
 }
+*/

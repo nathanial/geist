@@ -7,8 +7,8 @@ use std::thread;
 
 use geist_blocks::{Block, BlockRegistry};
 use geist_chunk as chunkbuf;
-use geist_lighting::{LightBorders, LightingStore};
-use geist_mesh_cpu::{ChunkMeshCPU, NeighborsLoaded, build_chunk_wcc_cpu_buf, compute_chunk_colors_wcc_cpu_buf};
+use geist_lighting::{LightAtlas, LightBorders, LightingStore, pack_light_grid_atlas, compute_light_with_borders_buf};
+use geist_mesh_cpu::{ChunkMeshCPU, NeighborsLoaded, build_chunk_wcc_cpu_buf_with_light};
 use geist_world::World;
 
 #[derive(Clone, Debug)]
@@ -28,7 +28,7 @@ pub struct BuildJob {
 
 pub struct JobOut {
     pub cpu: Option<ChunkMeshCPU>,
-    pub colors: Option<std::collections::HashMap<geist_blocks::types::MaterialId, Vec<u8>>>,
+    pub light_atlas: Option<LightAtlas>,
     pub buf: chunkbuf::ChunkBuf,
     pub light_borders: Option<LightBorders>,
     pub cx: i32,
@@ -144,31 +144,26 @@ impl Runtime {
                         job.region_edits.into_iter().collect();
                     match lane {
                         Lane::Light => {
-                            if let Some(colors) = compute_chunk_colors_wcc_cpu_buf(
-                                &buf,
-                                &ls,
-                                &w,
-                                Some(&snap_map),
-                                job.cx,
-                                job.cz,
-                                &job.reg,
-                            ) {
-                                let _ = tx.send(JobOut {
-                                    cpu: None,
-                                    colors: Some(colors),
-                                    buf,
-                                    light_borders: None,
-                                    cx: job.cx,
-                                    cz: job.cz,
-                                    rev: job.rev,
-                                    job_id: job.job_id,
-                                });
-                            }
+                            // Compute light only; upload atlas on main thread.
+                            let lg = compute_light_with_borders_buf(&buf, &ls, &job.reg, &w);
+                            let atlas = pack_light_grid_atlas(&lg);
+                            let _ = tx.send(JobOut {
+                                cpu: None,
+                                light_atlas: Some(atlas),
+                                buf,
+                                light_borders: None,
+                                cx: job.cx,
+                                cz: job.cz,
+                                rev: job.rev,
+                                job_id: job.job_id,
+                            });
                         }
                         _ => {
-                            let built = build_chunk_wcc_cpu_buf(
+                            // Compute lighting once; reuse for meshing and atlas.
+                            let lg = compute_light_with_borders_buf(&buf, &ls, &job.reg, &w);
+                            let built = build_chunk_wcc_cpu_buf_with_light(
                                 &buf,
-                                Some(&ls),
+                                &lg,
                                 &w,
                                 Some(&snap_map),
                                 job.cx,
@@ -176,20 +171,10 @@ impl Runtime {
                                 &job.reg,
                             );
                             if let Some((cpu, light_borders)) = built {
-                                // Also compute colors (read-only) to apply immediately after geometry upload
-                                let colors = compute_chunk_colors_wcc_cpu_buf(
-                                    &buf,
-                                    &ls,
-                                    &w,
-                                    Some(&snap_map),
-                                    job.cx,
-                                    job.cz,
-                                    &job.reg,
-                                )
-                                ;
+                                let atlas = pack_light_grid_atlas(&lg);
                                 let _ = tx.send(JobOut {
                                     cpu: Some(cpu),
-                                    colors,
+                                    light_atlas: Some(atlas),
                                     buf,
                                     light_borders,
                                     cx: job.cx,

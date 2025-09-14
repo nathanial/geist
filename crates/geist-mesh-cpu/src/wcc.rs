@@ -11,7 +11,7 @@ use geist_world::World;
 use crate::emit::emit_face_rect_for_clipped;
 use crate::face::Face;
 use crate::mesh_build::MeshBuild;
-use crate::util::{registry_material_for_or_unknown, VISUAL_LIGHT_MIN};
+use crate::util::{registry_material_for_or_unknown};
 use crate::constants::{OPAQUE_ALPHA, BITS_PER_WORD, WORD_INDEX_MASK, WORD_INDEX_SHIFT};
 
 // Emit per-cell face quads for a given axis by expanding a mask sourced from FaceGrids.
@@ -454,114 +454,6 @@ impl<'a> WccMesher<'a> {
         emit_plane_mask!(self, builds, Z);
     }
 
-    /// Emits per-face uniform RGBA colors (computed from lighting) for all faces, in the same
-    /// deterministic order as `emit_into`, grouped by material id. Each face contributes 4
-    /// identical RGBA entries corresponding to its vertices.
-    pub fn emit_colors_into(
-        &self,
-        buf: &ChunkBuf,
-        reg: &BlockRegistry,
-        light: &LightGrid,
-        out: &mut HashMap<MaterialId, Vec<u8>>,
-    ) {
-        let scale = 1.0 / self.S as f32;
-        // X planes
-        let width_x = self.S * self.sz;
-        let height_x = self.S * self.sy;
-        for ix in 0..(self.S * self.sx) {
-            for iy in 0..height_x {
-                for iz in 0..width_x {
-                    let idx = self.grids.idx_x(ix, iy, iz);
-                    if !self.grids.px.get(idx) { continue; }
-                    let key = self.grids.kx[idx];
-                    if key == 0 { continue; }
-                    let mid = self.keys.get(key);
-                    let pos = self.grids.ox.get(idx);
-                    let face = if pos { Face::PosX } else { Face::NegX };
-                    let origin = Vec3 {
-                        x: (self.base_x as f32) + (ix as f32) * scale,
-                        y: (iy as f32) * scale,
-                        z: (self.base_z as f32) + (iz as f32) * scale,
-                    };
-                    let lx = ((origin.x.floor() as i32) - self.base_x) as usize;
-                    let ly = origin.y.floor() as usize;
-                    let lz = ((origin.z.floor() as i32) - self.base_z) as usize;
-                    let mut lv = light.sample_face_local_s2(buf, reg, lx, ly, lz, face.index());
-                    if lv < VISUAL_LIGHT_MIN { lv = VISUAL_LIGHT_MIN; }
-                    let rgba = [lv, lv, lv, OPAQUE_ALPHA];
-                    let v = out.entry(mid).or_default();
-                    v.extend_from_slice(&rgba);
-                    v.extend_from_slice(&rgba);
-                    v.extend_from_slice(&rgba);
-                    v.extend_from_slice(&rgba);
-                }
-            }
-        }
-        // Y planes
-        let width_y = self.S * self.sx;
-        let height_y = self.S * self.sz;
-        for iy in 0..(self.S * self.sy) {
-            for iz in 0..height_y {
-                for ix in 0..width_y {
-                    let idx = self.grids.idx_y(ix, iy, iz);
-                    if !self.grids.py.get(idx) { continue; }
-                    let key = self.grids.ky[idx];
-                    if key == 0 { continue; }
-                    let mid = self.keys.get(key);
-                    let pos = self.grids.oy.get(idx);
-                    let face = if pos { Face::PosY } else { Face::NegY };
-                    let origin = Vec3 {
-                        x: (self.base_x as f32) + (ix as f32) * scale,
-                        y: (iy as f32) * scale,
-                        z: (self.base_z as f32) + (iz as f32) * scale,
-                    };
-                    let lx = ((origin.x.floor() as i32) - self.base_x) as usize;
-                    let ly = origin.y.floor() as usize;
-                    let lz = ((origin.z.floor() as i32) - self.base_z) as usize;
-                    let mut lv = light.sample_face_local_s2(buf, reg, lx, ly, lz, face.index());
-                    if lv < VISUAL_LIGHT_MIN { lv = VISUAL_LIGHT_MIN; }
-                    let rgba = [lv, lv, lv, OPAQUE_ALPHA];
-                    let v = out.entry(mid).or_default();
-                    v.extend_from_slice(&rgba);
-                    v.extend_from_slice(&rgba);
-                    v.extend_from_slice(&rgba);
-                    v.extend_from_slice(&rgba);
-                }
-            }
-        }
-        // Z planes
-        let width_z = self.S * self.sx;
-        let height_z = self.S * self.sy;
-        for iz in 0..(self.S * self.sz) {
-            for iy in 0..height_z {
-                for ix in 0..width_z {
-                    let idx = self.grids.idx_z(ix, iy, iz);
-                    if !self.grids.pz.get(idx) { continue; }
-                    let key = self.grids.kz[idx];
-                    if key == 0 { continue; }
-                    let mid = self.keys.get(key);
-                    let pos = self.grids.oz.get(idx);
-                    let face = if pos { Face::PosZ } else { Face::NegZ };
-                    let origin = Vec3 {
-                        x: (self.base_x as f32) + (ix as f32) * scale,
-                        y: (iy as f32) * scale,
-                        z: (self.base_z as f32) + (iz as f32) * scale,
-                    };
-                    let lx = ((origin.x.floor() as i32) - self.base_x) as usize;
-                    let ly = origin.y.floor() as usize;
-                    let lz = ((origin.z.floor() as i32) - self.base_z) as usize;
-                    let mut lv = light.sample_face_local_s2(buf, reg, lx, ly, lz, face.index());
-                    if lv < VISUAL_LIGHT_MIN { lv = VISUAL_LIGHT_MIN; }
-                    let rgba = [lv, lv, lv, OPAQUE_ALPHA];
-                    let v = out.entry(mid).or_default();
-                    v.extend_from_slice(&rgba);
-                    v.extend_from_slice(&rgba);
-                    v.extend_from_slice(&rgba);
-                    v.extend_from_slice(&rgba);
-                }
-            }
-        }
-    }
 }
 
  

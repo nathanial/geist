@@ -11,3 +11,4 @@ raylib = "5.5.1"
 geist-geom = { path = "../geist-geom" }
 geist-blocks = { path = "../geist-blocks" }
 geist-mesh-cpu = { path = "../geist-mesh-cpu" }
+geist-lighting = { path = "../geist-lighting" }

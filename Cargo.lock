@@ -696,6 +696,7 @@ version = "0.1.0"
 dependencies = [
  "geist-blocks",
  "geist-geom",
+ "geist-lighting",
  "geist-mesh-cpu",
  "raylib",
 ]
