@@ -3,37 +3,6 @@
 Goal: Reduce average per‑chunk meshing time from ~400ms to ~4ms (~100x). Below is a prioritized set of ideas with rough impact, trade‑offs, and implementation notes. The current mesher (crates/geist-mesh-cpu) builds a WCC grid at S=2, toggles parity/material across all faces, seeds seams, then emits greedy rectangles per axis. Most time is spent in: per‑voxel face toggling at micro scale, large temporary grids/allocations, and the plane sweep with per‑cell checks.
 
 ## Highest Impact (Algorithmic)
-- Split macro vs micro passes (S=1 for cubes, S=2 only where needed)
-  - Mesh full cubes with classic greedy slicing at S=1 using block‑level occlusion. Run S=2 only where variants have micro occupancy (slabs/stairs/etc.).
-  - Why: Today, full cubes are meshed at S=2 which multiplies grid sizes, parity toggles, and sweep work by ~4x. Most blocks are full cubes. Expect 4–10x speedup on typical worlds.
-  - Avoiding the overhead we saw last time:
-    - Single classification pass, no double scans:
-      - First, iterate voxels once to classify each into `Cube | Water | Micro(occ) | Thin | Air` and build a compact `micro_list: Vec<(x,y,z,occ:u8)>`. Also set per‑plane flags (`has_micro_x/y/z[plane_id]`).
-      - This eliminates a second full chunk scan previously used to discover micro voxels per pass.
-    - Exclusive responsibility per pass (no double work):
-      - Macro S=1 pass skips any cell whose negative or positive neighbor is `Micro` (macro leaves those faces for the micro pass). This avoids generating faces twice and avoids later de‑dup/merge overhead.
-      - Micro S=2 pass handles only faces involving at least one micro voxel (micro|micro, micro|cube, micro|air). Macro continues to handle cube|cube faces only.
-    - Localized S=2 work, not full‑grid S=2:
-      - Do not allocate a full S=2 `FaceGrids`. Instead, for each axis plane that has micro, build a temporary sub‑plane grid just over the bounding box of micro regions in that plane, or emit directly from each micro voxel using small per‑voxel masks.
-      - Represent micro detail per voxel with its 8‑bit occupancy; for micro|cube boundaries, treat the cube side as fully solid at S=2. This avoids global S=2 arrays and the “multiple planes” blow‑up.
-    - One seam pass for both:
-      - Seed seams once using world/edits. During macro pass: treat neighbor full cubes directly. During micro pass: refine only where micro is present at the seam. Don’t run two seam passes.
-    - Unified emission buffers, no combiner stage:
-      - Both passes write directly into a shared `Vec<Option<MeshBuild>>` indexed by `MaterialId` (thread‑local if parallel). No per‑pass HashMap and no merging step that caused churn previously.
-    - Greedy sweeps tailored to each pass:
-      - Macro: classic S=1 greedy over plane‑wide bitsets; skip ranges flagged as “micro‑adjacent”.
-      - Micro: sweep only sub‑planes that contain micro. For per‑cell state, store a tiny `u8` submask (2 bits per micro‑row/col) and the material/orientation per subcell; the greedy merge compares `(present_submask, material+orientation)` without expanding to a full S=2 plane buffer.
-    - Index math and allocation minimization:
-      - Reuse plane‑local `visited`/bitsets across both passes; pool buffers per worker. Pre‑reserve per‑material buffers once.
-      - Hoist index strides to avoid repeated multiplies in inner loops.
-    - Deterministic ownership rules at boundaries:
-      - Define that if either side is micro, micro pass owns that face; macro never emits it. Prevents duplicate quads and post‑dedupe cost.
-    - Pseudo‑pipeline:
-      1) Classify voxels; build `micro_list` and per‑plane micro flags.
-      2) Macro S=1 masks and greedy emission, skipping micro‑adjacent cells.
-      3) For each axis plane with micro: build minimal sub‑plane masks from `micro_list` and emit S=2 quads.
-      4) Done — a single seam seed step and a single set of emission buffers.
-
 - Derive boundary masks via occupancy XOR instead of parity toggles
   - Build a 1‑bit occupancy grid (S=1 for cubes, S=2 where needed) and compute face masks as occupancy XOR of neighbor cells per axis. Set orientation from which side is occupied and material from that side.
   - Why: Avoids toggling all six faces for every voxel (and the resulting double‑work cancelled by parity). Expect 2–5x depending on density. Pairs well with the split macro/micro pass.
