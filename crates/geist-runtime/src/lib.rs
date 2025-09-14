@@ -10,6 +10,7 @@ use geist_chunk as chunkbuf;
 use geist_lighting::{LightAtlas, LightBorders, LightGrid, LightingStore, compute_light_with_borders_buf};
 use geist_mesh_cpu::{ChunkMeshCPU, NeighborsLoaded, build_chunk_wcc_cpu_buf_with_light};
 use geist_world::World;
+use std::time::Instant;
 
 #[derive(Clone, Debug)]
 pub struct BuildJob {
@@ -36,6 +37,13 @@ pub struct JobOut {
     pub cz: i32,
     pub rev: u64,
     pub job_id: u64,
+    // Perf metrics
+    pub kind: JobKind,
+    pub t_total_ms: u32,
+    pub t_gen_ms: u32,
+    pub t_apply_ms: u32,
+    pub t_light_ms: u32,
+    pub t_mesh_ms: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -58,6 +66,13 @@ pub struct StructureJobOut {
 
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 enum Lane {
+    Edit,
+    Light,
+    Bg,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum JobKind {
     Edit,
     Light,
     Bg,
@@ -120,35 +135,50 @@ impl Runtime {
                             lane: Lane| {
             thread::spawn(move || {
                 while let Ok(job) = wrx.recv() {
+                    let t_job_start = Instant::now();
                     // Start from previous buffer when provided; else regenerate from worldgen
+                    let mut t_gen_ms: u32 = 0;
+                    let mut t_apply_ms: u32 = 0;
+                    let mut t_light_ms: u32 = 0;
+                    let mut t_mesh_ms: u32 = 0;
                     let mut buf = if let Some(prev) = job.prev_buf {
                         prev
                     } else {
-                        chunkbuf::generate_chunk_buffer(&w, job.cx, job.cz, &job.reg)
+                        let t0 = Instant::now();
+                        let out = chunkbuf::generate_chunk_buffer(&w, job.cx, job.cz, &job.reg);
+                        t_gen_ms = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+                        out
                     };
                     // Apply persistent edits for this chunk before meshing
                     let base_x = job.cx * buf.sx as i32;
                     let base_z = job.cz * buf.sz as i32;
-                    for ((wx, wy, wz), b) in job.chunk_edits.iter().copied() {
-                        if wy < 0 || wy >= buf.sy as i32 {
-                            continue;
+                    {
+                        let t0 = Instant::now();
+                        for ((wx, wy, wz), b) in job.chunk_edits.iter().copied() {
+                            if wy < 0 || wy >= buf.sy as i32 {
+                                continue;
+                            }
+                            let lx = (wx - base_x) as usize;
+                            let ly = wy as usize;
+                            let lz = (wz - base_z) as usize;
+                            if lx < buf.sx && lz < buf.sz {
+                                let idx = buf.idx(lx, ly, lz);
+                                buf.blocks[idx] = b;
+                            }
                         }
-                        let lx = (wx - base_x) as usize;
-                        let ly = wy as usize;
-                        let lz = (wz - base_z) as usize;
-                        if lx < buf.sx && lz < buf.sz {
-                            let idx = buf.idx(lx, ly, lz);
-                            buf.blocks[idx] = b;
-                        }
+                        t_apply_ms = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
                     }
                     let snap_map: std::collections::HashMap<(i32, i32, i32), Block> =
                         job.region_edits.into_iter().collect();
                     match lane {
                         Lane::Light => {
                             // Compute light only; upload atlas on main thread.
+                            let t0 = Instant::now();
                             let lg = compute_light_with_borders_buf(&buf, &ls, &job.reg, &w);
+                            t_light_ms = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
                             // Also publish macro light borders so neighbors can stitch without requiring a remesh.
                             let borders = LightBorders::from_grid(&lg);
+                            let t_total_ms = t_job_start.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
                             let _ = tx.send(JobOut {
                                 cpu: None,
                                 light_atlas: None,
@@ -159,11 +189,20 @@ impl Runtime {
                                 cz: job.cz,
                                 rev: job.rev,
                                 job_id: job.job_id,
+                                kind: JobKind::Light,
+                                t_total_ms,
+                                t_gen_ms,
+                                t_apply_ms,
+                                t_light_ms,
+                                t_mesh_ms,
                             });
                         }
                         _ => {
                             // Compute lighting once; reuse for meshing and atlas.
+                            let t0 = Instant::now();
                             let lg = compute_light_with_borders_buf(&buf, &ls, &job.reg, &w);
+                            t_light_ms = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+                            let t0 = Instant::now();
                             let built = build_chunk_wcc_cpu_buf_with_light(
                                 &buf,
                                 &lg,
@@ -173,7 +212,12 @@ impl Runtime {
                                 job.cz,
                                 &job.reg,
                             );
+                            t_mesh_ms = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
                             if let Some((cpu, light_borders)) = built {
+                                let t_total_ms = t_job_start
+                                    .elapsed()
+                                    .as_millis()
+                                    .min(u128::from(u32::MAX)) as u32;
                                 let _ = tx.send(JobOut {
                                     cpu: Some(cpu),
                                     light_atlas: None,
@@ -184,6 +228,16 @@ impl Runtime {
                                     cz: job.cz,
                                     rev: job.rev,
                                     job_id: job.job_id,
+                                    kind: match lane {
+                                        Lane::Edit => JobKind::Edit,
+                                        Lane::Bg => JobKind::Bg,
+                                        Lane::Light => JobKind::Light, // unreachable in this arm
+                                    },
+                                    t_total_ms,
+                                    t_gen_ms,
+                                    t_apply_ms,
+                                    t_light_ms,
+                                    t_mesh_ms,
                                 });
                             }
                         }

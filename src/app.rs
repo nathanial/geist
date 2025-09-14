@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 use geist_geom::Vec3;
 use geist_render_raylib::conv::{vec3_from_rl, vec3_to_rl};
@@ -21,6 +22,7 @@ use serde::Deserialize;
 // Increase per-frame submissions and per-lane queue headroom so workers stay busier.
 const JOB_FRAME_CAP_MULT: usize = 4; // was 2
 const LANE_QUEUE_EXTRA: usize = 3; // was 1 (target = workers + extra)
+const PERF_WIN_CAP: usize = 200; // rolling window size for perf stats
 
 #[derive(Deserialize)]
 struct HotbarConfig {
@@ -47,6 +49,13 @@ pub struct App {
     evt_processed_by: HashMap<String, usize>,
     // Coalesced rebuild/load intents (priority-scheduled per frame)
     intents: HashMap<(i32, i32), IntentEntry>,
+    // Perf: removal→render timers per chunk
+    perf_remove_start: HashMap<(i32, i32), std::collections::VecDeque<Instant>>,
+    // Perf windows (ms)
+    perf_mesh_ms: std::collections::VecDeque<u32>,
+    perf_light_ms: std::collections::VecDeque<u32>,
+    perf_total_ms: std::collections::VecDeque<u32>,
+    perf_remove_ms: std::collections::VecDeque<u32>,
     // File watchers (moved from runtime in Phase 5)
     tex_event_rx: std::sync::mpsc::Receiver<String>,
     worldgen_event_rx: std::sync::mpsc::Receiver<()>,
@@ -94,6 +103,13 @@ struct IntentEntry {
 }
 
 impl App {
+    #[inline]
+    fn perf_push(q: &mut std::collections::VecDeque<u32>, v: u32) {
+        q.push_back(v);
+        if q.len() > PERF_WIN_CAP {
+            q.pop_front();
+        }
+    }
     fn validate_chunk_light_atlas(&self, cx: i32, cz: i32, atlas: &geist_lighting::LightAtlas) {
         // Compare atlas border rings against LightingStore neighbor planes; panic on mismatch.
         let nb = self.gs.lighting.get_neighbor_borders(cx, cz);
@@ -810,6 +826,11 @@ impl App {
             evt_processed_total: 0,
             evt_processed_by: HashMap::new(),
             intents: HashMap::new(),
+            perf_remove_start: HashMap::new(),
+            perf_mesh_ms: std::collections::VecDeque::new(),
+            perf_light_ms: std::collections::VecDeque::new(),
+            perf_total_ms: std::collections::VecDeque::new(),
+            perf_remove_ms: std::collections::VecDeque::new(),
             tex_event_rx: tex_rx,
             worldgen_event_rx: wg_rx,
             world_config_path,
@@ -1422,6 +1443,25 @@ impl App {
                 // Track mesh completion count for minimap/debug purposes
                 *self.gs.mesh_counts.entry((cx, cz)).or_insert(0) += 1;
 
+                // If we have a removal→render timer for this chunk, record latency now.
+                if let Some(q) = self.perf_remove_start.get_mut(&(cx, cz)) {
+                    if let Some(t0) = q.pop_front() {
+                        let dt_ms_u32 = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+                        Self::perf_push(&mut self.perf_remove_ms, dt_ms_u32);
+                        log::info!(
+                            target: "perf",
+                            "remove_to_render_ms={} cx={} cz={} rev={}",
+                            dt_ms_u32,
+                            cx,
+                            cz,
+                            rev
+                        );
+                    }
+                    if q.is_empty() {
+                        self.perf_remove_start.remove(&(cx, cz));
+                    }
+                }
+
                 // Update light borders in main thread; if changed, emit a dedicated event
                 if let Some(lb) = light_borders {
                     let (changed, mask) = self.gs.lighting.update_borders_mask(cx, cz, lb);
@@ -1700,6 +1740,12 @@ impl App {
                             cz,
                             cause: RebuildCause::Edit,
                         });
+                        // Start removal→render timer for this affected chunk
+                        self
+                            .perf_remove_start
+                            .entry((cx, cz))
+                            .or_default()
+                            .push_back(Instant::now());
                     }
                 }
             }
@@ -2220,6 +2266,51 @@ impl App {
         let mut results: Vec<JobOut> = self.runtime.drain_worker_results();
         results.sort_by_key(|r| r.job_id);
         for r in results {
+            // Record perf samples into rolling windows
+            match r.kind {
+                geist_runtime::JobKind::Light => {
+                    Self::perf_push(&mut self.perf_light_ms, r.t_light_ms);
+                    Self::perf_push(&mut self.perf_total_ms, r.t_total_ms);
+                }
+                geist_runtime::JobKind::Edit | geist_runtime::JobKind::Bg => {
+                    Self::perf_push(&mut self.perf_mesh_ms, r.t_mesh_ms);
+                    Self::perf_push(&mut self.perf_light_ms, r.t_light_ms);
+                    Self::perf_push(&mut self.perf_total_ms, r.t_total_ms);
+                }
+            }
+            // Perf logging per job
+            match r.kind {
+                geist_runtime::JobKind::Light => {
+                    log::info!(
+                        target: "perf",
+                        "light_ms={} total_ms={} gen_ms={} apply_ms={} cx={} cz={} rev={} job_id={}",
+                        r.t_light_ms,
+                        r.t_total_ms,
+                        r.t_gen_ms,
+                        r.t_apply_ms,
+                        r.cx,
+                        r.cz,
+                        r.rev,
+                        r.job_id
+                    );
+                }
+                geist_runtime::JobKind::Edit | geist_runtime::JobKind::Bg => {
+                    log::info!(
+                        target: "perf",
+                        "mesh_ms={} light_ms={} total_ms={} gen_ms={} apply_ms={} kind={:?} cx={} cz={} rev={} job_id={}",
+                        r.t_mesh_ms,
+                        r.t_light_ms,
+                        r.t_total_ms,
+                        r.t_gen_ms,
+                        r.t_apply_ms,
+                        r.kind,
+                        r.cx,
+                        r.cz,
+                        r.rev,
+                        r.job_id
+                    );
+                }
+            }
             if let Some(cpu) = r.cpu {
                 // For mesh builds, pass through the grid; pack atlas later during event handling
                 self.queue.emit_now(Event::BuildChunkJobCompleted {
@@ -2879,7 +2970,7 @@ impl App {
 
         // Right-side overlay (reduced to avoid jitter):
         // - No queued events line or subtype lists
-        // - Keep processed total, intents, and runtime queues
+        // - Keep processed total, intents, runtime queues, and perf summary
         let mut right_text = String::new();
         right_text.push_str(&format!(
             "Processed Events (session): {}",
@@ -2895,6 +2986,28 @@ impl App {
         right_text.push_str(&format!("\n  Light - q={} inflight={}", q_l, if_l));
         right_text.push_str(&format!("\n  BG    - q={} inflight={}", q_b, if_b));
 
+        // Perf summary (rolling window average and p95)
+        let stats = |q: &std::collections::VecDeque<u32>| -> (usize, u32, u32) {
+            let n = q.len();
+            if n == 0 { return (0, 0, 0); }
+            let sum: u64 = q.iter().map(|&v| v as u64).sum();
+            let avg = ((sum as f32) / (n as f32)).round() as u32;
+            let mut v: Vec<u32> = q.iter().copied().collect();
+            v.sort_unstable();
+            let idx = ((n as f32) * 0.95).ceil().max(1.0) as usize - 1;
+            let p95 = v[idx.min(n - 1)];
+            (n, avg, p95)
+        };
+        let (n_mesh, avg_mesh, p95_mesh) = stats(&self.perf_mesh_ms);
+        let (n_light, avg_light, p95_light) = stats(&self.perf_light_ms);
+        let (n_total, avg_total, p95_total) = stats(&self.perf_total_ms);
+        let (n_rr, avg_rr, p95_rr) = stats(&self.perf_remove_ms);
+        right_text.push_str("\nPerf (ms):");
+        right_text.push_str(&format!("\n  Mesh   avg={} p95={} n={}", avg_mesh, p95_mesh, n_mesh));
+        right_text.push_str(&format!("\n  Light  avg={} p95={} n={}", avg_light, p95_light, n_light));
+        right_text.push_str(&format!("\n  Total  avg={} p95={} n={}", avg_total, p95_total, n_total));
+        right_text.push_str(&format!("\n  Remove->Render avg={} p95={} n={}", avg_rr, p95_rr, n_rr));
+
         let screen_width = d.get_screen_width();
         let font_size = 20;
         // Fixed panel width template samples
@@ -2906,6 +3019,11 @@ impl App {
             "  Edit  - q=1,000,000 inflight=1,000,000",
             "  Light - q=1,000,000 inflight=1,000,000",
             "  BG    - q=1,000,000 inflight=1,000,000",
+            "Perf (ms):",
+            "  Mesh   avg=9,999 p95=9,999 n=9,999",
+            "  Light  avg=9,999 p95=9,999 n=9,999",
+            "  Total  avg=9,999 p95=9,999 n=9,999",
+            "  Remove->Render avg=9,999 p95=9,999 n=9,999",
         ];
         let mut panel_w = 0;
         for t in panel_templates.iter() {
