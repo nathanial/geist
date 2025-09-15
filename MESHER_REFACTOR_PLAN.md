@@ -9,6 +9,24 @@ Context
 Goal
 Replace the toggle-based parity builder with a cache-friendly, linear pass that derives face parity by XOR’ing a dense micro-occupancy bitfield along axes. Preserve visual output (watertight, seam-free), determinism, and existing public APIs.
 
+Progress (Sept 2025)
+- Implemented dual-occupancy and dual-face-grid meshing in ParityMesher:
+  - Solids occupancy (`occs`) contains only full cubes and micro shapes; water is excluded.
+  - Water occupancy (`occs_water`) is maintained separately with its own -X/-Z seam layers.
+  - Parity/material computation produces two grid sets: `grids` (solids) and `grids_water` (water).
+  - Water faces are emitted only where water borders air (skip water–solid boundaries). Solids emit where solids border non-solids (including water).
+  - Emission order: solids first (opaque), then water (transparent). Renderer unchanged; it already draws water in a later pass.
+- Corrected ordering in occupancy and seam seeding so water is handled before the full-cube branch. This prevents water from being marked as solid and restores terrain faces under water.
+- Scratch reuse: added separate thread‑local pools for water grids/occ; no allocator churn at steady state.
+- Performance impact: single scan maintained; parity/emission adds a small water pass. Early measurements show similar scan/seed times and a minor emit increase proportional to water surface area.
+
+Remaining Work
+- Fuse solids+water parity into a single per‑axis loop to shave a small constant from parity time.
+- Unit tests for water semantics and seam stitching across chunk borders (ensure only water–air faces, and solid faces appear under water).
+- Property tests comparing total rect area vs v2 for non‑water scenes (regression guard).
+- Optional feature flag to toggle v3 path off/on during rollout (if needed).
+- Benchmarks capturing scan/seed/emit breakdown with and without significant water coverage.
+
 Overview
 1. Build a dense S-resolution occupancy bitset O[x,y,z] for the chunk interior.
 2. Populate seam occupancy for a one-cell overscan on -X and -Z using neighbor world+edits.
@@ -58,6 +76,8 @@ Feature Gating and Rollout
 - Add cargo feature parity_mesher (off by default).
 - Keep both paths: v2 (toggle-based) default, v3 (parity) behind feature flag.
 - Optional CLI flag to switch at runtime for A/B testing.
+
+Status: v3 water/solid split is implemented and enabled along the v3 path; gating is still optional/TBD depending on rollout strategy.
 
 Implementation Plan (Incremental)
 1. Skeleton + scratch
