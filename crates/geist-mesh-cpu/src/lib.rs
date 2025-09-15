@@ -11,6 +11,8 @@ mod chunk;
 mod util;
 mod emit;
 mod wcc;
+#[cfg(feature = "parity_mesher")]
+mod parity;
 mod build;
 
 pub use face::{Face, SIDE_NEIGHBORS};

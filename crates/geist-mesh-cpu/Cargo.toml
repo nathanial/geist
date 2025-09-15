@@ -6,6 +6,11 @@ edition = "2024"
 [lib]
 path = "src/lib.rs"
 
+[features]
+# Parity/XOR-based mesher (v3). On by default.
+default = ["parity_mesher"]
+parity_mesher = []
+
 [dependencies]
 geist-geom = { path = "../geist-geom" }
 geist-blocks = { path = "../geist-blocks" }
