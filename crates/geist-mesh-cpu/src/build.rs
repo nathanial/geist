@@ -14,9 +14,6 @@ use crate::emit::emit_box_generic_clipped;
 use crate::face::Face;
 use crate::mesh_build::MeshBuild;
 use crate::util::{is_occluder, is_top_half_shape, microgrid_boxes, unknown_material_id};
-#[cfg(not(feature = "parity_mesher"))]
-use crate::wcc::WccMesher;
-#[cfg(feature = "parity_mesher")]
 use crate::parity::ParityMesher;
 use crate::constants::MICROGRID_STEPS;
 
@@ -66,29 +63,10 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
     let s: usize = MICROGRID_STEPS;
     let t_total = Instant::now();
 
-    #[cfg(feature = "parity_mesher")]
     let mut pm = ParityMesher::new(buf, reg, s, base_x, base_z, world, edits);
-    #[cfg(not(feature = "parity_mesher"))]
-    let mut wm = WccMesher::new(buf, reg, s, base_x, base_z, world, edits);
 
     let t_scan_start = Instant::now();
-    #[cfg(feature = "parity_mesher")]
-    {
-        pm.build_occupancy();
-    }
-    #[cfg(not(feature = "parity_mesher"))]
-    {
-        for z in 0..sz { for y in 0..sy { for x in 0..sx {
-            let b = buf.get_local(x, y, z);
-            if b.id == 0 { continue; }
-            if let Some(ty) = reg.get(b.id) {
-                let var = ty.variant(b.state);
-                if let Some(occ) = var.occupancy { wm.add_micro(x, y, z, b, occ); continue; }
-                if ty.name == "water" { wm.add_water_cube(x, y, z, b); continue; }
-                if ty.is_solid(b.state) && matches!(ty.shape, geist_blocks::types::Shape::Cube | geist_blocks::types::Shape::AxisCube { .. }) { wm.add_cube(x, y, z, b); continue; }
-            }
-        } } }
-    }
+    pm.build_occupancy();
     let scan_ms: u32 = t_scan_start.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
 
     // Use a dense per-material vector for cache-friendly writes during emission,
@@ -114,28 +92,15 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
     });
     // Overscan: incorporate neighbor seam contributions before emission
     let t_seed_start = Instant::now();
-    #[cfg(feature = "parity_mesher")]
     pm.seed_seam_layers();
-    #[cfg(not(feature = "parity_mesher"))]
-    wm.seed_neighbor_seams();
     let seed_ms: u32 = t_seed_start.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
 
     let t_emit_start = Instant::now();
-    #[cfg(feature = "parity_mesher")]
-    {
-        pm.compute_parity_and_materials();
-        pm.emit_into(&mut builds_v);
-    }
-    #[cfg(not(feature = "parity_mesher"))]
-    {
-        wm.emit_into(&mut builds_v);
-    }
+    pm.compute_parity_and_materials();
+    pm.emit_into(&mut builds_v);
     let emit_ms: u32 = t_emit_start.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
     // Return FaceGrids to scratch for reuse before thin pass
-    #[cfg(feature = "parity_mesher")]
     pm.recycle();
-    #[cfg(not(feature = "parity_mesher"))]
-    wm.recycle();
 
     // Phase 3: thin dynamic shapes (pane, fence, gate, carpet)
     let t_thin_start = Instant::now();

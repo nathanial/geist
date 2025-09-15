@@ -1,4 +1,4 @@
-# geist-mesh-cpu — WCC Meshing (CPU)
+# geist-mesh-cpu — Parity Meshing (CPU)
 
 This crate builds chunk meshes on the CPU using a Watertight Cubical Complex (WCC) approach. It computes the boundary of solids with parity toggles, emits one quad per boundary cell, and stitches chunk seams without cracks.
 
@@ -11,7 +11,7 @@ Highlights
 
 Key types
 - `ChunkMeshCPU`: output mesh per material; buffers include positions, normals, uvs, indices, and vertex colors.
-- `WccMesher`: accumulates parity/material keys on axis‑aligned face grids and emits per‑cell quads.
+- `ParityMesher`: builds dense occupancy, derives face parity/materials via XOR, and emits greedy quads.
 
 Algorithm sketch
 1) Scale by S (default 2). For each solid volume (full cubes or micro boxes from occupancy), toggle six face planes in integer grid space:

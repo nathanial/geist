@@ -4,7 +4,7 @@ use geist_blocks::BlockRegistry;
 use geist_blocks::types::Block;
 use geist_chunk::ChunkBuf;
 use geist_lighting::{LightGrid, LightingStore};
-use geist_mesh_cpu::{ChunkMeshCPU, NeighborsLoaded, WccMesher};
+use geist_mesh_cpu::{ChunkMeshCPU, NeighborsLoaded, ParityMesher};
 use geist_world::{World, WorldGenMode};
 
 fn load_registry() -> BlockRegistry {
@@ -145,17 +145,9 @@ fn parity_area_random_full_cubes_s1() {
     let light = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
     // Minimal world; neighbors disabled so seam logic does not run
     let world = World::new(1, 1, sx, sy, sz, 0, WorldGenMode::Flat { thickness: 0 });
-    let mut wm = WccMesher::new(&buf, &reg, 1, 0, 0, &world, None);
-    for z in 0..sz {
-        for y in 0..sy {
-            for x in 0..sx {
-                let b = blocks[(y * sz + z) * sx + x];
-                if reg.get(b.id).map(|t| t.is_solid(b.state)).unwrap_or(false) {
-                    wm.add_cube(x, y, z, b);
-                }
-            }
-        }
-    }
+    let mut wm = ParityMesher::new(&buf, &reg, 1, 0, 0, &world, None);
+    wm.build_occupancy();
+    wm.compute_parity_and_materials();
     let mut builds: HashMap<_, _> = HashMap::new();
     wm.emit_into(&mut builds);
     let cpu = ChunkMeshCPU {
@@ -212,22 +204,14 @@ fn seam_stitch_no_faces_on_shared_plane_s1() {
     let light_b = LightGrid::compute_with_borders_buf(&buf_b, &store, &reg);
     let world = World::new(2, 1, sx, sy, sz, 0, WorldGenMode::Flat { thickness: 0 });
     // Indicate neighbor presence along X so stitch logic is active
-    let mut wa = WccMesher::new(&buf_a, &reg, 1, 0, 0, &world, None);
-    let mut wb = WccMesher::new(&buf_b, &reg, 1, sx as i32, 0, &world, None);
-    for z in 0..sz {
-        for y in 0..sy {
-            for x in 0..sx {
-                let a = buf_a.get_local(x, y, z);
-                if reg.get(a.id).map(|t| t.is_solid(a.state)).unwrap_or(false) {
-                    wa.add_cube(x, y, z, a);
-                }
-                let b = buf_b.get_local(x, y, z);
-                if reg.get(b.id).map(|t| t.is_solid(b.state)).unwrap_or(false) {
-                    wb.add_cube(x, y, z, b);
-                }
-            }
-        }
-    }
+    let mut wa = ParityMesher::new(&buf_a, &reg, 1, 0, 0, &world, None);
+    let mut wb = ParityMesher::new(&buf_b, &reg, 1, sx as i32, 0, &world, None);
+    wa.build_occupancy();
+    wb.build_occupancy();
+    wa.seed_seam_layers();
+    wb.seed_seam_layers();
+    wa.compute_parity_and_materials();
+    wb.compute_parity_and_materials();
     let mut pa = HashMap::new();
     wa.emit_into(&mut pa);
     let mut pb = HashMap::new();
@@ -319,17 +303,9 @@ fn per_face_quads_triangle_count_on_slab() {
     let store = LightingStore::new(sx, sy, sz);
     let light = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
     let world = World::new(1, 1, sx, sy, sz, 0, WorldGenMode::Flat { thickness: 0 });
-    let mut wm = WccMesher::new(&buf, &reg, 1, 0, 0, &world, None);
-    for z in 0..sz {
-        for y in 0..sy {
-            for x in 0..sx {
-                let b = blocks[(y * sz + z) * sx + x];
-                if reg.get(b.id).map(|t| t.is_solid(b.state)).unwrap_or(false) {
-                    wm.add_cube(x, y, z, b);
-                }
-            }
-        }
-    }
+    let mut wm = ParityMesher::new(&buf, &reg, 1, 0, 0, &world, None);
+    wm.build_occupancy();
+    wm.compute_parity_and_materials();
     let mut parts = HashMap::new();
     wm.emit_into(&mut parts);
     let cpu = ChunkMeshCPU {

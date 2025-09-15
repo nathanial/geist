@@ -7,7 +7,7 @@ use geist_blocks::registry::BlockRegistry;
 use geist_blocks::types::Block;
 use geist_chunk::{generate_chunk_buffer, ChunkBuf};
 use geist_lighting::{LightGrid, LightingStore};
-use geist_mesh_cpu::{build_chunk_wcc_cpu_buf, WccMesher};
+use geist_mesh_cpu::{build_chunk_wcc_cpu_buf, ParityMesher};
 use geist_world::{World, WorldGenMode};
 
 fn load_registry() -> BlockRegistry {
@@ -91,25 +91,12 @@ fn bench_wcc_toggle_emit_normal_dims(c: &mut Criterion) {
         b.iter(|| {
             let base_x = buf.cx * sx as i32;
             let base_z = buf.cz * sz as i32;
-            let mut wm = WccMesher::new(&buf, &reg, 2, base_x, base_z, &world, None);
-            for z in 0..sz {
-                for y in 0..sy {
-                    for x in 0..sx {
-                        let b = buf.get_local(x, y, z);
-                        if let Some(ty) = reg.get(b.id) {
-                            if let Some(occ) = ty.variant(b.state).occupancy {
-                                wm.add_micro(x, y, z, b, occ);
-                                continue;
-                            }
-                            if ty.name == "water" { wm.add_water_cube(x, y, z, b); continue; }
-                        }
-                        wm.add_cube(x, y, z, b);
-                    }
-                }
-            }
-            wm.seed_neighbor_seams();
+            let mut pm = ParityMesher::new(&buf, &reg, 2, base_x, base_z, &world, None);
+            pm.build_occupancy();
+            pm.seed_seam_layers();
+            pm.compute_parity_and_materials();
             let mut parts: HashMap<_, _> = HashMap::new();
-            wm.emit_into(&mut parts);
+            pm.emit_into(&mut parts);
             black_box(parts);
         })
     });
@@ -157,11 +144,12 @@ fn bench_wcc_mesher_s1_uniform(c: &mut Criterion) {
     let light = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
     group.bench_function("toggle_emit_solid_32x64x32", |b| {
         b.iter(|| {
-            let mut wm = WccMesher::new(&buf, &reg, 1, 0, 0, &world, None);
-            for z in 0..sz { for y in 0..sy { for x in 0..sx { wm.add_cube(x, y, z, Block { id: stone, state: 0 }); }}}
-            wm.seed_neighbor_seams();
+            let mut pm = ParityMesher::new(&buf, &reg, 1, 0, 0, &world, None);
+            pm.build_occupancy();
+            pm.seed_seam_layers();
+            pm.compute_parity_and_materials();
             let mut parts: HashMap<_, _> = HashMap::new();
-            wm.emit_into(&mut parts);
+            pm.emit_into(&mut parts);
             black_box(parts);
         })
     });
@@ -202,25 +190,12 @@ fn bench_wcc_mesher_s2_mixed(c: &mut Criterion) {
     let light = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
     group.bench_function("toggle_emit_mixed_s2_16x64x16", |b| {
         b.iter(|| {
-            let mut wm = WccMesher::new(&buf, &reg, 2, 0, 0, &world, None);
-            for z in 0..sz {
-                for y in 0..sy {
-                    for x in 0..sx {
-                        let b = buf.get_local(x, y, z);
-                        if let Some(ty) = reg.get(b.id) {
-                            let var = ty.variant(b.state);
-                            if let Some(occ) = var.occupancy {
-                                wm.add_micro(x, y, z, b, occ);
-                                continue;
-                            }
-                        }
-                        wm.add_cube(x, y, z, b);
-                    }
-                }
-            }
-            wm.seed_neighbor_seams();
+            let mut pm = ParityMesher::new(&buf, &reg, 2, 0, 0, &world, None);
+            pm.build_occupancy();
+            pm.seed_seam_layers();
+            pm.compute_parity_and_materials();
             let mut parts: HashMap<_, _> = HashMap::new();
-            wm.emit_into(&mut parts);
+            pm.emit_into(&mut parts);
             black_box(parts);
         })
     });
