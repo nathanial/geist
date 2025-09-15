@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::time::Instant;
+use std::cell::RefCell;
 
 use geist_blocks::BlockRegistry;
 use geist_blocks::types::{Block, MaterialId};
@@ -15,6 +16,10 @@ use crate::mesh_build::MeshBuild;
 use crate::util::{is_occluder, is_top_half_shape, microgrid_boxes, unknown_material_id};
 use crate::wcc::WccMesher;
 use crate::constants::MICROGRID_STEPS;
+
+thread_local! {
+    static LAST_MESH_RESERVE: RefCell<Vec<usize>> = RefCell::new(Vec::new());
+}
 
 /// Build a chunk mesh using Watertight Cubical Complex (WCC) at S=1 (full cubes only).
 /// Phase 1: Only full cubes contribute; micro/dynamic shapes are ignored here.
@@ -88,6 +93,23 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
     // then convert to HashMap<MaterialId, MeshBuild> for public API compatibility.
     let mat_count = reg.materials.materials.len();
     let mut builds_v: Vec<MeshBuild> = vec![MeshBuild::default(); mat_count];
+    LAST_MESH_RESERVE.with(|cell| {
+        let mut caps = cell.borrow_mut();
+        if caps.len() != mat_count { caps.resize(mat_count, 64); }
+        for i in 0..mat_count {
+            let q = caps[i].max(64);
+            builds_v[i].reserve_quads(q);
+        }
+    });
+    // Pre-reserve per-material meshes based on last chunk usage in this thread
+    LAST_MESH_RESERVE.with(|cell| {
+        let mut caps = cell.borrow_mut();
+        if caps.len() != mat_count { caps.resize(mat_count, 64); }
+        for i in 0..mat_count {
+            let q = caps[i].max(64);
+            builds_v[i].reserve_quads(q);
+        }
+    });
     // Overscan: incorporate neighbor seam contributions before emission
     let t_seed_start = Instant::now();
     wm.seed_neighbor_seams();
@@ -96,6 +118,8 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
     let t_emit_start = Instant::now();
     wm.emit_into(&mut builds_v);
     let emit_ms: u32 = t_emit_start.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+    // Return FaceGrids to scratch for reuse before thin pass
+    wm.recycle();
 
     // Phase 3: thin dynamic shapes (pane, fence, gate, carpet)
     let t_thin_start = Instant::now();
@@ -221,6 +245,18 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
         cz
     );
 
+    // Update last reserve caps based on actual quads used (positions/12)
+    LAST_MESH_RESERVE.with(|cell| {
+        let mut caps = cell.borrow_mut();
+        caps.resize(mat_count, 64);
+        for i in 0..mat_count {
+            let quads = builds_v[i].pos.len() / 12;
+            // Keep some headroom to reduce reallocations next time
+            let suggested = quads + quads / 4 + 64;
+            caps[i] = suggested.max(64);
+        }
+    });
+
     let bbox = Aabb {
         min: Vec3 { x: base_x as f32, y: 0.0, z: base_z as f32 },
         max: Vec3 { x: base_x as f32 + sx as f32, y: sy as f32, z: base_z as f32 + sz as f32 },
@@ -321,6 +357,17 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
             }
         }
     }
+    // Update last reserve caps for this thread based on usage
+    LAST_MESH_RESERVE.with(|cell| {
+        let mut caps = cell.borrow_mut();
+        caps.resize(mat_count, 64);
+        for i in 0..mat_count {
+            let quads = builds_v[i].pos.len() / 12;
+            let suggested = quads + quads / 4 + 64;
+            caps[i] = suggested.max(64);
+        }
+    });
+
     let mut parts_hm: HashMap<MaterialId, MeshBuild> = HashMap::new();
     for (i, mb) in builds_v.into_iter().enumerate() {
         if !mb.pos.is_empty() { parts_hm.insert(MaterialId(i as u16), mb); }

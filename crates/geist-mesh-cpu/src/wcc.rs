@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::cell::RefCell;
 use std::time::Instant;
 
 use geist_blocks::BlockRegistry;
@@ -372,12 +373,49 @@ impl<'a> WccMesher<'a> {
         edits: Option<&'a HashMap<(i32, i32, i32), Block>>,
     ) -> Self {
         let (sx, sy, sz) = (buf.sx, buf.sy, buf.sz);
+        thread_local! {
+            static FACEGRID_SCRATCH: RefCell<Option<FaceGrids>> = RefCell::new(None);
+        }
+        let grids = FACEGRID_SCRATCH.with(|cell| {
+            let mut slot = cell.borrow_mut();
+            if let Some(mut g) = slot.take() {
+                if g.s == s && g.sx == sx && g.sy == sy && g.sz == sz {
+                    // Clear contents for reuse
+                    g.px.data.fill(0);
+                    g.py.data.fill(0);
+                    g.pz.data.fill(0);
+                    g.ox.data.fill(0);
+                    g.oy.data.fill(0);
+                    g.oz.data.fill(0);
+                    g.kx.fill(MaterialId(0));
+                    g.ky.fill(MaterialId(0));
+                    g.kz.fill(MaterialId(0));
+                    g
+                } else {
+                    FaceGrids::new(s, sx, sy, sz)
+                }
+            } else {
+                FaceGrids::new(s, sx, sy, sz)
+            }
+        });
         Self {
             s, sx, sy, sz,
-            grids: FaceGrids::new(s, sx, sy, sz),
+            grids,
             reg, buf, world, edits, base_x, base_z,
             air_id: reg.id_by_name("air").unwrap_or(0),
         }
+    }
+
+    /// Returns FaceGrids to thread-local scratch for reuse. Call when done emitting.
+    pub fn recycle(self) {
+        thread_local! {
+            static FACEGRID_SCRATCH: RefCell<Option<FaceGrids>> = RefCell::new(None);
+        }
+        FACEGRID_SCRATCH.with(|cell| {
+            let mut slot = cell.borrow_mut();
+            // Move grids back into scratch; drop other fields
+            slot.replace(self.grids);
+        });
     }
 
     // Overscan: seed parity on our -X/-Z boundary planes using neighbor world blocks.
@@ -419,12 +457,29 @@ impl<'a> WccMesher<'a> {
                 let occ = nb_ty.variant(nb.state).occupancy;
                 if let Some(occ) = occ {
                     let mid = nb_ty.material_for_cached(Face::PosX.role(), nb.state);
-                    for iym in 0..self.s {
-                        for izm in 0..self.s {
-                            if occ_bit_s2(occ, 1, iym, izm) {
-                                let iy = ly * self.s + iym;
-                                let iz = lz * self.s + izm;
-                                self.toggle_x(0, 0, 0, 0, iy, iy + 1, iz, iz + 1, true, mid);
+                    if self.s == 2 {
+                        // Batch pairs along Y for each Z micro
+                        let y0 = ly * 2;
+                        let z0 = lz * 2;
+                        for izm in 0..2 {
+                            let z = z0 + izm;
+                            let a = occ_bit_s2(occ, 1, 0, izm);
+                            let b = occ_bit_s2(occ, 1, 1, izm);
+                            if a && b {
+                                self.toggle_x(0, 0, 0, 0, y0, y0 + 2, z, z + 1, true, mid);
+                            } else {
+                                if a { self.toggle_x(0, 0, 0, 0, y0 + 0, y0 + 1, z, z + 1, true, mid); }
+                                if b { self.toggle_x(0, 0, 0, 0, y0 + 1, y0 + 2, z, z + 1, true, mid); }
+                            }
+                        }
+                    } else {
+                        for iym in 0..self.s {
+                            for izm in 0..self.s {
+                                if occ_bit_s2(occ, 1, iym, izm) {
+                                    let iy = ly * self.s + iym;
+                                    let iz = lz * self.s + izm;
+                                    self.toggle_x(0, 0, 0, 0, iy, iy + 1, iz, iz + 1, true, mid);
+                                }
                             }
                         }
                     }
@@ -466,12 +521,29 @@ impl<'a> WccMesher<'a> {
                 }
                 if let Some(occ) = nb_ty.variant(nb.state).occupancy {
                     let mid = nb_ty.material_for_cached(Face::PosZ.role(), nb.state);
-                    for ixm in 0..self.s {
-                        for iym in 0..self.s {
-                            if occ_bit_s2(occ, ixm, iym, 1) {
-                                let ix = lx * self.s + ixm;
-                                let iy = ly * self.s + iym;
-                                self.toggle_z(0, 0, 0, 0, ix, ix + 1, iy, iy + 1, true, mid);
+                    if self.s == 2 {
+                        // Batch pairs along X for each Y micro
+                        let x0 = lx * 2;
+                        let y0 = ly * 2;
+                        for iym in 0..2 {
+                            let y = y0 + iym;
+                            let a = occ_bit_s2(occ, 0, iym, 1);
+                            let b = occ_bit_s2(occ, 1, iym, 1);
+                            if a && b {
+                                self.toggle_z(0, 0, 0, 0, x0, x0 + 2, y, y + 1, true, mid);
+                            } else {
+                                if a { self.toggle_z(0, 0, 0, 0, x0 + 0, x0 + 1, y, y + 1, true, mid); }
+                                if b { self.toggle_z(0, 0, 0, 0, x0 + 1, x0 + 2, y, y + 1, true, mid); }
+                            }
+                        }
+                    } else {
+                        for ixm in 0..self.s {
+                            for iym in 0..self.s {
+                                if occ_bit_s2(occ, ixm, iym, 1) {
+                                    let ix = lx * self.s + ixm;
+                                    let iy = ly * self.s + iym;
+                                    self.toggle_z(0, 0, 0, 0, ix, ix + 1, iy, iy + 1, true, mid);
+                                }
                             }
                         }
                     }
