@@ -8,6 +8,7 @@ use geist_geom::Vec3;
 
 use crate::face::Face;
 use crate::constants::MICRO_HALF_STEP_SIZE;
+use crate::microgrid_tables::occ8_to_boxes;
 
 // Visual lighting floor logic removed; renderer handles tone mapping and fog.
 
@@ -152,21 +153,30 @@ pub(crate) fn is_occluder(
 #[inline]
 /// Converts a micro occupancy mask into world-space AABBs at half-step resolution.
 pub(crate) fn microgrid_boxes(fx: f32, fy: f32, fz: f32, occ: u8) -> Vec<(Vec3, Vec3)> {
-    use crate::microgrid_tables::occ8_to_boxes;
+    // Kept for compatibility; prefer `for_each_micro_box` to avoid allocations.
     let cell = MICRO_HALF_STEP_SIZE;
     let mut out = Vec::new();
     for b in occ8_to_boxes(occ) {
-        let min = Vec3 {
-            x: fx + (b[0] as f32) * cell,
-            y: fy + (b[1] as f32) * cell,
-            z: fz + (b[2] as f32) * cell,
-        };
-        let max = Vec3 {
-            x: fx + (b[3] as f32) * cell,
-            y: fy + (b[4] as f32) * cell,
-            z: fz + (b[5] as f32) * cell,
-        };
+        let min = Vec3 { x: fx + (b[0] as f32) * cell, y: fy + (b[1] as f32) * cell, z: fz + (b[2] as f32) * cell };
+        let max = Vec3 { x: fx + (b[3] as f32) * cell, y: fy + (b[4] as f32) * cell, z: fz + (b[5] as f32) * cell };
         out.push((min, max));
     }
     out
+}
+
+#[inline]
+/// Calls `f(min, max)` for each micro-box without allocating.
+pub(crate) fn for_each_micro_box(
+    fx: f32,
+    fy: f32,
+    fz: f32,
+    occ: u8,
+    mut f: impl FnMut(Vec3, Vec3),
+) {
+    let cell = MICRO_HALF_STEP_SIZE;
+    for b in occ8_to_boxes(occ) {
+        let min = Vec3 { x: fx + (b[0] as f32) * cell, y: fy + (b[1] as f32) * cell, z: fz + (b[2] as f32) * cell };
+        let max = Vec3 { x: fx + (b[3] as f32) * cell, y: fy + (b[4] as f32) * cell, z: fz + (b[5] as f32) * cell };
+        f(min, max);
+    }
 }

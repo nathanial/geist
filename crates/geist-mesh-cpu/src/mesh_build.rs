@@ -12,6 +12,15 @@ pub struct MeshBuild {
 }
 
 impl MeshBuild {
+    /// Clears all arrays but retains capacity for reuse across frames.
+    #[inline]
+    pub fn clear_keep_capacity(&mut self) {
+        self.pos.clear();
+        self.norm.clear();
+        self.uv.clear();
+        self.idx.clear();
+        self.col.clear();
+    }
     /// Pre-reserve capacity for approximately `n_quads` quads worth of data.
     #[inline]
     pub fn reserve_quads(&mut self, n_quads: usize) {
