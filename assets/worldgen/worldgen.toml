@@ -27,7 +27,7 @@ top = { high = "snow", low = "sand", mid = "grass" }
 subsoil = { near_surface = "dirt", deep = "stone" }
 
 [carvers]
-enable = false
+enable = true
 y_scale = 1.6
 eps_base = 0.04
 eps_add = 0.08

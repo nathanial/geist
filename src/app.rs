@@ -2545,8 +2545,8 @@ impl App {
                 surface_sky
             };
             // Fog ranges: denser underwater
-            let fog_start = if underwater { 4.0 } else { 64.0 };
-            let fog_end = if underwater { 48.0 } else { 512.0 * 0.9 };
+            let fog_start = if underwater { 4.0 } else { 512.0 * 0.1 };
+            let fog_end = if underwater { 48.0 } else { 512.0 * 0.8 };
             if let Some(ref mut ls) = self.leaves_shader {
                 ls.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end, time_now, underwater, sky_scale);
             }
