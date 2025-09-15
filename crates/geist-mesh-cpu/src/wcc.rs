@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Instant;
 
 use geist_blocks::BlockRegistry;
 use geist_blocks::micro::micro_cell_solid_s2;
@@ -26,6 +27,7 @@ fn emit_plane_x(
     grids: &FaceGrids,
     builds: &mut HashMap<MaterialId, MeshBuild>,
 ) {
+    let t0 = Instant::now();
     let scale = 1.0 / s as f32;
     let width = s * sz; // u across +Z
     let height = s * sy; // v across +Y
@@ -92,6 +94,18 @@ fn emit_plane_x(
             }
         }
     }
+    let ms: u32 = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+    log::info!(
+        target: "perf",
+        "ms={} mesher_emit_plane axis=X s={} dims=({}, {}, {}) base_x={} base_z={}",
+        ms,
+        s,
+        sx,
+        sy,
+        sz,
+        base_x,
+        base_z
+    );
 }
 
 fn emit_plane_y(
@@ -104,6 +118,7 @@ fn emit_plane_y(
     grids: &FaceGrids,
     builds: &mut HashMap<MaterialId, MeshBuild>,
 ) {
+    let t0 = Instant::now();
     let scale = 1.0 / s as f32;
     let width = s * sx; // u across +X
     let height = s * sz; // v across +Z
@@ -154,6 +169,18 @@ fn emit_plane_y(
             }
         }
     }
+    let ms: u32 = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+    log::info!(
+        target: "perf",
+        "ms={} mesher_emit_plane axis=Y s={} dims=({}, {}, {}) base_x={} base_z={}",
+        ms,
+        s,
+        sx,
+        sy,
+        sz,
+        base_x,
+        base_z
+    );
 }
 
 fn emit_plane_z(
@@ -166,6 +193,7 @@ fn emit_plane_z(
     grids: &FaceGrids,
     builds: &mut HashMap<MaterialId, MeshBuild>,
 ) {
+    let t0 = Instant::now();
     let scale = 1.0 / s as f32;
     let width = s * sx; // u across +X
     let height = s * sy; // v across +Y
@@ -216,6 +244,18 @@ fn emit_plane_z(
             }
         }
     }
+    let ms: u32 = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+    log::info!(
+        target: "perf",
+        "ms={} mesher_emit_plane axis=Z s={} dims=({}, {}, {}) base_x={} base_z={}",
+        ms,
+        s,
+        sx,
+        sy,
+        sz,
+        base_x,
+        base_z
+    );
 }
 
 #[derive(Default)]
@@ -317,6 +357,7 @@ impl<'a> WccMesher<'a> {
     /// Seeds parity on -X/-Z seams using neighbor world data to prevent cracks and duplicates.
     pub fn seed_neighbor_seams(&mut self) {
         // -X seam: toggle +X faces of neighbor cells onto ix==0
+        let t_x = Instant::now();
         for ly in 0..self.sy {
             for lz in 0..self.sz {
                 let nb = self.world_block(self.base_x - 1, ly as i32, self.base_z + lz as i32);
@@ -337,7 +378,20 @@ impl<'a> WccMesher<'a> {
                 }
             }
         }
+        let ms_x: u32 = t_x.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+        log::info!(
+            target: "perf",
+            "ms={} mesher_seed_seam axis=X s={} dims=({}, {}, {}) base_x={} base_z={}",
+            ms_x,
+            self.s,
+            self.sx,
+            self.sy,
+            self.sz,
+            self.base_x,
+            self.base_z
+        );
         // -Z seam: toggle +Z faces of neighbor cells onto iz==0
+        let t_z = Instant::now();
         for ly in 0..self.sy {
             for lx in 0..self.sx {
                 let nb = self.world_block(self.base_x + lx as i32, ly as i32, self.base_z - 1);
@@ -358,6 +412,18 @@ impl<'a> WccMesher<'a> {
                 }
             }
         }
+        let ms_z: u32 = t_z.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+        log::info!(
+            target: "perf",
+            "ms={} mesher_seed_seam axis=Z s={} dims=({}, {}, {}) base_x={} base_z={}",
+            ms_z,
+            self.s,
+            self.sx,
+            self.sy,
+            self.sz,
+            self.base_x,
+            self.base_z
+        );
     }
 
     #[inline]

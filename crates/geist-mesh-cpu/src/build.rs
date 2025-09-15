@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::time::Instant;
 
 use geist_blocks::BlockRegistry;
 use geist_blocks::types::{Block, MaterialId};
@@ -56,7 +57,8 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
     // Phase 2: Use a single WCC mesher at S=MICROGRID_STEPS to cover full cubes and micro occupancy.
     let s: usize = MICROGRID_STEPS;
     let mut wm = WccMesher::new(buf, reg, s, base_x, base_z, world, edits);
-
+    let t_total = Instant::now();
+    let t_scan_start = Instant::now();
     for z in 0..sz {
         for y in 0..sy {
             for x in 0..sx {
@@ -74,13 +76,20 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
             }
         }
     }
+    let scan_ms: u32 = t_scan_start.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
 
     let mut builds: HashMap<MaterialId, MeshBuild> = HashMap::new();
     // Overscan: incorporate neighbor seam contributions before emission
+    let t_seed_start = Instant::now();
     wm.seed_neighbor_seams();
+    let seed_ms: u32 = t_seed_start.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+
+    let t_emit_start = Instant::now();
     wm.emit_into(&mut builds);
+    let emit_ms: u32 = t_emit_start.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
 
     // Phase 3: thin dynamic shapes (pane, fence, gate, carpet)
+    let t_thin_start = Instant::now();
     for z in 0..sz {
         for y in 0..sy {
             for x in 0..sx {
@@ -186,6 +195,22 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
             }
         }
     }
+    let thin_ms: u32 = t_thin_start.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+
+    // Aggregate + log perf for mesher sections
+    let total_ms: u32 = t_total.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+    log::info!(
+        target: "perf",
+        "ms scan={} seed={} emit={} thin={} total={} mesher_sections s={} cx={} cz={}",
+        scan_ms,
+        seed_ms,
+        emit_ms,
+        thin_ms,
+        total_ms,
+        s,
+        cx,
+        cz
+    );
 
     let bbox = Aabb {
         min: Vec3 { x: base_x as f32, y: 0.0, z: base_z as f32 },
