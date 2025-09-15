@@ -7,7 +7,9 @@ use std::thread;
 
 use geist_blocks::{Block, BlockRegistry};
 use geist_chunk as chunkbuf;
-use geist_lighting::{LightAtlas, LightBorders, LightGrid, LightingStore, compute_light_with_borders_buf};
+use geist_lighting::{
+    LightAtlas, LightBorders, LightGrid, LightingStore, compute_light_with_borders_buf,
+};
 use geist_mesh_cpu::{ChunkMeshCPU, NeighborsLoaded, build_chunk_wcc_cpu_buf_with_light};
 use geist_world::World;
 use std::time::Instant;
@@ -178,7 +180,8 @@ impl Runtime {
                             t_light_ms = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
                             // Also publish macro light borders so neighbors can stitch without requiring a remesh.
                             let borders = LightBorders::from_grid(&lg);
-                            let t_total_ms = t_job_start.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+                            let t_total_ms =
+                                t_job_start.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
                             let _ = tx.send(JobOut {
                                 cpu: None,
                                 light_atlas: None,
@@ -214,10 +217,9 @@ impl Runtime {
                             );
                             t_mesh_ms = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
                             if let Some((cpu, light_borders)) = built {
-                                let t_total_ms = t_job_start
-                                    .elapsed()
-                                    .as_millis()
-                                    .min(u128::from(u32::MAX)) as u32;
+                                let t_total_ms =
+                                    t_job_start.elapsed().as_millis().min(u128::from(u32::MAX))
+                                        as u32;
                                 let _ = tx.send(JobOut {
                                     cpu: Some(cpu),
                                     light_atlas: None,

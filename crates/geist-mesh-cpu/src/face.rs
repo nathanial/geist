@@ -14,7 +14,9 @@ pub enum Face {
 impl Face {
     /// Returns the `[0..6)` index of this face.
     #[inline]
-    pub fn index(self) -> usize { self as usize }
+    pub fn index(self) -> usize {
+        self as usize
+    }
 
     /// Converts a face index `[0..6)` back into a `Face` value.
     /// Falls back to `PosY` for out-of-range indices.
@@ -35,12 +37,36 @@ impl Face {
     #[inline]
     pub fn normal(self) -> Vec3 {
         match self {
-            Face::PosY => Vec3 { x: 0.0, y: 1.0, z: 0.0 },
-            Face::NegY => Vec3 { x: 0.0, y: -1.0, z: 0.0 },
-            Face::PosX => Vec3 { x: 1.0, y: 0.0, z: 0.0 },
-            Face::NegX => Vec3 { x: -1.0, y: 0.0, z: 0.0 },
-            Face::PosZ => Vec3 { x: 0.0, y: 0.0, z: 1.0 },
-            Face::NegZ => Vec3 { x: 0.0, y: 0.0, z: -1.0 },
+            Face::PosY => Vec3 {
+                x: 0.0,
+                y: 1.0,
+                z: 0.0,
+            },
+            Face::NegY => Vec3 {
+                x: 0.0,
+                y: -1.0,
+                z: 0.0,
+            },
+            Face::PosX => Vec3 {
+                x: 1.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            Face::NegX => Vec3 {
+                x: -1.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            Face::PosZ => Vec3 {
+                x: 0.0,
+                y: 0.0,
+                z: 1.0,
+            },
+            Face::NegZ => Vec3 {
+                x: 0.0,
+                y: 0.0,
+                z: -1.0,
+            },
         }
     }
 

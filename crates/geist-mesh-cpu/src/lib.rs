@@ -3,20 +3,22 @@
 
 pub mod microgrid_tables;
 
+mod build;
+mod chunk;
 mod constants;
+mod emit;
 mod face;
 mod mesh_build;
 mod neighbors;
-mod chunk;
-mod util;
-mod emit;
 mod parity;
-mod build;
+mod util;
 
+pub use build::{
+    build_chunk_wcc_cpu_buf, build_chunk_wcc_cpu_buf_with_light, build_voxel_body_cpu_buf,
+};
+pub use chunk::ChunkMeshCPU;
 pub use face::{Face, SIDE_NEIGHBORS};
 pub use mesh_build::MeshBuild;
 pub use neighbors::NeighborsLoaded;
-pub use chunk::ChunkMeshCPU;
 pub use parity::ParityMesher;
-pub use build::{build_chunk_wcc_cpu_buf, build_chunk_wcc_cpu_buf_with_light, build_voxel_body_cpu_buf};
 pub use util::is_full_cube;

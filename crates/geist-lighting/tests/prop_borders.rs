@@ -1,16 +1,22 @@
 use geist_lighting::{LightBorders, LightingStore};
 use proptest::prelude::*;
 
-fn dims() -> impl Strategy<Value = (usize, usize, usize)> { (1usize..=3, 1usize..=3, 1usize..=3) }
+fn dims() -> impl Strategy<Value = (usize, usize, usize)> {
+    (1usize..=3, 1usize..=3, 1usize..=3)
+}
 
-fn planes_for_dims(sx: usize, sy: usize, sz: usize) -> impl Strategy<Value = (Vec<u8>,Vec<u8>,Vec<u8>,Vec<u8>,Vec<u8>,Vec<u8>)> {
-    let a = prop::collection::vec(any::<u8>(), sy*sz);
-    let b = prop::collection::vec(any::<u8>(), sy*sz);
-    let c = prop::collection::vec(any::<u8>(), sy*sx);
-    let d = prop::collection::vec(any::<u8>(), sy*sx);
-    let e = prop::collection::vec(any::<u8>(), sx*sz);
-    let f = prop::collection::vec(any::<u8>(), sx*sz);
-    (a,b,c,d,e,f)
+fn planes_for_dims(
+    sx: usize,
+    sy: usize,
+    sz: usize,
+) -> impl Strategy<Value = (Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>, Vec<u8>)> {
+    let a = prop::collection::vec(any::<u8>(), sy * sz);
+    let b = prop::collection::vec(any::<u8>(), sy * sz);
+    let c = prop::collection::vec(any::<u8>(), sy * sx);
+    let d = prop::collection::vec(any::<u8>(), sy * sx);
+    let e = prop::collection::vec(any::<u8>(), sx * sz);
+    let f = prop::collection::vec(any::<u8>(), sx * sz);
+    (a, b, c, d, e, f)
 }
 
 proptest! {

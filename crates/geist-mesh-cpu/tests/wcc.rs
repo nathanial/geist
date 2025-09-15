@@ -327,17 +327,13 @@ fn per_face_quads_triangle_count_on_slab() {
     };
     // Compute expected faces via exact surface area (half-open positive boundaries)
     let blocks_clone = blocks.clone();
-    let solid_fn = |x: usize, y: usize, z: usize| {
-        blocks_clone[(y * sz + z) * sx + x].id == stone
-    };
+    let solid_fn = |x: usize, y: usize, z: usize| blocks_clone[(y * sz + z) * sx + x].id == stone;
     let expected_faces = expected_surface_area_voxels(sx, sy, sz, &solid_fn) as usize;
     let expected_tris = expected_faces * 2; // two triangles per quad
     let tris = cpu.parts.values().map(|p| p.idx.len() / 3).sum::<usize>();
     assert_eq!(
-        tris,
-        expected_tris,
+        tris, expected_tris,
         "triangle count should match per-face emission: got={} expected={}",
-        tris,
-        expected_tris
+        tris, expected_tris
     );
 }

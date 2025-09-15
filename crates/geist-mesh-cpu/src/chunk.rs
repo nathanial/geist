@@ -10,4 +10,3 @@ pub struct ChunkMeshCPU {
     pub bbox: Aabb,
     pub parts: HashMap<MaterialId, MeshBuild>,
 }
-

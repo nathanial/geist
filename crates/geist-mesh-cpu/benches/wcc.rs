@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use std::time::Duration;
 
 use geist_blocks::registry::BlockRegistry;
 use geist_blocks::types::Block;
-use geist_chunk::{generate_chunk_buffer, ChunkBuf};
+use geist_chunk::{ChunkBuf, generate_chunk_buffer};
 use geist_lighting::{LightGrid, LightingStore};
-use geist_mesh_cpu::{build_chunk_wcc_cpu_buf, ParityMesher};
+use geist_mesh_cpu::{ParityMesher, build_chunk_wcc_cpu_buf};
 use geist_world::{World, WorldGenMode};
 
 fn load_registry() -> BlockRegistry {
@@ -20,7 +20,15 @@ fn bench_build_chunk_wcc_flat(c: &mut Criterion) {
     let mut group = c.benchmark_group("build_chunk_wcc_flat");
     let reg = load_registry();
     let (sx, sy, sz) = (16usize, 64usize, 16usize);
-    let world = World::new(1, 1, sx, sy, sz, 0xC0FFEE as i32, WorldGenMode::Flat { thickness: 32 });
+    let world = World::new(
+        1,
+        1,
+        sx,
+        sy,
+        sz,
+        0xC0FFEE as i32,
+        WorldGenMode::Flat { thickness: 32 },
+    );
     let store = LightingStore::new(sx, sy, sz);
     group.bench_function("flat_16x64x16", |b| {
         b.iter(|| {
@@ -117,7 +125,9 @@ fn bench_build_chunk_wcc_normal_neighbors(c: &mut Criterion) {
             for cz in 0..(chunks_z as i32) {
                 for cx in 0..(chunks_x as i32) {
                     let buf = generate_chunk_buffer(&world, cx, cz, &reg);
-                    if let Some((cpu, _borders)) = build_chunk_wcc_cpu_buf(&buf, Some(&store), &world, None, cx, cz, &reg) {
+                    if let Some((cpu, _borders)) =
+                        build_chunk_wcc_cpu_buf(&buf, Some(&store), &world, None, cx, cz, &reg)
+                    {
                         total_parts += cpu.parts.len();
                     }
                 }
@@ -178,9 +188,15 @@ fn bench_wcc_mesher_s2_mixed(c: &mut Criterion) {
             for x in 0..sx {
                 let use_slab = ((x ^ z ^ (y / 8)) & 1) == 0;
                 if use_slab {
-                    blocks.push(Block { id: slab, state: slab_state_bottom });
+                    blocks.push(Block {
+                        id: slab,
+                        state: slab_state_bottom,
+                    });
                 } else {
-                    blocks.push(Block { id: stone, state: 0 });
+                    blocks.push(Block {
+                        id: stone,
+                        state: 0,
+                    });
                 }
             }
         }
@@ -218,7 +234,7 @@ fn heavy_config() -> Criterion {
         .confidence_level(0.90)
 }
 
-criterion_group!{
+criterion_group! {
     name = benches;
     config = long_config();
     targets =
@@ -231,7 +247,7 @@ criterion_group!{
         bench_wcc_mesher_s2_mixed
 }
 
-criterion_group!{
+criterion_group! {
     name = benches_heavy;
     config = heavy_config();
     targets =
