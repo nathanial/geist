@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use geist_blocks::BlockRegistry;
-use geist_blocks::micro::micro_cell_solid_s2;
 use geist_blocks::types::{Block, MaterialId};
 use geist_chunk::ChunkBuf;
 use geist_geom::Vec3;
@@ -10,7 +9,6 @@ use geist_world::World;
 
 use crate::emit::{emit_face_rect_for_clipped, BuildSink};
 use crate::face::Face;
-use crate::mesh_build::MeshBuild;
 use crate::util::registry_material_for_or_unknown;
 use crate::constants::{OPAQUE_ALPHA, BITS_PER_WORD, WORD_INDEX_MASK, WORD_INDEX_SHIFT};
 
@@ -31,8 +29,8 @@ fn emit_plane_x<B: BuildSink>(
     let scale = 1.0 / s as f32;
     let width = s * sz; // u across +Z
     let height = s * sy; // v across +Y
-    let mut visited: Vec<u32> = vec![0; width * height];
-    let mut epoch: u32 = 1;
+    let mut visited: Vec<u8> = vec![0; width * height];
+    let mut epoch: u8 = 1;
     for ix in 0..(s * sx) {
         // advance epoch to avoid clearing visited; wrap-safe
         epoch = epoch.wrapping_add(1);
@@ -132,8 +130,8 @@ fn emit_plane_y<B: BuildSink>(
     let scale = 1.0 / s as f32;
     let width = s * sx; // u across +X
     let height = s * sz; // v across +Z
-    let mut visited: Vec<u32> = vec![0; width * height];
-    let mut epoch: u32 = 1;
+    let mut visited: Vec<u8> = vec![0; width * height];
+    let mut epoch: u8 = 1;
     for iy in 0..(s * sy) {
         epoch = epoch.wrapping_add(1);
         if epoch == 0 { visited.fill(0); epoch = 1; }
@@ -216,8 +214,8 @@ fn emit_plane_z<B: BuildSink>(
     let scale = 1.0 / s as f32;
     let width = s * sx; // u across +X
     let height = s * sy; // v across +Y
-    let mut visited: Vec<u32> = vec![0; width * height];
-    let mut epoch: u32 = 1;
+    let mut visited: Vec<u8> = vec![0; width * height];
+    let mut epoch: u8 = 1;
     for iz in 0..(s * sz) {
         epoch = epoch.wrapping_add(1);
         if epoch == 0 { visited.fill(0); epoch = 1; }
@@ -359,6 +357,7 @@ pub struct WccMesher<'a> {
     edits: Option<&'a HashMap<(i32, i32, i32), Block>>,
     base_x: i32,
     base_z: i32,
+    air_id: u16,
 }
 
 impl<'a> WccMesher<'a> {
@@ -377,6 +376,7 @@ impl<'a> WccMesher<'a> {
             s, sx, sy, sz,
             grids: FaceGrids::new(s, sx, sy, sz),
             reg, buf, world, edits, base_x, base_z,
+            air_id: reg.id_by_name("air").unwrap_or(0),
         }
     }
 
@@ -384,23 +384,48 @@ impl<'a> WccMesher<'a> {
     // This cancels interior faces across seams and emits neighbor-owned faces when our side is empty.
     /// Seeds parity on -X/-Z seams using neighbor world data to prevent cracks and duplicates.
     pub fn seed_neighbor_seams(&mut self) {
+        // Helper for S=2 occupancy bit
+        #[inline]
+        fn occ_bit_s2(occ: u8, mx: usize, my: usize, mz: usize) -> bool {
+            let idx = ((my & 1) << 2) | ((mz & 1) << 1) | (mx & 1);
+            (occ >> idx) & 1 != 0
+        }
+
         // -X seam: toggle +X faces of neighbor cells onto ix==0
         let t_x = Instant::now();
         for ly in 0..self.sy {
             for lz in 0..self.sz {
                 let nb = self.world_block(self.base_x - 1, ly as i32, self.base_z + lz as i32);
-                if self.reg.get(nb.id).map(|t| t.name == "water").unwrap_or(false) { continue; }
                 let here = self.buf.get_local(0, ly, lz);
-                if let (Some(ht), Some(_nt)) = (self.reg.get(here.id), self.reg.get(nb.id)) {
+                // Water contributes no faces for seam stitching
+                let nb_ty = match self.reg.get(nb.id) { Some(t) if t.name != "water" => Some(t), _ => None };
+                if nb_ty.is_none() { continue; }
+                // Skip identical neighbor if seam policy says so
+                if let Some(ht) = self.reg.get(here.id) {
                     if ht.seam.dont_occlude_same && here.id == nb.id { continue; }
                 }
-                for iym in 0..self.s {
-                    for izm in 0..self.s {
-                        if micro_cell_solid_s2(self.reg, nb, 1, iym, izm) {
-                            let iy = ly * self.s + iym;
-                            let iz = lz * self.s + izm;
-                            let mid = registry_material_for_or_unknown(nb, Face::PosX, self.reg);
-                            self.toggle_x(0, 0, 0, 0, iy, iy + 1, iz, iz + 1, true, mid);
+                let nb_ty = nb_ty.unwrap();
+                // Full-cube fast path: toggle entire s-by-s span at once
+                if nb_ty.is_solid(nb.state)
+                    && matches!(nb_ty.shape, geist_blocks::types::Shape::Cube | geist_blocks::types::Shape::AxisCube { .. })
+                {
+                    let y0 = ly * self.s;
+                    let z0 = lz * self.s;
+                    let mid = nb_ty.material_for_cached(Face::PosX.role(), nb.state);
+                    self.toggle_x(0, 0, 0, 0, y0, y0 + self.s, z0, z0 + self.s, true, mid);
+                    continue;
+                }
+                // Occupancy-driven micro path
+                let occ = nb_ty.variant(nb.state).occupancy;
+                if let Some(occ) = occ {
+                    let mid = nb_ty.material_for_cached(Face::PosX.role(), nb.state);
+                    for iym in 0..self.s {
+                        for izm in 0..self.s {
+                            if occ_bit_s2(occ, 1, iym, izm) {
+                                let iy = ly * self.s + iym;
+                                let iz = lz * self.s + izm;
+                                self.toggle_x(0, 0, 0, 0, iy, iy + 1, iz, iz + 1, true, mid);
+                            }
                         }
                     }
                 }
@@ -423,18 +448,31 @@ impl<'a> WccMesher<'a> {
         for ly in 0..self.sy {
             for lx in 0..self.sx {
                 let nb = self.world_block(self.base_x + lx as i32, ly as i32, self.base_z - 1);
-                if self.reg.get(nb.id).map(|t| t.name == "water").unwrap_or(false) { continue; }
                 let here = self.buf.get_local(lx, ly, 0);
-                if let (Some(ht), Some(_nt)) = (self.reg.get(here.id), self.reg.get(nb.id)) {
+                let nb_ty = match self.reg.get(nb.id) { Some(t) if t.name != "water" => Some(t), _ => None };
+                if nb_ty.is_none() { continue; }
+                if let Some(ht) = self.reg.get(here.id) {
                     if ht.seam.dont_occlude_same && here.id == nb.id { continue; }
                 }
-                for ixm in 0..self.s {
-                    for iym in 0..self.s {
-                        if micro_cell_solid_s2(self.reg, nb, ixm, iym, 1) {
-                            let ix = lx * self.s + ixm;
-                            let iy = ly * self.s + iym;
-                            let mid = registry_material_for_or_unknown(nb, Face::PosZ, self.reg);
-                            self.toggle_z(0, 0, 0, 0, ix, ix + 1, iy, iy + 1, true, mid);
+                let nb_ty = nb_ty.unwrap();
+                if nb_ty.is_solid(nb.state)
+                    && matches!(nb_ty.shape, geist_blocks::types::Shape::Cube | geist_blocks::types::Shape::AxisCube { .. })
+                {
+                    let x0 = lx * self.s;
+                    let y0 = ly * self.s;
+                    let mid = nb_ty.material_for_cached(Face::PosZ.role(), nb.state);
+                    self.toggle_z(0, 0, 0, 0, x0, x0 + self.s, y0, y0 + self.s, true, mid);
+                    continue;
+                }
+                if let Some(occ) = nb_ty.variant(nb.state).occupancy {
+                    let mid = nb_ty.material_for_cached(Face::PosZ.role(), nb.state);
+                    for ixm in 0..self.s {
+                        for iym in 0..self.s {
+                            if occ_bit_s2(occ, ixm, iym, 1) {
+                                let ix = lx * self.s + ixm;
+                                let iy = ly * self.s + iym;
+                                self.toggle_z(0, 0, 0, 0, ix, ix + 1, iy, iy + 1, true, mid);
+                            }
                         }
                     }
                 }
@@ -464,6 +502,19 @@ impl<'a> WccMesher<'a> {
         } else {
             self.world.block_at_runtime(self.reg, nx, ny, nz)
         }
+    }
+
+    #[inline]
+    fn is_air_world_or_buf(&self, nx: i32, ny: i32, nz: i32) -> bool {
+        // Prefer local buffer when within bounds
+        if self.buf.contains_world(nx, ny, nz) {
+            if ny < 0 || ny >= self.buf.sy as i32 { return true; }
+            let lx = (nx - self.base_x) as usize;
+            let ly = ny as usize;
+            let lz = (nz - self.base_z) as usize;
+            return self.buf.get_local(lx, ly, lz).id == self.air_id;
+        }
+        self.world_block(nx, ny, nz).id == self.air_id
     }
 
     #[inline]
@@ -571,23 +622,22 @@ impl<'a> WccMesher<'a> {
         let (x0, x1, y0, y1, z0, z1) = (x * s, (x + 1) * s, y * s, (y + 1) * s, z * s, (z + 1) * s);
         let mid_for = |f: Face| registry_material_for_or_unknown(b, f, self.reg);
         let (wx, wy, wz) = (self.base_x + x as i32, y as i32, self.base_z + z as i32);
-        let air_id = self.reg.id_by_name("air").unwrap_or(0);
-        if self.world_block(wx + 1, wy, wz).id == air_id {
+        if self.is_air_world_or_buf(wx + 1, wy, wz) {
             self.toggle_x(x, y, z, x1, y0, y1, z0, z1, true,  mid_for(Face::PosX));
         }
-        if self.world_block(wx - 1, wy, wz).id == air_id {
+        if self.is_air_world_or_buf(wx - 1, wy, wz) {
             self.toggle_x(x, y, z, x0, y0, y1, z0, z1, false, mid_for(Face::NegX));
         }
-        if self.world_block(wx, wy + 1, wz).id == air_id {
+        if self.is_air_world_or_buf(wx, wy + 1, wz) {
             self.toggle_y(x, y, z, y1, x0, x1, z0, z1, true,  mid_for(Face::PosY));
         }
-        if self.world_block(wx, wy - 1, wz).id == air_id {
+        if self.is_air_world_or_buf(wx, wy - 1, wz) {
             self.toggle_y(x, y, z, y0, x0, x1, z0, z1, false, mid_for(Face::NegY));
         }
-        if self.world_block(wx, wy, wz + 1).id == air_id {
+        if self.is_air_world_or_buf(wx, wy, wz + 1) {
             self.toggle_z(x, y, z, z1, x0, x1, y0, y1, true,  mid_for(Face::PosZ));
         }
-        if self.world_block(wx, wy, wz - 1).id == air_id {
+        if self.is_air_world_or_buf(wx, wy, wz - 1) {
             self.toggle_z(x, y, z, z0, x0, x1, y0, y1, false, mid_for(Face::NegZ));
         }
     }

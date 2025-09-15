@@ -12,7 +12,7 @@ use crate::chunk::ChunkMeshCPU;
 use crate::emit::emit_box_generic_clipped;
 use crate::face::Face;
 use crate::mesh_build::MeshBuild;
-use crate::util::{is_occluder, is_full_cube, is_top_half_shape, microgrid_boxes, unknown_material_id};
+use crate::util::{is_occluder, is_top_half_shape, microgrid_boxes, unknown_material_id};
 use crate::wcc::WccMesher;
 use crate::constants::MICROGRID_STEPS;
 
@@ -63,6 +63,7 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
         for y in 0..sy {
             for x in 0..sx {
                 let b = buf.get_local(x, y, z);
+                if b.id == 0 { continue; } // fast-path air
                 if let Some(ty) = reg.get(b.id) {
                     let var = ty.variant(b.state);
                     if let Some(occ) = var.occupancy {
@@ -71,8 +72,13 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
                     }
                     // Water: mesh only surfaces against air, so terrain under water remains visible
                     if ty.name == "water" { wm.add_water_cube(x, y, z, b); continue; }
+                    if ty.is_solid(b.state)
+                        && matches!(ty.shape, geist_blocks::types::Shape::Cube | geist_blocks::types::Shape::AxisCube { .. })
+                    {
+                        wm.add_cube(x, y, z, b);
+                        continue;
+                    }
                 }
-                if is_full_cube(reg, b) { wm.add_cube(x, y, z, b); }
             }
         }
     }

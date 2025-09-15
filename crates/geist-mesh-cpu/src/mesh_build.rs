@@ -12,6 +12,16 @@ pub struct MeshBuild {
 }
 
 impl MeshBuild {
+    /// Pre-reserve capacity for approximately `n_quads` quads worth of data.
+    #[inline]
+    pub fn reserve_quads(&mut self, n_quads: usize) {
+        // 4 vertices per quad
+        self.pos.reserve(n_quads * 4 * 3);
+        self.norm.reserve(n_quads * 4 * 3);
+        self.uv.reserve(n_quads * 4 * 2);
+        self.col.reserve(n_quads * 4 * 4);
+        self.idx.reserve(n_quads * 6);
+    }
     /// Appends a quad (two triangles) with normals, UVs derived from world-space and color.
     /// Prefer `add_quad_uv` when explicit UVs are available.
     pub fn add_quad(

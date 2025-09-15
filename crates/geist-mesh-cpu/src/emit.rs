@@ -23,7 +23,13 @@ impl BuildSink for Vec<MeshBuild> {
     #[inline]
     fn get_build_mut(&mut self, mid: MaterialId) -> &mut MeshBuild {
         let ix = mid.0 as usize;
-        &mut self[ix]
+        let mb = &mut self[ix];
+        if mb.pos.capacity() == 0 {
+            // Lazy small reserve to reduce early reallocs when a material is first used in a chunk
+            const INITIAL_QUAD_CAP: usize = 256; // tune as needed
+            mb.reserve_quads(INITIAL_QUAD_CAP);
+        }
+        mb
     }
 }
 
