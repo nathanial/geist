@@ -60,6 +60,8 @@ pub struct GameState {
     pub lod_enabled: bool,
     // Track current applied LOD per loaded chunk
     pub cur_lod: HashMap<(i32, i32), geist_runtime::LODLevel>,
+    // If present, forces this LOD for all chunks regardless of ring distance
+    pub force_lod: Option<geist_runtime::LODLevel>,
 
     // Dynamic voxel bodies (e.g., flying castle)
     pub structures: HashMap<StructureId, Structure>,
@@ -111,6 +113,7 @@ impl GameState {
             show_debug_overlay: true,
             lod_enabled: true,
             cur_lod: HashMap::new(),
+            force_lod: None,
             structures: HashMap::new(),
             ground_attach: None,
             structure_speed: 0.0,

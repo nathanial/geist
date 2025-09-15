@@ -89,6 +89,7 @@ pub enum LODLevel {
     Lod0,
     Lod1,
     Lod2,
+    Lod3,
 }
 
 pub struct Runtime {
@@ -236,6 +237,12 @@ impl Runtime {
                                     include_thin: false,
                                     include_water: false,
                                     coarse_xz: 2,
+                                },
+                                LODLevel::Lod3 => MeshingOptions {
+                                    micro_steps: 1,
+                                    include_thin: false,
+                                    include_water: false,
+                                    coarse_xz: 4,
                                 },
                             };
                             let built = build_chunk_wcc_cpu_buf_with_light_opts(

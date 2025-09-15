@@ -1041,7 +1041,9 @@ fn emit_plane_x<B: crate::emit::BuildSink>(
     clip_sz: usize,
 ) {
     let t0 = Instant::now();
-    let scale = world_scale / s as f32;
+    let scale_x = world_scale / s as f32;
+    let scale_y = 1.0 / s as f32;
+    let scale_z = world_scale / s as f32;
     let width = s * sz;
     let height = s * sy;
     let needed = width * height;
@@ -1106,12 +1108,12 @@ fn emit_plane_x<B: crate::emit::BuildSink>(
                 }
                 let face = if pos { Face::PosX } else { Face::NegX };
                 let origin = Vec3 {
-                    x: (base_x as f32) + (ix as f32) * scale,
-                    y: (v as f32) * scale,
-                    z: (base_z as f32) + (u as f32) * scale,
+                    x: (base_x as f32) + (ix as f32) * scale_x,
+                    y: (v as f32) * scale_y,
+                    z: (base_z as f32) + (u as f32) * scale_z,
                 };
-                let u1 = (run_w as f32) * scale;
-                let v1 = (run_h as f32) * scale;
+                let u1 = (run_w as f32) * scale_z;
+                let v1 = (run_h as f32) * scale_y;
                 let rgba = [255u8, 255u8, 255u8, OPAQUE_ALPHA];
                 emit_face_rect_for_clipped(
                     builds, mid, face, origin, u1, v1, rgba, base_x, clip_sx, clip_sy, base_z,
@@ -1147,7 +1149,9 @@ fn emit_plane_y<B: crate::emit::BuildSink>(
     clip_sz: usize,
 ) {
     let t0 = Instant::now();
-    let scale = world_scale / s as f32;
+    let scale_x = world_scale / s as f32;
+    let scale_y = 1.0 / s as f32;
+    let scale_z = world_scale / s as f32;
     let width = s * sx;
     let height = s * sz;
     let needed = width * height;
@@ -1212,12 +1216,12 @@ fn emit_plane_y<B: crate::emit::BuildSink>(
                 }
                 let face = if pos { Face::PosY } else { Face::NegY };
                 let origin = Vec3 {
-                    x: (base_x as f32) + (u as f32) * scale,
-                    y: (iy as f32) * scale,
-                    z: (base_z as f32) + (v as f32) * scale,
+                    x: (base_x as f32) + (u as f32) * scale_x,
+                    y: (iy as f32) * scale_y,
+                    z: (base_z as f32) + (v as f32) * scale_z,
                 };
-                let u1 = (run_w as f32) * scale;
-                let v1 = (run_h as f32) * scale;
+                let u1 = (run_w as f32) * scale_x;
+                let v1 = (run_h as f32) * scale_z;
                 let rgba = [255u8, 255u8, 255u8, OPAQUE_ALPHA];
                 emit_face_rect_for_clipped(
                     builds, mid, face, origin, u1, v1, rgba, base_x, clip_sx, clip_sy, base_z,
@@ -1253,7 +1257,9 @@ fn emit_plane_z<B: crate::emit::BuildSink>(
     clip_sz: usize,
 ) {
     let t0 = Instant::now();
-    let scale = world_scale / s as f32;
+    let scale_x = world_scale / s as f32;
+    let scale_y = 1.0 / s as f32;
+    let scale_z = world_scale / s as f32;
     let width = s * sx;
     let height = s * sy;
     let needed = width * height;
@@ -1318,12 +1324,12 @@ fn emit_plane_z<B: crate::emit::BuildSink>(
                 }
                 let face = if pos { Face::PosZ } else { Face::NegZ };
                 let origin = Vec3 {
-                    x: (base_x as f32) + (u as f32) * scale,
-                    y: (v as f32) * scale,
-                    z: (base_z as f32) + (iz as f32) * scale,
+                    x: (base_x as f32) + (u as f32) * scale_x,
+                    y: (v as f32) * scale_y,
+                    z: (base_z as f32) + (iz as f32) * scale_z,
                 };
-                let u1 = (run_w as f32) * scale;
-                let v1 = (run_h as f32) * scale;
+                let u1 = (run_w as f32) * scale_x;
+                let v1 = (run_h as f32) * scale_y;
                 let rgba = [255u8, 255u8, 255u8, OPAQUE_ALPHA];
                 emit_face_rect_for_clipped(
                     builds, mid, face, origin, u1, v1, rgba, base_x, clip_sx, clip_sy, base_z,

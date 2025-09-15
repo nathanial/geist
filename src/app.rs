@@ -328,8 +328,10 @@ impl App {
             // If chunk is not loaded, treat as load intent; else rebuild intent
             let neighbors = self.neighbor_mask(cx, cz);
             let rev = ent.rev;
-            // Choose LOD by ring distance (Chebyshev) if enabled
-            let lod = if self.gs.lod_enabled {
+            // Choose LOD by ring distance (Chebyshev) if enabled; override if forced via CLI
+            let lod = if let Some(fl) = self.gs.force_lod {
+                fl
+            } else if self.gs.lod_enabled {
                 if dist_bucket <= 4 {
                     geist_runtime::LODLevel::Lod0
                 } else if dist_bucket <= 8 {
@@ -977,6 +979,7 @@ impl App {
             geist_runtime::LODLevel::Lod0 => 0,
             geist_runtime::LODLevel::Lod1 => 1,
             geist_runtime::LODLevel::Lod2 => 2,
+            geist_runtime::LODLevel::Lod3 => 3,
         };
         write(lod_u);
         h
@@ -1420,7 +1423,9 @@ impl App {
                         let dx = (cx - ccx).abs();
                         let dz = (cz - ccz).abs();
                         let ring = dx.max(dz) as u32;
-                        let lod = if self.gs.lod_enabled {
+                        let lod = if let Some(fl) = self.gs.force_lod {
+                            fl
+                        } else if self.gs.lod_enabled {
                             if ring <= 4 {
                                 geist_runtime::LODLevel::Lod0
                             } else if ring <= 8 {
@@ -1520,7 +1525,7 @@ impl App {
                     self.gs.cur_lod.insert((cx, cz), lod);
                     if let Some(lg) = light_grid {
                         // Skip atlas upload for far LOD to reduce bandwidth
-                        if matches!(lod, geist_runtime::LODLevel::Lod2) {
+                        if matches!(lod, geist_runtime::LODLevel::Lod2 | geist_runtime::LODLevel::Lod3) {
                             // keep borders update below, but skip texture upload
                         } else {
                             let nb = self.gs.lighting.get_neighbor_borders(cx, cz);
@@ -1626,7 +1631,7 @@ impl App {
                     .gs
                     .cur_lod
                     .get(&(cx, cz))
-                    .map(|l| matches!(l, geist_runtime::LODLevel::Lod2))
+                    .map(|l| matches!(l, geist_runtime::LODLevel::Lod2 | geist_runtime::LODLevel::Lod3))
                     .unwrap_or(false);
                 if !is_far {
                     let nb = self.gs.lighting.get_neighbor_borders(cx, cz);
@@ -3351,6 +3356,7 @@ impl App {
                                 geist_runtime::LODLevel::Lod0 => (Color::LIME, "0"),
                                 geist_runtime::LODLevel::Lod1 => (Color::ORANGE, "1"),
                                 geist_runtime::LODLevel::Lod2 => (Color::RED, "2"),
+                                geist_runtime::LODLevel::Lod3 => (Color::PURPLE, "3"),
                             };
                             d.draw_rectangle(bx - 1, by - 1, badge + 2, badge + 2, Color::BLACK);
                             d.draw_rectangle(bx, by, badge, badge, lod_col);
@@ -3386,6 +3392,7 @@ impl App {
                     draw_leg(&mut d, &mut lx, Color::LIME, "= LOD0");
                     draw_leg(&mut d, &mut lx, Color::ORANGE, "= LOD1");
                     draw_leg(&mut d, &mut lx, Color::RED, "= LOD2");
+                    draw_leg(&mut d, &mut lx, Color::PURPLE, "= LOD3");
                 }
             }
         } // end debug overlay

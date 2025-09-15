@@ -100,6 +100,10 @@ struct RunArgs {
     /// Disable frustum culling (render all loaded chunks)
     #[arg(long, default_value_t = false)]
     no_frustum_culling: bool,
+
+    /// Force a specific LOD for all chunks (overrides distance mapping)
+    #[arg(long, value_enum)]
+    force_lod: Option<ForceLod>,
 }
 
 impl Default for RunArgs {
@@ -118,6 +122,7 @@ impl Default for RunArgs {
             watch_worldgen: true,
             rebuild_on_worldgen_change: true,
             no_frustum_culling: false,
+            force_lod: None,
         }
     }
 }
@@ -129,6 +134,15 @@ enum WorldKind {
     Flat,
     Showcase,
     SchemOnly,
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+enum ForceLod {
+    Off,
+    L0,
+    L1,
+    L2,
+    L3,
 }
 
 #[derive(Subcommand, Debug)]
@@ -387,6 +401,14 @@ fn run_app(run: RunArgs, assets_root: std::path::PathBuf) {
 
     // Apply initial frustum culling preference from CLI
     app.gs.frustum_culling_enabled = !run.no_frustum_culling;
+    // Apply force LOD if provided
+    app.gs.force_lod = match run.force_lod {
+        Some(ForceLod::Off) | None => None,
+        Some(ForceLod::L0) => Some(geist_runtime::LODLevel::Lod0),
+        Some(ForceLod::L1) => Some(geist_runtime::LODLevel::Lod1),
+        Some(ForceLod::L2) => Some(geist_runtime::LODLevel::Lod2),
+        Some(ForceLod::L3) => Some(geist_runtime::LODLevel::Lod3),
+    };
 
     while !rl.window_should_close() {
         let dt = rl.get_frame_time();
