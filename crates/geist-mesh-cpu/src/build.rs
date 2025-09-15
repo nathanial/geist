@@ -78,14 +78,17 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
     }
     let scan_ms: u32 = t_scan_start.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
 
-    let mut builds: HashMap<MaterialId, MeshBuild> = HashMap::new();
+    // Use a dense per-material vector for cache-friendly writes during emission,
+    // then convert to HashMap<MaterialId, MeshBuild> for public API compatibility.
+    let mat_count = reg.materials.materials.len();
+    let mut builds_v: Vec<MeshBuild> = vec![MeshBuild::default(); mat_count];
     // Overscan: incorporate neighbor seam contributions before emission
     let t_seed_start = Instant::now();
     wm.seed_neighbor_seams();
     let seed_ms: u32 = t_seed_start.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
 
     let t_emit_start = Instant::now();
-    wm.emit_into(&mut builds);
+    wm.emit_into(&mut builds_v);
     let emit_ms: u32 = t_emit_start.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
 
     // Phase 3: thin dynamic shapes (pane, fence, gate, carpet)
@@ -107,7 +110,7 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
                             let min = Vec3 { x: fx + 0.5 - t, y: fy, z: fz };
                             let max = Vec3 { x: fx + 0.5 + t, y: fy + 1.0, z: fz + 1.0 };
                             emit_box_generic_clipped(
-                                &mut builds,
+                                &mut builds_v,
                                 min,
                                 max,
                                 &face_material,
@@ -129,22 +132,22 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
                             if connect_xn {
                                 let min = Vec3 { x: fx + 0.0, y: fy, z: fz + 0.5 - t };
                                 let max = Vec3 { x: fx + 0.5 - t, y: fy + 1.0, z: fz + 0.5 + t };
-                                emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |_face| { 255u8 }, base_x, sx, sy, base_z, sz);
+                                emit_box_generic_clipped(&mut builds_v, min, max, &face_material, |_face| false, |_face| { 255u8 }, base_x, sx, sy, base_z, sz);
                             }
                             if connect_xp {
                                 let min = Vec3 { x: fx + 0.5 + t, y: fy, z: fz + 0.5 - t };
                                 let max = Vec3 { x: fx + 1.0, y: fy + 1.0, z: fz + 0.5 + t };
-                                emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |_face| { 255u8 }, base_x, sx, sy, base_z, sz);
+                                emit_box_generic_clipped(&mut builds_v, min, max, &face_material, |_face| false, |_face| { 255u8 }, base_x, sx, sy, base_z, sz);
                             }
                             if connect_zn {
                                 let min = Vec3 { x: fx + 0.5 - t, y: fy, z: fz + 0.0 };
                                 let max = Vec3 { x: fx + 0.5 + t, y: fy + 1.0, z: fz + 0.5 - t };
-                                emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |_face| { 255u8 }, base_x, sx, sy, base_z, sz);
+                                emit_box_generic_clipped(&mut builds_v, min, max, &face_material, |_face| false, |_face| { 255u8 }, base_x, sx, sy, base_z, sz);
                             }
                             if connect_zp {
                                 let min = Vec3 { x: fx + 0.5 - t, y: fy, z: fz + 0.5 + t };
                                 let max = Vec3 { x: fx + 0.5 + t, y: fy + 1.0, z: fz + 1.0 };
-                                emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |_face| { 255u8 }, base_x, sx, sy, base_z, sz);
+                                emit_box_generic_clipped(&mut builds_v, min, max, &face_material, |_face| false, |_face| { 255u8 }, base_x, sx, sy, base_z, sz);
                             }
                         }
                         geist_blocks::types::Shape::Fence => {
@@ -171,7 +174,7 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
                             }
                             let face_material = |face: Face| ty.material_for_cached(face.role(), here.state);
                             for (min, max) in boxes {
-                                emit_box_generic_clipped(&mut builds, min, max, &face_material, |face| {
+                                emit_box_generic_clipped(&mut builds_v, min, max, &face_material, |face| {
                                     let (dx, dy, dz) = face.delta();
                                     let (nx, ny, nz) = (fx as i32 + dx, fy as i32 + dy, fz as i32 + dz);
                                     is_occluder(buf, world, edits, reg, here, face, nx, ny, nz)
@@ -183,7 +186,7 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
                             let min = Vec3 { x: fx, y: fy, z: fz };
                             let max = Vec3 { x: fx + 1.0, y: fy + h, z: fz + 1.0 };
                             let face_material = |face: Face| ty.material_for_cached(face.role(), here.state);
-                            emit_box_generic_clipped(&mut builds, min, max, &face_material, |face| {
+                            emit_box_generic_clipped(&mut builds_v, min, max, &face_material, |face| {
                                 let (dx, dy, dz) = face.delta();
                                 let (nx, ny, nz) = (fx as i32 + dx, fy as i32 + dy, fz as i32 + dz);
                                 is_occluder(buf, world, edits, reg, here, face, nx, ny, nz)
@@ -217,14 +220,22 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
         max: Vec3 { x: base_x as f32 + sx as f32, y: sy as f32, z: base_z as f32 + sz as f32 },
     };
     let light_borders = Some(LightBorders::from_grid(light));
-    Some((ChunkMeshCPU { cx, cz, bbox, parts: builds }, light_borders))
+    // Convert dense vector into sparse HashMap
+    let mut builds_hm: HashMap<MaterialId, MeshBuild> = HashMap::new();
+    for (i, mb) in builds_v.into_iter().enumerate() {
+        if !mb.pos.is_empty() {
+            builds_hm.insert(MaterialId(i as u16), mb);
+        }
+    }
+    Some((ChunkMeshCPU { cx, cz, bbox, parts: builds_hm }, light_borders))
 }
 
 /// Builds a simple voxel body mesh for debug/solid rendering using a flat ambient light.
 pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry) -> ChunkMeshCPU {
     let base_x = buf.cx * buf.sx as i32;
     let base_z = buf.cz * buf.sz as i32;
-    let mut builds: HashMap<MaterialId, MeshBuild> = HashMap::new();
+    let mat_count = reg.materials.materials.len();
+    let mut builds_v: Vec<MeshBuild> = vec![MeshBuild::default(); mat_count];
     for z in 0..buf.sz {
         for y in 0..buf.sy {
             for x in 0..buf.sx {
@@ -244,7 +255,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                     if let Some(occ) = var.occupancy {
                         let face_material = |face: Face| ty.material_for_cached(face.role(), here.state);
                         for (min, max) in microgrid_boxes(fx, fy, fz, occ) {
-                            emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |_face| ambient, base_x, buf.sx, buf.sy, base_z, buf.sz);
+                            emit_box_generic_clipped(&mut builds_v, min, max, &face_material, |_face| false, |_face| ambient, base_x, buf.sx, buf.sy, base_z, buf.sz);
                         }
                         continue;
                     }
@@ -253,19 +264,19 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                     Some(geist_blocks::types::Shape::Cube) | Some(geist_blocks::types::Shape::AxisCube { .. }) => {
                         let min = Vec3 { x: fx, y: fy, z: fz };
                         let max = Vec3 { x: fx + 1.0, y: fy + 1.0, z: fz + 1.0 };
-                        emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |_face| ambient, base_x, buf.sx, buf.sy, base_z, buf.sz);
+                        emit_box_generic_clipped(&mut builds_v, min, max, &face_material, |_face| false, |_face| ambient, base_x, buf.sx, buf.sy, base_z, buf.sz);
                     }
                     Some(geist_blocks::types::Shape::Slab { .. }) => {
                         let top = is_top_half_shape(here, reg);
                         let min = Vec3 { x: fx, y: if top { fy + 0.5 } else { fy }, z: fz };
                         let max = Vec3 { x: fx + 1.0, y: if top { fy + 1.0 } else { fy + 0.5 }, z: fz + 1.0 };
-                        emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |_face| ambient, base_x, buf.sx, buf.sy, base_z, buf.sz);
+                        emit_box_generic_clipped(&mut builds_v, min, max, &face_material, |_face| false, |_face| ambient, base_x, buf.sx, buf.sy, base_z, buf.sz);
                     }
                     Some(geist_blocks::types::Shape::Pane) => {
                         let t = 0.0625f32;
                         let min = Vec3 { x: fx + 0.5 - t, y: fy, z: fz };
                         let max = Vec3 { x: fx + 0.5 + t, y: fy + 1.0, z: fz + 1.0 };
-                        emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |_face| ambient, base_x, buf.sx, buf.sy, base_z, buf.sz);
+                        emit_box_generic_clipped(&mut builds_v, min, max, &face_material, |_face| false, |_face| ambient, base_x, buf.sx, buf.sy, base_z, buf.sz);
                     }
                     Some(geist_blocks::types::Shape::Fence) => {
                         let t = 0.125f32; let p = 0.375f32;
@@ -290,25 +301,29 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             }
                         }
                         for (min, max) in boxes {
-                            emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |_face| ambient, base_x, buf.sx, buf.sy, base_z, buf.sz);
+                            emit_box_generic_clipped(&mut builds_v, min, max, &face_material, |_face| false, |_face| ambient, base_x, buf.sx, buf.sy, base_z, buf.sz);
                         }
                     }
                     Some(geist_blocks::types::Shape::Carpet) => {
                         let h = 0.0625f32;
                         let min = Vec3 { x: fx, y: fy, z: fz };
                         let max = Vec3 { x: fx + 1.0, y: fy + h, z: fz + 1.0 };
-                        emit_box_generic_clipped(&mut builds, min, max, &face_material, |_face| false, |_face| ambient, base_x, buf.sx, buf.sy, base_z, buf.sz);
+                        emit_box_generic_clipped(&mut builds_v, min, max, &face_material, |_face| false, |_face| ambient, base_x, buf.sx, buf.sy, base_z, buf.sz);
                     }
                     _ => {}
                 }
             }
         }
     }
+    let mut parts_hm: HashMap<MaterialId, MeshBuild> = HashMap::new();
+    for (i, mb) in builds_v.into_iter().enumerate() {
+        if !mb.pos.is_empty() { parts_hm.insert(MaterialId(i as u16), mb); }
+    }
     ChunkMeshCPU {
         cx: buf.cx,
         cz: buf.cz,
         bbox: Aabb { min: Vec3 { x: base_x as f32, y: 0.0, z: base_z as f32 }, max: Vec3 { x: base_x as f32 + buf.sx as f32, y: buf.sy as f32, z: base_z as f32 + buf.sz as f32 } },
-        parts: builds,
+        parts: parts_hm,
     }
 }
 

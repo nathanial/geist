@@ -7,10 +7,30 @@ use crate::mesh_build::MeshBuild;
 use crate::face::Face;
 use crate::constants::OPAQUE_ALPHA;
 
+// Fast-path sink for writing into per-material mesh buffers without HashMap overhead.
+pub trait BuildSink {
+    fn get_build_mut(&mut self, mid: MaterialId) -> &mut MeshBuild;
+}
+
+impl BuildSink for HashMap<MaterialId, MeshBuild> {
+    #[inline]
+    fn get_build_mut(&mut self, mid: MaterialId) -> &mut MeshBuild {
+        self.entry(mid).or_default()
+    }
+}
+
+impl BuildSink for Vec<MeshBuild> {
+    #[inline]
+    fn get_build_mut(&mut self, mid: MaterialId) -> &mut MeshBuild {
+        let ix = mid.0 as usize;
+        &mut self[ix]
+    }
+}
+
 #[inline]
 /// Emits a face-aligned rectangle into the material's mesh build.
 pub(crate) fn emit_face_rect_for(
-    builds: &mut HashMap<MaterialId, MeshBuild>,
+    builds: &mut impl BuildSink,
     mid: MaterialId,
     face: Face,
     origin: Vec3,
@@ -18,7 +38,7 @@ pub(crate) fn emit_face_rect_for(
     v1: f32,
     rgba: [u8; 4],
 ) {
-    let mb = builds.entry(mid).or_default();
+    let mb = builds.get_build_mut(mid);
     mb.add_face_rect(face, origin, u1, v1, false, rgba);
 }
 
@@ -26,7 +46,7 @@ pub(crate) fn emit_face_rect_for(
 /// Chunk interior bounds: X in [base_x, base_x+sx), Z in [base_z, base_z+sz), Y in [0, sy).
 #[inline]
 pub(crate) fn emit_face_rect_for_clipped(
-    builds: &mut HashMap<MaterialId, MeshBuild>,
+    builds: &mut impl BuildSink,
     mid: MaterialId,
     face: Face,
     origin: Vec3,
@@ -99,7 +119,7 @@ pub(crate) fn emit_face_rect_for_clipped(
 #[inline]
 /// Emits up to six faces of an axis-aligned box using a chooser to pick material and color.
 pub(crate) fn emit_box_faces(
-    builds: &mut HashMap<MaterialId, MeshBuild>,
+    builds: &mut impl BuildSink,
     min: Vec3,
     max: Vec3,
     mut choose: impl FnMut(Face) -> Option<(MaterialId, [u8; 4])>,
@@ -143,10 +163,7 @@ pub(crate) fn emit_box_faces(
                 Face::PosZ | Face::NegZ => (p.x, p.y),
             };
             let uvs = [uv_from(a), uv_from(d), uv_from(c), uv_from(b)];
-            builds
-                .entry(mid)
-                .or_default()
-                .add_quad_uv(a, b, c, d, n, uvs, false, rgba);
+            builds.get_build_mut(mid).add_quad_uv(a, b, c, d, n, uvs, false, rgba);
         }
     }
 }
@@ -154,7 +171,7 @@ pub(crate) fn emit_box_faces(
 #[inline]
 /// Emits a box, skipping faces that occlude and sampling light per face.
 pub(crate) fn emit_box_generic(
-    builds: &mut HashMap<MaterialId, MeshBuild>,
+    builds: &mut impl BuildSink,
     min: Vec3,
     max: Vec3,
     fm_for_face: &dyn Fn(Face) -> MaterialId,
@@ -173,7 +190,7 @@ pub(crate) fn emit_box_generic(
 #[inline]
 /// Emits a box clipped to the chunk interior using occlusion and per-face light sampling.
 pub(crate) fn emit_box_generic_clipped(
-    builds: &mut HashMap<MaterialId, MeshBuild>,
+    builds: &mut impl BuildSink,
     mut min: Vec3,
     mut max: Vec3,
     fm_for_face: &dyn Fn(Face) -> MaterialId,

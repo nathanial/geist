@@ -8,7 +8,7 @@ use geist_chunk::ChunkBuf;
 use geist_geom::Vec3;
 use geist_world::World;
 
-use crate::emit::emit_face_rect_for_clipped;
+use crate::emit::{emit_face_rect_for_clipped, BuildSink};
 use crate::face::Face;
 use crate::mesh_build::MeshBuild;
 use crate::util::registry_material_for_or_unknown;
@@ -17,7 +17,7 @@ use crate::constants::{OPAQUE_ALPHA, BITS_PER_WORD, WORD_INDEX_MASK, WORD_INDEX_
 // Emit per-cell face quads for a given axis by expanding a mask sourced from FaceGrids.
 // Greedy plane emission: merges adjacent face-cells with the same material/orientation into rectangles.
 // This replaces the previous per-cell emission and avoids large temporary masks.
-fn emit_plane_x(
+fn emit_plane_x<B: BuildSink>(
     s: usize,
     sx: usize,
     sy: usize,
@@ -25,28 +25,34 @@ fn emit_plane_x(
     base_x: i32,
     base_z: i32,
     grids: &FaceGrids,
-    builds: &mut HashMap<MaterialId, MeshBuild>,
+    builds: &mut B,
 ) {
     let t0 = Instant::now();
     let scale = 1.0 / s as f32;
     let width = s * sz; // u across +Z
     let height = s * sy; // v across +Y
+    let mut visited: Vec<u32> = vec![0; width * height];
+    let mut epoch: u32 = 1;
     for ix in 0..(s * sx) {
-        let mut visited = vec![false; width * height];
+        // advance epoch to avoid clearing visited; wrap-safe
+        epoch = epoch.wrapping_add(1);
+        if epoch == 0 { visited.fill(0); epoch = 1; }
         let idx2d = |u: usize, v: usize| v * width + u;
-        for v in 0..height {
-            for u in 0..width {
+        let mut v = 0usize;
+        while v < height {
+            let mut u = 0usize;
+            while u < width {
                 let vi = idx2d(u, v);
-                if visited[vi] { continue; }
+                if visited[vi] == epoch { u += 1; continue; }
                 let idx = grids.idx_x(ix, v, u);
-                if !grids.px.get(idx) { continue; }
+                if !grids.px.get(idx) { u += 1; continue; }
                 let mid = grids.kx[idx];
-                if mid.0 == 0 { continue; }
+                if mid.0 == 0 { u += 1; continue; }
                 let pos = grids.ox.get(idx);
                 // Greedily extend width
                 let mut run_w = 1usize;
                 while u + run_w < width {
-                    if visited[idx2d(u + run_w, v)] { break; }
+                    if visited[idx2d(u + run_w, v)] == epoch { break; }
                     let idx_n = grids.idx_x(ix, v, u + run_w);
                     if !grids.px.get(idx_n) || grids.kx[idx_n] != mid || grids.ox.get(idx_n) != pos {
                         break;
@@ -57,7 +63,7 @@ fn emit_plane_x(
                 let mut run_h = 1usize;
                 'outer: while v + run_h < height {
                     for uu in u..(u + run_w) {
-                        if visited[idx2d(uu, v + run_h)] { run_h = run_h; break 'outer; }
+                        if visited[idx2d(uu, v + run_h)] == epoch { break 'outer; }
                         let idx_n = grids.idx_x(ix, v + run_h, uu);
                         if !grids.px.get(idx_n) || grids.kx[idx_n] != mid || grids.ox.get(idx_n) != pos {
                             break 'outer;
@@ -89,9 +95,13 @@ fn emit_plane_x(
                     base_z,
                     sz,
                 );
-                // Mark visited
-                for dv in 0..run_h { for du in 0..run_w { visited[idx2d(u + du, v + dv)] = true; } }
+                // Mark visited and skip ahead horizontally
+                for dv in 0..run_h { for du in 0..run_w { visited[idx2d(u + du, v + dv)] = epoch; } }
+                u += run_w;
+                continue;
+            // no-op: all branches either advanced u or continued
             }
+            v += 1;
         }
     }
     let ms: u32 = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
@@ -108,7 +118,7 @@ fn emit_plane_x(
     );
 }
 
-fn emit_plane_y(
+fn emit_plane_y<B: BuildSink>(
     s: usize,
     sx: usize,
     sy: usize,
@@ -116,28 +126,33 @@ fn emit_plane_y(
     base_x: i32,
     base_z: i32,
     grids: &FaceGrids,
-    builds: &mut HashMap<MaterialId, MeshBuild>,
+    builds: &mut B,
 ) {
     let t0 = Instant::now();
     let scale = 1.0 / s as f32;
     let width = s * sx; // u across +X
     let height = s * sz; // v across +Z
+    let mut visited: Vec<u32> = vec![0; width * height];
+    let mut epoch: u32 = 1;
     for iy in 0..(s * sy) {
-        let mut visited = vec![false; width * height];
+        epoch = epoch.wrapping_add(1);
+        if epoch == 0 { visited.fill(0); epoch = 1; }
         let idx2d = |u: usize, v: usize| v * width + u;
-        for v in 0..height {
-            for u in 0..width {
+        let mut v = 0usize;
+        while v < height {
+            let mut u = 0usize;
+            while u < width {
                 let vi = idx2d(u, v);
-                if visited[vi] { continue; }
+                if visited[vi] == epoch { u += 1; continue; }
                 let idx = grids.idx_y(u, iy, v);
-                if !grids.py.get(idx) { continue; }
+                if !grids.py.get(idx) { u += 1; continue; }
                 let mid = grids.ky[idx];
-                if mid.0 == 0 { continue; }
+                if mid.0 == 0 { u += 1; continue; }
                 let pos = grids.oy.get(idx);
                 // Greedy width
                 let mut run_w = 1usize;
                 while u + run_w < width {
-                    if visited[idx2d(u + run_w, v)] { break; }
+                    if visited[idx2d(u + run_w, v)] == epoch { break; }
                     let idx_n = grids.idx_y(u + run_w, iy, v);
                     if !grids.py.get(idx_n) || grids.ky[idx_n] != mid || grids.oy.get(idx_n) != pos { break; }
                     run_w += 1;
@@ -146,7 +161,7 @@ fn emit_plane_y(
                 let mut run_h = 1usize;
                 'outer: while v + run_h < height {
                     for uu in u..(u + run_w) {
-                        if visited[idx2d(uu, v + run_h)] { run_h = run_h; break 'outer; }
+                        if visited[idx2d(uu, v + run_h)] == epoch { break 'outer; }
                         let idx_n = grids.idx_y(uu, iy, v + run_h);
                         if !grids.py.get(idx_n) || grids.ky[idx_n] != mid || grids.oy.get(idx_n) != pos { break 'outer; }
                     }
@@ -165,8 +180,12 @@ fn emit_plane_y(
                 emit_face_rect_for_clipped(
                     builds, mid, face, origin, u1, v1, rgba, base_x, sx, sy, base_z, sz,
                 );
-                for dv in 0..run_h { for du in 0..run_w { visited[idx2d(u + du, v + dv)] = true; } }
+                for dv in 0..run_h { for du in 0..run_w { visited[idx2d(u + du, v + dv)] = epoch; } }
+                u += run_w;
+                continue;
+            // no-op: all branches either advanced u or continued
             }
+            v += 1;
         }
     }
     let ms: u32 = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
@@ -183,7 +202,7 @@ fn emit_plane_y(
     );
 }
 
-fn emit_plane_z(
+fn emit_plane_z<B: BuildSink>(
     s: usize,
     sx: usize,
     sy: usize,
@@ -191,28 +210,33 @@ fn emit_plane_z(
     base_x: i32,
     base_z: i32,
     grids: &FaceGrids,
-    builds: &mut HashMap<MaterialId, MeshBuild>,
+    builds: &mut B,
 ) {
     let t0 = Instant::now();
     let scale = 1.0 / s as f32;
     let width = s * sx; // u across +X
     let height = s * sy; // v across +Y
+    let mut visited: Vec<u32> = vec![0; width * height];
+    let mut epoch: u32 = 1;
     for iz in 0..(s * sz) {
-        let mut visited = vec![false; width * height];
+        epoch = epoch.wrapping_add(1);
+        if epoch == 0 { visited.fill(0); epoch = 1; }
         let idx2d = |u: usize, v: usize| v * width + u;
-        for v in 0..height {
-            for u in 0..width {
+        let mut v = 0usize;
+        while v < height {
+            let mut u = 0usize;
+            while u < width {
                 let vi = idx2d(u, v);
-                if visited[vi] { continue; }
+                if visited[vi] == epoch { u += 1; continue; }
                 let idx = grids.idx_z(u, v, iz);
-                if !grids.pz.get(idx) { continue; }
+                if !grids.pz.get(idx) { u += 1; continue; }
                 let mid = grids.kz[idx];
-                if mid.0 == 0 { continue; }
+                if mid.0 == 0 { u += 1; continue; }
                 let pos = grids.oz.get(idx);
                 // Greedy width
                 let mut run_w = 1usize;
                 while u + run_w < width {
-                    if visited[idx2d(u + run_w, v)] { break; }
+                    if visited[idx2d(u + run_w, v)] == epoch { break; }
                     let idx_n = grids.idx_z(u + run_w, v, iz);
                     if !grids.pz.get(idx_n) || grids.kz[idx_n] != mid || grids.oz.get(idx_n) != pos { break; }
                     run_w += 1;
@@ -221,7 +245,7 @@ fn emit_plane_z(
                 let mut run_h = 1usize;
                 'outer: while v + run_h < height {
                     for uu in u..(u + run_w) {
-                        if visited[idx2d(uu, v + run_h)] { run_h = run_h; break 'outer; }
+                        if visited[idx2d(uu, v + run_h)] == epoch { break 'outer; }
                         let idx_n = grids.idx_z(uu, v + run_h, iz);
                         if !grids.pz.get(idx_n) || grids.kz[idx_n] != mid || grids.oz.get(idx_n) != pos { break 'outer; }
                     }
@@ -240,8 +264,12 @@ fn emit_plane_z(
                 emit_face_rect_for_clipped(
                     builds, mid, face, origin, u1, v1, rgba, base_x, sx, sy, base_z, sz,
                 );
-                for dv in 0..run_h { for du in 0..run_w { visited[idx2d(u + du, v + dv)] = true; } }
+                for dv in 0..run_h { for du in 0..run_w { visited[idx2d(u + du, v + dv)] = epoch; } }
+                u += run_w;
+                continue;
+            // no-op: all branches either advanced u or continued
             }
+            v += 1;
         }
     }
     let ms: u32 = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
@@ -581,7 +609,7 @@ impl<'a> WccMesher<'a> {
     }
 
     /// Emits the per-cell faces for all three axes into material builds.
-    pub fn emit_into(&self, builds: &mut HashMap<MaterialId, MeshBuild>) {
+    pub fn emit_into<B: BuildSink>(&self, builds: &mut B) {
         emit_plane_x(self.s, self.sx, self.sy, self.sz, self.base_x, self.base_z, &self.grids, builds);
         emit_plane_y(self.s, self.sx, self.sy, self.sz, self.base_x, self.base_z, &self.grids, builds);
         emit_plane_z(self.s, self.sx, self.sy, self.sz, self.base_x, self.base_z, &self.grids, builds);
