@@ -84,6 +84,9 @@ impl OccGrids {
 thread_local! {
     static FACEGRID_SCRATCH_V3: RefCell<Option<FaceGrids>> = RefCell::new(None);
     static OCC_SCRATCH_V3: RefCell<Option<OccGrids>> = RefCell::new(None);
+    // Separate pools for water grids/occs to avoid reallocs
+    static FACEGRID_SCRATCH_V3_WATER: RefCell<Option<FaceGrids>> = RefCell::new(None);
+    static OCC_SCRATCH_V3_WATER: RefCell<Option<OccGrids>> = RefCell::new(None);
     // Reusable 2D visitation bitmap used by greedy plane emission.
     // Sized to the maximum width*height needed across axes for current (s, sx, sy, sz).
     static VISITED_SCRATCH_V3: RefCell<Vec<u8>> = RefCell::new(Vec::new());
@@ -98,9 +101,11 @@ pub struct ParityMesher<'a> {
     world: &'a World,
     edits: Option<&'a HashMap<(i32, i32, i32), Block>>,
     air_id: u16,
-    // scratch
+    // scratch (solids + water)
     grids: FaceGrids,
+    grids_water: FaceGrids,
     occs: OccGrids,
+    occs_water: OccGrids,
 }
 
 impl<'a> ParityMesher<'a> {
@@ -133,12 +138,32 @@ impl<'a> ParityMesher<'a> {
                 } else { OccGrids::new(nx, ny, nz) }
             } else { OccGrids::new(nx, ny, nz) }
         });
-        Self { s, sx, sy, sz, base_x, base_z, reg, buf, world, edits, air_id: reg.id_by_name("air").unwrap_or(0), grids, occs }
+        let grids_water = FACEGRID_SCRATCH_V3_WATER.with(|cell| {
+            if let Some(mut g) = cell.borrow_mut().take() {
+                if g.s == s && g.sx == sx && g.sy == sy && g.sz == sz {
+                    g.px.clear(); g.py.clear(); g.pz.clear();
+                    g.ox.clear(); g.oy.clear(); g.oz.clear();
+                    g.kx.fill(MaterialId(0)); g.ky.fill(MaterialId(0)); g.kz.fill(MaterialId(0));
+                    g
+                } else { FaceGrids::new(s, sx, sy, sz) }
+            } else { FaceGrids::new(s, sx, sy, sz) }
+        });
+        let occs_water = OCC_SCRATCH_V3_WATER.with(|cell| {
+            if let Some(mut o) = cell.borrow_mut().take() {
+                if o.nx == nx && o.ny == ny && o.nz == nz {
+                    o.occ.clear(); o.seam_x.clear(); o.seam_z.clear();
+                    o
+                } else { OccGrids::new(nx, ny, nz) }
+            } else { OccGrids::new(nx, ny, nz) }
+        });
+        Self { s, sx, sy, sz, base_x, base_z, reg, buf, world, edits, air_id: reg.id_by_name("air").unwrap_or(0), grids, grids_water, occs, occs_water }
     }
 
     pub fn recycle(self) {
         FACEGRID_SCRATCH_V3.with(|cell| cell.borrow_mut().replace(self.grids));
+        FACEGRID_SCRATCH_V3_WATER.with(|cell| cell.borrow_mut().replace(self.grids_water));
         OCC_SCRATCH_V3.with(|cell| cell.borrow_mut().replace(self.occs));
+        OCC_SCRATCH_V3_WATER.with(|cell| cell.borrow_mut().replace(self.occs_water));
     }
 
     #[inline]
@@ -154,7 +179,13 @@ impl<'a> ParityMesher<'a> {
             let b = self.buf.get_local(x, y, z);
             if b.id == 0 { continue; }
             if let Some(ty) = self.reg.get(b.id) {
-                // micro occupancy
+                // water first: mark only in water grid (exclude from solids)
+                if ty.name == "water" {
+                    let (x0, x1, y0, y1, z0, z1) = (x * s, (x + 1) * s, y * s, (y + 1) * s, z * s, (z + 1) * s);
+                    for iz in z0..z1 { for iy in y0..y1 { for ix in x0..x1 { self.occs_water.occ_set(ix, iy, iz, true); }}}
+                    continue;
+                }
+                // micro occupancy (solids)
                 if let Some(occ) = ty.variant(b.state).occupancy {
                     // S=2 patterns
                     for mz in 0..s { for my in 0..s { for mx in 0..s {
@@ -165,14 +196,8 @@ impl<'a> ParityMesher<'a> {
                     }}}
                     continue;
                 }
-                // full cubes (cubes + axis cubes)
+                // full cubes (cubes + axis cubes) (solids only; water handled above)
                 if ty.is_solid(b.state) && matches!(ty.shape, geist_blocks::types::Shape::Cube | geist_blocks::types::Shape::AxisCube { .. }) {
-                    let (x0, x1, y0, y1, z0, z1) = (x * s, (x + 1) * s, y * s, (y + 1) * s, z * s, (z + 1) * s);
-                    for iz in z0..z1 { for iy in y0..y1 { for ix in x0..x1 { self.occs.occ_set(ix, iy, iz, true); }}}
-                    continue;
-                }
-                // water: include as occupancy so parity naturally yields only water/air faces
-                if ty.name == "water" {
                     let (x0, x1, y0, y1, z0, z1) = (x * s, (x + 1) * s, y * s, (y + 1) * s, z * s, (z + 1) * s);
                     for iz in z0..z1 { for iy in y0..y1 { for ix in x0..x1 { self.occs.occ_set(ix, iy, iz, true); }}}
                     continue;
@@ -190,8 +215,13 @@ impl<'a> ParityMesher<'a> {
             let nb = self.world_block(self.base_x - 1, ly as i32, self.base_z + lz as i32);
             if nb.id == 0 { continue; }
             if let Some(ty) = self.reg.get(nb.id) {
-                // full cube fast-path
-                if ty.is_solid(nb.state) && matches!(ty.shape, geist_blocks::types::Shape::Cube | geist_blocks::types::Shape::AxisCube { .. }) {
+                if ty.name == "water" {
+                    let y0 = ly * s; let z0 = lz * s;
+                    for iz in z0..(z0 + s) { for iy in y0..(y0 + s) {
+                        let i = self.occs_water.idx_sx(iy, iz);
+                        self.occs_water.seam_x.set(i, true);
+                    }}}
+                else if ty.is_solid(nb.state) && matches!(ty.shape, geist_blocks::types::Shape::Cube | geist_blocks::types::Shape::AxisCube { .. }) {
                     let y0 = ly * s; let z0 = lz * s;
                     for iz in z0..(z0 + s) { for iy in y0..(y0 + s) {
                         let i = self.occs.idx_sx(iy, iz);
@@ -205,12 +235,7 @@ impl<'a> ParityMesher<'a> {
                             self.occs.seam_x.set(i, true);
                         }
                     }}
-                } else if ty.name == "water" {
-                    let y0 = ly * s; let z0 = lz * s;
-                    for iz in z0..(z0 + s) { for iy in y0..(y0 + s) {
-                        let i = self.occs.idx_sx(iy, iz);
-                        self.occs.seam_x.set(i, true);
-                    }}}
+                }
             }
         }}
         let ms_x: u32 = t_x.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
@@ -222,7 +247,12 @@ impl<'a> ParityMesher<'a> {
             let nb = self.world_block(self.base_x + lx as i32, ly as i32, self.base_z - 1);
             if nb.id == 0 { continue; }
             if let Some(ty) = self.reg.get(nb.id) {
-                if ty.is_solid(nb.state) && matches!(ty.shape, geist_blocks::types::Shape::Cube | geist_blocks::types::Shape::AxisCube { .. }) {
+                if ty.name == "water" {
+                    let x0 = lx * s; let y0 = ly * s;
+                    for ix in x0..(x0 + s) { for iy in y0..(y0 + s) {
+                        let i = self.occs_water.idx_sz(ix, iy); self.occs_water.seam_z.set(i, true);
+                    }}}
+                else if ty.is_solid(nb.state) && matches!(ty.shape, geist_blocks::types::Shape::Cube | geist_blocks::types::Shape::AxisCube { .. }) {
                     let x0 = lx * s; let y0 = ly * s;
                     for ix in x0..(x0 + s) { for iy in y0..(y0 + s) {
                         let i = self.occs.idx_sz(ix, iy); self.occs.seam_z.set(i, true);
@@ -235,11 +265,7 @@ impl<'a> ParityMesher<'a> {
                             self.occs.seam_z.set(i, true);
                         }
                     }}
-                } else if ty.name == "water" {
-                    let x0 = lx * s; let y0 = ly * s;
-                    for ix in x0..(x0 + s) { for iy in y0..(y0 + s) {
-                        let i = self.occs.idx_sz(ix, iy); self.occs.seam_z.set(i, true);
-                    }}}
+                }
             }
         }}
         let ms_z: u32 = t_z.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
@@ -284,6 +310,40 @@ impl<'a> ParityMesher<'a> {
                 self.grids.kx[idx] = mid;
             }}
         }
+        // X faces (water-only): emit only water-air faces (skip water-solid)
+        for ix in 0..=nx {
+            for iy in 0..ny { for iz in 0..nz {
+                let a_w = if ix == 0 { self.occs_water.seam_x.get(self.occs_water.idx_sx(iy, iz)) } else { self.occs_water.occ_get(ix - 1, iy, iz) };
+                let b_w = if ix == nx { false } else { self.occs_water.occ_get(ix, iy, iz) };
+                let p_w = a_w ^ b_w;
+                let idx_w = self.grids_water.idx_x(ix, iy, iz);
+                self.grids_water.px.set(idx_w, p_w);
+                if !p_w { self.grids_water.kx[idx_w] = MaterialId(0); continue; }
+                let owner_pos_w = a_w; self.grids_water.ox.set(idx_w, owner_pos_w);
+                // Solid occupancy on the opposite side?
+                let a_s = if ix == 0 { self.occs.seam_x.get(self.occs.idx_sx(iy, iz)) } else { self.occs.occ_get(ix - 1, iy, iz) };
+                let b_s = if ix == nx { false } else { self.occs.occ_get(ix, iy, iz) };
+                let solid_other = if owner_pos_w { b_s } else { a_s };
+                if solid_other { self.grids_water.kx[idx_w] = MaterialId(0); continue; }
+                let face = if owner_pos_w { Face::PosX } else { Face::NegX };
+                let mid_w = if owner_pos_w {
+                    if ix == 0 {
+                        let by = (iy / s).min(self.sy - 1); let bz = (iz / s).min(self.sz - 1);
+                        let nb = self.world_block(self.base_x - 1, by as i32, self.base_z + bz as i32);
+                        self.reg.get(nb.id).map(|ty| ty.material_for_cached(face.role(), nb.state)).unwrap_or(MaterialId(0))
+                    } else {
+                        let bx = ((ix - 1) / s).min(self.sx - 1); let by = (iy / s).min(self.sy - 1); let bz = (iz / s).min(self.sz - 1);
+                        let here = self.buf.get_local(bx, by, bz);
+                        self.reg.get(here.id).map(|ty| ty.material_for_cached(face.role(), here.state)).unwrap_or(MaterialId(0))
+                    }
+                } else {
+                    let bx = (ix / s).min(self.sx - 1); let by = (iy / s).min(self.sy - 1); let bz = (iz / s).min(self.sz - 1);
+                    let here = self.buf.get_local(bx, by, bz);
+                    self.reg.get(here.id).map(|ty| ty.material_for_cached(face.role(), here.state)).unwrap_or(MaterialId(0))
+                };
+                self.grids_water.kx[idx_w] = mid_w;
+            }}
+        }
         // Y faces
         for iy in 0..=ny { // include top boundary
             for iz in 0..nz { for ix in 0..nx {
@@ -301,6 +361,28 @@ impl<'a> ParityMesher<'a> {
                 let here = self.buf.get_local(bx, by, bz);
                 let mid = self.reg.get(here.id).map(|ty| ty.material_for_cached(face.role(), here.state)).unwrap_or(MaterialId(0));
                 self.grids.ky[idx] = mid;
+            }}
+        }
+        // Y faces (water-only)
+        for iy in 0..=ny {
+            for iz in 0..nz { for ix in 0..nx {
+                let a_w = if iy == 0 { false } else { self.occs_water.occ_get(ix, iy - 1, iz) };
+                let b_w = if iy == ny { false } else { self.occs_water.occ_get(ix, iy, iz) };
+                let p_w = a_w ^ b_w;
+                let idx_w = self.grids_water.idx_y(ix, iy, iz);
+                self.grids_water.py.set(idx_w, p_w);
+                if !p_w { self.grids_water.ky[idx_w] = MaterialId(0); continue; }
+                let owner_pos_w = a_w; self.grids_water.oy.set(idx_w, owner_pos_w);
+                let a_s = if iy == 0 { false } else { self.occs.occ_get(ix, iy - 1, iz) };
+                let b_s = if iy == ny { false } else { self.occs.occ_get(ix, iy, iz) };
+                let solid_other = if owner_pos_w { b_s } else { a_s };
+                if solid_other { self.grids_water.ky[idx_w] = MaterialId(0); continue; }
+                let face = if owner_pos_w { Face::PosY } else { Face::NegY };
+                let by_owner = if owner_pos_w { iy.saturating_sub(1) } else { iy };
+                let bx = (ix / s).min(self.sx - 1); let by = (by_owner / s).min(self.sy - 1); let bz = (iz / s).min(self.sz - 1);
+                let here = self.buf.get_local(bx, by, bz);
+                let mid_w = self.reg.get(here.id).map(|ty| ty.material_for_cached(face.role(), here.state)).unwrap_or(MaterialId(0));
+                self.grids_water.ky[idx_w] = mid_w;
             }}
         }
         // Z faces
@@ -334,6 +416,39 @@ impl<'a> ParityMesher<'a> {
                 self.grids.kz[idx] = mid;
             }}
         }
+        // Z faces (water-only)
+        for iz in 0..=nz {
+            for iy in 0..ny { for ix in 0..nx {
+                let a_w = if iz == 0 { self.occs_water.seam_z.get(self.occs_water.idx_sz(ix, iy)) } else { self.occs_water.occ_get(ix, iy, iz - 1) };
+                let b_w = if iz == nz { false } else { self.occs_water.occ_get(ix, iy, iz) };
+                let p_w = a_w ^ b_w;
+                let idx_w = self.grids_water.idx_z(ix, iy, iz);
+                self.grids_water.pz.set(idx_w, p_w);
+                if !p_w { self.grids_water.kz[idx_w] = MaterialId(0); continue; }
+                let owner_pos_w = a_w; self.grids_water.oz.set(idx_w, owner_pos_w);
+                let a_s = if iz == 0 { self.occs.seam_z.get(self.occs.idx_sz(ix, iy)) } else { self.occs.occ_get(ix, iy, iz - 1) };
+                let b_s = if iz == nz { false } else { self.occs.occ_get(ix, iy, iz) };
+                let solid_other = if owner_pos_w { b_s } else { a_s };
+                if solid_other { self.grids_water.kz[idx_w] = MaterialId(0); continue; }
+                let face = if owner_pos_w { Face::PosZ } else { Face::NegZ };
+                let mid_w = if owner_pos_w {
+                    if iz == 0 {
+                        let bx = (ix / s).min(self.sx - 1); let by = (iy / s).min(self.sy - 1);
+                        let nb = self.world_block(self.base_x + bx as i32, by as i32, self.base_z - 1);
+                        self.reg.get(nb.id).map(|ty| ty.material_for_cached(face.role(), nb.state)).unwrap_or(MaterialId(0))
+                    } else {
+                        let bz = ((iz - 1) / s).min(self.sz - 1); let bx = (ix / s).min(self.sx - 1); let by = (iy / s).min(self.sy - 1);
+                        let here = self.buf.get_local(bx, by, bz);
+                        self.reg.get(here.id).map(|ty| ty.material_for_cached(face.role(), here.state)).unwrap_or(MaterialId(0))
+                    }
+                } else {
+                    let bz = (iz / s).min(self.sz - 1); let bx = (ix / s).min(self.sx - 1); let by = (iy / s).min(self.sy - 1);
+                    let here = self.buf.get_local(bx, by, bz);
+                    self.reg.get(here.id).map(|ty| ty.material_for_cached(face.role(), here.state)).unwrap_or(MaterialId(0))
+                };
+                self.grids_water.kz[idx_w] = mid_w;
+            }}
+        }
         let ms: u32 = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
         log::info!(target: "perf", "ms={} mesher_parity_build s={} dims=({}, {}, {}) base_x={} base_z={}", ms, self.s, self.sx, self.sy, self.sz, self.base_x, self.base_z);
     }
@@ -351,9 +466,14 @@ impl<'a> ParityMesher<'a> {
         VISITED_SCRATCH_V3.with(|cell| {
             let mut buf = cell.borrow_mut();
             if buf.len() < need { buf.resize(need, 0); }
+            // Opaque solids first
             emit_plane_x(self.s, self.sx, self.sy, self.sz, self.base_x, self.base_z, &self.grids, builds, &mut buf[..]);
             emit_plane_y(self.s, self.sx, self.sy, self.sz, self.base_x, self.base_z, &self.grids, builds, &mut buf[..]);
             emit_plane_z(self.s, self.sx, self.sy, self.sz, self.base_x, self.base_z, &self.grids, builds, &mut buf[..]);
+            // Water-only faces (transparent pass later)
+            emit_plane_x(self.s, self.sx, self.sy, self.sz, self.base_x, self.base_z, &self.grids_water, builds, &mut buf[..]);
+            emit_plane_y(self.s, self.sx, self.sy, self.sz, self.base_x, self.base_z, &self.grids_water, builds, &mut buf[..]);
+            emit_plane_z(self.s, self.sx, self.sy, self.sz, self.base_x, self.base_z, &self.grids_water, builds, &mut buf[..]);
         });
     }
 }
