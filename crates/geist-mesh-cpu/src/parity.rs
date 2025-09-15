@@ -413,53 +413,63 @@ impl<'a> ParityMesher<'a> {
             let i = ((my & 1) << 2) | ((mz & 1) << 1) | (mx & 1);
             ((occ >> i) & 1) != 0
         }
+        let wsf = self.world_scale.round() as i32;
         for ly in 0..sy {
             for lz in 0..sz {
-                let nb = self.world_block(self.base_x - 1, ly as i32, self.base_z + lz as i32);
-                if nb.id == 0 {
-                    continue;
-                }
-                if let Some(ty) = self.reg.get(nb.id) {
-                    if self.include_water && ty.name == "water" {
-                        let y0 = ly * s;
-                        let z0 = lz * s;
-                        for iz in z0..(z0 + s) {
-                            for iy in y0..(y0 + s) {
-                                let i = self.occs_water.idx_sx(iy, iz);
-                                self.occs_water.seam_x.set(i, true);
+                let mut hit_water = false;
+                let mut hit_solid = false;
+                if wsf > 1 {
+                    // Scan the neighbor chunk's coarse footprint adjacent to -X plane
+                    let z0 = self.base_z + (lz as i32) * wsf;
+                    'outer_x: for dz in 0..wsf {
+                        for dx in 1..=wsf {
+                            let nb = self.world_block(self.base_x - dx, ly as i32, z0 + dz);
+                            if nb.id == 0 { continue; }
+                            if let Some(ty) = self.reg.get(nb.id) {
+                                if self.include_water && ty.name == "water" { hit_water = true; break 'outer_x; }
+                                if ty.is_solid(nb.state) && matches!(ty.shape, geist_blocks::types::Shape::Cube | geist_blocks::types::Shape::AxisCube { .. }) { hit_solid = true; break 'outer_x; }
                             }
                         }
-                    } else if ty.is_solid(nb.state)
-                        && matches!(
-                            ty.shape,
-                            geist_blocks::types::Shape::Cube
-                                | geist_blocks::types::Shape::AxisCube { .. }
-                        )
-                    {
-                        let y0 = ly * s;
-                        let z0 = lz * s;
-                        for iz in z0..(z0 + s) {
-                            for iy in y0..(y0 + s) {
-                                let i = self.occs.idx_sx(iy, iz);
-                                self.occs.seam_x.set(i, true);
-                            }
-                        }
-                    } else if self.s > 1 {
-                        if let Some(occ) = ty.variant(nb.state).occupancy {
-                            let y0 = ly * s;
-                            let z0 = lz * s;
-                            for mz in 0..s {
-                                for my in 0..s {
-                                    if occ_bit_s2(occ, 1, my, mz) {
-                                        let iy = y0 + my;
-                                        let iz = z0 + mz;
-                                        let i = self.occs.idx_sx(iy, iz);
-                                        self.occs.seam_x.set(i, true);
+                    }
+                } else {
+                    let nb = self.world_block(self.base_x - 1, ly as i32, self.base_z + lz as i32);
+                    if nb.id != 0 {
+                        if let Some(ty) = self.reg.get(nb.id) {
+                            if self.include_water && ty.name == "water" {
+                                hit_water = true;
+                            } else if ty.is_solid(nb.state)
+                                && matches!(
+                                    ty.shape,
+                                    geist_blocks::types::Shape::Cube
+                                        | geist_blocks::types::Shape::AxisCube { .. }
+                                )
+                            {
+                                hit_solid = true;
+                            } else if self.s > 1 {
+                                if let Some(occ) = ty.variant(nb.state).occupancy {
+                                    let y0 = ly * s;
+                                    let z0 = lz * s;
+                                    for mz in 0..s {
+                                        for my in 0..s {
+                                            if occ_bit_s2(occ, 1, my, mz) {
+                                                let iy = y0 + my;
+                                                let iz = z0 + mz;
+                                                let i = self.occs.idx_sx(iy, iz);
+                                                self.occs.seam_x.set(i, true);
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+                }
+                if hit_water {
+                    let y0 = ly * s; let z0 = lz * s;
+                    for iz in z0..(z0 + s) { for iy in y0..(y0 + s) { let i = self.occs_water.idx_sx(iy, iz); self.occs_water.seam_x.set(i, true); } }
+                } else if hit_solid {
+                    let y0 = ly * s; let z0 = lz * s;
+                    for iz in z0..(z0 + s) { for iy in y0..(y0 + s) { let i = self.occs.idx_sx(iy, iz); self.occs.seam_x.set(i, true); } }
                 }
             }
         }
@@ -470,51 +480,58 @@ impl<'a> ParityMesher<'a> {
         let t_z = Instant::now();
         for ly in 0..sy {
             for lx in 0..sx {
-                let nb = self.world_block(self.base_x + lx as i32, ly as i32, self.base_z - 1);
-                if nb.id == 0 {
-                    continue;
-                }
-                if let Some(ty) = self.reg.get(nb.id) {
-                    if self.include_water && ty.name == "water" {
-                        let x0 = lx * s;
-                        let y0 = ly * s;
-                        for ix in x0..(x0 + s) {
-                            for iy in y0..(y0 + s) {
-                                let i = self.occs_water.idx_sz(ix, iy);
-                                self.occs_water.seam_z.set(i, true);
+                let mut hit_water = false; let mut hit_solid = false;
+                if wsf > 1 {
+                    let x0 = self.base_x + (lx as i32) * wsf;
+                    'outer_z: for dx in 0..wsf {
+                        for dz in 1..=wsf {
+                            let nb = self.world_block(x0 + dx, ly as i32, self.base_z - dz);
+                            if nb.id == 0 { continue; }
+                            if let Some(ty) = self.reg.get(nb.id) {
+                                if self.include_water && ty.name == "water" { hit_water = true; break 'outer_z; }
+                                if ty.is_solid(nb.state) && matches!(ty.shape, geist_blocks::types::Shape::Cube | geist_blocks::types::Shape::AxisCube { .. }) { hit_solid = true; break 'outer_z; }
                             }
                         }
-                    } else if ty.is_solid(nb.state)
-                        && matches!(
-                            ty.shape,
-                            geist_blocks::types::Shape::Cube
-                                | geist_blocks::types::Shape::AxisCube { .. }
-                        )
-                    {
-                        let x0 = lx * s;
-                        let y0 = ly * s;
-                        for ix in x0..(x0 + s) {
-                            for iy in y0..(y0 + s) {
-                                let i = self.occs.idx_sz(ix, iy);
-                                self.occs.seam_z.set(i, true);
-                            }
-                        }
-                    } else if self.s > 1 {
-                        if let Some(occ) = ty.variant(nb.state).occupancy {
-                            let x0 = lx * s;
-                            let y0 = ly * s;
-                            for my in 0..s {
-                                for mx in 0..s {
-                                    if occ_bit_s2(occ, mx, my, 1) {
-                                        let ix = x0 + mx;
-                                        let iy = y0 + my;
-                                        let i = self.occs.idx_sz(ix, iy);
-                                        self.occs.seam_z.set(i, true);
+                    }
+                } else {
+                    let nb = self.world_block(self.base_x + lx as i32, ly as i32, self.base_z - 1);
+                    if nb.id != 0 {
+                        if let Some(ty) = self.reg.get(nb.id) {
+                            if self.include_water && ty.name == "water" {
+                                hit_water = true;
+                            } else if ty.is_solid(nb.state)
+                                && matches!(
+                                    ty.shape,
+                                    geist_blocks::types::Shape::Cube
+                                        | geist_blocks::types::Shape::AxisCube { .. }
+                                )
+                            {
+                                hit_solid = true;
+                            } else if self.s > 1 {
+                                if let Some(occ) = ty.variant(nb.state).occupancy {
+                                    let x0 = lx * s;
+                                    let y0 = ly * s;
+                                    for my in 0..s {
+                                        for mx in 0..s {
+                                            if occ_bit_s2(occ, mx, my, 1) {
+                                                let ix = x0 + mx;
+                                                let iy = y0 + my;
+                                                let i = self.occs.idx_sz(ix, iy);
+                                                self.occs.seam_z.set(i, true);
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+                }
+                if hit_water {
+                    let x0 = lx * s; let y0 = ly * s;
+                    for ix in x0..(x0 + s) { for iy in y0..(y0 + s) { let i = self.occs_water.idx_sz(ix, iy); self.occs_water.seam_z.set(i, true); } }
+                } else if hit_solid {
+                    let x0 = lx * s; let y0 = ly * s;
+                    for ix in x0..(x0 + s) { for iy in y0..(y0 + s) { let i = self.occs.idx_sz(ix, iy); self.occs.seam_z.set(i, true); } }
                 }
             }
         }
