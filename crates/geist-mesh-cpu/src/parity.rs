@@ -170,7 +170,6 @@ pub struct ParityMesher<'a> {
     buf: &'a ChunkBuf,
     world: &'a World,
     edits: Option<&'a HashMap<(i32, i32, i32), Block>>,
-    air_id: u16,
     // scratch (solids + water)
     grids: FaceGrids,
     grids_water: FaceGrids,
@@ -271,7 +270,6 @@ impl<'a> ParityMesher<'a> {
             buf,
             world,
             edits,
-            air_id: reg.id_by_name("air").unwrap_or(0),
             grids,
             grids_water,
             occs,

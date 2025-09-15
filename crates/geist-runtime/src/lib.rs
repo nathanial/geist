@@ -140,8 +140,6 @@ impl Runtime {
                     let t_job_start = Instant::now();
                     // Start from previous buffer when provided; else regenerate from worldgen
                     let mut t_gen_ms: u32 = 0;
-                    let mut t_apply_ms: u32 = 0;
-                    let mut t_light_ms: u32 = 0;
                     let mut t_mesh_ms: u32 = 0;
                     let mut buf = if let Some(prev) = job.prev_buf {
                         prev
@@ -154,7 +152,7 @@ impl Runtime {
                     // Apply persistent edits for this chunk before meshing
                     let base_x = job.cx * buf.sx as i32;
                     let base_z = job.cz * buf.sz as i32;
-                    {
+                    let t_apply_ms = {
                         let t0 = Instant::now();
                         for ((wx, wy, wz), b) in job.chunk_edits.iter().copied() {
                             if wy < 0 || wy >= buf.sy as i32 {
@@ -168,8 +166,8 @@ impl Runtime {
                                 buf.blocks[idx] = b;
                             }
                         }
-                        t_apply_ms = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
-                    }
+                        t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32
+                    };
                     let snap_map: std::collections::HashMap<(i32, i32, i32), Block> =
                         job.region_edits.into_iter().collect();
                     match lane {
@@ -177,7 +175,8 @@ impl Runtime {
                             // Compute light only; upload atlas on main thread.
                             let t0 = Instant::now();
                             let lg = compute_light_with_borders_buf(&buf, &ls, &job.reg, &w);
-                            t_light_ms = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+                            let t_light_ms =
+                                t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
                             // Also publish macro light borders so neighbors can stitch without requiring a remesh.
                             let borders = LightBorders::from_grid(&lg);
                             let t_total_ms =
@@ -204,7 +203,8 @@ impl Runtime {
                             // Compute lighting once; reuse for meshing and atlas.
                             let t0 = Instant::now();
                             let lg = compute_light_with_borders_buf(&buf, &ls, &job.reg, &w);
-                            t_light_ms = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+                            let t_light_ms =
+                                t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
                             let t0 = Instant::now();
                             let built = build_chunk_wcc_cpu_buf_with_light(
                                 &buf,

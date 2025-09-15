@@ -19,18 +19,6 @@ pub(crate) fn unknown_material_id(reg: &BlockRegistry) -> MaterialId {
 }
 
 #[inline]
-/// Looks up the material for a block's face; falls back to `unknown` if not found.
-pub(crate) fn registry_material_for_or_unknown(
-    block: Block,
-    face: Face,
-    reg: &BlockRegistry,
-) -> MaterialId {
-    reg.get(block.id)
-        .map(|ty| ty.material_for_cached(face.role(), block.state))
-        .unwrap_or_else(|| unknown_material_id(reg))
-}
-
-#[inline]
 /// Returns whether the block is solid at runtime according to its type.
 pub(crate) fn is_solid_runtime(b: Block, reg: &BlockRegistry) -> bool {
     reg.get(b.id)
@@ -148,28 +136,6 @@ pub(crate) fn is_occluder(
 }
 
 // apply_min_light deprecated; keep behavior in shaders if needed.
-
-#[inline]
-/// Converts a micro occupancy mask into world-space AABBs at half-step resolution.
-pub(crate) fn microgrid_boxes(fx: f32, fy: f32, fz: f32, occ: u8) -> Vec<(Vec3, Vec3)> {
-    // Kept for compatibility; prefer `for_each_micro_box` to avoid allocations.
-    let cell = MICRO_HALF_STEP_SIZE;
-    let mut out = Vec::new();
-    for b in occ8_to_boxes(occ) {
-        let min = Vec3 {
-            x: fx + (b[0] as f32) * cell,
-            y: fy + (b[1] as f32) * cell,
-            z: fz + (b[2] as f32) * cell,
-        };
-        let max = Vec3 {
-            x: fx + (b[3] as f32) * cell,
-            y: fy + (b[4] as f32) * cell,
-            z: fz + (b[5] as f32) * cell,
-        };
-        out.push((min, max));
-    }
-    out
-}
 
 #[inline]
 /// Calls `f(min, max)` for each micro-box without allocating.
