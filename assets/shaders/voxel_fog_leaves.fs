@@ -12,6 +12,7 @@ uniform ivec2 lightGrid;
 uniform vec3  chunkOrigin;
 uniform float visualLightMin;
 uniform float skyLightScale;
+uniform int lodLevel; // 0=L0,1=L1,2=L2,3=L3
 // Fog uniforms (match voxel_fog_textured)
 uniform vec3 fogColor;
 uniform float fogStart;
@@ -99,8 +100,13 @@ void main(){
   vec3 base = mix(vec3(g), autumn, clamp(autumnStrength, 0.0, 1.0));
   // Apply per-vertex brightness (AO/lighting) via fragColor.rgb
   base *= fragColor.rgb;
-  // Shader-sampled light
-  float bright = sampleBrightness(fragWorldPos, fragNormal);
+  // Shader-sampled light (distant LODs: daylight only)
+  float bright;
+  if (lodLevel >= 2) {
+    bright = max(visualLightMin, clamp(skyLightScale, 0.0, 1.0));
+  } else {
+    bright = sampleBrightness(fragWorldPos, fragNormal);
+  }
   base *= bright;
   // Linear fog based on distance
   float dist = length(fragWorldPos - cameraPos);

@@ -12,6 +12,7 @@ uniform ivec2 lightGrid;            // (grid_cols, grid_rows)
 uniform vec3  chunkOrigin;          // world-space min corner of this chunk
 uniform float visualLightMin;       // 0..1 brightness floor
 uniform float skyLightScale;        // 0..1 scale applied to skylight channel
+uniform int lodLevel;              // 0=L0,1=L1,2=L2,3=L3
 
 uniform vec3 fogColor;
 uniform float fogStart;
@@ -81,8 +82,13 @@ void main(){
     uv += vec2(w, w);
   }
   vec4 base = texture(texture0, uv) * fragColor;
-  // Apply shader-sampled lighting
-  float bright = sampleBrightness(fragWorldPos, fragNormal);
+  // Apply lighting: for distant LODs, approximate with daylight only
+  float bright;
+  if (lodLevel >= 2) {
+    bright = max(visualLightMin, clamp(skyLightScale, 0.0, 1.0));
+  } else {
+    bright = sampleBrightness(fragWorldPos, fragNormal);
+  }
   base.rgb *= bright;
   // Simple linear fog based on world-space distance from camera
   float dist = length(fragWorldPos - cameraPos);

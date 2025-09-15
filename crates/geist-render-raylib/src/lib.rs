@@ -257,6 +257,7 @@ pub struct LeavesShader {
     pub loc_chunk_origin: i32,
     pub loc_vis_min: i32,
     pub loc_sky_scale: i32,
+    pub loc_lod_level: i32,
 }
 
 impl LeavesShader {
@@ -282,6 +283,7 @@ impl LeavesShader {
         let loc_chunk_origin = shader.get_shader_location("chunkOrigin");
         let loc_vis_min = shader.get_shader_location("visualLightMin");
         let loc_sky_scale = shader.get_shader_location("skyLightScale");
+        let loc_lod_level = shader.get_shader_location("lodLevel");
         let mut s = Self {
             shader,
             loc_fog_color,
@@ -301,6 +303,7 @@ impl LeavesShader {
             loc_chunk_origin,
             loc_vis_min,
             loc_sky_scale,
+            loc_lod_level,
         };
         s.set_autumn_palette(
             [0.905, 0.678, 0.161],
@@ -341,6 +344,7 @@ impl LeavesShader {
         let loc_chunk_origin = shader.get_shader_location("chunkOrigin");
         let loc_vis_min = shader.get_shader_location("visualLightMin");
         let loc_sky_scale = shader.get_shader_location("skyLightScale");
+        let loc_lod_level = shader.get_shader_location("lodLevel");
         let mut s = Self {
             shader,
             loc_fog_color,
@@ -360,6 +364,7 @@ impl LeavesShader {
             loc_chunk_origin,
             loc_vis_min,
             loc_sky_scale,
+            loc_lod_level,
         };
         s.set_autumn_palette(
             [0.905, 0.678, 0.161],
@@ -468,6 +473,11 @@ impl LeavesShader {
         }
         let _ = thread; // unused here but kept for parity
     }
+    pub fn set_lod_level(&mut self, level: i32) {
+        if self.loc_lod_level >= 0 {
+            self.shader.set_shader_value(self.loc_lod_level, level);
+        }
+    }
     pub fn update_chunk_uniforms_no_tex(
         &mut self,
         _thread: &RaylibThread,
@@ -509,6 +519,7 @@ pub struct FogShader {
     pub loc_chunk_origin: i32,
     pub loc_vis_min: i32,
     pub loc_sky_scale: i32,
+    pub loc_lod_level: i32,
 }
 
 impl FogShader {
@@ -529,6 +540,7 @@ impl FogShader {
         let loc_chunk_origin = shader.get_shader_location("chunkOrigin");
         let loc_vis_min = shader.get_shader_location("visualLightMin");
         let loc_sky_scale = shader.get_shader_location("skyLightScale");
+        let loc_lod_level = shader.get_shader_location("lodLevel");
         Some(Self {
             shader,
             loc_fog_color,
@@ -543,6 +555,7 @@ impl FogShader {
             loc_chunk_origin,
             loc_vis_min,
             loc_sky_scale,
+            loc_lod_level,
         })
     }
     pub fn load_with_base(
@@ -570,6 +583,7 @@ impl FogShader {
         let loc_chunk_origin = shader.get_shader_location("chunkOrigin");
         let loc_vis_min = shader.get_shader_location("visualLightMin");
         let loc_sky_scale = shader.get_shader_location("skyLightScale");
+        let loc_lod_level = shader.get_shader_location("lodLevel");
         Some(Self {
             shader,
             loc_fog_color,
@@ -584,6 +598,7 @@ impl FogShader {
             loc_chunk_origin,
             loc_vis_min,
             loc_sky_scale,
+            loc_lod_level,
         })
     }
     pub fn update_frame_uniforms(
@@ -682,6 +697,11 @@ impl FogShader {
         }
         if self.loc_vis_min >= 0 {
             self.shader.set_shader_value(self.loc_vis_min, visual_min);
+        }
+    }
+    pub fn set_lod_level(&mut self, level: i32) {
+        if self.loc_lod_level >= 0 {
+            self.shader.set_shader_value(self.loc_lod_level, level);
         }
     }
 }

@@ -2787,6 +2787,19 @@ impl App {
                         match tag {
                             Some("leaves") => {
                                 if let Some(ref mut ls) = self.leaves_shader {
+                                    // Set LOD level for this chunk draw
+                                    let lod_i = self
+                                        .gs
+                                        .cur_lod
+                                        .get(ckey)
+                                        .map(|l| match l {
+                                            geist_runtime::LODLevel::Lod0 => 0,
+                                            geist_runtime::LODLevel::Lod1 => 1,
+                                            geist_runtime::LODLevel::Lod2 => 2,
+                                            geist_runtime::LODLevel::Lod3 => 3,
+                                        })
+                                        .unwrap_or(0);
+                                    ls.set_lod_level(lod_i);
                                     if let Some(ref lt) = cr.light_tex {
                                         ls.update_chunk_uniforms(
                                             thread, &lt.tex, dims_some, grid_some, origin, vis_min,
@@ -2800,6 +2813,19 @@ impl App {
                             }
                             _ => {
                                 if let Some(ref mut fs) = self.fog_shader {
+                                    // Set LOD level for this chunk draw
+                                    let lod_i = self
+                                        .gs
+                                        .cur_lod
+                                        .get(ckey)
+                                        .map(|l| match l {
+                                            geist_runtime::LODLevel::Lod0 => 0,
+                                            geist_runtime::LODLevel::Lod1 => 1,
+                                            geist_runtime::LODLevel::Lod2 => 2,
+                                            geist_runtime::LODLevel::Lod3 => 3,
+                                        })
+                                        .unwrap_or(0);
+                                    fs.set_lod_level(lod_i);
                                     if let Some(ref lt) = cr.light_tex {
                                         fs.update_chunk_uniforms(
                                             thread, &lt.tex, dims_some, grid_some, origin, vis_min,
