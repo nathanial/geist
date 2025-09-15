@@ -84,6 +84,9 @@ impl OccGrids {
 thread_local! {
     static FACEGRID_SCRATCH_V3: RefCell<Option<FaceGrids>> = RefCell::new(None);
     static OCC_SCRATCH_V3: RefCell<Option<OccGrids>> = RefCell::new(None);
+    // Reusable 2D visitation bitmap used by greedy plane emission.
+    // Sized to the maximum width*height needed across axes for current (s, sx, sy, sz).
+    static VISITED_SCRATCH_V3: RefCell<Vec<u8>> = RefCell::new(Vec::new());
 }
 
 pub struct ParityMesher<'a> {
@@ -336,35 +339,51 @@ impl<'a> ParityMesher<'a> {
     }
 
     pub fn emit_into<B: crate::emit::BuildSink>(&self, builds: &mut B) {
-        emit_plane_x(self.s, self.sx, self.sy, self.sz, self.base_x, self.base_z, &self.grids, builds);
-        emit_plane_y(self.s, self.sx, self.sy, self.sz, self.base_x, self.base_z, &self.grids, builds);
-        emit_plane_z(self.s, self.sx, self.sy, self.sz, self.base_x, self.base_z, &self.grids, builds);
+        // Ensure a shared visited scratch buffer large enough for any axis
+        // X: (width,height) = (s*sz, s*sy)
+        // Y: (s*sx, s*sz)
+        // Z: (s*sx, s*sy)
+        let s = self.s; let (sx, sy, sz) = (self.sx, self.sy, self.sz);
+        let need_x = (s * sz) * (s * sy);
+        let need_y = (s * sx) * (s * sz);
+        let need_z = (s * sx) * (s * sy);
+        let need = need_x.max(need_y).max(need_z);
+        VISITED_SCRATCH_V3.with(|cell| {
+            let mut buf = cell.borrow_mut();
+            if buf.len() < need { buf.resize(need, 0); }
+            emit_plane_x(self.s, self.sx, self.sy, self.sz, self.base_x, self.base_z, &self.grids, builds, &mut buf[..]);
+            emit_plane_y(self.s, self.sx, self.sy, self.sz, self.base_x, self.base_z, &self.grids, builds, &mut buf[..]);
+            emit_plane_z(self.s, self.sx, self.sy, self.sz, self.base_x, self.base_z, &self.grids, builds, &mut buf[..]);
+        });
     }
 }
 
 // Emission helpers (cloned from v2 for private use)
 fn emit_plane_x<B: crate::emit::BuildSink>(
-    s: usize, sx: usize, sy: usize, sz: usize, base_x: i32, base_z: i32, grids: &FaceGrids, builds: &mut B,
+    s: usize, sx: usize, sy: usize, sz: usize, base_x: i32, base_z: i32, grids: &FaceGrids, builds: &mut B, visited_buf: &mut [u8],
 ) {
     let t0 = Instant::now();
     let scale = 1.0 / s as f32;
-    let width = s * sz; let height = s * sy;
-    let mut visited: Vec<u8> = vec![0; width * height]; let mut epoch: u8 = 1;
+    let width = s * sz; let height = s * sy; let needed = width * height;
+    debug_assert!(visited_buf.len() >= needed);
+    // Reused buffer may contain epochs from previous axis; clear the active window.
+    visited_buf[..needed].fill(0);
+    let mut epoch: u8 = 1;
     for ix in 0..(s * sx) {
-        epoch = epoch.wrapping_add(1); if epoch == 0 { visited.fill(0); epoch = 1; }
+        epoch = epoch.wrapping_add(1); if epoch == 0 { visited_buf[..needed].fill(0); epoch = 1; }
         let idx2d = |u: usize, v: usize| v * width + u;
         let mut v = 0usize;
         while v < height {
             let mut u = 0usize;
             while u < width {
-                let vi = idx2d(u, v); if visited[vi] == epoch { u += 1; continue; }
+                let vi = idx2d(u, v); if visited_buf[vi] == epoch { u += 1; continue; }
                 let idx = grids.idx_x(ix, v, u);
                 if !grids.px.get(idx) { u += 1; continue; }
                 let mid = grids.kx[idx]; if mid.0 == 0 { u += 1; continue; }
                 let pos = grids.ox.get(idx);
                 let mut run_w = 1usize;
                 while u + run_w < width {
-                    if visited[idx2d(u + run_w, v)] == epoch { break; }
+                    if visited_buf[idx2d(u + run_w, v)] == epoch { break; }
                     let idx_n = grids.idx_x(ix, v, u + run_w);
                     if !grids.px.get(idx_n) || grids.kx[idx_n] != mid || grids.ox.get(idx_n) != pos { break; }
                     run_w += 1;
@@ -372,7 +391,7 @@ fn emit_plane_x<B: crate::emit::BuildSink>(
                 let mut run_h = 1usize;
                 'outer: while v + run_h < height {
                     for uu in u..(u + run_w) {
-                        if visited[idx2d(uu, v + run_h)] == epoch { break 'outer; }
+                        if visited_buf[idx2d(uu, v + run_h)] == epoch { break 'outer; }
                         let idx_n = grids.idx_x(ix, v + run_h, uu);
                         if !grids.px.get(idx_n) || grids.kx[idx_n] != mid || grids.ox.get(idx_n) != pos { break 'outer; }
                     }
@@ -382,7 +401,7 @@ fn emit_plane_x<B: crate::emit::BuildSink>(
                 let origin = Vec3 { x: (base_x as f32) + (ix as f32) * scale, y: (v as f32) * scale, z: (base_z as f32) + (u as f32) * scale };
                 let u1 = (run_w as f32) * scale; let v1 = (run_h as f32) * scale; let rgba = [255u8, 255u8, 255u8, OPAQUE_ALPHA];
                 emit_face_rect_for_clipped(builds, mid, face, origin, u1, v1, rgba, base_x, sx, sy, base_z, sz);
-                for dv in 0..run_h { for du in 0..run_w { visited[idx2d(u + du, v + dv)] = epoch; } }
+                for dv in 0..run_h { for du in 0..run_w { visited_buf[idx2d(u + du, v + dv)] = epoch; } }
                 u += run_w;
             }
             v += 1;
@@ -393,24 +412,27 @@ fn emit_plane_x<B: crate::emit::BuildSink>(
 }
 
 fn emit_plane_y<B: crate::emit::BuildSink>(
-    s: usize, sx: usize, sy: usize, sz: usize, base_x: i32, base_z: i32, grids: &FaceGrids, builds: &mut B,
+    s: usize, sx: usize, sy: usize, sz: usize, base_x: i32, base_z: i32, grids: &FaceGrids, builds: &mut B, visited_buf: &mut [u8],
 ) {
     let t0 = Instant::now();
-    let scale = 1.0 / s as f32; let width = s * sx; let height = s * sz; let mut visited: Vec<u8> = vec![0; width * height]; let mut epoch: u8 = 1;
+    let scale = 1.0 / s as f32; let width = s * sx; let height = s * sz; let needed = width * height; debug_assert!(visited_buf.len() >= needed);
+    // Reused buffer may contain epochs from previous axis; clear the active window.
+    visited_buf[..needed].fill(0);
+    let mut epoch: u8 = 1;
     for iy in 0..(s * sy) {
-        epoch = epoch.wrapping_add(1); if epoch == 0 { visited.fill(0); epoch = 1; }
+        epoch = epoch.wrapping_add(1); if epoch == 0 { visited_buf[..needed].fill(0); epoch = 1; }
         let idx2d = |u: usize, v: usize| v * width + u; let mut v = 0usize;
         while v < height {
             let mut u = 0usize;
             while u < width {
-                let vi = idx2d(u, v); if visited[vi] == epoch { u += 1; continue; }
+                let vi = idx2d(u, v); if visited_buf[vi] == epoch { u += 1; continue; }
                 let idx = grids.idx_y(u, iy, v);
                 if !grids.py.get(idx) { u += 1; continue; }
                 let mid = grids.ky[idx]; if mid.0 == 0 { u += 1; continue; }
                 let pos = grids.oy.get(idx);
                 let mut run_w = 1usize;
                 while u + run_w < width {
-                    if visited[idx2d(u + run_w, v)] == epoch { break; }
+                    if visited_buf[idx2d(u + run_w, v)] == epoch { break; }
                     let idx_n = grids.idx_y(u + run_w, iy, v);
                     if !grids.py.get(idx_n) || grids.ky[idx_n] != mid || grids.oy.get(idx_n) != pos { break; }
                     run_w += 1;
@@ -418,7 +440,7 @@ fn emit_plane_y<B: crate::emit::BuildSink>(
                 let mut run_h = 1usize;
                 'outer: while v + run_h < height {
                     for uu in u..(u + run_w) {
-                        if visited[idx2d(uu, v + run_h)] == epoch { break 'outer; }
+                        if visited_buf[idx2d(uu, v + run_h)] == epoch { break 'outer; }
                         let idx_n = grids.idx_y(uu, iy, v + run_h);
                         if !grids.py.get(idx_n) || grids.ky[idx_n] != mid || grids.oy.get(idx_n) != pos { break 'outer; }
                     }
@@ -428,7 +450,7 @@ fn emit_plane_y<B: crate::emit::BuildSink>(
                 let origin = Vec3 { x: (base_x as f32) + (u as f32) * scale, y: (iy as f32) * scale, z: (base_z as f32) + (v as f32) * scale };
                 let u1 = (run_w as f32) * scale; let v1 = (run_h as f32) * scale; let rgba = [255u8, 255u8, 255u8, OPAQUE_ALPHA];
                 emit_face_rect_for_clipped(builds, mid, face, origin, u1, v1, rgba, base_x, sx, sy, base_z, sz);
-                for dv in 0..run_h { for du in 0..run_w { visited[idx2d(u + du, v + dv)] = epoch; } }
+                for dv in 0..run_h { for du in 0..run_w { visited_buf[idx2d(u + du, v + dv)] = epoch; } }
                 u += run_w;
             }
             v += 1;
@@ -439,24 +461,27 @@ fn emit_plane_y<B: crate::emit::BuildSink>(
 }
 
 fn emit_plane_z<B: crate::emit::BuildSink>(
-    s: usize, sx: usize, sy: usize, sz: usize, base_x: i32, base_z: i32, grids: &FaceGrids, builds: &mut B,
+    s: usize, sx: usize, sy: usize, sz: usize, base_x: i32, base_z: i32, grids: &FaceGrids, builds: &mut B, visited_buf: &mut [u8],
 ) {
     let t0 = Instant::now();
-    let scale = 1.0 / s as f32; let width = s * sx; let height = s * sy; let mut visited: Vec<u8> = vec![0; width * height]; let mut epoch: u8 = 1;
+    let scale = 1.0 / s as f32; let width = s * sx; let height = s * sy; let needed = width * height; debug_assert!(visited_buf.len() >= needed);
+    // Reused buffer may contain epochs from previous axis; clear the active window.
+    visited_buf[..needed].fill(0);
+    let mut epoch: u8 = 1;
     for iz in 0..(s * sz) {
-        epoch = epoch.wrapping_add(1); if epoch == 0 { visited.fill(0); epoch = 1; }
+        epoch = epoch.wrapping_add(1); if epoch == 0 { visited_buf[..needed].fill(0); epoch = 1; }
         let idx2d = |u: usize, v: usize| v * width + u; let mut v = 0usize;
         while v < height {
             let mut u = 0usize;
             while u < width {
-                let vi = idx2d(u, v); if visited[vi] == epoch { u += 1; continue; }
+                let vi = idx2d(u, v); if visited_buf[vi] == epoch { u += 1; continue; }
                 let idx = grids.idx_z(u, v, iz);
                 if !grids.pz.get(idx) { u += 1; continue; }
                 let mid = grids.kz[idx]; if mid.0 == 0 { u += 1; continue; }
                 let pos = grids.oz.get(idx);
                 let mut run_w = 1usize;
                 while u + run_w < width {
-                    if visited[idx2d(u + run_w, v)] == epoch { break; }
+                    if visited_buf[idx2d(u + run_w, v)] == epoch { break; }
                     let idx_n = grids.idx_z(u + run_w, v, iz);
                     if !grids.pz.get(idx_n) || grids.kz[idx_n] != mid || grids.oz.get(idx_n) != pos { break; }
                     run_w += 1;
@@ -464,7 +489,7 @@ fn emit_plane_z<B: crate::emit::BuildSink>(
                 let mut run_h = 1usize;
                 'outer: while v + run_h < height {
                     for uu in u..(u + run_w) {
-                        if visited[idx2d(uu, v + run_h)] == epoch { break 'outer; }
+                        if visited_buf[idx2d(uu, v + run_h)] == epoch { break 'outer; }
                         let idx_n = grids.idx_z(uu, v + run_h, iz);
                         if !grids.pz.get(idx_n) || grids.kz[idx_n] != mid || grids.oz.get(idx_n) != pos { break 'outer; }
                     }
@@ -474,7 +499,7 @@ fn emit_plane_z<B: crate::emit::BuildSink>(
                 let origin = Vec3 { x: (base_x as f32) + (u as f32) * scale, y: (v as f32) * scale, z: (base_z as f32) + (iz as f32) * scale };
                 let u1 = (run_w as f32) * scale; let v1 = (run_h as f32) * scale; let rgba = [255u8, 255u8, 255u8, OPAQUE_ALPHA];
                 emit_face_rect_for_clipped(builds, mid, face, origin, u1, v1, rgba, base_x, sx, sy, base_z, sz);
-                for dv in 0..run_h { for du in 0..run_w { visited[idx2d(u + du, v + dv)] = epoch; } }
+                for dv in 0..run_h { for du in 0..run_w { visited_buf[idx2d(u + du, v + dv)] = epoch; } }
                 u += run_w;
             }
             v += 1;

@@ -73,14 +73,6 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
     // then convert to HashMap<MaterialId, MeshBuild> for public API compatibility.
     let mat_count = reg.materials.materials.len();
     let mut builds_v: Vec<MeshBuild> = vec![MeshBuild::default(); mat_count];
-    LAST_MESH_RESERVE.with(|cell| {
-        let mut caps = cell.borrow_mut();
-        if caps.len() != mat_count { caps.resize(mat_count, 64); }
-        for i in 0..mat_count {
-            let q = caps[i].max(64);
-            builds_v[i].reserve_quads(q);
-        }
-    });
     // Pre-reserve per-material meshes based on last chunk usage in this thread
     LAST_MESH_RESERVE.with(|cell| {
         let mut caps = cell.borrow_mut();
@@ -244,7 +236,8 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
     };
     let light_borders = Some(LightBorders::from_grid(light));
     // Convert dense vector into sparse HashMap
-    let mut builds_hm: HashMap<MaterialId, MeshBuild> = HashMap::new();
+    let non_empty = builds_v.iter().filter(|mb| !mb.pos.is_empty()).count();
+    let mut builds_hm: HashMap<MaterialId, MeshBuild> = HashMap::with_capacity(non_empty);
     for (i, mb) in builds_v.into_iter().enumerate() {
         if !mb.pos.is_empty() {
             builds_hm.insert(MaterialId(i as u16), mb);
@@ -349,7 +342,8 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
         }
     });
 
-    let mut parts_hm: HashMap<MaterialId, MeshBuild> = HashMap::new();
+    let non_empty = builds_v.iter().filter(|mb| !mb.pos.is_empty()).count();
+    let mut parts_hm: HashMap<MaterialId, MeshBuild> = HashMap::with_capacity(non_empty);
     for (i, mb) in builds_v.into_iter().enumerate() {
         if !mb.pos.is_empty() { parts_hm.insert(MaterialId(i as u16), mb); }
     }
