@@ -336,8 +336,10 @@ impl App {
                     geist_runtime::LODLevel::Lod0
                 } else if dist_bucket <= 8 {
                     geist_runtime::LODLevel::Lod1
-                } else {
+                } else if dist_bucket <= 10 {
                     geist_runtime::LODLevel::Lod2
+                } else {
+                    geist_runtime::LODLevel::Lod3
                 }
             } else {
                 geist_runtime::LODLevel::Lod0
@@ -1430,8 +1432,10 @@ impl App {
                                 geist_runtime::LODLevel::Lod0
                             } else if ring <= 8 {
                                 geist_runtime::LODLevel::Lod1
-                            } else {
+                            } else if ring <= 16 {
                                 geist_runtime::LODLevel::Lod2
+                            } else {
+                                geist_runtime::LODLevel::Lod3
                             }
                         } else {
                             geist_runtime::LODLevel::Lod0
@@ -2686,8 +2690,8 @@ impl App {
                 surface_sky
             };
             // Fog ranges: denser underwater
-            let fog_start = if underwater { 4.0 } else { 512.0 * 0.1 };
-            let fog_end = if underwater { 48.0 } else { 512.0 * 0.8 };
+            let fog_start = if underwater { 4.0 } else { 512.0 * 0.3 };
+            let fog_end = if underwater { 48.0 } else { 512.0 * 1.0 };
             if let Some(ref mut ls) = self.leaves_shader {
                 ls.update_frame_uniforms(
                     self.cam.position,
