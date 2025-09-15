@@ -65,7 +65,11 @@ fn make_test_registry() -> BlockRegistry {
     ];
     BlockRegistry::from_configs(
         materials,
-        BlocksConfig { blocks, lighting: None, unknown_block: Some("unknown".into()) },
+        BlocksConfig {
+            blocks,
+            lighting: None,
+            unknown_block: Some("unknown".into()),
+        },
     )
     .unwrap()
 }
@@ -105,9 +109,7 @@ fn occ_bit_indexing() {
                 let ox = other & 1;
                 let oy = (other >> 2) & 1;
                 let oz = (other >> 1) & 1;
-                assert!(
-                    !super::occ_bit(other_mask, x, y, z) || (x == ox && y == oy && z == oz)
-                );
+                assert!(!super::occ_bit(other_mask, x, y, z) || (x == ox && y == oy && z == oz));
             }
         }
     }
@@ -116,9 +118,18 @@ fn occ_bit_indexing() {
 #[test]
 fn skylight_and_block_passable_gates() {
     let reg = make_test_registry();
-    let air = Block { id: reg.id_by_name("air").unwrap(), state: 0 };
-    let stone = Block { id: reg.id_by_name("stone").unwrap(), state: 0 };
-    let fence = Block { id: reg.id_by_name("fence").unwrap(), state: 0 };
+    let air = Block {
+        id: reg.id_by_name("air").unwrap(),
+        state: 0,
+    };
+    let stone = Block {
+        id: reg.id_by_name("stone").unwrap(),
+        state: 0,
+    };
+    let fence = Block {
+        id: reg.id_by_name("fence").unwrap(),
+        state: 0,
+    };
 
     // skylight_transparent: air and fence (blocks_skylight=false) are transparent; stone is not
     assert!(super::skylight_transparent(air, &reg));
@@ -360,7 +371,10 @@ fn compute_with_borders_buf_seeds_from_coarse_neighbors() {
     let world = geist_world::World::new(1, 1, sx, sy, sz, 42, WorldGenMode::Flat { thickness: 0 });
     let air_id = reg.id_by_name("air").unwrap();
     // All air chunk at (0,0)
-    let buf = make_chunk_buf_with(&reg, 0, 0, sx, sy, sz, &|_, _, _| Block { id: air_id, state: 0 });
+    let buf = make_chunk_buf_with(&reg, 0, 0, sx, sy, sz, &|_, _, _| Block {
+        id: air_id,
+        state: 0,
+    });
 
     // Seed coarse neighbor on -X via neighbor chunk (-1,0)'s +X plane
     let store = LightingStore::new(sx, sy, sz);
@@ -399,7 +413,10 @@ fn compute_with_borders_buf_micro_neighbors_take_precedence() {
     let sz = 2;
     let world = geist_world::World::new(1, 1, sx, sy, sz, 7, WorldGenMode::Flat { thickness: 0 });
     let air_id = reg.id_by_name("air").unwrap();
-    let buf = make_chunk_buf_with(&reg, 0, 0, sx, sy, sz, &|_, _, _| Block { id: air_id, state: 0 });
+    let buf = make_chunk_buf_with(&reg, 0, 0, sx, sy, sz, &|_, _, _| Block {
+        id: air_id,
+        state: 0,
+    });
 
     let store = LightingStore::new(sx, sy, sz);
     // Provide both coarse and micro neighbors on -X; micro should win
@@ -449,7 +466,10 @@ fn micro_skylight_open_above_and_blocked() {
     let stone_id = reg.id_by_name("stone").unwrap();
 
     // Case 1: all air -> skylight fills both macro cells
-    let buf_air = make_chunk_buf_with(&reg, 0, 0, sx, sy, sz, &|_, _, _| Block { id: air_id, state: 0 });
+    let buf_air = make_chunk_buf_with(&reg, 0, 0, sx, sy, sz, &|_, _, _| Block {
+        id: air_id,
+        state: 0,
+    });
     let store = LightingStore::new(sx, sy, sz);
     let lg_air = super::compute_light_with_borders_buf(&buf_air, &store, &reg, &world);
     assert_eq!(lg_air.skylight[lg_air.idx(0, 0, 0)], 255);
@@ -534,7 +554,10 @@ fn emitters_seed_micro_and_remove() {
     let sz = 1;
     let world = geist_world::World::new(1, 1, sx, sy, sz, 5, WorldGenMode::Flat { thickness: 0 });
     let air_id = reg.id_by_name("air").unwrap();
-    let buf = make_chunk_buf_with(&reg, 0, 0, sx, sy, sz, &|_, _, _| Block { id: air_id, state: 0 });
+    let buf = make_chunk_buf_with(&reg, 0, 0, sx, sy, sz, &|_, _, _| Block {
+        id: air_id,
+        state: 0,
+    });
 
     let store = LightingStore::new(sx, sy, sz);
     // Place an emitter at (0,0,0) world coords with level 200
@@ -673,33 +696,105 @@ fn atlas_border_rings_match_neighbors() {
         for z in 0..sz {
             let (r, g, b) = at(ox + 0, oy + 1 + z);
             let ii = y * sz + z;
-            assert_eq!(r, nb.xn.as_ref().unwrap()[ii], "xn.r mismatch y={} z={}", y, z);
-            assert_eq!(g, nb.sk_xn.as_ref().unwrap()[ii], "xn.g mismatch y={} z={}", y, z);
-            assert_eq!(b, nb.bcn_xn.as_ref().unwrap()[ii], "xn.b mismatch y={} z={}", y, z);
+            assert_eq!(
+                r,
+                nb.xn.as_ref().unwrap()[ii],
+                "xn.r mismatch y={} z={}",
+                y,
+                z
+            );
+            assert_eq!(
+                g,
+                nb.sk_xn.as_ref().unwrap()[ii],
+                "xn.g mismatch y={} z={}",
+                y,
+                z
+            );
+            assert_eq!(
+                b,
+                nb.bcn_xn.as_ref().unwrap()[ii],
+                "xn.b mismatch y={} z={}",
+                y,
+                z
+            );
         }
         // +X ring x=sx+1
         for z in 0..sz {
             let (r, g, b) = at(ox + (sx + 1), oy + 1 + z);
             let ii = y * sz + z;
-            assert_eq!(r, nb.xp.as_ref().unwrap()[ii], "xp.r mismatch y={} z={}", y, z);
-            assert_eq!(g, nb.sk_xp.as_ref().unwrap()[ii], "xp.g mismatch y={} z={}", y, z);
-            assert_eq!(b, nb.bcn_xp.as_ref().unwrap()[ii], "xp.b mismatch y={} z={}", y, z);
+            assert_eq!(
+                r,
+                nb.xp.as_ref().unwrap()[ii],
+                "xp.r mismatch y={} z={}",
+                y,
+                z
+            );
+            assert_eq!(
+                g,
+                nb.sk_xp.as_ref().unwrap()[ii],
+                "xp.g mismatch y={} z={}",
+                y,
+                z
+            );
+            assert_eq!(
+                b,
+                nb.bcn_xp.as_ref().unwrap()[ii],
+                "xp.b mismatch y={} z={}",
+                y,
+                z
+            );
         }
         // -Z ring y=0 (oy + 0)
         for x in 0..sx {
             let (r, g, b) = at(ox + 1 + x, oy + 0);
             let ii = y * sx + x;
-            assert_eq!(r, nb.zn.as_ref().unwrap()[ii], "zn.r mismatch y={} x={}", y, x);
-            assert_eq!(g, nb.sk_zn.as_ref().unwrap()[ii], "zn.g mismatch y={} x={}", y, x);
-            assert_eq!(b, nb.bcn_zn.as_ref().unwrap()[ii], "zn.b mismatch y={} x={}", y, x);
+            assert_eq!(
+                r,
+                nb.zn.as_ref().unwrap()[ii],
+                "zn.r mismatch y={} x={}",
+                y,
+                x
+            );
+            assert_eq!(
+                g,
+                nb.sk_zn.as_ref().unwrap()[ii],
+                "zn.g mismatch y={} x={}",
+                y,
+                x
+            );
+            assert_eq!(
+                b,
+                nb.bcn_zn.as_ref().unwrap()[ii],
+                "zn.b mismatch y={} x={}",
+                y,
+                x
+            );
         }
         // +Z ring y=sz+1
         for x in 0..sx {
             let (r, g, b) = at(ox + 1 + x, oy + (sz + 1));
             let ii = y * sx + x;
-            assert_eq!(r, nb.zp.as_ref().unwrap()[ii], "zp.r mismatch y={} x={}", y, x);
-            assert_eq!(g, nb.sk_zp.as_ref().unwrap()[ii], "zp.g mismatch y={} x={}", y, x);
-            assert_eq!(b, nb.bcn_zp.as_ref().unwrap()[ii], "zp.b mismatch y={} x={}", y, x);
+            assert_eq!(
+                r,
+                nb.zp.as_ref().unwrap()[ii],
+                "zp.r mismatch y={} x={}",
+                y,
+                x
+            );
+            assert_eq!(
+                g,
+                nb.sk_zp.as_ref().unwrap()[ii],
+                "zp.g mismatch y={} x={}",
+                y,
+                x
+            );
+            assert_eq!(
+                b,
+                nb.bcn_zp.as_ref().unwrap()[ii],
+                "zp.b mismatch y={} x={}",
+                y,
+                x
+            );
         }
     }
 }
@@ -757,7 +852,14 @@ fn atlas_interior_and_missing_ring_corners() {
             for x in 0..sx {
                 let (r, g, b) = at(ox + 1 + x, oy + 1 + z);
                 let i = lg.idx(x, y, z);
-                assert_eq!((r, g, b), (lg.block_light[i], lg.skylight[i], lg.beacon_light[i]), "interior mismatch at x={},y={},z={}", x, y, z);
+                assert_eq!(
+                    (r, g, b),
+                    (lg.block_light[i], lg.skylight[i], lg.beacon_light[i]),
+                    "interior mismatch at x={},y={},z={}",
+                    x,
+                    y,
+                    z
+                );
             }
         }
         // +X ring present
@@ -776,8 +878,20 @@ fn atlas_interior_and_missing_ring_corners() {
         for x in 0..sx {
             let (r0, g0, b0) = at(ox + 1 + x, oy + 0);
             let (r1, g1, b1) = at(ox + 1 + x, oy + (sz + 1));
-            assert_eq!((r0, g0, b0), (0, 0, 0), "-Z ring not zero at y={}, x={}", y, x);
-            assert_eq!((r1, g1, b1), (0, 0, 0), "+Z ring not zero at y={}, x={}", y, x);
+            assert_eq!(
+                (r0, g0, b0),
+                (0, 0, 0),
+                "-Z ring not zero at y={}, x={}",
+                y,
+                x
+            );
+            assert_eq!(
+                (r1, g1, b1),
+                (0, 0, 0),
+                "+Z ring not zero at y={}, x={}",
+                y,
+                x
+            );
         }
         // Corners remain zero
         let corners = [
@@ -788,7 +902,13 @@ fn atlas_interior_and_missing_ring_corners() {
         ];
         for &(cx, cy) in &corners {
             let (r, g, b) = at(cx, cy);
-            assert_eq!((r, g, b), (0, 0, 0), "corner not zero at tile origin ({},{})", cx, cy);
+            assert_eq!(
+                (r, g, b),
+                (0, 0, 0),
+                "corner not zero at tile origin ({},{})",
+                cx,
+                cy
+            );
         }
     }
 }
@@ -925,7 +1045,10 @@ fn beacons_are_ignored_in_micro_path() {
     let sz = 1;
     let world = geist_world::World::new(1, 1, sx, sy, sz, 6, WorldGenMode::Flat { thickness: 0 });
     let air_id = reg.id_by_name("air").unwrap();
-    let buf = make_chunk_buf_with(&reg, 0, 0, sx, sy, sz, &|_, _, _| Block { id: air_id, state: 0 });
+    let buf = make_chunk_buf_with(&reg, 0, 0, sx, sy, sz, &|_, _, _| Block {
+        id: air_id,
+        state: 0,
+    });
     let store = LightingStore::new(sx, sy, sz);
     store.add_beacon_world(0, 0, 0, 200);
     let lg = super::compute_light_with_borders_buf(&buf, &store, &reg, &world);
@@ -943,12 +1066,18 @@ fn sample_face_local_s2_uses_neighbor_micro_planes() {
     let stone_id = reg.id_by_name("stone").unwrap();
 
     // Compute neighbor (1,0) first so its micro planes are available
-    let buf_nb = make_chunk_buf_with(&reg, 1, 0, sx, sy, sz, &|_, _, _| Block { id: air_id, state: 0 });
+    let buf_nb = make_chunk_buf_with(&reg, 1, 0, sx, sy, sz, &|_, _, _| Block {
+        id: air_id,
+        state: 0,
+    });
     let store = LightingStore::new(sx, sy, sz);
     let _lg_nb = super::compute_light_with_borders_buf(&buf_nb, &store, &reg, &world);
 
     // Now current (0,0) is stone (no local micro skylight)
-    let buf_me = make_chunk_buf_with(&reg, 0, 0, sx, sy, sz, &|_, _, _| Block { id: stone_id, state: 0 });
+    let buf_me = make_chunk_buf_with(&reg, 0, 0, sx, sy, sz, &|_, _, _| Block {
+        id: stone_id,
+        state: 0,
+    });
     let lg_me = super::compute_light_with_borders_buf(&buf_me, &store, &reg, &world);
     // Sampling +X across seam should use neighbor micro skylight (255)
     let val = lg_me.sample_face_local_s2(&buf_me, &reg, 0, 0, 0, 2);
@@ -958,9 +1087,18 @@ fn sample_face_local_s2_uses_neighbor_micro_planes() {
 #[test]
 fn skylight_transparent_s2_gates_full_cube_vs_micro_occ() {
     let reg = make_test_registry();
-    let air = Block { id: reg.id_by_name("air").unwrap(), state: 0 };
-    let stone = Block { id: reg.id_by_name("stone").unwrap(), state: 0 };
-    let slab = Block { id: reg.id_by_name("slab").unwrap(), state: 0 };
+    let air = Block {
+        id: reg.id_by_name("air").unwrap(),
+        state: 0,
+    };
+    let stone = Block {
+        id: reg.id_by_name("stone").unwrap(),
+        state: 0,
+    };
+    let slab = Block {
+        id: reg.id_by_name("slab").unwrap(),
+        state: 0,
+    };
     assert!(super::skylight_transparent_s2(air, &reg));
     assert!(!super::skylight_transparent_s2(stone, &reg));
     // Slab has micro occupancy, which should be skylight transparent for BFS
@@ -970,8 +1108,14 @@ fn skylight_transparent_s2_gates_full_cube_vs_micro_occ() {
 #[test]
 fn skylight_transparent_s2_dynamic_shapes() {
     let reg = make_test_registry();
-    let air = Block { id: reg.id_by_name("air").unwrap(), state: 0 };
-    let fence = Block { id: reg.id_by_name("fence").unwrap(), state: 0 };
+    let air = Block {
+        id: reg.id_by_name("air").unwrap(),
+        state: 0,
+    };
+    let fence = Block {
+        id: reg.id_by_name("fence").unwrap(),
+        state: 0,
+    };
     assert!(super::skylight_transparent_s2(air, &reg));
     assert!(super::skylight_transparent_s2(fence, &reg));
 }
@@ -997,11 +1141,17 @@ fn sample_face_local_s2_uses_neighbor_micro_planes_z() {
     let air_id = reg.id_by_name("air").unwrap();
     let stone_id = reg.id_by_name("stone").unwrap();
     // Compute neighbor (0,1) first so its micro planes are available
-    let buf_nb = make_chunk_buf_with(&reg, 0, 1, sx, sy, sz, &|_, _, _| Block { id: air_id, state: 0 });
+    let buf_nb = make_chunk_buf_with(&reg, 0, 1, sx, sy, sz, &|_, _, _| Block {
+        id: air_id,
+        state: 0,
+    });
     let store = LightingStore::new(sx, sy, sz);
     let _lg_nb = super::compute_light_with_borders_buf(&buf_nb, &store, &reg, &world);
     // Now current (0,0) is stone
-    let buf_me = make_chunk_buf_with(&reg, 0, 0, sx, sy, sz, &|_, _, _| Block { id: stone_id, state: 0 });
+    let buf_me = make_chunk_buf_with(&reg, 0, 0, sx, sy, sz, &|_, _, _| Block {
+        id: stone_id,
+        state: 0,
+    });
     let lg_me = super::compute_light_with_borders_buf(&buf_me, &store, &reg, &world);
     // Sampling +Z across seam should use neighbor micro skylight (255)
     let val = lg_me.sample_face_local_s2(&buf_me, &reg, 0, 0, 0, 4);
@@ -1048,25 +1198,94 @@ fn can_cross_face_s2_basic_blocking_and_open() {
     let reg = {
         let materials = MaterialCatalog::new();
         let mut blocks = vec![
-            BlockDef { name: "air".into(), id: Some(0), solid: Some(false), blocks_skylight: Some(false), propagates_light: Some(true), emission: Some(0), light_profile: None, light: None, shape: Some(ShapeConfig::Simple("cube".into())), materials: None, state_schema: None, seam: None },
-            BlockDef { name: "stone".into(), id: Some(1), solid: Some(true), blocks_skylight: Some(true), propagates_light: Some(false), emission: Some(0), light_profile: None, light: None, shape: Some(ShapeConfig::Simple("cube".into())), materials: None, state_schema: None, seam: None },
-            BlockDef { name: "slab".into(), id: Some(3), solid: Some(true), blocks_skylight: Some(false), propagates_light: Some(true), emission: Some(0), light_profile: None, light: None, shape: Some(ShapeConfig::Simple("slab".into())), materials: None, state_schema: None, seam: None },
+            BlockDef {
+                name: "air".into(),
+                id: Some(0),
+                solid: Some(false),
+                blocks_skylight: Some(false),
+                propagates_light: Some(true),
+                emission: Some(0),
+                light_profile: None,
+                light: None,
+                shape: Some(ShapeConfig::Simple("cube".into())),
+                materials: None,
+                state_schema: None,
+                seam: None,
+            },
+            BlockDef {
+                name: "stone".into(),
+                id: Some(1),
+                solid: Some(true),
+                blocks_skylight: Some(true),
+                propagates_light: Some(false),
+                emission: Some(0),
+                light_profile: None,
+                light: None,
+                shape: Some(ShapeConfig::Simple("cube".into())),
+                materials: None,
+                state_schema: None,
+                seam: None,
+            },
+            BlockDef {
+                name: "slab".into(),
+                id: Some(3),
+                solid: Some(true),
+                blocks_skylight: Some(false),
+                propagates_light: Some(true),
+                emission: Some(0),
+                light_profile: None,
+                light: None,
+                shape: Some(ShapeConfig::Simple("slab".into())),
+                materials: None,
+                state_schema: None,
+                seam: None,
+            },
             // Slab with dont_occlude_same: should permit face openness when both sides are the same
-            BlockDef { name: "slab_same".into(), id: Some(5), solid: Some(true), blocks_skylight: Some(false), propagates_light: Some(true), emission: Some(0), light_profile: None, light: None, shape: Some(ShapeConfig::Simple("slab".into())), materials: None, state_schema: None, seam: Some(SeamPolicyCfg::Simple(SeamPolicySimple::DontOccludeSame)) },
+            BlockDef {
+                name: "slab_same".into(),
+                id: Some(5),
+                solid: Some(true),
+                blocks_skylight: Some(false),
+                propagates_light: Some(true),
+                emission: Some(0),
+                light_profile: None,
+                light: None,
+                shape: Some(ShapeConfig::Simple("slab".into())),
+                materials: None,
+                state_schema: None,
+                seam: Some(SeamPolicyCfg::Simple(SeamPolicySimple::DontOccludeSame)),
+            },
         ];
-        BlockRegistry::from_configs(materials, BlocksConfig { blocks: blocks.drain(..).collect(), lighting: None, unknown_block: Some("unknown".into()) }).unwrap()
+        BlockRegistry::from_configs(
+            materials,
+            BlocksConfig {
+                blocks: blocks.drain(..).collect(),
+                lighting: None,
+                unknown_block: Some("unknown".into()),
+            },
+        )
+        .unwrap()
     };
     let slab_id = reg.id_by_name("slab").unwrap();
     let slab_same_id = reg.id_by_name("slab_same").unwrap();
     // 2x2x1 chunk; we’ll test +X faces between x=0 and x=1
-    let buf_slab_air = make_chunk_buf_with(&reg, 0, 0, 2, 2, 1, &|x, y, _| Block { id: if x == 0 { slab_id } else { 0 }, state: 0 });
+    let buf_slab_air = make_chunk_buf_with(&reg, 0, 0, 2, 2, 1, &|x, y, _| Block {
+        id: if x == 0 { slab_id } else { 0 },
+        state: 0,
+    });
     // From x=0 slab to x=1 air: some micro face cells open => can cross
     assert!(super::can_cross_face_s2(&buf_slab_air, &reg, 0, 0, 0, 2));
     // Slab to slab with DontOccludeSame across +X should be considered open (ignores neighbor solid on same type)
-    let buf_same = make_chunk_buf_with(&reg, 0, 0, 2, 2, 1, &|_, _, _| Block { id: slab_same_id, state: 0 });
+    let buf_same = make_chunk_buf_with(&reg, 0, 0, 2, 2, 1, &|_, _, _| Block {
+        id: slab_same_id,
+        state: 0,
+    });
     assert!(super::can_cross_face_s2(&buf_same, &reg, 0, 0, 0, 2));
     // Stone to stone (full cubes) is blocked
     let stone_id = reg.id_by_name("stone").unwrap();
-    let buf_stone = make_chunk_buf_with(&reg, 0, 0, 2, 2, 1, &|_, _, _| Block { id: stone_id, state: 0 });
+    let buf_stone = make_chunk_buf_with(&reg, 0, 0, 2, 2, 1, &|_, _, _| Block {
+        id: stone_id,
+        state: 0,
+    });
     assert!(!super::can_cross_face_s2(&buf_stone, &reg, 0, 0, 0, 2));
 }

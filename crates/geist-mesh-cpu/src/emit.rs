@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use geist_blocks::types::MaterialId;
 use geist_geom::Vec3;
 
-use crate::mesh_build::MeshBuild;
-use crate::face::Face;
 use crate::constants::OPAQUE_ALPHA;
+use crate::face::Face;
+use crate::mesh_build::MeshBuild;
 
 // Fast-path sink for writing into per-material mesh buffers without HashMap overhead.
 pub trait BuildSink {
@@ -140,14 +140,46 @@ pub(crate) fn emit_box_faces(
     ];
 
     let corners = [
-        Vec3 { x: min.x, y: max.y, z: min.z },
-        Vec3 { x: min.x, y: min.y, z: min.z },
-        Vec3 { x: max.x, y: max.y, z: min.z },
-        Vec3 { x: max.x, y: min.y, z: min.z },
-        Vec3 { x: min.x, y: max.y, z: max.z },
-        Vec3 { x: min.x, y: min.y, z: max.z },
-        Vec3 { x: max.x, y: max.y, z: max.z },
-        Vec3 { x: max.x, y: min.y, z: max.z },
+        Vec3 {
+            x: min.x,
+            y: max.y,
+            z: min.z,
+        },
+        Vec3 {
+            x: min.x,
+            y: min.y,
+            z: min.z,
+        },
+        Vec3 {
+            x: max.x,
+            y: max.y,
+            z: min.z,
+        },
+        Vec3 {
+            x: max.x,
+            y: min.y,
+            z: min.z,
+        },
+        Vec3 {
+            x: min.x,
+            y: max.y,
+            z: max.z,
+        },
+        Vec3 {
+            x: min.x,
+            y: min.y,
+            z: max.z,
+        },
+        Vec3 {
+            x: max.x,
+            y: max.y,
+            z: max.z,
+        },
+        Vec3 {
+            x: max.x,
+            y: min.y,
+            z: max.z,
+        },
     ];
 
     for &(face, indices, normal) in &FACE_DATA {
@@ -157,7 +189,11 @@ pub(crate) fn emit_box_faces(
                 Face::PosX | Face::NegX => (max.z - min.z, max.y - min.y),
                 Face::PosZ | Face::NegZ => (max.x - min.x, max.y - min.y),
             };
-            let n = Vec3 { x: normal.0, y: normal.1, z: normal.2 };
+            let n = Vec3 {
+                x: normal.0,
+                y: normal.1,
+                z: normal.2,
+            };
             // Absolute UVs anchored to world-space
             let a = corners[indices[0]];
             let b = corners[indices[1]];
@@ -169,7 +205,9 @@ pub(crate) fn emit_box_faces(
                 Face::PosZ | Face::NegZ => (p.x, p.y),
             };
             let uvs = [uv_from(a), uv_from(d), uv_from(c), uv_from(b)];
-            builds.get_build_mut(mid).add_quad_uv(a, b, c, d, n, uvs, false, rgba);
+            builds
+                .get_build_mut(mid)
+                .add_quad_uv(a, b, c, d, n, uvs, false, rgba);
         }
     }
 }
@@ -185,7 +223,9 @@ pub(crate) fn emit_box_generic(
     mut sample_light: impl FnMut(Face) -> u8,
 ) {
     emit_box_faces(builds, min, max, |face| {
-        if occludes(face) { return None; }
+        if occludes(face) {
+            return None;
+        }
         let lv = sample_light(face);
         let rgba = [lv, lv, lv, OPAQUE_ALPHA];
         let mid = fm_for_face(face);
@@ -220,6 +260,8 @@ pub(crate) fn emit_box_generic_clipped(
     max.x = max.x.min(bx1);
     max.y = max.y.min(by1);
     max.z = max.z.min(bz1);
-    if !(min.x < max.x && min.y < max.y && min.z < max.z) { return; }
+    if !(min.x < max.x && min.y < max.y && min.z < max.z) {
+        return;
+    }
     emit_box_generic(builds, min, max, fm_for_face, occludes, sample_light);
 }

@@ -7,7 +7,7 @@ pub(crate) const MICRO_HALF_STEP_SIZE: f32 = 0.5; // world units per half-step
 
 // Lookup table sizes for microgrid occupancy/emptiness encodings
 pub(crate) const BOXES_TABLE_SIZE: usize = 256; // 2^8 occupancy patterns
-pub(crate) const RECTS_TABLE_SIZE: usize = 16;  // 2^4 boundary emptiness patterns
+pub(crate) const RECTS_TABLE_SIZE: usize = 16; // 2^4 boundary emptiness patterns
 
 // Bitset configuration (u64-based)
 pub(crate) const BITS_PER_WORD: usize = 64;

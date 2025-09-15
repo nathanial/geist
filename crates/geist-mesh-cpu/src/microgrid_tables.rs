@@ -1,10 +1,5 @@
+use crate::constants::{BOXES_TABLE_SIZE, MICROGRID_LAST_IDX, MICROGRID_STEPS, RECTS_TABLE_SIZE};
 use std::sync::OnceLock;
-use crate::constants::{
-    MICROGRID_STEPS,
-    MICROGRID_LAST_IDX,
-    BOXES_TABLE_SIZE,
-    RECTS_TABLE_SIZE,
-};
 
 // Compact encodings for micro-grid assets
 // Boxes are encoded as half-step coordinates in [0, 1, 2]: (x0,y0,z0,x1,y1,z1)

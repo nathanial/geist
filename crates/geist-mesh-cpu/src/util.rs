@@ -3,11 +3,11 @@ use std::collections::HashMap;
 use geist_blocks::BlockRegistry;
 use geist_blocks::types::{Block, MaterialId};
 use geist_chunk::ChunkBuf;
-use geist_world::World;
 use geist_geom::Vec3;
+use geist_world::World;
 
-use crate::face::Face;
 use crate::constants::MICRO_HALF_STEP_SIZE;
+use crate::face::Face;
 use crate::microgrid_tables::occ8_to_boxes;
 
 // Visual lighting floor logic removed; renderer handles tone mapping and fog.
@@ -147,7 +147,6 @@ pub(crate) fn is_occluder(
     occludes_face(nb, face, reg)
 }
 
-
 // apply_min_light deprecated; keep behavior in shaders if needed.
 
 #[inline]
@@ -157,8 +156,16 @@ pub(crate) fn microgrid_boxes(fx: f32, fy: f32, fz: f32, occ: u8) -> Vec<(Vec3, 
     let cell = MICRO_HALF_STEP_SIZE;
     let mut out = Vec::new();
     for b in occ8_to_boxes(occ) {
-        let min = Vec3 { x: fx + (b[0] as f32) * cell, y: fy + (b[1] as f32) * cell, z: fz + (b[2] as f32) * cell };
-        let max = Vec3 { x: fx + (b[3] as f32) * cell, y: fy + (b[4] as f32) * cell, z: fz + (b[5] as f32) * cell };
+        let min = Vec3 {
+            x: fx + (b[0] as f32) * cell,
+            y: fy + (b[1] as f32) * cell,
+            z: fz + (b[2] as f32) * cell,
+        };
+        let max = Vec3 {
+            x: fx + (b[3] as f32) * cell,
+            y: fy + (b[4] as f32) * cell,
+            z: fz + (b[5] as f32) * cell,
+        };
         out.push((min, max));
     }
     out
@@ -175,8 +182,16 @@ pub(crate) fn for_each_micro_box(
 ) {
     let cell = MICRO_HALF_STEP_SIZE;
     for b in occ8_to_boxes(occ) {
-        let min = Vec3 { x: fx + (b[0] as f32) * cell, y: fy + (b[1] as f32) * cell, z: fz + (b[2] as f32) * cell };
-        let max = Vec3 { x: fx + (b[3] as f32) * cell, y: fy + (b[4] as f32) * cell, z: fz + (b[5] as f32) * cell };
+        let min = Vec3 {
+            x: fx + (b[0] as f32) * cell,
+            y: fy + (b[1] as f32) * cell,
+            z: fz + (b[2] as f32) * cell,
+        };
+        let max = Vec3 {
+            x: fx + (b[3] as f32) * cell,
+            y: fy + (b[4] as f32) * cell,
+            z: fz + (b[5] as f32) * cell,
+        };
         f(min, max);
     }
 }

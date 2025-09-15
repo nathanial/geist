@@ -84,7 +84,7 @@ pub fn compute_light_with_borders_buf_micro(
             }
         }
     }
-    
+
     // Build a 1-bit-per-micro-cell occupancy bitset
     let micro_bit_count = mxs * mys * mzs;
     let mut micro_solid_bits = vec![0u64; (micro_bit_count + 63) / 64];
@@ -149,7 +149,6 @@ pub fn compute_light_with_borders_buf_micro(
             }
         }
     }
-    
 
     // BFS queues (stable order). We seed as we write, so no full-volume scan needed.
     struct Bucket {
@@ -159,7 +158,10 @@ pub fn compute_light_with_borders_buf_micro(
     impl Bucket {
         #[inline]
         fn new() -> Self {
-            Self { data: Vec::new(), read: 0 }
+            Self {
+                data: Vec::new(),
+                read: 0,
+            }
         }
         #[inline]
         fn push(&mut self, idx: usize, level: u8) {
@@ -334,9 +336,14 @@ pub fn compute_light_with_borders_buf_micro(
                             .as_ref()
                             .map(|p| clamp_sub_u8(p[off], MICRO_SKY_ATTENUATION))
                             .unwrap_or(0);
-                        if sblk > 0 || ssky > 0 { mic_line_nx = true; break; }
+                        if sblk > 0 || ssky > 0 {
+                            mic_line_nx = true;
+                            break;
+                        }
                     }
-                    if mic_line_nx { break; }
+                    if mic_line_nx {
+                        break;
+                    }
                 }
             }
             let mut mic_line_px = false;
@@ -356,25 +363,46 @@ pub fn compute_light_with_borders_buf_micro(
                             .as_ref()
                             .map(|p| clamp_sub_u8(p[off], MICRO_SKY_ATTENUATION))
                             .unwrap_or(0);
-                        if sblk > 0 || ssky > 0 { mic_line_px = true; break; }
+                        if sblk > 0 || ssky > 0 {
+                            mic_line_px = true;
+                            break;
+                        }
                     }
-                    if mic_line_px { break; }
+                    if mic_line_px {
+                        break;
+                    }
                 }
             }
             // Line-level coarse seeds (skip side if no micro and no coarse seeds on this line)
             let mut coarse_xn = false;
-            if let Some(ref p) = nb.xn { coarse_xn |= clamp_sub_u8(p[ly * buf.sz + lz], atten) > 0; }
-            if let Some(ref p) = nb.sk_xn { coarse_xn |= clamp_sub_u8(p[ly * buf.sz + lz], atten) > 0; }
+            if let Some(ref p) = nb.xn {
+                coarse_xn |= clamp_sub_u8(p[ly * buf.sz + lz], atten) > 0;
+            }
+            if let Some(ref p) = nb.sk_xn {
+                coarse_xn |= clamp_sub_u8(p[ly * buf.sz + lz], atten) > 0;
+            }
             let mut coarse_xp = false;
-            if let Some(ref p) = nb.xp { coarse_xp |= clamp_sub_u8(p[ly * buf.sz + lz], atten) > 0; }
-            if let Some(ref p) = nb.sk_xp { coarse_xp |= clamp_sub_u8(p[ly * buf.sz + lz], atten) > 0; }
+            if let Some(ref p) = nb.xp {
+                coarse_xp |= clamp_sub_u8(p[ly * buf.sz + lz], atten) > 0;
+            }
+            if let Some(ref p) = nb.sk_xp {
+                coarse_xp |= clamp_sub_u8(p[ly * buf.sz + lz], atten) > 0;
+            }
             let mut do_xn = mic_line_nx || coarse_xn;
             let mut do_xp = mic_line_px || coarse_xp;
-            if !do_xn && !do_xp { continue; }
+            if !do_xn && !do_xp {
+                continue;
+            }
             // Only fetch neighbor blocks when we need coarse fallback gating
             let (there_nx, there_px) = if (!have_micro_nx && do_xn) || (!have_micro_px && do_xp) {
                 (
-                    world.block_at_runtime_with(reg, &mut reuse_ctx, base_x - 1, ly as i32, base_z + lz as i32),
+                    world.block_at_runtime_with(
+                        reg,
+                        &mut reuse_ctx,
+                        base_x - 1,
+                        ly as i32,
+                        base_z + lz as i32,
+                    ),
                     world.block_at_runtime_with(
                         reg,
                         &mut reuse_ctx,
@@ -416,15 +444,29 @@ pub fn compute_light_with_borders_buf_micro(
             // Extra pruning: if all gates closed for a side, skip it
             if do_xn {
                 let mut any = false;
-                for iym in 0..2 { for izm in 0..2 { any |= gate_nx[iym][izm]; } }
-                if !any { do_xn = false; }
+                for iym in 0..2 {
+                    for izm in 0..2 {
+                        any |= gate_nx[iym][izm];
+                    }
+                }
+                if !any {
+                    do_xn = false;
+                }
             }
             if do_xp {
                 let mut any = false;
-                for iym in 0..2 { for izm in 0..2 { any |= gate_px[iym][izm]; } }
-                if !any { do_xp = false; }
+                for iym in 0..2 {
+                    for izm in 0..2 {
+                        any |= gate_px[iym][izm];
+                    }
+                }
+                if !any {
+                    do_xp = false;
+                }
             }
-            if !do_xn && !do_xp { continue; }
+            if !do_xn && !do_xp {
+                continue;
+            }
             // Process the four micro offsets within this macro pair
             for iym in 0..2 {
                 for izm in 0..2 {
@@ -546,9 +588,14 @@ pub fn compute_light_with_borders_buf_micro(
                             .as_ref()
                             .map(|p| clamp_sub_u8(p[off], MICRO_SKY_ATTENUATION))
                             .unwrap_or(0);
-                        if sblk > 0 || ssky > 0 { mic_line_zn = true; break; }
+                        if sblk > 0 || ssky > 0 {
+                            mic_line_zn = true;
+                            break;
+                        }
                     }
-                    if mic_line_zn { break; }
+                    if mic_line_zn {
+                        break;
+                    }
                 }
             }
             let mut mic_line_zp = false;
@@ -568,25 +615,46 @@ pub fn compute_light_with_borders_buf_micro(
                             .as_ref()
                             .map(|p| clamp_sub_u8(p[off], MICRO_SKY_ATTENUATION))
                             .unwrap_or(0);
-                        if sblk > 0 || ssky > 0 { mic_line_zp = true; break; }
+                        if sblk > 0 || ssky > 0 {
+                            mic_line_zp = true;
+                            break;
+                        }
                     }
-                    if mic_line_zp { break; }
+                    if mic_line_zp {
+                        break;
+                    }
                 }
             }
             // Line-level coarse seeds for this line
             let mut coarse_zn = false;
-            if let Some(ref p) = nb.zn { coarse_zn |= clamp_sub_u8(p[ly * buf.sx + lx], atten) > 0; }
-            if let Some(ref p) = nb.sk_zn { coarse_zn |= clamp_sub_u8(p[ly * buf.sx + lx], atten) > 0; }
+            if let Some(ref p) = nb.zn {
+                coarse_zn |= clamp_sub_u8(p[ly * buf.sx + lx], atten) > 0;
+            }
+            if let Some(ref p) = nb.sk_zn {
+                coarse_zn |= clamp_sub_u8(p[ly * buf.sx + lx], atten) > 0;
+            }
             let mut coarse_zp = false;
-            if let Some(ref p) = nb.zp { coarse_zp |= clamp_sub_u8(p[ly * buf.sx + lx], atten) > 0; }
-            if let Some(ref p) = nb.sk_zp { coarse_zp |= clamp_sub_u8(p[ly * buf.sx + lx], atten) > 0; }
+            if let Some(ref p) = nb.zp {
+                coarse_zp |= clamp_sub_u8(p[ly * buf.sx + lx], atten) > 0;
+            }
+            if let Some(ref p) = nb.sk_zp {
+                coarse_zp |= clamp_sub_u8(p[ly * buf.sx + lx], atten) > 0;
+            }
             let mut do_zn = mic_line_zn || coarse_zn;
             let mut do_zp = mic_line_zp || coarse_zp;
-            if !do_zn && !do_zp { continue; }
+            if !do_zn && !do_zp {
+                continue;
+            }
             // Only fetch neighbor blocks for coarse fallback
             let (there_nz, there_pz) = if (!have_micro_nz && do_zn) || (!have_micro_pz && do_zp) {
                 (
-                    world.block_at_runtime_with(reg, &mut reuse_ctx, base_x + lx as i32, ly as i32, base_z - 1),
+                    world.block_at_runtime_with(
+                        reg,
+                        &mut reuse_ctx,
+                        base_x + lx as i32,
+                        ly as i32,
+                        base_z - 1,
+                    ),
                     world.block_at_runtime_with(
                         reg,
                         &mut reuse_ctx,
@@ -625,15 +693,29 @@ pub fn compute_light_with_borders_buf_micro(
             // Extra pruning: if all gates closed, skip side
             if do_zn {
                 let mut any = false;
-                for iym in 0..2 { for ixm in 0..2 { any |= gate_nz[iym][ixm]; } }
-                if !any { do_zn = false; }
+                for iym in 0..2 {
+                    for ixm in 0..2 {
+                        any |= gate_nz[iym][ixm];
+                    }
+                }
+                if !any {
+                    do_zn = false;
+                }
             }
             if do_zp {
                 let mut any = false;
-                for iym in 0..2 { for ixm in 0..2 { any |= gate_pz[iym][ixm]; } }
-                if !any { do_zp = false; }
+                for iym in 0..2 {
+                    for ixm in 0..2 {
+                        any |= gate_pz[iym][ixm];
+                    }
+                }
+                if !any {
+                    do_zp = false;
+                }
             }
-            if !do_zn && !do_zp { continue; }
+            if !do_zn && !do_zp {
+                continue;
+            }
             for ixm in 0..2 {
                 for iym in 0..2 {
                     let mx = (lx << 1) | ixm;
@@ -736,7 +818,9 @@ pub fn compute_light_with_borders_buf_micro(
                 let b = buf.get_local(x, y, z);
                 if let Some(ty) = reg.get(b.id) {
                     let level = ty.light_emission(b.state);
-                    if level == 0 { continue; }
+                    if level == 0 {
+                        continue;
+                    }
                     let bx = x * MICRO_SCALE;
                     let by = y * MICRO_SCALE;
                     let bz = z * MICRO_SCALE;
@@ -752,62 +836,86 @@ pub fn compute_light_with_borders_buf_micro(
                     // For each face, set the 2x2 micro cells on the emitter's face to `level` (even if solid),
                     // and set the adjacent outside micro cells when they exist and are not solid.
                     // +X face
-                    for oy in 0..MICRO_SCALE { for oz in 0..MICRO_SCALE {
-                        let ii_in = midx(bx + 1, by + oy, bz + oz, mxs, mzs);
-                        seed_idx(ii_in);
-                        let mx_out = bx + 2;
-                        if mx_out < mxs {
-                            let ii_out = midx(mx_out, by + oy, bz + oz, mxs, mzs);
-                            if !bs_get(&micro_solid_bits, ii_out) { seed_idx(ii_out); }
+                    for oy in 0..MICRO_SCALE {
+                        for oz in 0..MICRO_SCALE {
+                            let ii_in = midx(bx + 1, by + oy, bz + oz, mxs, mzs);
+                            seed_idx(ii_in);
+                            let mx_out = bx + 2;
+                            if mx_out < mxs {
+                                let ii_out = midx(mx_out, by + oy, bz + oz, mxs, mzs);
+                                if !bs_get(&micro_solid_bits, ii_out) {
+                                    seed_idx(ii_out);
+                                }
+                            }
                         }
-                    }}
+                    }
                     // -X face
-                    for oy in 0..MICRO_SCALE { for oz in 0..MICRO_SCALE {
-                        let ii_in = midx(bx + 0, by + oy, bz + oz, mxs, mzs);
-                        seed_idx(ii_in);
-                        if bx > 0 {
-                            let ii_out = midx(bx - 1, by + oy, bz + oz, mxs, mzs);
-                            if !bs_get(&micro_solid_bits, ii_out) { seed_idx(ii_out); }
+                    for oy in 0..MICRO_SCALE {
+                        for oz in 0..MICRO_SCALE {
+                            let ii_in = midx(bx + 0, by + oy, bz + oz, mxs, mzs);
+                            seed_idx(ii_in);
+                            if bx > 0 {
+                                let ii_out = midx(bx - 1, by + oy, bz + oz, mxs, mzs);
+                                if !bs_get(&micro_solid_bits, ii_out) {
+                                    seed_idx(ii_out);
+                                }
+                            }
                         }
-                    }}
+                    }
                     // +Y face
-                    for oz in 0..MICRO_SCALE { for ox in 0..MICRO_SCALE {
-                        let ii_in = midx(bx + ox, by + 1, bz + oz, mxs, mzs);
-                        seed_idx(ii_in);
-                        let my_out = by + 2;
-                        if my_out < mys {
-                            let ii_out = midx(bx + ox, my_out, bz + oz, mxs, mzs);
-                            if !bs_get(&micro_solid_bits, ii_out) { seed_idx(ii_out); }
+                    for oz in 0..MICRO_SCALE {
+                        for ox in 0..MICRO_SCALE {
+                            let ii_in = midx(bx + ox, by + 1, bz + oz, mxs, mzs);
+                            seed_idx(ii_in);
+                            let my_out = by + 2;
+                            if my_out < mys {
+                                let ii_out = midx(bx + ox, my_out, bz + oz, mxs, mzs);
+                                if !bs_get(&micro_solid_bits, ii_out) {
+                                    seed_idx(ii_out);
+                                }
+                            }
                         }
-                    }}
+                    }
                     // -Y face
-                    for oz in 0..MICRO_SCALE { for ox in 0..MICRO_SCALE {
-                        let ii_in = midx(bx + ox, by + 0, bz + oz, mxs, mzs);
-                        seed_idx(ii_in);
-                        if by > 0 {
-                            let ii_out = midx(bx + ox, by - 1, bz + oz, mxs, mzs);
-                            if !bs_get(&micro_solid_bits, ii_out) { seed_idx(ii_out); }
+                    for oz in 0..MICRO_SCALE {
+                        for ox in 0..MICRO_SCALE {
+                            let ii_in = midx(bx + ox, by + 0, bz + oz, mxs, mzs);
+                            seed_idx(ii_in);
+                            if by > 0 {
+                                let ii_out = midx(bx + ox, by - 1, bz + oz, mxs, mzs);
+                                if !bs_get(&micro_solid_bits, ii_out) {
+                                    seed_idx(ii_out);
+                                }
+                            }
                         }
-                    }}
+                    }
                     // +Z face
-                    for oy in 0..MICRO_SCALE { for ox in 0..MICRO_SCALE {
-                        let ii_in = midx(bx + ox, by + oy, bz + 1, mxs, mzs);
-                        seed_idx(ii_in);
-                        let mz_out = bz + 2;
-                        if mz_out < mzs {
-                            let ii_out = midx(bx + ox, by + oy, mz_out, mxs, mzs);
-                            if !bs_get(&micro_solid_bits, ii_out) { seed_idx(ii_out); }
+                    for oy in 0..MICRO_SCALE {
+                        for ox in 0..MICRO_SCALE {
+                            let ii_in = midx(bx + ox, by + oy, bz + 1, mxs, mzs);
+                            seed_idx(ii_in);
+                            let mz_out = bz + 2;
+                            if mz_out < mzs {
+                                let ii_out = midx(bx + ox, by + oy, mz_out, mxs, mzs);
+                                if !bs_get(&micro_solid_bits, ii_out) {
+                                    seed_idx(ii_out);
+                                }
+                            }
                         }
-                    }}
+                    }
                     // -Z face
-                    for oy in 0..MICRO_SCALE { for ox in 0..MICRO_SCALE {
-                        let ii_in = midx(bx + ox, by + oy, bz + 0, mxs, mzs);
-                        seed_idx(ii_in);
-                        if bz > 0 {
-                            let ii_out = midx(bx + ox, by + oy, bz - 1, mxs, mzs);
-                            if !bs_get(&micro_solid_bits, ii_out) { seed_idx(ii_out); }
+                    for oy in 0..MICRO_SCALE {
+                        for ox in 0..MICRO_SCALE {
+                            let ii_in = midx(bx + ox, by + oy, bz + 0, mxs, mzs);
+                            seed_idx(ii_in);
+                            if bz > 0 {
+                                let ii_out = midx(bx + ox, by + oy, bz - 1, mxs, mzs);
+                                if !bs_get(&micro_solid_bits, ii_out) {
+                                    seed_idx(ii_out);
+                                }
+                            }
                         }
-                    }}
+                    }
                 }
             }
         }
@@ -815,7 +923,9 @@ pub fn compute_light_with_borders_buf_micro(
     // B) Overlay: also seed explicit runtime emitters from the store (e.g., interactive placements)
     // Treat beacons as omni seeds for now to ensure visible emission in Micro S=2.
     for (lx, ly, lz, level, _is_beacon) in store.emitters_for_chunk(buf.cx, buf.cz) {
-        if level == 0 { continue; }
+        if level == 0 {
+            continue;
+        }
         let mx0 = lx * MICRO_SCALE;
         let my0 = ly * MICRO_SCALE;
         let mz0 = lz * MICRO_SCALE;

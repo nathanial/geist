@@ -2,9 +2,13 @@ use geist_blocks::types::Block;
 use geist_chunk::ChunkBuf;
 use proptest::prelude::*;
 
-fn dim() -> impl Strategy<Value = usize> { 1usize..=8 }
+fn dim() -> impl Strategy<Value = usize> {
+    1usize..=8
+}
 
-fn small_i32() -> impl Strategy<Value = i32> { -1_000_000i32..=1_000_000 }
+fn small_i32() -> impl Strategy<Value = i32> {
+    -1_000_000i32..=1_000_000
+}
 
 proptest! {
     // idx maps each (x,y,z) within bounds to unique in-range indices

@@ -1,9 +1,11 @@
 use geist_geom::Vec3;
-use proptest::prelude::*;
 use proptest::num::f32::NORMAL;
+use proptest::prelude::*;
 use proptest::strategy::Strategy;
 
-fn approx(a: f32, b: f32, eps: f32) -> bool { (a - b).abs() <= eps }
+fn approx(a: f32, b: f32, eps: f32) -> bool {
+    (a - b).abs() <= eps
+}
 fn vapprox(a: Vec3, b: Vec3, eps: f32) -> bool {
     approx(a.x, b.x, eps) && approx(a.y, b.y, eps) && approx(a.z, b.z, eps)
 }
@@ -29,19 +31,24 @@ fn bounded_f32() -> impl Strategy<Value = f32> {
 }
 
 fn bounded_nonzero_f32() -> impl Strategy<Value = f32> {
-    NORMAL.prop_filter("bounded_nonzero", |v| v.is_finite() && {
-        let a = v.abs();
-        a >= 1e-6 && a <= 1e6
+    NORMAL.prop_filter("bounded_nonzero", |v| {
+        v.is_finite() && {
+            let a = v.abs();
+            a >= 1e-6 && a <= 1e6
+        }
     })
 }
 
 fn arb_vec3() -> impl Strategy<Value = Vec3> {
-    (bounded_f32(), bounded_f32(), bounded_f32())
-        .prop_map(|(x, y, z)| Vec3::new(x, y, z))
+    (bounded_f32(), bounded_f32(), bounded_f32()).prop_map(|(x, y, z)| Vec3::new(x, y, z))
 }
 
 fn arb_nondegenerate_vec3() -> impl Strategy<Value = Vec3> {
-    (bounded_nonzero_f32(), bounded_nonzero_f32(), bounded_nonzero_f32())
+    (
+        bounded_nonzero_f32(),
+        bounded_nonzero_f32(),
+        bounded_nonzero_f32(),
+    )
         .prop_map(|(x, y, z)| Vec3::new(x, y, z))
 }
 

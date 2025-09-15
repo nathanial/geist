@@ -5,4 +5,3 @@ pub struct NeighborsLoaded {
     pub neg_z: bool,
     pub pos_z: bool,
 }
-

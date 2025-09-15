@@ -28,6 +28,9 @@ pub enum Event {
     FrustumCullingToggled,
     BiomeLabelToggled,
     DebugOverlayToggled,
+    LODToggled {
+        enabled: bool,
+    },
     PlaceTypeSelected {
         block: Block,
     },
@@ -78,6 +81,7 @@ pub enum Event {
         neighbors: NeighborsLoaded,
         rev: u64,
         job_id: u64,
+        lod: geist_runtime::LODLevel,
         // Scheduling hint: which cause triggered this build
         cause: RebuildCause,
     },
@@ -85,6 +89,7 @@ pub enum Event {
         cx: i32,
         cz: i32,
         rev: u64,
+        lod: geist_runtime::LODLevel,
         cpu: ChunkMeshCPU,
         buf: ChunkBuf,
         light_borders: Option<LightBorders>,
@@ -286,6 +291,7 @@ impl EventQueue {
                     Event::FrustumCullingToggled => "FrustumCullingToggled",
                     Event::BiomeLabelToggled => "BiomeLabelToggled",
                     Event::DebugOverlayToggled => "DebugOverlayToggled",
+                    Event::LODToggled { .. } => "LODToggled",
                     Event::PlaceTypeSelected { .. } => "PlaceTypeSelected",
                     Event::MovementRequested { .. } => "MovementRequested",
                     Event::RaycastEditRequested { .. } => "RaycastEditRequested",

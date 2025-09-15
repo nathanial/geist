@@ -6,8 +6,8 @@ use geist_blocks::micro::micro_face_cell_open_s2;
 use geist_blocks::types::Block;
 use geist_chunk::ChunkBuf;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::{Arc, Mutex};
 
 mod micro;
 // Removed alternative iterative mode implementation.
@@ -1731,7 +1731,9 @@ pub fn pack_light_grid_atlas_with_neighbors(light: &LightGrid, nb: &NeighborBord
     let sz = light.sz;
     // Choose grid columns ~ sqrt(sy)
     let mut grid_cols = (sy as f32).sqrt().ceil() as usize;
-    if grid_cols == 0 { grid_cols = 1; }
+    if grid_cols == 0 {
+        grid_cols = 1;
+    }
     let grid_rows = ((sy + grid_cols - 1) / grid_cols).max(1);
     // Include -X/+X and -Z/+Z border rings
     let tile_w = sx + 2;
@@ -1755,7 +1757,9 @@ pub fn pack_light_grid_atlas_with_neighbors(light: &LightGrid, nb: &NeighborBord
                 data[di + 0] = light.block_light[src];
                 data[di + 1] = light.skylight[src];
                 data[di + 2] = light.beacon_light[src];
-                data[di + 3] = match light.beacon_dir[src] { v => (v as f32 * (255.0/5.0)).round() as u8 };
+                data[di + 3] = match light.beacon_dir[src] {
+                    v => (v as f32 * (255.0 / 5.0)).round() as u8,
+                };
             }
         }
         // +X ring (from nb.xp)
@@ -1811,7 +1815,16 @@ pub fn pack_light_grid_atlas_with_neighbors(light: &LightGrid, nb: &NeighborBord
             }
         }
     }
-    LightAtlas { data, width, height, sx: sx + 2, sy, sz: sz + 2, grid_cols, grid_rows }
+    LightAtlas {
+        data,
+        width,
+        height,
+        sx: sx + 2,
+        sy,
+        sz: sz + 2,
+        grid_cols,
+        grid_rows,
+    }
 }
 
 #[cfg(test)]

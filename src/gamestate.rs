@@ -57,6 +57,9 @@ pub struct GameState {
     pub frustum_culling_enabled: bool,
     pub show_biome_label: bool,
     pub show_debug_overlay: bool,
+    pub lod_enabled: bool,
+    // Track current applied LOD per loaded chunk
+    pub cur_lod: HashMap<(i32, i32), geist_runtime::LODLevel>,
 
     // Dynamic voxel bodies (e.g., flying castle)
     pub structures: HashMap<StructureId, Structure>,
@@ -106,6 +109,8 @@ impl GameState {
             frustum_culling_enabled: true,
             show_biome_label: true,
             show_debug_overlay: true,
+            lod_enabled: true,
+            cur_lod: HashMap::new(),
             structures: HashMap::new(),
             ground_attach: None,
             structure_speed: 0.0,

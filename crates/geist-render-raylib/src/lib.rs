@@ -216,7 +216,12 @@ pub fn upload_chunk_mesh(
                     }
                 }
             }
-            parts_gpu.push(ChunkPart { mid, model, v_start, v_count });
+            parts_gpu.push(ChunkPart {
+                mid,
+                model,
+                v_start,
+                v_count,
+            });
             q += take_q;
         }
     }
@@ -440,7 +445,8 @@ impl LeavesShader {
             raylib::ffi::rlEnableTexture(t.id);
             // Point the sampler uniform to LIGHT_TEX_SLOT
             if self.loc_light_tex >= 0 {
-                self.shader.set_shader_value(self.loc_light_tex, LIGHT_TEX_SLOT);
+                self.shader
+                    .set_shader_value(self.loc_light_tex, LIGHT_TEX_SLOT);
             }
             // Restore default slot for subsequent material binds
             raylib::ffi::rlActiveTextureSlot(0);
@@ -454,7 +460,8 @@ impl LeavesShader {
             self.shader.set_shader_value(self.loc_light_grid, v);
         }
         if self.loc_chunk_origin >= 0 {
-            self.shader.set_shader_value(self.loc_chunk_origin, chunk_origin);
+            self.shader
+                .set_shader_value(self.loc_chunk_origin, chunk_origin);
         }
         if self.loc_vis_min >= 0 {
             self.shader.set_shader_value(self.loc_vis_min, visual_min);
@@ -478,7 +485,8 @@ impl LeavesShader {
             self.shader.set_shader_value(self.loc_light_grid, v);
         }
         if self.loc_chunk_origin >= 0 {
-            self.shader.set_shader_value(self.loc_chunk_origin, chunk_origin);
+            self.shader
+                .set_shader_value(self.loc_chunk_origin, chunk_origin);
         }
         if self.loc_vis_min >= 0 {
             self.shader.set_shader_value(self.loc_vis_min, visual_min);
@@ -629,7 +637,8 @@ impl FogShader {
             raylib::ffi::rlEnableTexture(t.id);
             // Point the sampler uniform to LIGHT_TEX_SLOT
             if self.loc_light_tex >= 0 {
-                self.shader.set_shader_value(self.loc_light_tex, LIGHT_TEX_SLOT);
+                self.shader
+                    .set_shader_value(self.loc_light_tex, LIGHT_TEX_SLOT);
             }
             // Restore default slot for subsequent material binds
             raylib::ffi::rlActiveTextureSlot(0);
@@ -643,7 +652,8 @@ impl FogShader {
             self.shader.set_shader_value(self.loc_light_grid, v);
         }
         if self.loc_chunk_origin >= 0 {
-            self.shader.set_shader_value(self.loc_chunk_origin, chunk_origin);
+            self.shader
+                .set_shader_value(self.loc_chunk_origin, chunk_origin);
         }
         if self.loc_vis_min >= 0 {
             self.shader.set_shader_value(self.loc_vis_min, visual_min);
@@ -667,7 +677,8 @@ impl FogShader {
             self.shader.set_shader_value(self.loc_light_grid, v);
         }
         if self.loc_chunk_origin >= 0 {
-            self.shader.set_shader_value(self.loc_chunk_origin, chunk_origin);
+            self.shader
+                .set_shader_value(self.loc_chunk_origin, chunk_origin);
         }
         if self.loc_vis_min >= 0 {
             self.shader.set_shader_value(self.loc_vis_min, visual_min);
@@ -785,7 +796,8 @@ impl WaterShader {
             raylib::ffi::rlEnableTexture(t.id);
             // Point the sampler uniform to LIGHT_TEX_SLOT
             if self.loc_light_tex >= 0 {
-                self.shader.set_shader_value(self.loc_light_tex, LIGHT_TEX_SLOT);
+                self.shader
+                    .set_shader_value(self.loc_light_tex, LIGHT_TEX_SLOT);
             }
             // Restore default slot for subsequent material binds
             raylib::ffi::rlActiveTextureSlot(0);
@@ -799,7 +811,8 @@ impl WaterShader {
             self.shader.set_shader_value(self.loc_light_grid, v);
         }
         if self.loc_chunk_origin >= 0 {
-            self.shader.set_shader_value(self.loc_chunk_origin, chunk_origin);
+            self.shader
+                .set_shader_value(self.loc_chunk_origin, chunk_origin);
         }
         if self.loc_vis_min >= 0 {
             self.shader.set_shader_value(self.loc_vis_min, visual_min);
@@ -823,7 +836,8 @@ impl WaterShader {
             self.shader.set_shader_value(self.loc_light_grid, v);
         }
         if self.loc_chunk_origin >= 0 {
-            self.shader.set_shader_value(self.loc_chunk_origin, chunk_origin);
+            self.shader
+                .set_shader_value(self.loc_chunk_origin, chunk_origin);
         }
         if self.loc_vis_min >= 0 {
             self.shader.set_shader_value(self.loc_vis_min, visual_min);
@@ -852,7 +866,9 @@ pub fn update_chunk_light_texture(
                 tex.set_texture_filter(thread, raylib::consts::TextureFilter::TEXTURE_FILTER_POINT);
                 tex.set_texture_wrap(thread, raylib::consts::TextureWrap::TEXTURE_WRAP_CLAMP);
                 lt.tex = tex;
-                unsafe { raylib::ffi::UpdateTexture(*lt.tex.as_ref(), atlas.data.as_ptr() as *const _); }
+                unsafe {
+                    raylib::ffi::UpdateTexture(*lt.tex.as_ref(), atlas.data.as_ptr() as *const _);
+                }
                 lt.width = width;
                 lt.height = height;
                 lt.sx = atlas.sx as i32;
@@ -862,7 +878,9 @@ pub fn update_chunk_light_texture(
                 lt.grid_rows = atlas.grid_rows as i32;
             }
         } else {
-            unsafe { raylib::ffi::UpdateTexture(*lt.tex.as_ref(), atlas.data.as_ptr() as *const _); }
+            unsafe {
+                raylib::ffi::UpdateTexture(*lt.tex.as_ref(), atlas.data.as_ptr() as *const _);
+            }
             lt.sx = atlas.sx as i32;
             lt.sy = atlas.sy as i32;
             lt.sz = atlas.sz as i32;
@@ -877,7 +895,9 @@ pub fn update_chunk_light_texture(
             let tex = tex;
             tex.set_texture_filter(thread, raylib::consts::TextureFilter::TEXTURE_FILTER_POINT);
             tex.set_texture_wrap(thread, raylib::consts::TextureWrap::TEXTURE_WRAP_CLAMP);
-            unsafe { raylib::ffi::UpdateTexture(*tex.as_ref(), atlas.data.as_ptr() as *const _); }
+            unsafe {
+                raylib::ffi::UpdateTexture(*tex.as_ref(), atlas.data.as_ptr() as *const _);
+            }
             let lt = ChunkLightTex {
                 tex,
                 width,

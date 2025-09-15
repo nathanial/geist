@@ -21,6 +21,58 @@ thread_local! {
     static LAST_MESH_RESERVE: RefCell<Vec<usize>> = RefCell::new(Vec::new());
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct MeshingOptions {
+    pub micro_steps: usize,
+    pub include_thin: bool,
+    pub include_water: bool,
+    /// Coarse super-voxel factor in XZ (1 = off, 2 = 2x2 in XZ)
+    pub coarse_xz: usize,
+}
+
+impl Default for MeshingOptions {
+    fn default() -> Self {
+        Self { micro_steps: MICROGRID_STEPS, include_thin: true, include_water: true, coarse_xz: 1 }
+    }
+}
+
+fn downsample_chunk_buf_xz(buf: &ChunkBuf, reg: &BlockRegistry, include_water: bool, factor: usize) -> ChunkBuf {
+    assert!(factor >= 1);
+    if factor == 1 { return buf.clone(); }
+    assert!(buf.sx % factor == 0 && buf.sz % factor == 0, "chunk dims must be divisible by factor");
+    let sx_c = buf.sx / factor;
+    let sy_c = buf.sy;
+    let sz_c = buf.sz / factor;
+    let mut out = ChunkBuf::from_blocks_local(buf.cx, buf.cz, sx_c, sy_c, sz_c, vec![Block::AIR; sx_c * sy_c * sz_c]);
+    for cz in 0..sz_c {
+        for cx in 0..sx_c {
+            for y in 0..sy_c {
+                let mut chosen: Option<Block> = None;
+                'outer: for dz in 0..factor {
+                    for dx in 0..factor {
+                        let ox = cx * factor + dx;
+                        let oz = cz * factor + dz;
+                        let b = buf.get_local(ox, y, oz);
+                        if b.id == 0 { continue; }
+                        if let Some(ty) = reg.get(b.id) {
+                            let is_water = ty.name == "water";
+                            let solid = ty.is_solid(b.state);
+                            if (include_water && is_water) || solid {
+                                chosen = Some(b);
+                                break 'outer;
+                            }
+                        }
+                    }
+                }
+                let blk = chosen.unwrap_or(Block::AIR);
+                let idx = out.idx(cx, y, cz);
+                out.blocks[idx] = blk;
+            }
+        }
+    }
+    out
+}
+
 /// Build a chunk mesh using Watertight Cubical Complex (WCC) at S=1 (full cubes only).
 /// Phase 1: Only full cubes contribute; micro/dynamic shapes are ignored here.
 /// Builds a chunk mesh using WCC at micro scale, with seam handling and thin-shape pass.
@@ -53,17 +105,41 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
     cz: i32,
     reg: &BlockRegistry,
 ) -> Option<(ChunkMeshCPU, Option<LightBorders>)> {
+    build_chunk_wcc_cpu_buf_with_light_opts(buf, light, world, edits, cx, cz, reg, MeshingOptions::default())
+}
+
+/// Build with explicit meshing options (LOD-aware). Supports coarse XZ super-voxel meshing.
+pub fn build_chunk_wcc_cpu_buf_with_light_opts(
+    buf: &ChunkBuf,
+    light: &LightGrid,
+    world: &World,
+    edits: Option<&HashMap<(i32, i32, i32), Block>>,
+    cx: i32,
+    cz: i32,
+    reg: &BlockRegistry,
+    opts: MeshingOptions,
+) -> Option<(ChunkMeshCPU, Option<LightBorders>)> {
     let sx = buf.sx;
     let sy = buf.sy;
     let sz = buf.sz;
     let base_x = buf.cx * sx as i32;
     let base_z = buf.cz * sz as i32;
 
-    // Phase 2: Use S=MICROGRID_STEPS mesher for full + micro occupancy.
-    let s: usize = MICROGRID_STEPS;
+    // Phase 2: meshing with requested micro-steps.
+    let s: usize = opts.micro_steps;
     let t_total = Instant::now();
+    // Optional coarse super-voxel in XZ
+    let coarse_factor = opts.coarse_xz.max(1);
+    let (src_buf, world_scale, clip_sx, clip_sy, clip_sz) = if coarse_factor > 1 {
+        let coarse = downsample_chunk_buf_xz(buf, reg, opts.include_water, coarse_factor);
+        (coarse, coarse_factor as f32, sx, sy, sz)
+    } else {
+        (buf.clone(), 1.0f32, sx, sy, sz)
+    };
 
-    let mut pm = ParityMesher::new(buf, reg, s, base_x, base_z, world, edits);
+    let mut pm = ParityMesher::new_with_scale_and_clip(
+        &src_buf, reg, s, base_x, base_z, world_scale, clip_sx, clip_sy, clip_sz, opts.include_water, world, edits,
+    );
 
     let t_scan_start = Instant::now();
     pm.build_occupancy();
@@ -96,9 +172,10 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
 
     // Phase 3: thin dynamic shapes (pane, fence, gate, carpet)
     let t_thin_start = Instant::now();
-    for z in 0..sz {
-        for y in 0..sy {
-            for x in 0..sx {
+    if opts.include_thin {
+        for z in 0..sz {
+            for y in 0..sy {
+                for x in 0..sx {
                 let here = buf.get_local(x, y, z);
                 let fx = (base_x + x as i32) as f32;
                 let fy = y as f32;
@@ -240,6 +317,7 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
                     }
                 }
             }
+            }
         }
     }
     let thin_ms: u32 = t_thin_start.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
@@ -273,7 +351,7 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
 
     let bbox = Aabb {
         min: Vec3 { x: base_x as f32, y: 0.0, z: base_z as f32 },
-        max: Vec3 { x: base_x as f32 + sx as f32, y: sy as f32, z: base_z as f32 + sz as f32 },
+        max: Vec3 { x: base_x as f32 + clip_sx as f32, y: clip_sy as f32, z: base_z as f32 + clip_sz as f32 },
     };
     let light_borders = Some(LightBorders::from_grid(light));
     // Convert dense vector into sparse HashMap

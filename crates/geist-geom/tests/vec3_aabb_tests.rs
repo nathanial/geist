@@ -89,4 +89,3 @@ fn aabb_new() {
     assert!(vec3_approx_eq(aabb.min, min, 1e-6));
     assert!(vec3_approx_eq(aabb.max, max, 1e-6));
 }
-

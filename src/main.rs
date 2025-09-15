@@ -1,10 +1,10 @@
 mod app;
+mod assets;
 mod camera;
 mod event;
 mod gamestate;
 mod player;
 mod raycast;
-mod assets;
 #[cfg(test)]
 mod stairs_tests;
 
@@ -44,7 +44,6 @@ enum Command {
         #[command(subcommand)]
         cmd: SchemCmd,
     },
-
 }
 
 #[derive(Args, Debug)]
@@ -270,7 +269,9 @@ fn run_app(run: RunArgs, assets_root: std::path::PathBuf) {
     let mut reg0 = BlockRegistry::load_from_paths(&mats_path, &blocks_path).unwrap_or_else(|e| {
         log::warn!(
             "Failed to load runtime voxel registry from {:?} / {:?}: {}",
-            mats_path, blocks_path, e
+            mats_path,
+            blocks_path,
+            e
         );
         BlockRegistry::new()
     });
@@ -334,7 +335,11 @@ fn run_app(run: RunArgs, assets_root: std::path::PathBuf) {
                     log::info!("Loaded worldgen config from {:?}", cfg_path_abs);
                 }
                 Err(e) => {
-                    log::warn!("worldgen config load failed (path={:?}): {}", cfg_path_abs, e);
+                    log::warn!(
+                        "worldgen config load failed (path={:?}): {}",
+                        cfg_path_abs,
+                        e
+                    );
                 }
             }
         } else {

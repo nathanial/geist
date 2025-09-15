@@ -153,27 +153,75 @@ impl MeshBuild {
                 origin,
             ),
             Face::PosX => (
-                Vec3 { x: origin.x, y: origin.y + v1, z: origin.z + u1 },
-                Vec3 { x: origin.x, y: origin.y + v1, z: origin.z },
+                Vec3 {
+                    x: origin.x,
+                    y: origin.y + v1,
+                    z: origin.z + u1,
+                },
+                Vec3 {
+                    x: origin.x,
+                    y: origin.y + v1,
+                    z: origin.z,
+                },
                 origin,
-                Vec3 { x: origin.x, y: origin.y, z: origin.z + u1 },
+                Vec3 {
+                    x: origin.x,
+                    y: origin.y,
+                    z: origin.z + u1,
+                },
             ),
             Face::NegX => (
-                Vec3 { x: origin.x, y: origin.y + v1, z: origin.z },
-                Vec3 { x: origin.x, y: origin.y + v1, z: origin.z + u1 },
-                Vec3 { x: origin.x, y: origin.y, z: origin.z + u1 },
+                Vec3 {
+                    x: origin.x,
+                    y: origin.y + v1,
+                    z: origin.z,
+                },
+                Vec3 {
+                    x: origin.x,
+                    y: origin.y + v1,
+                    z: origin.z + u1,
+                },
+                Vec3 {
+                    x: origin.x,
+                    y: origin.y,
+                    z: origin.z + u1,
+                },
                 origin,
             ),
             Face::PosZ => (
-                Vec3 { x: origin.x + u1, y: origin.y + v1, z: origin.z },
-                Vec3 { x: origin.x, y: origin.y + v1, z: origin.z },
+                Vec3 {
+                    x: origin.x + u1,
+                    y: origin.y + v1,
+                    z: origin.z,
+                },
+                Vec3 {
+                    x: origin.x,
+                    y: origin.y + v1,
+                    z: origin.z,
+                },
                 origin,
-                Vec3 { x: origin.x + u1, y: origin.y, z: origin.z },
+                Vec3 {
+                    x: origin.x + u1,
+                    y: origin.y,
+                    z: origin.z,
+                },
             ),
             Face::NegZ => (
-                Vec3 { x: origin.x, y: origin.y + v1, z: origin.z },
-                Vec3 { x: origin.x + u1, y: origin.y + v1, z: origin.z },
-                Vec3 { x: origin.x + u1, y: origin.y, z: origin.z },
+                Vec3 {
+                    x: origin.x,
+                    y: origin.y + v1,
+                    z: origin.z,
+                },
+                Vec3 {
+                    x: origin.x + u1,
+                    y: origin.y + v1,
+                    z: origin.z,
+                },
+                Vec3 {
+                    x: origin.x + u1,
+                    y: origin.y,
+                    z: origin.z,
+                },
                 origin,
             ),
         };
@@ -188,7 +236,11 @@ impl MeshBuild {
     }
 
     /// Returns a slice of interleaved vertex positions (x,y,z per vertex).
-    pub fn positions(&self) -> &[f32] { &self.pos }
+    pub fn positions(&self) -> &[f32] {
+        &self.pos
+    }
     /// Returns a slice of interleaved vertex normals (x,y,z per vertex).
-    pub fn normals(&self) -> &[f32] { &self.norm }
+    pub fn normals(&self) -> &[f32] {
+        &self.norm
+    }
 }

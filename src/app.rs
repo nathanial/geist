@@ -6,13 +6,16 @@ use geist_render_raylib::conv::{vec3_from_rl, vec3_to_rl};
 use raylib::prelude::*;
 
 use crate::event::{Event, EventEnvelope, EventQueue, RebuildCause};
-use crate::gamestate::{ChunkEntry, GameState, FinalizeState};
+use crate::gamestate::{ChunkEntry, FinalizeState, GameState};
 use crate::raycast;
 use geist_blocks::{Block, BlockRegistry};
 use geist_edit::EditStore;
 use geist_lighting::{LightingStore, pack_light_grid_atlas_with_neighbors};
 use geist_mesh_cpu::NeighborsLoaded;
-use geist_render_raylib::{ChunkRender, FogShader, LeavesShader, TextureCache, upload_chunk_mesh, update_chunk_light_texture};
+use geist_render_raylib::{
+    ChunkRender, FogShader, LeavesShader, TextureCache, update_chunk_light_texture,
+    upload_chunk_mesh,
+};
 use geist_runtime::{BuildJob, JobOut, Runtime, StructureBuildJob};
 use geist_structures::{Structure, StructureId, rotate_yaw, rotate_yaw_inv};
 use geist_world::voxel::{World, WorldGenMode};
@@ -131,7 +134,9 @@ impl App {
             let ox = tx * tile_w;
             let oy = ty * tile_h;
             // -X ring (x=0, z in 1..=inner_sz)
-            if let (Some(ref blk), Some(ref sky), Some(ref bcn)) = (nb.xn.as_ref(), nb.sk_xn.as_ref(), nb.bcn_xn.as_ref()) {
+            if let (Some(ref blk), Some(ref sky), Some(ref bcn)) =
+                (nb.xn.as_ref(), nb.sk_xn.as_ref(), nb.bcn_xn.as_ref())
+            {
                 for z in 0..inner_sz {
                     let (r, g, b) = at(ox + 0, oy + 1 + z);
                     let ii = y * inner_sz + z;
@@ -139,12 +144,17 @@ impl App {
                     let eg = sky.get(ii).cloned().unwrap_or(0);
                     let eb = bcn.get(ii).cloned().unwrap_or(0);
                     if r != er || g != eg || b != eb {
-                        panic!("Light atlas -X ring mismatch at chunk ({},{}) slice y={} z={} got=({},{},{}) exp=({},{},{})", cx, cz, y, z, r, g, b, er, eg, eb);
+                        panic!(
+                            "Light atlas -X ring mismatch at chunk ({},{}) slice y={} z={} got=({},{},{}) exp=({},{},{})",
+                            cx, cz, y, z, r, g, b, er, eg, eb
+                        );
                     }
                 }
             }
             // +X ring (x=inner_sx+1)
-            if let (Some(ref blk), Some(ref sky), Some(ref bcn)) = (nb.xp.as_ref(), nb.sk_xp.as_ref(), nb.bcn_xp.as_ref()) {
+            if let (Some(ref blk), Some(ref sky), Some(ref bcn)) =
+                (nb.xp.as_ref(), nb.sk_xp.as_ref(), nb.bcn_xp.as_ref())
+            {
                 for z in 0..inner_sz {
                     let (r, g, b) = at(ox + (inner_sx + 1), oy + 1 + z);
                     let ii = y * inner_sz + z;
@@ -152,12 +162,17 @@ impl App {
                     let eg = sky.get(ii).cloned().unwrap_or(0);
                     let eb = bcn.get(ii).cloned().unwrap_or(0);
                     if r != er || g != eg || b != eb {
-                        panic!("Light atlas +X ring mismatch at chunk ({},{}) slice y={} z={} got=({},{},{}) exp=({},{},{})", cx, cz, y, z, r, g, b, er, eg, eb);
+                        panic!(
+                            "Light atlas +X ring mismatch at chunk ({},{}) slice y={} z={} got=({},{},{}) exp=({},{},{})",
+                            cx, cz, y, z, r, g, b, er, eg, eb
+                        );
                     }
                 }
             }
             // -Z ring (z=0, x in 1..=inner_sx)
-            if let (Some(ref blk), Some(ref sky), Some(ref bcn)) = (nb.zn.as_ref(), nb.sk_zn.as_ref(), nb.bcn_zn.as_ref()) {
+            if let (Some(ref blk), Some(ref sky), Some(ref bcn)) =
+                (nb.zn.as_ref(), nb.sk_zn.as_ref(), nb.bcn_zn.as_ref())
+            {
                 for x in 0..inner_sx {
                     let (r, g, b) = at(ox + 1 + x, oy + 0);
                     let ii = y * inner_sx + x;
@@ -165,12 +180,17 @@ impl App {
                     let eg = sky.get(ii).cloned().unwrap_or(0);
                     let eb = bcn.get(ii).cloned().unwrap_or(0);
                     if r != er || g != eg || b != eb {
-                        panic!("Light atlas -Z ring mismatch at chunk ({},{}) slice y={} x={} got=({},{},{}) exp=({},{},{})", cx, cz, y, x, r, g, b, er, eg, eb);
+                        panic!(
+                            "Light atlas -Z ring mismatch at chunk ({},{}) slice y={} x={} got=({},{},{}) exp=({},{},{})",
+                            cx, cz, y, x, r, g, b, er, eg, eb
+                        );
                     }
                 }
             }
             // +Z ring (z=inner_sz+1)
-            if let (Some(ref blk), Some(ref sky), Some(ref bcn)) = (nb.zp.as_ref(), nb.sk_zp.as_ref(), nb.bcn_zp.as_ref()) {
+            if let (Some(ref blk), Some(ref sky), Some(ref bcn)) =
+                (nb.zp.as_ref(), nb.sk_zp.as_ref(), nb.bcn_zp.as_ref())
+            {
                 for x in 0..inner_sx {
                     let (r, g, b) = at(ox + 1 + x, oy + (inner_sz + 1));
                     let ii = y * inner_sx + x;
@@ -178,14 +198,21 @@ impl App {
                     let eg = sky.get(ii).cloned().unwrap_or(0);
                     let eb = bcn.get(ii).cloned().unwrap_or(0);
                     if r != er || g != eg || b != eb {
-                        panic!("Light atlas +Z ring mismatch at chunk ({},{}) slice y={} x={} got=({},{},{}) exp=({},{},{})", cx, cz, y, x, r, g, b, er, eg, eb);
+                        panic!(
+                            "Light atlas +Z ring mismatch at chunk ({},{}) slice y={} x={} got=({},{},{}) exp=({},{},{})",
+                            cx, cz, y, x, r, g, b, er, eg, eb
+                        );
                     }
                 }
             }
         }
     }
     fn try_schedule_finalize(&mut self, cx: i32, cz: i32) {
-        let st = self.gs.finalize.entry((cx, cz)).or_insert(FinalizeState::default());
+        let st = self
+            .gs
+            .finalize
+            .entry((cx, cz))
+            .or_insert(FinalizeState::default());
         if st.finalized || st.finalize_requested {
             return;
         }
@@ -199,7 +226,11 @@ impl App {
         if self.gs.inflight_rev.contains_key(&(cx, cz)) {
             return;
         }
-        self.queue.emit_now(Event::ChunkRebuildRequested { cx, cz, cause: RebuildCause::LightingBorder });
+        self.queue.emit_now(Event::ChunkRebuildRequested {
+            cx,
+            cz,
+            cause: RebuildCause::LightingBorder,
+        });
         st.finalize_requested = true;
     }
     fn record_intent(&mut self, cx: i32, cz: i32, cause: IntentCause) {
@@ -297,7 +328,19 @@ impl App {
             // If chunk is not loaded, treat as load intent; else rebuild intent
             let neighbors = self.neighbor_mask(cx, cz);
             let rev = ent.rev;
-            let job_id = Self::job_hash(cx, cz, rev, neighbors);
+            // Choose LOD by ring distance (Chebyshev) if enabled
+            let lod = if self.gs.lod_enabled {
+                if dist_bucket <= 4 {
+                    geist_runtime::LODLevel::Lod0
+                } else if dist_bucket <= 8 {
+                    geist_runtime::LODLevel::Lod1
+                } else {
+                    geist_runtime::LODLevel::Lod2
+                }
+            } else {
+                geist_runtime::LODLevel::Lod0
+            };
+            let job_id = Self::job_hash(cx, cz, rev, neighbors, lod);
             // Visibility gating (lightweight): do not block edits
             let is_loaded = self.renders.contains_key(&key);
             match ent.cause {
@@ -345,6 +388,7 @@ impl App {
                     neighbors,
                     rev,
                     job_id,
+                    lod,
                     cause,
                 },
             );
@@ -486,9 +530,10 @@ impl App {
         // Renderer-side resources and file watchers (moved from Runtime in Phase 5)
         let leaves_shader = LeavesShader::load_with_base(rl, thread, &assets_root)
             .or_else(|| LeavesShader::load(rl, thread));
-        let fog_shader =
-            FogShader::load_with_base(rl, thread, &assets_root).or_else(|| FogShader::load(rl, thread));
-        let water_shader = geist_render_raylib::WaterShader::load_with_base(rl, thread, &assets_root);
+        let fog_shader = FogShader::load_with_base(rl, thread, &assets_root)
+            .or_else(|| FogShader::load(rl, thread));
+        let water_shader =
+            geist_render_raylib::WaterShader::load_with_base(rl, thread, &assets_root);
         let tex_cache = TextureCache::new();
         // File watcher for textures under assets/blocks
         let (tex_tx, tex_rx) = std::sync::mpsc::channel::<String>();
@@ -907,7 +952,13 @@ impl App {
         }
     }
 
-    fn job_hash(cx: i32, cz: i32, rev: u64, n: NeighborsLoaded) -> u64 {
+    fn job_hash(
+        cx: i32,
+        cz: i32,
+        rev: u64,
+        n: NeighborsLoaded,
+        lod: geist_runtime::LODLevel,
+    ) -> u64 {
         // Simple stable hash (FNV-1a 64-bit variant)
         let mut h: u64 = 0xcbf29ce484222325;
         let mut write = |v: u64| {
@@ -922,6 +973,12 @@ impl App {
             | ((n.neg_z as u64) << 2)
             | ((n.pos_z as u64) << 3);
         write(mask);
+        let lod_u: u64 = match lod {
+            geist_runtime::LODLevel::Lod0 => 0,
+            geist_runtime::LODLevel::Lod1 => 1,
+            geist_runtime::LODLevel::Lod2 => 2,
+        };
+        write(lod_u);
         h
     }
 
@@ -1196,6 +1253,7 @@ impl App {
                 self.gs.loaded.remove(&(cx, cz));
                 self.gs.inflight_rev.remove(&(cx, cz));
                 self.gs.finalize.remove(&(cx, cz));
+                self.gs.cur_lod.remove(&(cx, cz));
                 // Also drop any persisted lighting state for this chunk to prevent growth
                 self.gs.lighting.clear_chunk(cx, cz);
             }
@@ -1224,12 +1282,25 @@ impl App {
                 // Record load intent; scheduler will cap and prioritize
                 self.record_intent(cx, cz, IntentCause::StreamLoad);
             }
+            Event::LODToggled { enabled } => {
+                self.gs.lod_enabled = enabled;
+                // Rebuild all loaded chunks to switch LOD tiers immediately
+                let keys: Vec<(i32, i32)> = self.renders.keys().cloned().collect();
+                for (cx, cz) in keys {
+                    self.queue.emit_now(Event::ChunkRebuildRequested {
+                        cx,
+                        cz,
+                        cause: RebuildCause::StreamLoad,
+                    });
+                }
+            }
             Event::BuildChunkJobRequested {
                 cx,
                 cz,
                 neighbors,
                 rev,
                 job_id,
+                lod,
                 cause,
             } => {
                 // Prepare edit snapshots for workers (pure)
@@ -1248,6 +1319,7 @@ impl App {
                     neighbors,
                     rev,
                     job_id,
+                    lod,
                     chunk_edits,
                     region_edits,
                     prev_buf,
@@ -1330,6 +1402,7 @@ impl App {
                 cx,
                 cz,
                 rev,
+                lod,
                 cpu,
                 buf,
                 light_borders,
@@ -1343,13 +1416,29 @@ impl App {
                     let inflight = self.gs.inflight_rev.get(&(cx, cz)).copied().unwrap_or(0);
                     if inflight < cur_rev {
                         let neighbors = self.neighbor_mask(cx, cz);
-                        let job_id = Self::job_hash(cx, cz, cur_rev, neighbors);
+                        let (ccx, ccz) = self.gs.center_chunk;
+                        let dx = (cx - ccx).abs();
+                        let dz = (cz - ccz).abs();
+                        let ring = dx.max(dz) as u32;
+                        let lod = if self.gs.lod_enabled {
+                            if ring <= 4 {
+                                geist_runtime::LODLevel::Lod0
+                            } else if ring <= 8 {
+                                geist_runtime::LODLevel::Lod1
+                            } else {
+                                geist_runtime::LODLevel::Lod2
+                            }
+                        } else {
+                            geist_runtime::LODLevel::Lod0
+                        };
+                        let job_id = Self::job_hash(cx, cz, cur_rev, neighbors, lod);
                         self.queue.emit_now(Event::BuildChunkJobRequested {
                             cx,
                             cz,
                             neighbors,
                             rev: cur_rev,
                             job_id,
+                            lod,
                             cause: RebuildCause::Edit,
                         });
                         // Ensure inflight_rev reflects latest
@@ -1368,6 +1457,15 @@ impl App {
                     // Do not upload or mark built; also avoid lighting border updates
                     return;
                 }
+                // Drop if attempting to downgrade LOD for this rev
+                if let Some(cur) = self.gs.cur_lod.get(&(cx, cz)).copied() {
+                    if lod > cur {
+                        // Lower fidelity than current; ignore
+                        self.gs.inflight_rev.remove(&(cx, cz));
+                        return;
+                    }
+                }
+
                 // Upload to GPU
                 if let Some(mut cr) =
                     upload_chunk_mesh(rl, thread, cpu, &mut self.tex_cache, &self.reg.materials)
@@ -1419,12 +1517,18 @@ impl App {
                         }
                     }
                     self.renders.insert((cx, cz), cr);
+                    self.gs.cur_lod.insert((cx, cz), lod);
                     if let Some(lg) = light_grid {
-                        let nb = self.gs.lighting.get_neighbor_borders(cx, cz);
-                        let atlas = pack_light_grid_atlas_with_neighbors(&lg, &nb);
-                        self.validate_chunk_light_atlas(cx, cz, &atlas);
-                        if let Some(cr) = self.renders.get_mut(&(cx, cz)) {
-                            update_chunk_light_texture(rl, thread, cr, &atlas);
+                        // Skip atlas upload for far LOD to reduce bandwidth
+                        if matches!(lod, geist_runtime::LODLevel::Lod2) {
+                            // keep borders update below, but skip texture upload
+                        } else {
+                            let nb = self.gs.lighting.get_neighbor_borders(cx, cz);
+                            let atlas = pack_light_grid_atlas_with_neighbors(&lg, &nb);
+                            self.validate_chunk_light_atlas(cx, cz, &atlas);
+                            if let Some(cr) = self.renders.get_mut(&(cx, cz)) {
+                                update_chunk_light_texture(rl, thread, cr, &atlas);
+                            }
                         }
                     }
                 }
@@ -1479,7 +1583,11 @@ impl App {
                 }
                 // If both owners are ready and finalize not yet requested, schedule finalize now
                 if let Some(st) = self.gs.finalize.get(&(cx, cz)).copied() {
-                    if st.owner_x_ready && st.owner_z_ready && !st.finalized && !st.finalize_requested {
+                    if st.owner_x_ready
+                        && st.owner_z_ready
+                        && !st.finalized
+                        && !st.finalize_requested
+                    {
                         self.try_schedule_finalize(cx, cz);
                     }
                 }
@@ -1491,7 +1599,13 @@ impl App {
                     }
                 }
             }
-            Event::ChunkLightingRecomputed { cx, cz, rev, light_grid, job_id: _ } => {
+            Event::ChunkLightingRecomputed {
+                cx,
+                cz,
+                rev,
+                light_grid,
+                job_id: _,
+            } => {
                 // Drop if stale
                 let cur_rev = self.gs.edits.get_rev(cx, cz);
                 if rev < cur_rev {
@@ -1507,11 +1621,20 @@ impl App {
                     self.gs.inflight_rev.remove(&(cx, cz));
                     return;
                 }
-                let nb = self.gs.lighting.get_neighbor_borders(cx, cz);
-                let atlas = pack_light_grid_atlas_with_neighbors(&light_grid, &nb);
-                self.validate_chunk_light_atlas(cx, cz, &atlas);
-                if let Some(cr) = self.renders.get_mut(&(cx, cz)) {
-                    update_chunk_light_texture(rl, thread, cr, &atlas);
+                // Skip atlas update for far LOD2 chunks
+                let is_far = self
+                    .gs
+                    .cur_lod
+                    .get(&(cx, cz))
+                    .map(|l| matches!(l, geist_runtime::LODLevel::Lod2))
+                    .unwrap_or(false);
+                if !is_far {
+                    let nb = self.gs.lighting.get_neighbor_borders(cx, cz);
+                    let atlas = pack_light_grid_atlas_with_neighbors(&light_grid, &nb);
+                    self.validate_chunk_light_atlas(cx, cz, &atlas);
+                    if let Some(cr) = self.renders.get_mut(&(cx, cz)) {
+                        update_chunk_light_texture(rl, thread, cr, &atlas);
+                    }
                 }
                 // Track light-only recompute count for minimap/debug
                 *self.gs.light_counts.entry((cx, cz)).or_insert(0) += 1;
@@ -1741,8 +1864,7 @@ impl App {
                             cause: RebuildCause::Edit,
                         });
                         // Start removal→render timer for this affected chunk
-                        self
-                            .perf_remove_start
+                        self.perf_remove_start
                             .entry((cx, cz))
                             .or_default()
                             .push_back(Instant::now());
@@ -1824,7 +1946,14 @@ impl App {
                     cause: RebuildCause::Edit,
                 });
             }
-            Event::LightBordersUpdated { cx, cz, xn_changed, xp_changed, zn_changed, zp_changed } => {
+            Event::LightBordersUpdated {
+                cx,
+                cz,
+                xn_changed,
+                xp_changed,
+                zn_changed,
+                zp_changed,
+            } => {
                 // Canonical seam ownership: only +X and +Z neighbors depend on our seam planes.
                 // Proactively schedule a light-only rebuild for affected neighbors to clear stale seam light,
                 // then mark owner readiness and attempt finalize once both owners have published.
@@ -1949,25 +2078,19 @@ impl App {
         // Shader hot-reload
         if self.shader_event_rx.try_iter().next().is_some() {
             // Attempt to reload both shaders; fall back to previous if load fails
-            if let Some(ls) = geist_render_raylib::LeavesShader::load_with_base(
-                rl,
-                thread,
-                &self.assets_root,
-            ) {
+            if let Some(ls) =
+                geist_render_raylib::LeavesShader::load_with_base(rl, thread, &self.assets_root)
+            {
                 self.leaves_shader = Some(ls);
             }
-            if let Some(fs) = geist_render_raylib::FogShader::load_with_base(
-                rl,
-                thread,
-                &self.assets_root,
-            ) {
+            if let Some(fs) =
+                geist_render_raylib::FogShader::load_with_base(rl, thread, &self.assets_root)
+            {
                 self.fog_shader = Some(fs);
             }
-            if let Some(ws) = geist_render_raylib::WaterShader::load_with_base(
-                rl,
-                thread,
-                &self.assets_root,
-            ) {
+            if let Some(ws) =
+                geist_render_raylib::WaterShader::load_with_base(rl, thread, &self.assets_root)
+            {
                 self.water_shader = Some(ws);
             }
             // Rebind shaders on all existing models
@@ -2027,11 +2150,18 @@ impl App {
                     self.tex_cache.map.clear();
                     let keys: Vec<(i32, i32)> = self.renders.keys().cloned().collect();
                     for (cx, cz) in keys {
-                        self.queue.emit_now(Event::ChunkRebuildRequested { cx, cz, cause: RebuildCause::StreamLoad });
+                        self.queue.emit_now(Event::ChunkRebuildRequested {
+                            cx,
+                            cz,
+                            cause: RebuildCause::StreamLoad,
+                        });
                     }
                     for (id, st) in self.gs.structures.iter() {
                         let next_rev = st.built_rev.wrapping_add(1);
-                        self.queue.emit_now(Event::StructureBuildRequested { id: *id, rev: next_rev });
+                        self.queue.emit_now(Event::StructureBuildRequested {
+                            id: *id,
+                            rev: next_rev,
+                        });
                     }
                     log::info!("Reloaded voxel registry and scheduled rebuilds");
                 }
@@ -2093,6 +2223,10 @@ impl App {
         }
         if rl.is_key_pressed(KeyboardKey::KEY_F3) {
             self.queue.emit_now(Event::DebugOverlayToggled);
+        }
+        if rl.is_key_pressed(KeyboardKey::KEY_O) {
+            let enabled = !self.gs.lod_enabled;
+            self.queue.emit_now(Event::LODToggled { enabled });
         }
         // Hotbar selection: if config present, use it; else fallback to legacy mapping
         if !self.hotbar.is_empty() {
@@ -2317,6 +2451,7 @@ impl App {
                     cx: r.cx,
                     cz: r.cz,
                     rev: r.rev,
+                    lod: r.lod,
                     cpu,
                     buf: r.buf,
                     light_borders: r.light_borders,
@@ -2404,6 +2539,7 @@ impl App {
                 Event::LightEmitterAdded { .. } => "LightEmitterAdded",
                 Event::LightEmitterRemoved { .. } => "LightEmitterRemoved",
                 Event::LightBordersUpdated { .. } => "LightBordersUpdated",
+                Event::LODToggled { .. } => "LODToggled",
             }
         };
         while let Some(env) = self.queue.pop_ready() {
@@ -2548,13 +2684,37 @@ impl App {
             let fog_start = if underwater { 4.0 } else { 512.0 * 0.1 };
             let fog_end = if underwater { 48.0 } else { 512.0 * 0.8 };
             if let Some(ref mut ls) = self.leaves_shader {
-                ls.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end, time_now, underwater, sky_scale);
+                ls.update_frame_uniforms(
+                    self.cam.position,
+                    fog_color,
+                    fog_start,
+                    fog_end,
+                    time_now,
+                    underwater,
+                    sky_scale,
+                );
             }
             if let Some(ref mut fs) = self.fog_shader {
-                fs.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end, time_now, underwater, sky_scale);
+                fs.update_frame_uniforms(
+                    self.cam.position,
+                    fog_color,
+                    fog_start,
+                    fog_end,
+                    time_now,
+                    underwater,
+                    sky_scale,
+                );
             }
             if let Some(ref mut ws) = self.water_shader {
-                ws.update_frame_uniforms(self.cam.position, fog_color, fog_start, fog_end, time_now, underwater, sky_scale);
+                ws.update_frame_uniforms(
+                    self.cam.position,
+                    fog_color,
+                    fog_start,
+                    fog_end,
+                    time_now,
+                    underwater,
+                    sky_scale,
+                );
             }
 
             // First pass: draw opaque parts and gather visible chunks for transparent pass
@@ -2623,18 +2783,26 @@ impl App {
                             Some("leaves") => {
                                 if let Some(ref mut ls) = self.leaves_shader {
                                     if let Some(ref lt) = cr.light_tex {
-                                        ls.update_chunk_uniforms(thread, &lt.tex, dims_some, grid_some, origin, vis_min);
+                                        ls.update_chunk_uniforms(
+                                            thread, &lt.tex, dims_some, grid_some, origin, vis_min,
+                                        );
                                     } else {
-                                        ls.update_chunk_uniforms_no_tex(thread, dims_some, grid_some, origin, vis_min);
+                                        ls.update_chunk_uniforms_no_tex(
+                                            thread, dims_some, grid_some, origin, vis_min,
+                                        );
                                     }
                                 }
                             }
                             _ => {
                                 if let Some(ref mut fs) = self.fog_shader {
                                     if let Some(ref lt) = cr.light_tex {
-                                        fs.update_chunk_uniforms(thread, &lt.tex, dims_some, grid_some, origin, vis_min);
+                                        fs.update_chunk_uniforms(
+                                            thread, &lt.tex, dims_some, grid_some, origin, vis_min,
+                                        );
                                     } else {
-                                        fs.update_chunk_uniforms_no_tex(thread, dims_some, grid_some, origin, vis_min);
+                                        fs.update_chunk_uniforms_no_tex(
+                                            thread, dims_some, grid_some, origin, vis_min,
+                                        );
                                     }
                                 }
                             }
@@ -2676,24 +2844,24 @@ impl App {
                     let dist2 = dx * dx + dy * dy + dz * dz;
                     visible_structs.push((*id, dist2));
                     for part in &cr.parts {
-                    // Get mesh stats from the model
-                    unsafe {
-                        let mesh = &*part.model.meshes;
-                        self.debug_stats.total_vertices += mesh.vertexCount as usize;
-                        self.debug_stats.total_triangles += mesh.triangleCount as usize;
-                    }
-                    // Only draw opaque parts in first pass (water is transparent)
-                    let tag = self
-                        .reg
-                        .materials
-                        .get(part.mid)
-                        .and_then(|m| m.render_tag.as_deref());
-                    if tag != Some("water") {
-                        self.debug_stats.draw_calls += 1;
-                        d3.draw_model(&part.model, vec3_to_rl(st.pose.pos), 1.0, Color::WHITE);
+                        // Get mesh stats from the model
+                        unsafe {
+                            let mesh = &*part.model.meshes;
+                            self.debug_stats.total_vertices += mesh.vertexCount as usize;
+                            self.debug_stats.total_triangles += mesh.triangleCount as usize;
+                        }
+                        // Only draw opaque parts in first pass (water is transparent)
+                        let tag = self
+                            .reg
+                            .materials
+                            .get(part.mid)
+                            .and_then(|m| m.render_tag.as_deref());
+                        if tag != Some("water") {
+                            self.debug_stats.draw_calls += 1;
+                            d3.draw_model(&part.model, vec3_to_rl(st.pose.pos), 1.0, Color::WHITE);
+                        }
                     }
                 }
-            }
             }
 
             // Transparent pass: draw water parts back-to-front (blend on, depth write off)
@@ -2701,7 +2869,8 @@ impl App {
                 // Keep depth test enabled but stop writing depth for transparent surfaces
                 raylib::ffi::rlDisableDepthMask();
             }
-            visible_chunks.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            visible_chunks
+                .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
             for (ckey, _) in visible_chunks {
                 if let Some(cr) = self.renders.get(&ckey) {
                     if self.gs.frustum_culling_enabled && !frustum.contains_bounding_box(&cr.bbox) {
@@ -2729,22 +2898,31 @@ impl App {
                             // Bind only the shader used by this part, right before draw
                             if let Some(ref mut ws) = self.water_shader {
                                 if let Some(ref lt) = cr.light_tex {
-                                    ws.update_chunk_uniforms(thread, &lt.tex, dims_some, grid_some, origin, vis_min);
+                                    ws.update_chunk_uniforms(
+                                        thread, &lt.tex, dims_some, grid_some, origin, vis_min,
+                                    );
                                 } else {
-                                    ws.update_chunk_uniforms_no_tex(thread, dims_some, grid_some, origin, vis_min);
+                                    ws.update_chunk_uniforms_no_tex(
+                                        thread, dims_some, grid_some, origin, vis_min,
+                                    );
                                 }
                             }
                             self.debug_stats.draw_calls += 1;
-                            unsafe { raylib::ffi::rlDisableBackfaceCulling(); }
+                            unsafe {
+                                raylib::ffi::rlDisableBackfaceCulling();
+                            }
                             d3.draw_model(&part.model, Vector3::zero(), 1.0, Color::WHITE);
-                            unsafe { raylib::ffi::rlEnableBackfaceCulling(); }
+                            unsafe {
+                                raylib::ffi::rlEnableBackfaceCulling();
+                            }
                         }
                     }
                 }
             }
 
             // Transparent pass for structures (back-to-front)
-            visible_structs.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+            visible_structs
+                .sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
             for (sid, _) in visible_structs {
                 if let Some(cr) = self.structure_renders.get(&sid) {
                     if let Some(st) = self.gs.structures.get(&sid) {
@@ -2765,9 +2943,18 @@ impl App {
                                 .and_then(|m| m.render_tag.as_deref());
                             if tag == Some("water") {
                                 self.debug_stats.draw_calls += 1;
-                                unsafe { raylib::ffi::rlDisableBackfaceCulling(); }
-                                d3.draw_model(&part.model, vec3_to_rl(st.pose.pos), 1.0, Color::WHITE);
-                                unsafe { raylib::ffi::rlEnableBackfaceCulling(); }
+                                unsafe {
+                                    raylib::ffi::rlDisableBackfaceCulling();
+                                }
+                                d3.draw_model(
+                                    &part.model,
+                                    vec3_to_rl(st.pose.pos),
+                                    1.0,
+                                    Color::WHITE,
+                                );
+                                unsafe {
+                                    raylib::ffi::rlEnableBackfaceCulling();
+                                }
                             }
                         }
                     }
@@ -2939,194 +3126,268 @@ impl App {
         }
 
         if self.gs.show_debug_overlay {
-        // Debug overlay (lower left)
-        let fps = d.get_fps();
-        let mut debug_text = format!(
-            "FPS: {}\nVertices: {}\nTriangles: {}\nChunks: {} (culled: {})\nStructures: {} (culled: {})\nDraw Calls: {}",
-            fps,
-            self.debug_stats.total_vertices,
-            self.debug_stats.total_triangles,
-            self.debug_stats.chunks_rendered,
-            self.debug_stats.chunks_culled,
-            self.debug_stats.structures_rendered,
-            self.debug_stats.structures_culled,
-            self.debug_stats.draw_calls
-        );
-        let mut text_lines = 6; // Base number of lines in debug text
-        if self.gs.show_biome_label {
-            let wx = self.cam.position.x.floor() as i32;
-            let wz = self.cam.position.z.floor() as i32;
-            if let Some(biome) = self.gs.world.biome_at(wx, wz) {
-                debug_text.push_str(&format!("\nBiome: {}", biome.name));
-                text_lines += 1;
-            }
-        }
-        // (moved event stats to right-side overlay)
-        let screen_height = d.get_screen_height();
-        let line_height = 22; // Approximate height per line with font size 20
-        let y_pos = screen_height - (text_lines * line_height) - 10; // 10px margin from bottom
-        d.draw_text(&debug_text, 10, y_pos, 20, Color::WHITE);
-        d.draw_text(&debug_text, 11, y_pos + 1, 20, Color::BLACK); // Shadow for readability
-
-        // Right-side overlay (reduced to avoid jitter):
-        // - No queued events line or subtype lists
-        // - Keep processed total, intents, runtime queues, and perf summary
-        let mut right_text = String::new();
-        right_text.push_str(&format!(
-            "Processed Events (session): {}",
-            self.evt_processed_total
-        ));
-        right_text.push_str(&format!("\nIntents: {}", self.debug_stats.intents_size));
-        // Show lighting mode (fixed)
-        right_text.push_str("\nLighting: FullMicro");
-        // Runtime queue debug (vertical layout)
-        let (q_e, if_e, q_l, if_l, q_b, if_b) = self.runtime.queue_debug_counts();
-        right_text.push_str("\nRuntime Queues:");
-        right_text.push_str(&format!("\n  Edit  - q={} inflight={}", q_e, if_e));
-        right_text.push_str(&format!("\n  Light - q={} inflight={}", q_l, if_l));
-        right_text.push_str(&format!("\n  BG    - q={} inflight={}", q_b, if_b));
-
-        // Perf summary (rolling window average and p95)
-        let stats = |q: &std::collections::VecDeque<u32>| -> (usize, u32, u32) {
-            let n = q.len();
-            if n == 0 { return (0, 0, 0); }
-            let sum: u64 = q.iter().map(|&v| v as u64).sum();
-            let avg = ((sum as f32) / (n as f32)).round() as u32;
-            let mut v: Vec<u32> = q.iter().copied().collect();
-            v.sort_unstable();
-            let idx = ((n as f32) * 0.95).ceil().max(1.0) as usize - 1;
-            let p95 = v[idx.min(n - 1)];
-            (n, avg, p95)
-        };
-        let (n_mesh, avg_mesh, p95_mesh) = stats(&self.perf_mesh_ms);
-        let (n_light, avg_light, p95_light) = stats(&self.perf_light_ms);
-        let (n_total, avg_total, p95_total) = stats(&self.perf_total_ms);
-        let (n_rr, avg_rr, p95_rr) = stats(&self.perf_remove_ms);
-        right_text.push_str("\nPerf (ms):");
-        right_text.push_str(&format!("\n  Mesh   avg={} p95={} n={}", avg_mesh, p95_mesh, n_mesh));
-        right_text.push_str(&format!("\n  Light  avg={} p95={} n={}", avg_light, p95_light, n_light));
-        right_text.push_str(&format!("\n  Total  avg={} p95={} n={}", avg_total, p95_total, n_total));
-        right_text.push_str(&format!("\n  Remove->Render avg={} p95={} n={}", avg_rr, p95_rr, n_rr));
-
-        let screen_width = d.get_screen_width();
-        let font_size = 20;
-        // Fixed panel width template samples
-        let panel_templates = [
-            "Processed Events (session): 1,000,000",
-            "Intents: 1,000,000",
-            "Lighting: FullMicro",
-            "Runtime Queues:",
-            "  Edit  - q=1,000,000 inflight=1,000,000",
-            "  Light - q=1,000,000 inflight=1,000,000",
-            "  BG    - q=1,000,000 inflight=1,000,000",
-            "Perf (ms):",
-            "  Mesh   avg=9,999 p95=9,999 n=9,999",
-            "  Light  avg=9,999 p95=9,999 n=9,999",
-            "  Total  avg=9,999 p95=9,999 n=9,999",
-            "  Remove->Render avg=9,999 p95=9,999 n=9,999",
-        ];
-        let mut panel_w = 0;
-        for t in panel_templates.iter() {
-            let w = d.measure_text(t, font_size);
-            if w > panel_w {
-                panel_w = w;
-            }
-        }
-        // Small padding so text doesn't hug the edge
-        panel_w += 8;
-        let margin = 10;
-        let rx = screen_width - panel_w - margin;
-        // Align bottom similar to left overlay
-        let lines = right_text.split('\n').count();
-        let ry = screen_height - (lines as i32 * line_height) - 10;
-        d.draw_text(&right_text, rx, ry, font_size, Color::WHITE);
-        d.draw_text(&right_text, rx + 1, ry + 1, font_size, Color::BLACK);
-
-        // Minimap (bottom-right): show chunks in view radius and mesh counts
-        {
-            let r = self.gs.view_radius_chunks.max(0);
-            let w = r * 2 + 1;
-            let h = r * 2 + 1;
-            if w > 0 && h > 0 {
-                let gap: i32 = 2;
-                let pad: i32 = 6;
-                // Pick a tile size that keeps minimap within ~3/4 screen in each dimension
-                // Make tiles larger to fit mesh/light labels comfortably
-                let max_tile: i32 = 32;
-                let lim_w = (screen_width * 3) / 4;
-                let lim_h = (screen_height * 3) / 4;
-                let tile_w_fit = (lim_w - pad * 2 - (w - 1) * gap) / w;
-                let tile_h_fit = (lim_h - pad * 2 - (h - 1) * gap) / h;
-                let tile_fit = tile_w_fit.min(tile_h_fit);
-                let mut tile = max_tile.min(tile_fit).max(8);
-                // Ensure tile is large enough for label "mesh/light"
-                // using a conservative width sample
-                let fs_sample = 14;
-                let label_req = d.measure_text("9999/9999", fs_sample) + 8; // text + small padding
-                if label_req > tile {
-                    tile = label_req.min(tile_fit).max(8);
+            // Debug overlay (lower left)
+            let fps = d.get_fps();
+            let mut debug_text = format!(
+                "FPS: {}\nVertices: {}\nTriangles: {}\nChunks: {} (culled: {})\nStructures: {} (culled: {})\nDraw Calls: {}",
+                fps,
+                self.debug_stats.total_vertices,
+                self.debug_stats.total_triangles,
+                self.debug_stats.chunks_rendered,
+                self.debug_stats.chunks_culled,
+                self.debug_stats.structures_rendered,
+                self.debug_stats.structures_culled,
+                self.debug_stats.draw_calls
+            );
+            let mut text_lines = 6; // Base number of lines in debug text
+            if self.gs.show_biome_label {
+                let wx = self.cam.position.x.floor() as i32;
+                let wz = self.cam.position.z.floor() as i32;
+                if let Some(biome) = self.gs.world.biome_at(wx, wz) {
+                    debug_text.push_str(&format!("\nBiome: {}", biome.name));
+                    text_lines += 1;
                 }
-                // Fallback if extreme aspect shrinks too far
-                if tile < 6 { tile = 6; }
-                let map_w: i32 = w * tile + (w - 1) * gap + pad * 2;
-                let map_h: i32 = h * tile + (h - 1) * gap + pad * 2;
-                let margin: i32 = 10;
-                let scr_w: i32 = screen_width;
-                let scr_h: i32 = screen_height;
-                // Prefer to place just above the right overlay block; fallback to bottom-right
-                let mx = scr_w - map_w - margin;
-                let mut my = ry - map_h - 8; // 8px spacing above the right panel
-                if my < margin { my = scr_h - map_h - margin; }
-                // Background panel
-                d.draw_rectangle(mx, my, map_w, map_h, Color::new(0, 0, 0, 120));
-                // Grid of chunks around center (x to the right, z downward)
-                let (ccx, ccz) = self.gs.center_chunk;
-                for dz in -r..=r {
-                    for dx in -r..=r {
-                        let cx = ccx + dx;
-                        let cz = ccz + dz;
-                        let ix = dx + r; // 0..w-1
-                        let iz = dz + r; // 0..h-1
-                        let cell_x = mx + pad + ix * (tile + gap);
-                        let cell_y = my + pad + iz * (tile + gap);
-                        let mesh_c = *self.gs.mesh_counts.get(&(cx, cz)).unwrap_or(&0);
-                        let light_c = *self.gs.light_counts.get(&(cx, cz)).unwrap_or(&0);
-                        // Fill color based on mesh count (simple green heat)
-                        let heat = mesh_c.min(12) as i32;
-                        let g = (40 + heat * 16).clamp(40, 255) as u8;
-                        let fill = if mesh_c == 0 {
-                            Color::new(60, 60, 60, 200)
-                        } else {
-                            Color::new(30, g, 50, 220)
-                        };
-                        d.draw_rectangle(cell_x, cell_y, tile, tile, fill);
-                        // Border: white for loaded chunks
-                        let border = if self.gs.loaded.contains(&(cx, cz)) {
-                            Color::RAYWHITE
-                        } else {
-                            Color::new(180, 180, 180, 200)
-                        };
-                        d.draw_rectangle_lines(cell_x, cell_y, tile, tile, border);
-                        // Count label: mesh/light
-                        let label = format!("{}/{}", mesh_c, light_c);
-                        // Pick a font size that fits inside the tile (width + height)
-                        let mut fs = 14;
-                        // bound by tile height too
-                        if fs > tile - 2 { fs = (tile - 2).max(8); }
-                        while fs > 8 && d.measure_text(&label, fs) > tile - 4 { fs -= 1; }
-                        let tw = d.measure_text(&label, fs);
-                        let tx = cell_x + tile / 2 - tw / 2;
-                        let ty = cell_y + tile / 2 - fs / 2;
-                        d.draw_text(&label, tx + 1, ty + 1, fs, Color::BLACK);
-                        d.draw_text(&label, tx, ty, fs, Color::WHITE);
+            }
+            // (moved event stats to right-side overlay)
+            let screen_height = d.get_screen_height();
+            let line_height = 22; // Approximate height per line with font size 20
+            let y_pos = screen_height - (text_lines * line_height) - 10; // 10px margin from bottom
+            d.draw_text(&debug_text, 10, y_pos, 20, Color::WHITE);
+            d.draw_text(&debug_text, 11, y_pos + 1, 20, Color::BLACK); // Shadow for readability
+
+            // Right-side overlay (reduced to avoid jitter):
+            // - No queued events line or subtype lists
+            // - Keep processed total, intents, runtime queues, and perf summary
+            let mut right_text = String::new();
+            right_text.push_str(&format!(
+                "Processed Events (session): {}",
+                self.evt_processed_total
+            ));
+            right_text.push_str(&format!("\nIntents: {}", self.debug_stats.intents_size));
+            // Show lighting mode (fixed)
+            right_text.push_str("\nLighting: FullMicro");
+            // Runtime queue debug (vertical layout)
+            let (q_e, if_e, q_l, if_l, q_b, if_b) = self.runtime.queue_debug_counts();
+            right_text.push_str("\nRuntime Queues:");
+            right_text.push_str(&format!("\n  Edit  - q={} inflight={}", q_e, if_e));
+            right_text.push_str(&format!("\n  Light - q={} inflight={}", q_l, if_l));
+            right_text.push_str(&format!("\n  BG    - q={} inflight={}", q_b, if_b));
+
+            // Perf summary (rolling window average and p95)
+            let stats = |q: &std::collections::VecDeque<u32>| -> (usize, u32, u32) {
+                let n = q.len();
+                if n == 0 {
+                    return (0, 0, 0);
+                }
+                let sum: u64 = q.iter().map(|&v| v as u64).sum();
+                let avg = ((sum as f32) / (n as f32)).round() as u32;
+                let mut v: Vec<u32> = q.iter().copied().collect();
+                v.sort_unstable();
+                let idx = ((n as f32) * 0.95).ceil().max(1.0) as usize - 1;
+                let p95 = v[idx.min(n - 1)];
+                (n, avg, p95)
+            };
+            let (n_mesh, avg_mesh, p95_mesh) = stats(&self.perf_mesh_ms);
+            let (n_light, avg_light, p95_light) = stats(&self.perf_light_ms);
+            let (n_total, avg_total, p95_total) = stats(&self.perf_total_ms);
+            let (n_rr, avg_rr, p95_rr) = stats(&self.perf_remove_ms);
+            right_text.push_str("\nPerf (ms):");
+            right_text.push_str(&format!(
+                "\n  Mesh   avg={} p95={} n={}",
+                avg_mesh, p95_mesh, n_mesh
+            ));
+            right_text.push_str(&format!(
+                "\n  Light  avg={} p95={} n={}",
+                avg_light, p95_light, n_light
+            ));
+            right_text.push_str(&format!(
+                "\n  Total  avg={} p95={} n={}",
+                avg_total, p95_total, n_total
+            ));
+            right_text.push_str(&format!(
+                "\n  Remove->Render avg={} p95={} n={}",
+                avg_rr, p95_rr, n_rr
+            ));
+
+            let screen_width = d.get_screen_width();
+            let font_size = 20;
+            // Fixed panel width template samples
+            let panel_templates = [
+                "Processed Events (session): 1,000,000",
+                "Intents: 1,000,000",
+                "Lighting: FullMicro",
+                "Runtime Queues:",
+                "  Edit  - q=1,000,000 inflight=1,000,000",
+                "  Light - q=1,000,000 inflight=1,000,000",
+                "  BG    - q=1,000,000 inflight=1,000,000",
+                "Perf (ms):",
+                "  Mesh   avg=9,999 p95=9,999 n=9,999",
+                "  Light  avg=9,999 p95=9,999 n=9,999",
+                "  Total  avg=9,999 p95=9,999 n=9,999",
+                "  Remove->Render avg=9,999 p95=9,999 n=9,999",
+            ];
+            let mut panel_w = 0;
+            for t in panel_templates.iter() {
+                let w = d.measure_text(t, font_size);
+                if w > panel_w {
+                    panel_w = w;
+                }
+            }
+            // Small padding so text doesn't hug the edge
+            panel_w += 8;
+            let margin = 10;
+            let rx = screen_width - panel_w - margin;
+            // Align bottom similar to left overlay
+            let lines = right_text.split('\n').count();
+            let ry = screen_height - (lines as i32 * line_height) - 10;
+            d.draw_text(&right_text, rx, ry, font_size, Color::WHITE);
+            d.draw_text(&right_text, rx + 1, ry + 1, font_size, Color::BLACK);
+
+            // Minimap (bottom-right): show chunks in view radius and mesh counts
+            {
+                let r = self.gs.view_radius_chunks.max(0);
+                let w = r * 2 + 1;
+                let h = r * 2 + 1;
+                if w > 0 && h > 0 {
+                    let gap: i32 = 2;
+                    let pad: i32 = 6;
+                    // Pick a tile size that keeps minimap within ~3/4 screen in each dimension
+                    // Make tiles larger to fit mesh/light labels comfortably
+                    let max_tile: i32 = 32;
+                    let lim_w = (screen_width * 3) / 4;
+                    let lim_h = (screen_height * 3) / 4;
+                    let tile_w_fit = (lim_w - pad * 2 - (w - 1) * gap) / w;
+                    let tile_h_fit = (lim_h - pad * 2 - (h - 1) * gap) / h;
+                    let tile_fit = tile_w_fit.min(tile_h_fit);
+                    let mut tile = max_tile.min(tile_fit).max(8);
+                    // Ensure tile is large enough for label "mesh/light"
+                    // using a conservative width sample
+                    let fs_sample = 14;
+                    let label_req = d.measure_text("9999/9999", fs_sample) + 8; // text + small padding
+                    if label_req > tile {
+                        tile = label_req.min(tile_fit).max(8);
                     }
+                    // Fallback if extreme aspect shrinks too far
+                    if tile < 6 {
+                        tile = 6;
+                    }
+                    let map_w: i32 = w * tile + (w - 1) * gap + pad * 2;
+                    let map_h: i32 = h * tile + (h - 1) * gap + pad * 2;
+                    let margin: i32 = 10;
+                    let scr_w: i32 = screen_width;
+                    let scr_h: i32 = screen_height;
+                    // Prefer to place just above the right overlay block; fallback to bottom-right
+                    let mx = scr_w - map_w - margin;
+                    let mut my = ry - map_h - 8; // 8px spacing above the right panel
+                    if my < margin {
+                        my = scr_h - map_h - margin;
+                    }
+                    // Background panel
+                    d.draw_rectangle(mx, my, map_w, map_h, Color::new(0, 0, 0, 120));
+                    // Grid of chunks around center (x to the right, z downward)
+                    let (ccx, ccz) = self.gs.center_chunk;
+                    for dz in -r..=r {
+                        for dx in -r..=r {
+                            let cx = ccx + dx;
+                            let cz = ccz + dz;
+                            let ix = dx + r; // 0..w-1
+                            let iz = dz + r; // 0..h-1
+                            let cell_x = mx + pad + ix * (tile + gap);
+                            let cell_y = my + pad + iz * (tile + gap);
+                            let mesh_c = *self.gs.mesh_counts.get(&(cx, cz)).unwrap_or(&0);
+                            let light_c = *self.gs.light_counts.get(&(cx, cz)).unwrap_or(&0);
+                            // Fill color based on mesh count (simple green heat)
+                            let heat = mesh_c.min(12) as i32;
+                            let g = (40 + heat * 16).clamp(40, 255) as u8;
+                            let fill = if mesh_c == 0 {
+                                Color::new(60, 60, 60, 200)
+                            } else {
+                                Color::new(30, g, 50, 220)
+                            };
+                            d.draw_rectangle(cell_x, cell_y, tile, tile, fill);
+                            // Border: white for loaded chunks
+                            let border = if self.gs.loaded.contains(&(cx, cz)) {
+                                Color::RAYWHITE
+                            } else {
+                                Color::new(180, 180, 180, 200)
+                            };
+                            d.draw_rectangle_lines(cell_x, cell_y, tile, tile, border);
+                            // Count label: mesh/light
+                            let label = format!("{}/{}", mesh_c, light_c);
+                            // Pick a font size that fits inside the tile (width + height)
+                            let mut fs = 14;
+                            // bound by tile height too
+                            if fs > tile - 2 {
+                                fs = (tile - 2).max(8);
+                            }
+                            while fs > 8 && d.measure_text(&label, fs) > tile - 4 {
+                                fs -= 1;
+                            }
+                            let tw = d.measure_text(&label, fs);
+                            let tx = cell_x + tile / 2 - tw / 2;
+                            let ty = cell_y + tile / 2 - fs / 2;
+                            d.draw_text(&label, tx + 1, ty + 1, fs, Color::BLACK);
+                            d.draw_text(&label, tx, ty, fs, Color::WHITE);
+
+                            // LOD badge: color-coded square in the top-left of the tile
+                            let dx_abs = dx.abs();
+                            let dz_abs = dz.abs();
+                            let ring = dx_abs.max(dz_abs) as u32;
+                            let expected_lod = if self.gs.lod_enabled {
+                                if ring <= 4 { geist_runtime::LODLevel::Lod0 }
+                                else if ring <= 8 { geist_runtime::LODLevel::Lod1 }
+                                else { geist_runtime::LODLevel::Lod2 }
+                            } else { geist_runtime::LODLevel::Lod0 };
+                            let lod_here = self
+                                .gs
+                                .cur_lod
+                                .get(&(cx, cz))
+                                .copied()
+                                .unwrap_or(expected_lod);
+                            let badge = (tile / 4).max(6).min(12);
+                            let bx = cell_x + 2;
+                            let by = cell_y + 2;
+                            let (lod_col, lod_num): (Color, &str) = match lod_here {
+                                geist_runtime::LODLevel::Lod0 => (Color::LIME, "0"),
+                                geist_runtime::LODLevel::Lod1 => (Color::ORANGE, "1"),
+                                geist_runtime::LODLevel::Lod2 => (Color::RED, "2"),
+                            };
+                            d.draw_rectangle(bx - 1, by - 1, badge + 2, badge + 2, Color::BLACK);
+                            d.draw_rectangle(bx, by, badge, badge, lod_col);
+                            let mut bfs = (badge as i32 - 2).max(6);
+                            while bfs > 6 && d.measure_text(lod_num, bfs) > badge - 2 {
+                                bfs -= 1;
+                            }
+                            // Center the number inside the badge
+                            let bw = d.measure_text(lod_num, bfs);
+                            let ntx = bx + badge / 2 - bw / 2;
+                            let nty = by + badge / 2 - bfs / 2;
+                            d.draw_text(lod_num, ntx, nty, bfs, Color::BLACK);
+                            d.draw_text(lod_num, ntx, nty, bfs, Color::WHITE);
+                        }
+                    }
+                    // Highlight current center chunk
+                    let hx = mx + pad + r * (tile + gap);
+                    let hy = my + pad + r * (tile + gap);
+                    d.draw_rectangle_lines(hx - 1, hy - 1, tile + 2, tile + 2, Color::YELLOW);
+
+                    // LOD legend in panel (bottom-left)
+                    let legend_fs = 12;
+                    let legend_y = my + map_h - pad - legend_fs - 2;
+                    let mut lx = mx + pad;
+                    let draw_leg = |d: &mut RaylibDrawHandle, x: &mut i32, color: Color, txt: &str| {
+                        let sz = 10;
+                        d.draw_rectangle(*x, legend_y, sz, sz, Color::BLACK);
+                        d.draw_rectangle(*x + 1, legend_y + 1, sz - 2, sz - 2, color);
+                        *x += sz + 4;
+                        d.draw_text(txt, *x, legend_y - 1, legend_fs, Color::WHITE);
+                        *x += d.measure_text(txt, legend_fs) + 12;
+                    };
+                    draw_leg(&mut d, &mut lx, Color::LIME, "= LOD0");
+                    draw_leg(&mut d, &mut lx, Color::ORANGE, "= LOD1");
+                    draw_leg(&mut d, &mut lx, Color::RED, "= LOD2");
                 }
-                // Highlight current center chunk
-                let hx = mx + pad + r * (tile + gap);
-                let hy = my + pad + r * (tile + gap);
-                d.draw_rectangle_lines(hx - 1, hy - 1, tile + 2, tile + 2, Color::YELLOW);
             }
-        }
         } // end debug overlay
 
         // HUD
@@ -3145,10 +3406,14 @@ impl App {
             self.gs.structure_elev_speed,
         );
         d.draw_text(&hud, 12, 12, 18, Color::DARKGRAY);
-        if self.gs.show_debug_overlay { d.draw_fps(12, 36); }
+        if self.gs.show_debug_overlay {
+            d.draw_fps(12, 36);
+        }
 
         // Biome label moved to debug overlay above
-        if !self.gs.show_debug_overlay { return; }
+        if !self.gs.show_debug_overlay {
+            return;
+        }
 
         // Debug overlay for attachment status
         let mut debug_y = 60;
@@ -3427,6 +3692,9 @@ impl App {
             E::DebugOverlayToggled => {
                 log::info!(target: "events", "[tick {}] DebugOverlayToggled", tick);
             }
+            E::LODToggled { enabled } => {
+                log::info!(target: "events", "[tick {}] LODToggled enabled={}", tick, enabled);
+            }
             E::PlaceTypeSelected { block } => {
                 log::info!(target: "events", "[tick {}] PlaceTypeSelected block={:?}", tick, block);
             }
@@ -3466,6 +3734,7 @@ impl App {
                 neighbors,
                 rev,
                 job_id,
+                lod,
                 cause,
             } => {
                 let mask = [
@@ -3474,20 +3743,27 @@ impl App {
                     neighbors.neg_z,
                     neighbors.pos_z,
                 ];
-                log::debug!(target: "events", "[tick {}] BuildChunkJobRequested ({}, {}) rev={} cause={:?} nmask={:?} job_id={:#x}",
-                    tick, cx, cz, rev, cause, mask, job_id);
+                log::debug!(target: "events", "[tick {}] BuildChunkJobRequested ({}, {}) rev={} cause={:?} lod={:?} nmask={:?} job_id={:#x}",
+                    tick, cx, cz, rev, cause, lod, mask, job_id);
             }
             E::BuildChunkJobCompleted {
+                cx,
+                cz,
+                rev,
+                lod,
+                job_id,
+                ..
+            } => {
+                log::debug!(target: "events", "[tick {}] BuildChunkJobCompleted ({}, {}) rev={} lod={:?} job_id={:#x}",
+                    tick, cx, cz, rev, lod, job_id);
+            }
+            E::ChunkLightingRecomputed {
                 cx,
                 cz,
                 rev,
                 job_id,
                 ..
             } => {
-                log::debug!(target: "events", "[tick {}] BuildChunkJobCompleted ({}, {}) rev={} job_id={:#x}",
-                    tick, cx, cz, rev, job_id);
-            }
-            E::ChunkLightingRecomputed { cx, cz, rev, job_id, .. } => {
                 log::debug!(target: "events", "[tick {}] ChunkLightingRecomputed ({}, {}) rev={} job_id={:#x}",
                     tick, cx, cz, rev, job_id);
             }
@@ -3538,7 +3814,14 @@ impl App {
             E::LightEmitterRemoved { wx, wy, wz } => {
                 log::info!(target: "events", "[tick {}] LightEmitterRemoved ({},{},{})", tick, wx, wy, wz);
             }
-            E::LightBordersUpdated { cx, cz, xn_changed, xp_changed, zn_changed, zp_changed } => {
+            E::LightBordersUpdated {
+                cx,
+                cz,
+                xn_changed,
+                xp_changed,
+                zn_changed,
+                zp_changed,
+            } => {
                 log::debug!(target: "events", "[tick {}] LightBordersUpdated ({}, {}) xn={} xp={} zn={} zp={}", tick, cx, cz, xn_changed, xp_changed, zn_changed, zp_changed);
             }
         }

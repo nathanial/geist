@@ -185,11 +185,18 @@ pub struct Water {
     #[serde(default = "default_water_level_ratio")]
     pub level_ratio: f32,
 }
-fn default_water_enable() -> bool { true }
-fn default_water_level_ratio() -> f32 { 0.33 }
+fn default_water_enable() -> bool {
+    true
+}
+fn default_water_level_ratio() -> f32 {
+    0.33
+}
 impl Default for Water {
     fn default() -> Self {
-        Self { enable: true, level_ratio: default_water_level_ratio() }
+        Self {
+            enable: true,
+            level_ratio: default_water_level_ratio(),
+        }
     }
 }
 

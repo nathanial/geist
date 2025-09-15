@@ -1,9 +1,11 @@
 use geist_geom::{Aabb, Vec3};
-use proptest::prelude::*;
 use proptest::num::f32::NORMAL;
+use proptest::prelude::*;
 use proptest::strategy::Strategy;
 
-fn approx(a: f32, b: f32, eps: f32) -> bool { (a - b).abs() <= eps }
+fn approx(a: f32, b: f32, eps: f32) -> bool {
+    (a - b).abs() <= eps
+}
 fn vapprox(a: Vec3, b: Vec3, eps: f32) -> bool {
     approx(a.x, b.x, eps) && approx(a.y, b.y, eps) && approx(a.z, b.z, eps)
 }
@@ -22,12 +24,10 @@ fn bounded_f32() -> impl Strategy<Value = f32> {
     NORMAL.prop_filter("bounded", |v| v.is_finite() && v.abs() <= 1e6)
 }
 fn arb_vec3() -> impl Strategy<Value = Vec3> {
-    (bounded_f32(), bounded_f32(), bounded_f32())
-        .prop_map(|(x, y, z)| Vec3::new(x, y, z))
+    (bounded_f32(), bounded_f32(), bounded_f32()).prop_map(|(x, y, z)| Vec3::new(x, y, z))
 }
 fn arb_aabb() -> impl Strategy<Value = Aabb> {
-    (arb_vec3(), arb_vec3())
-        .prop_map(|(min, max)| Aabb::new(min, max))
+    (arb_vec3(), arb_vec3()).prop_map(|(min, max)| Aabb::new(min, max))
 }
 
 fn small_f32() -> impl Strategy<Value = f32> {
@@ -35,8 +35,7 @@ fn small_f32() -> impl Strategy<Value = f32> {
 }
 
 fn small_vec3() -> impl Strategy<Value = Vec3> {
-    (small_f32(), small_f32(), small_f32())
-        .prop_map(|(x, y, z)| Vec3::new(x, y, z))
+    (small_f32(), small_f32(), small_f32()).prop_map(|(x, y, z)| Vec3::new(x, y, z))
 }
 
 fn arb_nondegenerate_aabb() -> impl Strategy<Value = Aabb> {
