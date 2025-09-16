@@ -103,8 +103,8 @@ pub(crate) fn is_occluder(
         return false;
     }
     if buf.contains_world(nx, ny, nz) {
-        let x0 = buf.cx * buf.sx as i32;
-        let z0 = buf.cz * buf.sz as i32;
+        let x0 = buf.coord.cx * buf.sx as i32;
+        let z0 = buf.coord.cz * buf.sz as i32;
         if ny < 0 || ny >= buf.sy as i32 {
             return false;
         }

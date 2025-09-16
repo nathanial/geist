@@ -7,7 +7,7 @@ use geist_blocks::Block;
 use geist_geom::Vec3;
 use geist_render_raylib::conv::{vec3_from_rl, vec3_to_rl};
 use geist_structures::{StructureId, rotate_yaw_inv};
-use geist_world::voxel::WorldGenMode;
+use geist_world::{ChunkCoord, voxel::WorldGenMode};
 
 impl App {
     pub fn render(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread) {
@@ -81,10 +81,13 @@ impl App {
             } else {
                 // Prefer loaded chunk buffers before falling back to worldgen
                 let sx = self.gs.world.chunk_size_x as i32;
+                let sy = self.gs.world.chunk_size_y as i32;
                 let sz = self.gs.world.chunk_size_z as i32;
                 let cx = wx.div_euclid(sx);
+                let cy = wy.div_euclid(sy);
                 let cz = wz.div_euclid(sz);
-                if let Some(cent) = self.gs.chunks.get(&(cx, cz)) {
+                let coord = ChunkCoord::new(cx, cy, cz);
+                if let Some(cent) = self.gs.chunks.get(&coord) {
                     if let Some(ref buf) = cent.buf {
                         buf.get_world(wx, wy, wz).unwrap_or(Block::AIR)
                     } else {
@@ -152,7 +155,7 @@ impl App {
             }
 
             // First pass: draw opaque parts and gather visible chunks for transparent pass
-            let mut visible_chunks: Vec<((i32, i32), f32)> = Vec::new();
+            let mut visible_chunks: Vec<(ChunkCoord, f32)> = Vec::new();
             for (ckey, cr) in self.renders.iter() {
                 // Check if chunk is within frustum
                 if self.gs.frustum_culling_enabled && !frustum.contains_bounding_box(&cr.bbox) {
@@ -170,9 +173,9 @@ impl App {
                 visible_chunks.push((*ckey, dist2));
                 // Precompute per-chunk lighting parameters
                 let origin = [
-                    (cr.cx * self.gs.world.chunk_size_x as i32) as f32,
-                    0.0,
-                    (cr.cz * self.gs.world.chunk_size_z as i32) as f32,
+                    (cr.coord.cx * self.gs.world.chunk_size_x as i32) as f32,
+                    (cr.coord.cy * self.gs.world.chunk_size_y as i32) as f32,
+                    (cr.coord.cz * self.gs.world.chunk_size_z as i32) as f32,
                 ];
                 let vis_min = 18.0f32 / 255.0f32;
                 let (dims_some, grid_some) = if let Some(ref lt) = cr.light_tex {
@@ -312,9 +315,9 @@ impl App {
                     }
                     // Precompute per-chunk lighting parameters
                     let origin = [
-                        (cr.cx * self.gs.world.chunk_size_x as i32) as f32,
-                        0.0,
-                        (cr.cz * self.gs.world.chunk_size_z as i32) as f32,
+                        (cr.coord.cx * self.gs.world.chunk_size_x as i32) as f32,
+                        (cr.coord.cy * self.gs.world.chunk_size_y as i32) as f32,
+                        (cr.coord.cz * self.gs.world.chunk_size_z as i32) as f32,
                     ];
                     let vis_min = 18.0f32 / 255.0f32;
                     let (dims_some, grid_some) = if let Some(ref lt) = cr.light_tex {
@@ -411,8 +414,10 @@ impl App {
                     return b;
                 }
                 let cx = wx.div_euclid(sx);
+                let cy = wy.div_euclid(sy);
                 let cz = wz.div_euclid(sz);
-                if let Some(cent) = self.gs.chunks.get(&(cx, cz)) {
+                let coord = ChunkCoord::new(cx, cy, cz);
+                if let Some(cent) = self.gs.chunks.get(&coord) {
                     if let Some(ref buf) = cent.buf {
                         return buf.get_world(wx, wy, wz).unwrap_or(Block::AIR);
                     }
@@ -725,7 +730,10 @@ impl App {
                     // Background panel
                     d.draw_rectangle(mx, my, map_w, map_h, Color::new(0, 0, 0, 120));
                     // Grid of chunks around center (x to the right, z downward)
-                    let (ccx, ccz) = self.gs.center_chunk;
+                    let center = self.gs.center_chunk;
+                    let ccx = center.cx;
+                    let ccy = center.cy;
+                    let ccz = center.cz;
                     for dz in -r..=r {
                         for dx in -r..=r {
                             let cx = ccx + dx;
@@ -734,8 +742,9 @@ impl App {
                             let iz = dz + r; // 0..h-1
                             let cell_x = mx + pad + ix * (tile + gap);
                             let cell_y = my + pad + iz * (tile + gap);
-                            let mesh_c = *self.gs.mesh_counts.get(&(cx, cz)).unwrap_or(&0);
-                            let light_c = *self.gs.light_counts.get(&(cx, cz)).unwrap_or(&0);
+                            let coord = ChunkCoord::new(cx, ccy, cz);
+                            let mesh_c = *self.gs.mesh_counts.get(&coord).unwrap_or(&0);
+                            let light_c = *self.gs.light_counts.get(&coord).unwrap_or(&0);
                             // Fill color based on mesh count (simple green heat)
                             let heat = mesh_c.min(12) as i32;
                             let g = (40 + heat * 16).clamp(40, 255) as u8;
@@ -746,7 +755,7 @@ impl App {
                             };
                             d.draw_rectangle(cell_x, cell_y, tile, tile, fill);
                             // Border: white for loaded chunks
-                            let border = if self.gs.loaded.contains(&(cx, cz)) {
+                            let border = if self.gs.loaded.contains(&coord) {
                                 Color::RAYWHITE
                             } else {
                                 Color::new(180, 180, 180, 200)

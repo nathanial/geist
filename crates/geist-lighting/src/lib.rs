@@ -317,7 +317,7 @@ impl LightGrid {
             }
         }
         // Seed from neighbors
-        let nb = store.get_neighbor_borders(buf.cx, buf.cz);
+        let nb = store.get_neighbor_borders(buf.coord.cx, buf.coord.cz);
         lg.nb_xn_blk = nb.xn.clone();
         lg.nb_xp_blk = nb.xp.clone();
         lg.nb_zn_blk = nb.zn.clone();

@@ -3,10 +3,10 @@ use geist_geom::Aabb;
 use std::collections::HashMap;
 
 use crate::mesh_build::MeshBuild;
+use geist_world::ChunkCoord;
 
 pub struct ChunkMeshCPU {
-    pub cx: i32,
-    pub cz: i32,
+    pub coord: ChunkCoord,
     pub bbox: Aabb,
     pub parts: HashMap<MaterialId, MeshBuild>,
 }

@@ -7,9 +7,11 @@ use geist_chunk::ChunkBuf;
 use geist_edit::EditStore;
 use geist_lighting::LightingStore;
 use geist_structures::{Structure, StructureId};
-use geist_world::voxel::World;
+use geist_world::voxel::{ChunkCoord, World};
 
 pub struct ChunkEntry {
+    #[allow(dead_code)]
+    pub coord: ChunkCoord,
     pub buf: Option<ChunkBuf>,
     #[allow(dead_code)]
     pub built_rev: u64,
@@ -29,17 +31,17 @@ pub struct GameState {
 
     // Streaming
     pub view_radius_chunks: i32,
-    pub center_chunk: (i32, i32),
-    pub loaded: HashSet<(i32, i32)>,
-    pub chunks: HashMap<(i32, i32), ChunkEntry>,
-    // How many times each chunk has completed meshing (by (cx, cz))
-    pub mesh_counts: HashMap<(i32, i32), u32>,
+    pub center_chunk: ChunkCoord,
+    pub loaded: HashSet<ChunkCoord>,
+    pub chunks: HashMap<ChunkCoord, ChunkEntry>,
+    // How many times each chunk has completed meshing (by chunk coordinate)
+    pub mesh_counts: HashMap<ChunkCoord, u32>,
     // How many times each chunk has completed a light-only recompute (no mesh)
-    pub light_counts: HashMap<(i32, i32), u32>,
+    pub light_counts: HashMap<ChunkCoord, u32>,
     // Track newest rev sent to workers per chunk to avoid redundant requeues
-    pub inflight_rev: HashMap<(i32, i32), u64>,
+    pub inflight_rev: HashMap<ChunkCoord, u64>,
     // Finalization tracking per chunk (no-timeout finalize after both owners publish)
-    pub finalize: HashMap<(i32, i32), FinalizeState>,
+    pub finalize: HashMap<ChunkCoord, FinalizeState>,
 
     // Edits + lighting (authoritative overlays)
     pub edits: EditStore,
@@ -86,7 +88,7 @@ impl GameState {
         walker.yaw = -45.0;
         Self {
             tick: 0,
-            center_chunk: (i32::MIN, i32::MIN),
+            center_chunk: ChunkCoord::new(i32::MIN, i32::MIN, i32::MIN),
             view_radius_chunks: 12,
             loaded: HashSet::new(),
             chunks: HashMap::new(),

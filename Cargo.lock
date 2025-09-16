@@ -699,6 +699,7 @@ dependencies = [
  "geist-geom",
  "geist-lighting",
  "geist-mesh-cpu",
+ "geist-world",
  "raylib",
 ]
 

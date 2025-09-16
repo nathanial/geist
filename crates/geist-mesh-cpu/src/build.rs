@@ -8,7 +8,7 @@ use geist_blocks::types::{Block, MaterialId};
 use geist_chunk::ChunkBuf;
 use geist_geom::{Aabb, Vec3};
 use geist_lighting::{LightBorders, LightGrid, LightingStore, compute_light_with_borders_buf};
-use geist_world::World;
+use geist_world::{ChunkCoord, World};
 
 use crate::chunk::ChunkMeshCPU;
 use crate::constants::MICROGRID_STEPS;
@@ -516,18 +516,19 @@ fn emit_carpet(
     );
 }
 
-fn log_mesher_perf(s: usize, cx: i32, cz: i32, perf: &MesherPerf) {
+fn log_mesher_perf(s: usize, coord: ChunkCoord, perf: &MesherPerf) {
     log::info!(
         target: "perf",
-        "ms scan={} seed={} emit={} thin={} total={} mesher_sections s={} cx={} cz={}",
+        "ms scan={} seed={} emit={} thin={} total={} mesher_sections s={} cx={} cy={} cz={}",
         perf.scan_ms,
         perf.seed_ms,
         perf.emit_ms,
         perf.thin_ms,
         perf.total_ms,
         s,
-        cx,
-        cz
+        coord.cx,
+        coord.cy,
+        coord.cz
     );
 }
 
@@ -551,8 +552,7 @@ fn finalize_chunk(
     sx: usize,
     sy: usize,
     sz: usize,
-    cx: i32,
-    cz: i32,
+    coord: ChunkCoord,
 ) -> (ChunkMeshCPU, Option<LightBorders>) {
     let mat_count = builds.len();
     update_last_mesh_reserve(mat_count, &builds);
@@ -578,15 +578,7 @@ fn finalize_chunk(
         }
     }
 
-    (
-        ChunkMeshCPU {
-            cx,
-            cz,
-            bbox,
-            parts,
-        },
-        light_borders,
-    )
+    (ChunkMeshCPU { coord, bbox, parts }, light_borders)
 }
 
 /// Build a chunk mesh using Watertight Cubical Complex (WCC) at S=1 (full cubes only).
@@ -597,8 +589,7 @@ pub fn build_chunk_wcc_cpu_buf(
     lighting: Option<&LightingStore>,
     world: &World,
     edits: Option<&HashMap<(i32, i32, i32), Block>>,
-    cx: i32,
-    cz: i32,
+    coord: ChunkCoord,
     reg: &BlockRegistry,
 ) -> Option<(ChunkMeshCPU, Option<LightBorders>)> {
     let light = match lighting {
@@ -606,7 +597,7 @@ pub fn build_chunk_wcc_cpu_buf(
         None => return None,
     };
 
-    build_chunk_wcc_cpu_buf_with_light(buf, &light, world, edits, cx, cz, reg)
+    build_chunk_wcc_cpu_buf_with_light(buf, &light, world, edits, coord, reg)
 }
 
 /// Same as `build_chunk_wcc_cpu_buf` but reuses a precomputed `LightGrid`.
@@ -615,15 +606,15 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
     light: &LightGrid,
     world: &World,
     edits: Option<&HashMap<(i32, i32, i32), Block>>,
-    cx: i32,
-    cz: i32,
+    coord: ChunkCoord,
     reg: &BlockRegistry,
 ) -> Option<(ChunkMeshCPU, Option<LightBorders>)> {
     let sx = buf.sx;
     let sy = buf.sy;
     let sz = buf.sz;
-    let base_x = buf.cx * sx as i32;
-    let base_z = buf.cz * sz as i32;
+    debug_assert_eq!(buf.coord, coord);
+    let base_x = buf.coord.cx * sx as i32;
+    let base_z = buf.coord.cz * sz as i32;
     let mat_count = reg.materials.materials.len();
 
     let s: usize = MICROGRID_STEPS;
@@ -657,17 +648,17 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
         thin_ms,
         total_ms,
     };
-    log_mesher_perf(s, cx, cz, &perf);
+    log_mesher_perf(s, coord, &perf);
 
-    let (chunk, light_borders) = finalize_chunk(builds, light, base_x, base_z, sx, sy, sz, cx, cz);
+    let (chunk, light_borders) = finalize_chunk(builds, light, base_x, base_z, sx, sy, sz, coord);
 
     Some((chunk, light_borders))
 }
 
 /// Builds a simple voxel body mesh for debug/solid rendering using a flat ambient light.
 pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry) -> ChunkMeshCPU {
-    let base_x = buf.cx * buf.sx as i32;
-    let base_z = buf.cz * buf.sz as i32;
+    let base_x = buf.coord.cx * buf.sx as i32;
+    let base_z = buf.coord.cz * buf.sz as i32;
     let mat_count = reg.materials.materials.len();
     let mut builds_v: Vec<MeshBuild> = vec![MeshBuild::default(); mat_count];
     for z in 0..buf.sz {
@@ -924,8 +915,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
         }
     }
     ChunkMeshCPU {
-        cx: buf.cx,
-        cz: buf.cz,
+        coord: buf.coord,
         bbox: Aabb {
             min: Vec3 {
                 x: base_x as f32,

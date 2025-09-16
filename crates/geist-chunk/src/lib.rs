@@ -3,12 +3,11 @@
 
 use geist_blocks::BlockRegistry;
 use geist_blocks::types::Block;
-use geist_world::World;
+use geist_world::{ChunkCoord, World};
 
 #[derive(Clone, Debug)]
 pub struct ChunkBuf {
-    pub cx: i32,
-    pub cz: i32,
+    pub coord: ChunkCoord,
     pub sx: usize,
     pub sy: usize,
     pub sz: usize,
@@ -28,12 +27,13 @@ impl ChunkBuf {
 
     #[inline]
     pub fn contains_world(&self, wx: i32, wy: i32, wz: i32) -> bool {
-        if wy < 0 || wy >= self.sy as i32 {
+        let base_x = self.coord.cx * self.sx as i32;
+        let base_y = self.coord.cy * self.sy as i32;
+        let base_z = self.coord.cz * self.sz as i32;
+        if wy < base_y || wy >= base_y + self.sy as i32 {
             return false;
         }
-        let x0 = self.cx * self.sx as i32;
-        let z0 = self.cz * self.sz as i32;
-        wx >= x0 && wx < x0 + self.sx as i32 && wz >= z0 && wz < z0 + self.sz as i32
+        wx >= base_x && wx < base_x + self.sx as i32 && wz >= base_z && wz < base_z + self.sz as i32
     }
 
     #[inline]
@@ -41,19 +41,17 @@ impl ChunkBuf {
         if !self.contains_world(wx, wy, wz) {
             return None;
         }
-        if wy < 0 || wy >= self.sy as i32 {
-            return Some(Block::AIR);
-        }
-        let x0 = self.cx * self.sx as i32;
-        let z0 = self.cz * self.sz as i32;
-        let lx = (wx - x0) as usize;
-        let lz = (wz - z0) as usize;
-        Some(self.get_local(lx, wy as usize, lz))
+        let base_x = self.coord.cx * self.sx as i32;
+        let base_y = self.coord.cy * self.sy as i32;
+        let base_z = self.coord.cz * self.sz as i32;
+        let lx = (wx - base_x) as usize;
+        let ly = (wy - base_y) as usize;
+        let lz = (wz - base_z) as usize;
+        Some(self.get_local(lx, ly, lz))
     }
 
     pub fn from_blocks_local(
-        cx: i32,
-        cz: i32,
+        coord: ChunkCoord,
         sx: usize,
         sy: usize,
         sz: usize,
@@ -65,8 +63,7 @@ impl ChunkBuf {
             b.resize(expect, Block { id: 0, state: 0 });
         }
         ChunkBuf {
-            cx,
-            cz,
+            coord,
             sx,
             sy,
             sz,
@@ -75,30 +72,30 @@ impl ChunkBuf {
     }
 }
 
-pub fn generate_chunk_buffer(world: &World, cx: i32, cz: i32, reg: &BlockRegistry) -> ChunkBuf {
+pub fn generate_chunk_buffer(world: &World, coord: ChunkCoord, reg: &BlockRegistry) -> ChunkBuf {
     let sx = world.chunk_size_x;
     let sy = world.chunk_size_y;
     let sz = world.chunk_size_z;
     let mut blocks = Vec::with_capacity(sx * sy * sz);
     blocks.resize(sx * sy * sz, Block { id: 0, state: 0 });
-    let x0 = cx * sx as i32;
-    let z0 = cz * sz as i32;
+    let base_x = coord.cx * sx as i32;
+    let base_y = coord.cy * sy as i32;
+    let base_z = coord.cz * sz as i32;
     // Use reusable worldgen context per chunk to avoid heavy per-voxel allocations
     let mut ctx = world.make_gen_ctx();
     for z in 0..sz {
         for y in 0..sy {
             for x in 0..sx {
-                let wx = x0 + x as i32;
-                let wy = y as i32;
-                let wz = z0 + z as i32;
+                let wx = base_x + x as i32;
+                let wy = base_y + y as i32;
+                let wz = base_z + z as i32;
                 blocks[(y * sz + z) * sx + x] =
                     world.block_at_runtime_with(reg, &mut ctx, wx, wy, wz);
             }
         }
     }
     ChunkBuf {
-        cx,
-        cz,
+        coord,
         sx,
         sy,
         sz,

@@ -55,25 +55,30 @@ pub enum Event {
     // Player/view
     ViewCenterChanged {
         ccx: i32,
+        ccy: i32,
         ccz: i32,
     },
 
     // Streaming & meshing
     EnsureChunkLoaded {
         cx: i32,
+        cy: i32,
         cz: i32,
     },
     EnsureChunkUnloaded {
         cx: i32,
+        cy: i32,
         cz: i32,
     },
     ChunkRebuildRequested {
         cx: i32,
+        cy: i32,
         cz: i32,
         cause: RebuildCause,
     },
     BuildChunkJobRequested {
         cx: i32,
+        cy: i32,
         cz: i32,
         neighbors: NeighborsLoaded,
         rev: u64,
@@ -83,6 +88,7 @@ pub enum Event {
     },
     BuildChunkJobCompleted {
         cx: i32,
+        cy: i32,
         cz: i32,
         rev: u64,
         cpu: ChunkMeshCPU,
@@ -95,6 +101,7 @@ pub enum Event {
     // Lighting-only recompute result (Phase 1 decoupling)
     ChunkLightingRecomputed {
         cx: i32,
+        cy: i32,
         cz: i32,
         rev: u64,
         light_grid: geist_lighting::LightGrid,
@@ -156,10 +163,13 @@ pub enum Event {
     },
     LightBordersUpdated {
         cx: i32,
+        cy: i32,
         cz: i32,
         // Per-face change flags (horizontal only)
         xn_changed: bool,
         xp_changed: bool,
+        yn_changed: bool,
+        yp_changed: bool,
         zn_changed: bool,
         zp_changed: bool,
     },

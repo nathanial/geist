@@ -3,6 +3,7 @@
 
 use geist_blocks::MaterialCatalog;
 use geist_mesh_cpu::ChunkMeshCPU;
+use geist_world::ChunkCoord;
 use raylib::prelude::*;
 use std::collections::HashMap;
 
@@ -78,8 +79,7 @@ pub struct ChunkLightTex {
 }
 
 pub struct ChunkRender {
-    pub cx: i32,
-    pub cz: i32,
+    pub coord: ChunkCoord,
     pub bbox: raylib::core::math::BoundingBox,
     pub parts: Vec<ChunkPart>,
     pub leaf_tint: Option<[f32; 3]>,
@@ -226,8 +226,7 @@ pub fn upload_chunk_mesh(
         }
     }
     Some(ChunkRender {
-        cx: cpu.cx,
-        cz: cpu.cz,
+        coord: cpu.coord,
         bbox: conv::aabb_to_rl(cpu.bbox),
         parts: parts_gpu,
         leaf_tint: None,

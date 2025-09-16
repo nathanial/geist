@@ -8,7 +8,7 @@ use geist_blocks::types::Block;
 use geist_chunk::{ChunkBuf, generate_chunk_buffer};
 use geist_lighting::{LightGrid, LightingStore};
 use geist_mesh_cpu::{ParityMesher, build_chunk_wcc_cpu_buf};
-use geist_world::{World, WorldGenMode};
+use geist_world::{ChunkCoord, World, WorldGenMode};
 
 fn load_registry() -> BlockRegistry {
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -31,8 +31,15 @@ fn bench_build_chunk_wcc_flat(c: &mut Criterion) {
     let store = LightingStore::new(sx, sy, sz);
     group.bench_function("flat_32x64x32", |b| {
         b.iter(|| {
-            let buf = generate_chunk_buffer(&world, 0, 0, &reg);
-            let out = build_chunk_wcc_cpu_buf(&buf, Some(&store), &world, None, 0, 0, &reg);
+            let buf = generate_chunk_buffer(&world, ChunkCoord::new(0, 0, 0), &reg);
+            let out = build_chunk_wcc_cpu_buf(
+                &buf,
+                Some(&store),
+                &world,
+                None,
+                ChunkCoord::new(0, 0, 0),
+                &reg,
+            );
             black_box(out);
         })
     });
@@ -48,8 +55,15 @@ fn bench_build_chunk_wcc_normal_dims(c: &mut Criterion) {
     let store = LightingStore::new(sx, sy, sz);
     group.bench_function("normal_32x256x32", |b| {
         b.iter(|| {
-            let buf = generate_chunk_buffer(&world, 0, 0, &reg);
-            let out = build_chunk_wcc_cpu_buf(&buf, Some(&store), &world, None, 0, 0, &reg);
+            let buf = generate_chunk_buffer(&world, ChunkCoord::new(0, 0, 0), &reg);
+            let out = build_chunk_wcc_cpu_buf(
+                &buf,
+                Some(&store),
+                &world,
+                None,
+                ChunkCoord::new(0, 0, 0),
+                &reg,
+            );
             black_box(out);
         })
     });
@@ -62,7 +76,7 @@ fn bench_worldgen_normal_dims(c: &mut Criterion) {
     let world = World::new(1, 8, 1, 1337, WorldGenMode::Normal);
     group.bench_function("generate_chunk_buffer_32x256x32", |b| {
         b.iter(|| {
-            let buf = generate_chunk_buffer(&world, 0, 0, &reg);
+            let buf = generate_chunk_buffer(&world, ChunkCoord::new(0, 0, 0), &reg);
             black_box(buf);
         })
     });
@@ -75,7 +89,7 @@ fn bench_light_compute_normal_dims(c: &mut Criterion) {
     let world = World::new(1, 8, 1, 1337, WorldGenMode::Normal);
     let (sx, sy, sz) = (world.chunk_size_x, world.chunk_size_y, world.chunk_size_z);
     let store = LightingStore::new(sx, sy, sz);
-    let buf = generate_chunk_buffer(&world, 0, 0, &reg);
+    let buf = generate_chunk_buffer(&world, ChunkCoord::new(0, 0, 0), &reg);
     group.bench_function("compute_light_with_borders_32x256x32", |b| {
         b.iter(|| {
             let lg = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
@@ -91,12 +105,12 @@ fn bench_wcc_toggle_emit_normal_dims(c: &mut Criterion) {
     let world = World::new(1, 8, 1, 1337, WorldGenMode::Normal);
     let (sx, sy, sz) = (world.chunk_size_x, world.chunk_size_y, world.chunk_size_z);
     let store = LightingStore::new(sx, sy, sz);
-    let buf = generate_chunk_buffer(&world, 0, 0, &reg);
+    let buf = generate_chunk_buffer(&world, ChunkCoord::new(0, 0, 0), &reg);
     let light = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
     group.bench_function("toggle_emit_S2_no_thin_32x256x32", |b| {
         b.iter(|| {
-            let base_x = buf.cx * sx as i32;
-            let base_z = buf.cz * sz as i32;
+            let base_x = buf.coord.cx * sx as i32;
+            let base_z = buf.coord.cz * sz as i32;
             let mut pm = ParityMesher::new(&buf, &reg, 2, base_x, base_z, &world, None);
             pm.build_occupancy();
             pm.seed_seam_layers();
@@ -123,10 +137,15 @@ fn bench_build_chunk_wcc_normal_neighbors(c: &mut Criterion) {
             let mut total_parts = 0usize;
             for cz in 0..(chunks_z as i32) {
                 for cx in 0..(chunks_x as i32) {
-                    let buf = generate_chunk_buffer(&world, cx, cz, &reg);
-                    if let Some((cpu, _borders)) =
-                        build_chunk_wcc_cpu_buf(&buf, Some(&store), &world, None, cx, cz, &reg)
-                    {
+                    let buf = generate_chunk_buffer(&world, ChunkCoord::new(cx, 0, cz), &reg);
+                    if let Some((cpu, _borders)) = build_chunk_wcc_cpu_buf(
+                        &buf,
+                        Some(&store),
+                        &world,
+                        None,
+                        ChunkCoord::new(cx, 0, cz),
+                        &reg,
+                    ) {
                         total_parts += cpu.parts.len();
                     }
                 }
@@ -139,7 +158,7 @@ fn bench_build_chunk_wcc_normal_neighbors(c: &mut Criterion) {
 fn make_uniform_chunk(cx: i32, cz: i32, sx: usize, sy: usize, sz: usize, id: u16) -> ChunkBuf {
     let mut blocks = Vec::with_capacity(sx * sy * sz);
     blocks.resize(sx * sy * sz, Block { id, state: 0 });
-    ChunkBuf::from_blocks_local(cx, cz, sx, sy, sz, blocks)
+    ChunkBuf::from_blocks_local(ChunkCoord::new(cx, 0, cz), sx, sy, sz, blocks)
 }
 
 fn bench_wcc_mesher_s1_uniform(c: &mut Criterion) {
@@ -200,7 +219,7 @@ fn bench_wcc_mesher_s2_mixed(c: &mut Criterion) {
             }
         }
     }
-    let buf = ChunkBuf::from_blocks_local(0, 0, sx, sy, sz, blocks);
+    let buf = ChunkBuf::from_blocks_local(ChunkCoord::new(0, 0, 0), sx, sy, sz, blocks);
     let store = LightingStore::new(sx, sy, sz);
     let light = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
     group.bench_function("toggle_emit_mixed_s2_32x64x32", |b| {

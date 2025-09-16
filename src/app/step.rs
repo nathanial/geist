@@ -2,6 +2,7 @@ use geist_blocks::Block;
 use geist_geom::Vec3;
 use geist_render_raylib::conv::vec3_to_rl;
 use geist_runtime::JobOut;
+use geist_world::ChunkCoord;
 use raylib::prelude::*;
 
 use super::App;
@@ -82,11 +83,12 @@ impl App {
                     }
                     self.reg = std::sync::Arc::new(newreg);
                     self.tex_cache.map.clear();
-                    let keys: Vec<(i32, i32)> = self.renders.keys().cloned().collect();
-                    for (cx, cz) in keys {
+                    let keys: Vec<ChunkCoord> = self.renders.keys().copied().collect();
+                    for coord in keys {
                         self.queue.emit_now(Event::ChunkRebuildRequested {
-                            cx,
-                            cz,
+                            cx: coord.cx,
+                            cy: coord.cy,
+                            cz: coord.cz,
                             cause: RebuildCause::StreamLoad,
                         });
                     }
@@ -105,17 +107,18 @@ impl App {
         // Handle worldgen hot-reload
         // Always invalidate previous CPU buffers on change; optionally schedule rebuilds
         if self.take_worldgen_dirty() {
-            let keys: Vec<(i32, i32)> = self.renders.keys().cloned().collect();
-            for (cx, cz) in keys.iter().copied() {
-                if let Some(ent) = self.gs.chunks.get_mut(&(cx, cz)) {
+            let keys: Vec<ChunkCoord> = self.renders.keys().copied().collect();
+            for coord in keys.iter().copied() {
+                if let Some(ent) = self.gs.chunks.get_mut(&coord) {
                     ent.buf = None; // prevent reuse across worldgen param changes
                 }
             }
             if self.rebuild_on_worldgen {
-                for (cx, cz) in keys.iter().copied() {
+                for coord in keys.iter().copied() {
                     self.queue.emit_now(Event::ChunkRebuildRequested {
-                        cx,
-                        cz,
+                        cx: coord.cx,
+                        cy: coord.cy,
+                        cz: coord.cz,
                         cause: RebuildCause::StreamLoad,
                     });
                 }
@@ -361,7 +364,7 @@ impl App {
                 geist_runtime::JobKind::Edit | geist_runtime::JobKind::Bg => {
                     log::info!(
                         target: "perf",
-                        "mesh_ms={} light_ms={} total_ms={} gen_ms={} apply_ms={} kind={:?} cx={} cz={} rev={} job_id={}",
+                        "mesh_ms={} light_ms={} total_ms={} gen_ms={} apply_ms={} kind={:?} cx={} cy={} cz={} rev={} job_id={}",
                         r.t_mesh_ms,
                         r.t_light_ms,
                         r.t_total_ms,
@@ -369,6 +372,7 @@ impl App {
                         r.t_apply_ms,
                         r.kind,
                         r.cx,
+                        r.cy,
                         r.cz,
                         r.rev,
                         r.job_id
@@ -379,6 +383,7 @@ impl App {
                 // For mesh builds, pass through the grid; pack atlas later during event handling
                 self.queue.emit_now(Event::BuildChunkJobCompleted {
                     cx: r.cx,
+                    cy: r.cy,
                     cz: r.cz,
                     rev: r.rev,
                     cpu,
@@ -395,9 +400,12 @@ impl App {
                     if changed {
                         self.queue.emit_now(Event::LightBordersUpdated {
                             cx: r.cx,
+                            cy: r.cy,
                             cz: r.cz,
                             xn_changed: mask.xn,
                             xp_changed: mask.xp,
+                            yn_changed: false,
+                            yp_changed: false,
                             zn_changed: mask.zn,
                             zp_changed: mask.zp,
                         });
@@ -405,6 +413,7 @@ impl App {
                 }
                 self.queue.emit_now(Event::ChunkLightingRecomputed {
                     cx: r.cx,
+                    cy: r.cy,
                     cz: r.cz,
                     rev: r.rev,
                     light_grid: lg,

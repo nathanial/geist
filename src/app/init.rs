@@ -368,8 +368,9 @@ impl App {
 
         // Bootstrap initial streaming based on camera (after edits are applied)
         let ccx = (cam.position.x / world.chunk_size_x as f32).floor() as i32;
+        let ccy = (cam.position.y / world.chunk_size_y as f32).floor() as i32;
         let ccz = (cam.position.z / world.chunk_size_z as f32).floor() as i32;
-        queue.emit_now(Event::ViewCenterChanged { ccx, ccz });
+        queue.emit_now(Event::ViewCenterChanged { ccx, ccy, ccz });
         // Do not spawn a default platform in non-flat: schematics drive platform creation now.
         // Default place_type: stone
         if let Some(id) = reg.id_by_name("stone") {

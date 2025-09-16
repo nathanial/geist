@@ -8,6 +8,7 @@ use geist_blocks::{Block, BlockRegistry};
 use geist_render_raylib::{ChunkRender, FogShader, LeavesShader, TextureCache, WaterShader};
 use geist_runtime::Runtime;
 use geist_structures::StructureId;
+use geist_world::ChunkCoord;
 
 use crate::camera::FlyCamera;
 use crate::event::EventQueue;
@@ -24,13 +25,13 @@ pub struct App {
     pub fog_shader: Option<FogShader>,
     pub water_shader: Option<WaterShader>,
     pub tex_cache: TextureCache,
-    pub renders: HashMap<(i32, i32), ChunkRender>,
+    pub renders: HashMap<ChunkCoord, ChunkRender>,
     pub structure_renders: HashMap<StructureId, ChunkRender>,
     pub reg: Arc<BlockRegistry>,
     pub(crate) evt_processed_total: usize,
     pub(crate) evt_processed_by: HashMap<String, usize>,
-    pub(crate) intents: HashMap<(i32, i32), IntentEntry>,
-    pub(crate) perf_remove_start: HashMap<(i32, i32), VecDeque<Instant>>,
+    pub(crate) intents: HashMap<ChunkCoord, IntentEntry>,
+    pub(crate) perf_remove_start: HashMap<ChunkCoord, VecDeque<Instant>>,
     pub(crate) perf_mesh_ms: VecDeque<u32>,
     pub(crate) perf_light_ms: VecDeque<u32>,
     pub(crate) perf_total_ms: VecDeque<u32>,

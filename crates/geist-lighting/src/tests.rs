@@ -2,6 +2,7 @@ use super::*;
 use geist_blocks::config::{BlockDef, BlocksConfig, ShapeConfig};
 use geist_blocks::material::MaterialCatalog;
 use geist_blocks::types::Block;
+use geist_world::ChunkCoord;
 
 fn make_test_registry() -> BlockRegistry {
     let materials = MaterialCatalog::new();
@@ -91,7 +92,7 @@ fn make_chunk_buf_with(
             }
         }
     }
-    ChunkBuf::from_blocks_local(cx, cz, sx, sy, sz, blocks)
+    ChunkBuf::from_blocks_local(ChunkCoord::new(cx, 0, cz), sx, sy, sz, blocks)
 }
 
 #[test]

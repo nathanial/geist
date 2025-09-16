@@ -11,12 +11,13 @@ use geist_lighting::{
     LightAtlas, LightBorders, LightGrid, LightingStore, compute_light_with_borders_buf,
 };
 use geist_mesh_cpu::{ChunkMeshCPU, NeighborsLoaded, build_chunk_wcc_cpu_buf_with_light};
-use geist_world::World;
+use geist_world::{ChunkCoord, World};
 use std::time::Instant;
 
 #[derive(Clone, Debug)]
 pub struct BuildJob {
     pub cx: i32,
+    pub cy: i32,
     pub cz: i32,
     pub neighbors: NeighborsLoaded,
     pub rev: u64,
@@ -36,6 +37,7 @@ pub struct JobOut {
     pub buf: chunkbuf::ChunkBuf,
     pub light_borders: Option<LightBorders>,
     pub cx: i32,
+    pub cy: i32,
     pub cz: i32,
     pub rev: u64,
     pub job_id: u64,
@@ -141,25 +143,27 @@ impl Runtime {
                     // Start from previous buffer when provided; else regenerate from worldgen
                     let mut t_gen_ms: u32 = 0;
                     let mut t_mesh_ms: u32 = 0;
+                    let coord = ChunkCoord::new(job.cx, job.cy, job.cz);
                     let mut buf = if let Some(prev) = job.prev_buf {
                         prev
                     } else {
                         let t0 = Instant::now();
-                        let out = chunkbuf::generate_chunk_buffer(&w, job.cx, job.cz, &job.reg);
+                        let out = chunkbuf::generate_chunk_buffer(&w, coord, &job.reg);
                         t_gen_ms = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
                         out
                     };
                     // Apply persistent edits for this chunk before meshing
                     let base_x = job.cx * buf.sx as i32;
+                    let base_y = job.cy * buf.sy as i32;
                     let base_z = job.cz * buf.sz as i32;
                     let t_apply_ms = {
                         let t0 = Instant::now();
                         for ((wx, wy, wz), b) in job.chunk_edits.iter().copied() {
-                            if wy < 0 || wy >= buf.sy as i32 {
+                            if wy < base_y || wy >= base_y + buf.sy as i32 {
                                 continue;
                             }
                             let lx = (wx - base_x) as usize;
-                            let ly = wy as usize;
+                            let ly = (wy - base_y) as usize;
                             let lz = (wz - base_z) as usize;
                             if lx < buf.sx && lz < buf.sz {
                                 let idx = buf.idx(lx, ly, lz);
@@ -188,6 +192,7 @@ impl Runtime {
                                 buf,
                                 light_borders: Some(borders),
                                 cx: job.cx,
+                                cy: job.cy,
                                 cz: job.cz,
                                 rev: job.rev,
                                 job_id: job.job_id,
@@ -211,8 +216,7 @@ impl Runtime {
                                 &lg,
                                 &w,
                                 Some(&snap_map),
-                                job.cx,
-                                job.cz,
+                                coord,
                                 &job.reg,
                             );
                             t_mesh_ms = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
@@ -227,6 +231,7 @@ impl Runtime {
                                     buf,
                                     light_borders,
                                     cx: job.cx,
+                                    cy: job.cy,
                                     cz: job.cz,
                                     rev: job.rev,
                                     job_id: job.job_id,
@@ -357,8 +362,7 @@ impl Runtime {
             thread::spawn(move || {
                 while let Ok(job) = s_job_rx.recv() {
                     let mut buf = chunkbuf::ChunkBuf::from_blocks_local(
-                        0,
-                        0,
+                        ChunkCoord::new(0, 0, 0),
                         job.sx,
                         job.sy,
                         job.sz,

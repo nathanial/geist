@@ -5,7 +5,7 @@ use geist_blocks::types::Block;
 use geist_chunk::ChunkBuf;
 use geist_lighting::{LightGrid, LightingStore};
 use geist_mesh_cpu::{ChunkMeshCPU, NeighborsLoaded, ParityMesher};
-use geist_world::{World, WorldGenMode};
+use geist_world::{ChunkCoord, World, WorldGenMode};
 
 fn load_registry() -> BlockRegistry {
     let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -14,7 +14,7 @@ fn load_registry() -> BlockRegistry {
 }
 
 fn make_buf(cx: i32, cz: i32, sx: usize, sy: usize, sz: usize, blocks: Vec<Block>) -> ChunkBuf {
-    ChunkBuf::from_blocks_local(cx, cz, sx, sy, sz, blocks)
+    ChunkBuf::from_blocks_local(ChunkCoord::new(cx, 0, cz), sx, sy, sz, blocks)
 }
 
 fn tri_area_sum(cpu: &ChunkMeshCPU) -> f32 {
@@ -151,8 +151,7 @@ fn parity_area_random_full_cubes_s1() {
     let mut builds: HashMap<_, _> = HashMap::new();
     wm.emit_into(&mut builds);
     let cpu = ChunkMeshCPU {
-        cx: 0,
-        cz: 0,
+        coord: ChunkCoord::new(0, 0, 0),
         bbox: geist_geom::Aabb {
             min: geist_geom::Vec3 {
                 x: 0.0,
@@ -217,8 +216,7 @@ fn seam_stitch_no_faces_on_shared_plane_s1() {
     let mut pb = HashMap::new();
     wb.emit_into(&mut pb);
     let cpu_a = ChunkMeshCPU {
-        cx: 0,
-        cz: 0,
+        coord: ChunkCoord::new(0, 0, 0),
         bbox: geist_geom::Aabb {
             min: geist_geom::Vec3 {
                 x: 0.0,
@@ -234,8 +232,7 @@ fn seam_stitch_no_faces_on_shared_plane_s1() {
         parts: pa,
     };
     let cpu_b = ChunkMeshCPU {
-        cx: 1,
-        cz: 0,
+        coord: ChunkCoord::new(1, 0, 0),
         bbox: geist_geom::Aabb {
             min: geist_geom::Vec3 {
                 x: sx as f32,
@@ -309,8 +306,7 @@ fn per_face_quads_triangle_count_on_slab() {
     let mut parts = HashMap::new();
     wm.emit_into(&mut parts);
     let cpu = ChunkMeshCPU {
-        cx: 0,
-        cz: 0,
+        coord: ChunkCoord::new(0, 0, 0),
         bbox: geist_geom::Aabb {
             min: geist_geom::Vec3 {
                 x: 0.0,

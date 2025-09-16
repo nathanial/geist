@@ -6,6 +6,7 @@ use crate::event::{Event, RebuildCause};
 use crate::gamestate::FinalizeState;
 use geist_lighting::LightAtlas;
 use geist_mesh_cpu::NeighborsLoaded;
+use geist_world::ChunkCoord;
 
 // Scheduling/queue tuning knobs
 // Increase per-frame submissions and per-lane queue headroom so workers stay busier.
@@ -22,7 +23,9 @@ impl App {
         }
     }
 
-    pub(super) fn validate_chunk_light_atlas(&self, cx: i32, cz: i32, atlas: &LightAtlas) {
+    pub(super) fn validate_chunk_light_atlas(&self, coord: ChunkCoord, atlas: &LightAtlas) {
+        let cx = coord.cx;
+        let cz = coord.cz;
         // Compare atlas border rings against LightingStore neighbor planes; panic on mismatch.
         let nb = self.gs.lighting.get_neighbor_borders(cx, cz);
         let width = atlas.width;
@@ -117,11 +120,11 @@ impl App {
         }
     }
 
-    pub(super) fn try_schedule_finalize(&mut self, cx: i32, cz: i32) {
+    pub(super) fn try_schedule_finalize(&mut self, coord: ChunkCoord) {
         let st = self
             .gs
             .finalize
-            .entry((cx, cz))
+            .entry(coord)
             .or_insert(FinalizeState::default());
         if st.finalized || st.finalize_requested {
             return;
@@ -129,25 +132,26 @@ impl App {
         if !(st.owner_x_ready && st.owner_z_ready) {
             return;
         }
-        if !self.renders.contains_key(&(cx, cz)) {
+        if !self.renders.contains_key(&coord) {
             return;
         }
-        if self.gs.inflight_rev.contains_key(&(cx, cz)) {
+        if self.gs.inflight_rev.contains_key(&coord) {
             return;
         }
         self.queue.emit_now(Event::ChunkRebuildRequested {
-            cx,
-            cz,
+            cx: coord.cx,
+            cy: coord.cy,
+            cz: coord.cz,
             cause: RebuildCause::LightingBorder,
         });
         st.finalize_requested = true;
     }
 
-    pub(super) fn record_intent(&mut self, cx: i32, cz: i32, cause: IntentCause) {
-        let cur_rev = self.gs.edits.get_rev(cx, cz);
+    pub(super) fn record_intent(&mut self, coord: ChunkCoord, cause: IntentCause) {
+        let cur_rev = self.gs.edits.get_rev(coord.cx, coord.cz);
         let now = self.gs.tick;
         self.intents
-            .entry((cx, cz))
+            .entry(coord)
             .and_modify(|e| {
                 if cur_rev > e.rev {
                     e.rev = cur_rev;
@@ -169,15 +173,18 @@ impl App {
             return;
         }
         let ccx = (self.cam.position.x / self.gs.world.chunk_size_x as f32).floor() as i32;
+        let ccy = (self.cam.position.y / self.gs.world.chunk_size_y as f32).floor() as i32;
         let ccz = (self.cam.position.z / self.gs.world.chunk_size_z as f32).floor() as i32;
         let now = self.gs.tick;
-        let mut items: Vec<((i32, i32), IntentEntry, u32, i32)> =
+        let mut items: Vec<(ChunkCoord, IntentEntry, u32, i32)> =
             Vec::with_capacity(self.intents.len());
         for (&key, &ent) in self.intents.iter() {
-            let (cx, cz) = key;
+            let cx = key.cx;
+            let cz = key.cz;
             let dx = cx - ccx;
+            let dy = key.cy - ccy;
             let dz = cz - ccz;
-            let dist_bucket: u32 = dx.abs().max(dz.abs()) as u32;
+            let dist_bucket: u32 = dx.abs().max(dy.abs()).max(dz.abs()) as u32;
             let age = now.saturating_sub(ent.last_tick);
             let age_boost: i32 = if age > 180 {
                 -2
@@ -200,7 +207,7 @@ impl App {
             .unwrap_or(8);
         let cap = (worker_n * JOB_FRAME_CAP_MULT).max(8);
         let mut submitted = 0usize;
-        let mut submitted_keys: Vec<(i32, i32)> = Vec::new();
+        let mut submitted_keys: Vec<ChunkCoord> = Vec::new();
 
         let (q_e, if_e, q_l, if_l, q_b, if_b) = self.runtime.queue_debug_counts();
         let target_edit = self.runtime.w_edit.max(1) + LANE_QUEUE_EXTRA;
@@ -214,7 +221,8 @@ impl App {
             if submitted >= cap {
                 break;
             }
-            let (cx, cz) = key;
+            let cx = key.cx;
+            let cz = key.cz;
             if self
                 .gs
                 .inflight_rev
@@ -224,9 +232,9 @@ impl App {
             {
                 continue;
             }
-            let neighbors = self.neighbor_mask(cx, cz);
+            let neighbors = self.neighbor_mask(key);
             let rev = ent.rev;
-            let job_id = Self::job_hash(cx, cz, rev, neighbors);
+            let job_id = Self::job_hash(key, rev, neighbors);
             let is_loaded = self.renders.contains_key(&key);
             match ent.cause {
                 IntentCause::Edit => {
@@ -265,6 +273,7 @@ impl App {
                 1,
                 Event::BuildChunkJobRequested {
                     cx,
+                    cy: key.cy,
                     cz,
                     neighbors,
                     rev,
@@ -292,28 +301,33 @@ impl App {
         }
     }
 
-    pub(super) fn neighbor_mask(&self, cx: i32, cz: i32) -> NeighborsLoaded {
+    pub(super) fn neighbor_mask(&self, coord: ChunkCoord) -> NeighborsLoaded {
         NeighborsLoaded {
-            neg_x: self.renders.contains_key(&(cx - 1, cz)),
-            pos_x: self.renders.contains_key(&(cx + 1, cz)),
-            neg_z: self.renders.contains_key(&(cx, cz - 1)),
-            pos_z: self.renders.contains_key(&(cx, cz + 1)),
+            neg_x: self.renders.contains_key(&coord.offset(-1, 0, 0)),
+            pos_x: self.renders.contains_key(&coord.offset(1, 0, 0)),
+            neg_y: self.renders.contains_key(&coord.offset(0, -1, 0)),
+            pos_y: self.renders.contains_key(&coord.offset(0, 1, 0)),
+            neg_z: self.renders.contains_key(&coord.offset(0, 0, -1)),
+            pos_z: self.renders.contains_key(&coord.offset(0, 0, 1)),
         }
     }
 
-    pub(super) fn job_hash(cx: i32, cz: i32, rev: u64, n: NeighborsLoaded) -> u64 {
+    pub(super) fn job_hash(coord: ChunkCoord, rev: u64, n: NeighborsLoaded) -> u64 {
         let mut h: u64 = 0xcbf29ce484222325;
         let mut write = |v: u64| {
             h ^= v;
             h = h.wrapping_mul(0x100000001b3);
         };
-        write(cx as u64);
-        write(cz as u64);
+        write(coord.cx as u64);
+        write(coord.cy as u64);
+        write(coord.cz as u64);
         write(rev);
         let mask = (n.neg_x as u64)
             | ((n.pos_x as u64) << 1)
-            | ((n.neg_z as u64) << 2)
-            | ((n.pos_z as u64) << 3);
+            | ((n.neg_y as u64) << 2)
+            | ((n.pos_y as u64) << 3)
+            | ((n.neg_z as u64) << 4)
+            | ((n.pos_z as u64) << 5);
         write(mask);
         h
     }

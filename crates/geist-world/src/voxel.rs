@@ -9,6 +9,46 @@ use crate::worldgen::WorldGenParams;
 
 pub const CHUNK_SIZE: usize = 32;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct ChunkCoord {
+    pub cx: i32,
+    pub cy: i32,
+    pub cz: i32,
+}
+
+impl ChunkCoord {
+    #[inline]
+    pub const fn new(cx: i32, cy: i32, cz: i32) -> Self {
+        Self { cx, cy, cz }
+    }
+
+    #[inline]
+    pub fn with_y(self, cy: i32) -> Self {
+        Self { cy, ..self }
+    }
+
+    #[inline]
+    pub fn offset(self, dx: i32, dy: i32, dz: i32) -> Self {
+        Self {
+            cx: self.cx + dx,
+            cy: self.cy + dy,
+            cz: self.cz + dz,
+        }
+    }
+}
+
+impl From<(i32, i32, i32)> for ChunkCoord {
+    fn from(value: (i32, i32, i32)) -> Self {
+        Self::new(value.0, value.1, value.2)
+    }
+}
+
+impl From<ChunkCoord> for (i32, i32, i32) {
+    fn from(value: ChunkCoord) -> Self {
+        (value.cx, value.cy, value.cz)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ShowcaseEntry {
     pub block: RtBlock,

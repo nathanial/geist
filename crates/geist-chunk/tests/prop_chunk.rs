@@ -1,5 +1,6 @@
 use geist_blocks::types::Block;
 use geist_chunk::ChunkBuf;
+use geist_world::ChunkCoord;
 use proptest::prelude::*;
 
 fn dim() -> impl Strategy<Value = usize> {
@@ -16,7 +17,8 @@ proptest! {
     fn idx_is_unique_and_in_range(cx in small_i32(), cz in small_i32(), sx in dim(), sy in dim(), sz in dim()) {
         let expect = sx*sy*sz;
         let blocks = vec![Block::AIR; expect];
-        let buf = ChunkBuf::from_blocks_local(cx, cz, sx, sy, sz, blocks);
+        let coord = ChunkCoord::new(cx, 0, cz);
+        let buf = ChunkBuf::from_blocks_local(coord, sx, sy, sz, blocks);
 
         let mut seen = vec![false; expect];
         for y in 0..sy { for z in 0..sz { for x in 0..sx {
@@ -34,7 +36,8 @@ proptest! {
     fn get_local_matches_linear(cx in small_i32(), cz in small_i32(), sx in dim(), sy in dim(), sz in dim()) {
         let expect = sx*sy*sz;
         let blocks = (0..expect).map(|i| Block { id: i as u16, state: ! (i as u16)}).collect();
-        let buf = ChunkBuf::from_blocks_local(cx, cz, sx, sy, sz, blocks);
+        let coord = ChunkCoord::new(cx, 0, cz);
+        let buf = ChunkBuf::from_blocks_local(coord, sx, sy, sz, blocks);
         for y in 0..sy { for z in 0..sz { for x in 0..sx {
             let i = buf.idx(x,y,z);
             prop_assert_eq!(buf.get_local(x,y,z), buf.blocks[i]);
@@ -46,10 +49,11 @@ proptest! {
     fn contains_world_and_get_world_agree(cx in small_i32(), cz in small_i32(), sx in dim(), sy in dim(), sz in dim()) {
         let expect = sx*sy*sz;
         let blocks = (0..expect).map(|i| Block { id: (i%65535) as u16, state: (i*31 % 65535) as u16}).collect();
-        let buf = ChunkBuf::from_blocks_local(cx, cz, sx, sy, sz, blocks);
+        let coord = ChunkCoord::new(cx, 0, cz);
+        let buf = ChunkBuf::from_blocks_local(coord, sx, sy, sz, blocks);
 
-        let x0 = cx * sx as i32;
-        let z0 = cz * sz as i32;
+        let x0 = coord.cx * sx as i32;
+        let z0 = coord.cz * sz as i32;
 
         // Sample a mix of inside/outside positions
         let candidates = vec![
@@ -70,7 +74,7 @@ proptest! {
                 None => prop_assert!(!spec),
                 Some(b) => {
                     prop_assert!(spec);
-                    let lx = (wx - x0) as usize; let ly = wy as usize; let lz = (wz - z0) as usize;
+                    let lx = (wx - x0) as usize; let ly = (wy) as usize; let lz = (wz - z0) as usize;
                     prop_assert_eq!(b, buf.get_local(lx, ly, lz));
                 }
             }
@@ -82,11 +86,13 @@ proptest! {
     fn from_blocks_local_resizes(cx in small_i32(), cz in small_i32(), sx in dim(), sy in dim(), sz in dim()) {
         let expect = sx*sy*sz;
         // exact length preserved
-        let buf_ok = ChunkBuf::from_blocks_local(cx, cz, sx, sy, sz, vec![Block::AIR; expect]);
+        let coord = ChunkCoord::new(cx, 0, cz);
+        let buf_ok = ChunkBuf::from_blocks_local(coord, sx, sy, sz, vec![Block::AIR; expect]);
         prop_assert_eq!(buf_ok.blocks.len(), expect);
         // wrong length resized to expected
         let wrong_len = expect.saturating_sub(1);
-        let buf_resized = ChunkBuf::from_blocks_local(cx, cz, sx, sy, sz, vec![Block::AIR; wrong_len]);
+        let buf_resized =
+            ChunkBuf::from_blocks_local(coord, sx, sy, sz, vec![Block::AIR; wrong_len]);
         prop_assert_eq!(buf_resized.blocks.len(), expect);
     }
 }

@@ -15,6 +15,7 @@ use geist_render_raylib::conv::{vec3_from_rl, vec3_to_rl};
 use geist_render_raylib::{update_chunk_light_texture, upload_chunk_mesh};
 use geist_runtime::{BuildJob, StructureBuildJob};
 use geist_structures::{Structure, StructureId, rotate_yaw, rotate_yaw_inv};
+use geist_world::ChunkCoord;
 
 impl App {
     fn structure_block_solid_at_local(
@@ -211,7 +212,7 @@ impl App {
                         }
                         let cx = wx.div_euclid(sx);
                         let cz = wz.div_euclid(sz);
-                        if let Some(cent) = self.gs.chunks.get(&(cx, cz)) {
+                        if let Some(cent) = self.gs.chunks.get(&ChunkCoord::new(cx, 0, cz)) {
                             if let Some(ref buf) = cent.buf {
                                 return buf.get_world(wx, wy, wz).unwrap_or(Block::AIR);
                             }
@@ -268,19 +269,27 @@ impl App {
                     // Emit ViewCenterChanged if center moved
                     let ccx =
                         (self.cam.position.x / self.gs.world.chunk_size_x as f32).floor() as i32;
+                    let ccy =
+                        (self.cam.position.y / self.gs.world.chunk_size_y as f32).floor() as i32;
                     let ccz =
                         (self.cam.position.z / self.gs.world.chunk_size_z as f32).floor() as i32;
-                    if (ccx, ccz) != self.gs.center_chunk {
-                        self.queue.emit_now(Event::ViewCenterChanged { ccx, ccz });
+                    let new_center = ChunkCoord::new(ccx, ccy, ccz);
+                    if new_center != self.gs.center_chunk {
+                        self.queue
+                            .emit_now(Event::ViewCenterChanged { ccx, ccy, ccz });
                     }
                 } else {
                     // Fly camera mode moves the camera in step(); update view center from camera
                     let ccx =
                         (self.cam.position.x / self.gs.world.chunk_size_x as f32).floor() as i32;
+                    let ccy =
+                        (self.cam.position.y / self.gs.world.chunk_size_y as f32).floor() as i32;
                     let ccz =
                         (self.cam.position.z / self.gs.world.chunk_size_z as f32).floor() as i32;
-                    if (ccx, ccz) != self.gs.center_chunk {
-                        self.queue.emit_now(Event::ViewCenterChanged { ccx, ccz });
+                    let new_center = ChunkCoord::new(ccx, ccy, ccz);
+                    if new_center != self.gs.center_chunk {
+                        self.queue
+                            .emit_now(Event::ViewCenterChanged { ccx, ccy, ccz });
                     }
                 }
             }
@@ -301,36 +310,37 @@ impl App {
                     }
                 }
             }
-            Event::ViewCenterChanged { ccx, ccz } => {
-                self.gs.center_chunk = (ccx, ccz);
-                // Determine desired set
+            Event::ViewCenterChanged { ccx, ccy, ccz } => {
+                let center = ChunkCoord::new(ccx, ccy, ccz);
+                self.gs.center_chunk = center;
+                // Determine desired set (horizontal disk for now)
                 let r = self.gs.view_radius_chunks;
-                let mut desired: HashSet<(i32, i32)> = HashSet::new();
+                let mut desired: HashSet<ChunkCoord> = HashSet::new();
                 for dz in -r..=r {
                     for dx in -r..=r {
-                        desired.insert((ccx + dx, ccz + dz));
+                        desired.insert(ChunkCoord::new(ccx + dx, ccy, ccz + dz));
                     }
                 }
                 // Unload far ones
-                let current: Vec<(i32, i32)> = self.renders.keys().cloned().collect();
+                let current: Vec<ChunkCoord> = self.renders.keys().cloned().collect();
                 for key in current {
                     if !desired.contains(&key) {
                         self.queue.emit_now(Event::EnsureChunkUnloaded {
-                            cx: key.0,
-                            cz: key.1,
+                            cx: key.cx,
+                            cy: key.cy,
+                            cz: key.cz,
                         });
                     }
                 }
-                // No explicit inflight cancellation for far chunks; allow in-flight jobs to complete.
                 // Prune stream-load intents well outside the new radius (hysteresis: r+1)
-                let mut to_remove: Vec<(i32, i32)> = Vec::new();
-                for (&(ix, iz), ent) in self.intents.iter() {
+                let mut to_remove: Vec<ChunkCoord> = Vec::new();
+                for (&coord, ent) in self.intents.iter() {
                     if matches!(ent.cause, IntentCause::StreamLoad) {
-                        let dx = (ix - ccx).abs();
-                        let dz = (iz - ccz).abs();
+                        let dx = (coord.cx - ccx).abs();
+                        let dz = (coord.cz - ccz).abs();
                         let ring = dx.max(dz);
                         if ring > r + 1 {
-                            to_remove.push((ix, iz));
+                            to_remove.push(coord);
                         }
                     }
                 }
@@ -342,25 +352,26 @@ impl App {
                     if !self.renders.contains_key(&key) && !self.gs.inflight_rev.contains_key(&key)
                     {
                         self.queue.emit_now(Event::EnsureChunkLoaded {
-                            cx: key.0,
-                            cz: key.1,
+                            cx: key.cx,
+                            cy: key.cy,
+                            cz: key.cz,
                         });
                     }
                 }
             }
-            Event::EnsureChunkUnloaded { cx, cz } => {
-                self.renders.remove(&(cx, cz));
-                self.gs.chunks.remove(&(cx, cz));
-                self.gs.loaded.remove(&(cx, cz));
-                self.gs.inflight_rev.remove(&(cx, cz));
-                self.gs.finalize.remove(&(cx, cz));
+            Event::EnsureChunkUnloaded { cx, cy, cz } => {
+                let coord = ChunkCoord::new(cx, cy, cz);
+                self.renders.remove(&coord);
+                self.gs.chunks.remove(&coord);
+                self.gs.loaded.remove(&coord);
+                self.gs.inflight_rev.remove(&coord);
+                self.gs.finalize.remove(&coord);
                 // Also drop any persisted lighting state for this chunk to prevent growth
                 self.gs.lighting.clear_chunk(cx, cz);
             }
-            Event::EnsureChunkLoaded { cx, cz } => {
-                if self.renders.contains_key(&(cx, cz))
-                    || self.gs.inflight_rev.contains_key(&(cx, cz))
-                {
+            Event::EnsureChunkLoaded { cx, cy, cz } => {
+                let coord = ChunkCoord::new(cx, cy, cz);
+                if self.renders.contains_key(&coord) || self.gs.inflight_rev.contains_key(&coord) {
                     return;
                 }
                 // Init finalization tracking entry
@@ -368,7 +379,7 @@ impl App {
                     let st = self
                         .gs
                         .finalize
-                        .entry((cx, cz))
+                        .entry(coord)
                         .or_insert(FinalizeState::default());
                     // Prime readiness from currently available owner planes, so we don't wait for future events
                     let nb = self.gs.lighting.get_neighbor_borders(cx, cz);
@@ -380,16 +391,18 @@ impl App {
                     }
                 }
                 // Record load intent; scheduler will cap and prioritize
-                self.record_intent(cx, cz, IntentCause::StreamLoad);
+                self.record_intent(coord, IntentCause::StreamLoad);
             }
             Event::BuildChunkJobRequested {
                 cx,
+                cy,
                 cz,
                 neighbors,
                 rev,
                 job_id,
                 cause,
             } => {
+                let coord = ChunkCoord::new(cx, cy, cz);
                 // Prepare edit snapshots for workers (pure)
                 let chunk_edits = self.gs.edits.snapshot_for_chunk(cx, cz);
                 let region_edits = self.gs.edits.snapshot_for_region(cx, cz, 1);
@@ -397,11 +410,12 @@ impl App {
                 let prev_buf = self
                     .gs
                     .chunks
-                    .get(&(cx, cz))
+                    .get(&coord)
                     .and_then(|c| c.buf.as_ref())
                     .cloned();
                 let job = BuildJob {
                     cx,
+                    cy,
                     cz,
                     neighbors,
                     rev,
@@ -486,6 +500,7 @@ impl App {
             }
             Event::BuildChunkJobCompleted {
                 cx,
+                cy,
                 cz,
                 rev,
                 cpu,
@@ -494,16 +509,18 @@ impl App {
                 light_grid,
                 job_id: _,
             } => {
+                let coord = ChunkCoord::new(cx, cy, cz);
                 // Drop if stale
                 let cur_rev = self.gs.edits.get_rev(cx, cz);
                 if rev < cur_rev {
                     // Only re-enqueue if there isn't already a newer inflight job
-                    let inflight = self.gs.inflight_rev.get(&(cx, cz)).copied().unwrap_or(0);
+                    let inflight = self.gs.inflight_rev.get(&coord).copied().unwrap_or(0);
                     if inflight < cur_rev {
-                        let neighbors = self.neighbor_mask(cx, cz);
-                        let job_id = Self::job_hash(cx, cz, cur_rev, neighbors);
+                        let neighbors = self.neighbor_mask(coord);
+                        let job_id = Self::job_hash(coord, cur_rev, neighbors);
                         self.queue.emit_now(Event::BuildChunkJobRequested {
                             cx,
+                            cy,
                             cz,
                             neighbors,
                             rev: cur_rev,
@@ -511,18 +528,18 @@ impl App {
                             cause: RebuildCause::Edit,
                         });
                         // Ensure inflight_rev reflects latest
-                        self.gs.inflight_rev.insert((cx, cz), cur_rev);
+                        self.gs.inflight_rev.insert(coord, cur_rev);
                     }
                     return;
                 }
                 // Gate completion by desired radius: if chunk is no longer desired, drop
-                let (ccx, ccz) = self.gs.center_chunk;
-                let dx = (cx - ccx).abs();
-                let dz = (cz - ccz).abs();
+                let center = self.gs.center_chunk;
+                let dx = (cx - center.cx).abs();
+                let dz = (cz - center.cz).abs();
                 let ring = dx.max(dz);
                 if ring > self.gs.view_radius_chunks {
                     // Not desired anymore: clear inflight and abandon result
-                    self.gs.inflight_rev.remove(&(cx, cz));
+                    self.gs.inflight_rev.remove(&coord);
                     // Do not upload or mark built; also avoid lighting border updates
                     return;
                 }
@@ -576,47 +593,49 @@ impl App {
                             }
                         }
                     }
-                    self.renders.insert((cx, cz), cr);
+                    self.renders.insert(coord, cr);
                     if let Some(lg) = light_grid {
                         let nb = self.gs.lighting.get_neighbor_borders(cx, cz);
                         let atlas = pack_light_grid_atlas_with_neighbors(&lg, &nb);
-                        self.validate_chunk_light_atlas(cx, cz, &atlas);
-                        if let Some(cr) = self.renders.get_mut(&(cx, cz)) {
+                        self.validate_chunk_light_atlas(coord, &atlas);
+                        if let Some(cr) = self.renders.get_mut(&coord) {
                             update_chunk_light_texture(rl, thread, cr, &atlas);
                         }
                     }
                 }
                 // Update CPU buf & built rev
                 self.gs.chunks.insert(
-                    (cx, cz),
+                    coord,
                     ChunkEntry {
+                        coord,
                         buf: Some(buf),
                         built_rev: rev,
                     },
                 );
-                self.gs.loaded.insert((cx, cz));
-                self.gs.inflight_rev.remove(&(cx, cz));
+                self.gs.loaded.insert(coord);
+                self.gs.inflight_rev.remove(&coord);
                 self.gs.edits.mark_built(cx, cz, rev);
 
                 // Track mesh completion count for minimap/debug purposes
-                *self.gs.mesh_counts.entry((cx, cz)).or_insert(0) += 1;
+                *self.gs.mesh_counts.entry(coord).or_insert(0) += 1;
 
                 // If we have a removal→render timer for this chunk, record latency now.
-                if let Some(q) = self.perf_remove_start.get_mut(&(cx, cz)) {
+                if let Some(q) = self.perf_remove_start.get_mut(&coord) {
                     if let Some(t0) = q.pop_front() {
                         let dt_ms_u32 = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
                         Self::perf_push(&mut self.perf_remove_ms, dt_ms_u32);
                         log::info!(
                             target: "perf",
-                            "remove_to_render_ms={} cx={} cz={} rev={}",
+                            "remove_to_render_ms={} cx={} cy={} cz={} rev={}",
                             dt_ms_u32,
                             cx,
+                            cy,
                             cz,
                             rev
                         );
                     }
                     if q.is_empty() {
-                        self.perf_remove_start.remove(&(cx, cz));
+                        self.perf_remove_start.remove(&coord);
                     }
                 }
 
@@ -627,26 +646,29 @@ impl App {
                     if changed {
                         self.queue.emit_now(Event::LightBordersUpdated {
                             cx,
+                            cy,
                             cz,
                             xn_changed: mask.xn,
                             xp_changed: mask.xp,
+                            yn_changed: false,
+                            yp_changed: false,
                             zn_changed: mask.zn,
                             zp_changed: mask.zp,
                         });
                     }
                 }
                 // If both owners are ready and finalize not yet requested, schedule finalize now
-                if let Some(st) = self.gs.finalize.get(&(cx, cz)).copied() {
+                if let Some(st) = self.gs.finalize.get(&coord).copied() {
                     if st.owner_x_ready
                         && st.owner_z_ready
                         && !st.finalized
                         && !st.finalize_requested
                     {
-                        self.try_schedule_finalize(cx, cz);
+                        self.try_schedule_finalize(coord);
                     }
                 }
                 // If this build was the finalize pass, mark completion
-                if let Some(st) = self.gs.finalize.get_mut(&(cx, cz)) {
+                if let Some(st) = self.gs.finalize.get_mut(&coord) {
                     if st.finalize_requested {
                         st.finalize_requested = false;
                         st.finalized = true;
@@ -655,46 +677,49 @@ impl App {
             }
             Event::ChunkLightingRecomputed {
                 cx,
+                cy,
                 cz,
                 rev,
                 light_grid,
                 job_id: _,
             } => {
+                let coord = ChunkCoord::new(cx, cy, cz);
                 // Drop if stale
                 let cur_rev = self.gs.edits.get_rev(cx, cz);
                 if rev < cur_rev {
-                    self.gs.inflight_rev.remove(&(cx, cz));
+                    self.gs.inflight_rev.remove(&coord);
                     return;
                 }
                 // Gate by desired radius
-                let (ccx, ccz) = self.gs.center_chunk;
-                let dx = (cx - ccx).abs();
-                let dz = (cz - ccz).abs();
+                let center = self.gs.center_chunk;
+                let dx = (cx - center.cx).abs();
+                let dz = (cz - center.cz).abs();
                 let ring = dx.max(dz);
                 if ring > self.gs.view_radius_chunks + 1 {
-                    self.gs.inflight_rev.remove(&(cx, cz));
+                    self.gs.inflight_rev.remove(&coord);
                     return;
                 }
                 let nb = self.gs.lighting.get_neighbor_borders(cx, cz);
                 let atlas = pack_light_grid_atlas_with_neighbors(&light_grid, &nb);
-                self.validate_chunk_light_atlas(cx, cz, &atlas);
-                if let Some(cr) = self.renders.get_mut(&(cx, cz)) {
+                self.validate_chunk_light_atlas(coord, &atlas);
+                if let Some(cr) = self.renders.get_mut(&coord) {
                     update_chunk_light_texture(rl, thread, cr, &atlas);
                 }
                 // Track light-only recompute count for minimap/debug
-                *self.gs.light_counts.entry((cx, cz)).or_insert(0) += 1;
+                *self.gs.light_counts.entry(coord).or_insert(0) += 1;
                 // If this was a finalize pass scheduled via lighting-only lane, mark completion
-                if let Some(st) = self.gs.finalize.get_mut(&(cx, cz)) {
+                if let Some(st) = self.gs.finalize.get_mut(&coord) {
                     if st.finalize_requested {
                         st.finalize_requested = false;
                         st.finalized = true;
                     }
                 }
                 // Do not update borders or trigger neighbors on color-only recomputes.
-                self.gs.inflight_rev.remove(&(cx, cz));
+                self.gs.inflight_rev.remove(&coord);
             }
-            Event::ChunkRebuildRequested { cx, cz, cause } => {
-                if !self.renders.contains_key(&(cx, cz)) {
+            Event::ChunkRebuildRequested { cx, cy, cz, cause } => {
+                let coord = ChunkCoord::new(cx, cy, cz);
+                if !self.renders.contains_key(&coord) {
                     return;
                 }
                 // Record rebuild intent; scheduler will cap and prioritize
@@ -703,7 +728,7 @@ impl App {
                     RebuildCause::LightingBorder => IntentCause::Light,
                     RebuildCause::StreamLoad => IntentCause::StreamLoad,
                 };
-                self.record_intent(cx, cz, ic);
+                self.record_intent(coord, ic);
             }
             Event::RaycastEditRequested { place, block } => {
                 // Perform world + structure raycast and emit edit events
@@ -718,7 +743,7 @@ impl App {
                     }
                     let cx = wx.div_euclid(sx);
                     let cz = wz.div_euclid(sz);
-                    if let Some(cent) = self.gs.chunks.get(&(cx, cz)) {
+                    if let Some(cent) = self.gs.chunks.get(&ChunkCoord::new(cx, 0, cz)) {
                         if let Some(ref buf) = cent.buf {
                             return buf.get_world(wx, wy, wz).unwrap_or(Block {
                                 id: reg.id_by_name("air").unwrap_or(0),
@@ -902,15 +927,17 @@ impl App {
                 let _ = self.gs.edits.bump_region_around(wx, wz);
                 // Rebuild edited chunk and any boundary-adjacent neighbors that are loaded
                 for (cx, cz) in self.gs.edits.get_affected_chunks(wx, wz) {
-                    if self.renders.contains_key(&(cx, cz)) {
+                    let coord = ChunkCoord::new(cx, 0, cz);
+                    if self.renders.contains_key(&coord) {
                         self.queue.emit_now(Event::ChunkRebuildRequested {
                             cx,
+                            cy: coord.cy,
                             cz,
                             cause: RebuildCause::Edit,
                         });
                         // Start removal→render timer for this affected chunk
                         self.perf_remove_start
-                            .entry((cx, cz))
+                            .entry(coord)
                             .or_default()
                             .push_back(Instant::now());
                     }
@@ -927,7 +954,7 @@ impl App {
                     }
                     let cx = wx.div_euclid(sx);
                     let cz = wz.div_euclid(sz);
-                    if let Some(cent) = self.gs.chunks.get(&(cx, cz)) {
+                    if let Some(cent) = self.gs.chunks.get(&ChunkCoord::new(cx, 0, cz)) {
                         if let Some(ref buf) = cent.buf {
                             return buf.get_world(wx, wy, wz).unwrap_or(Block::AIR);
                         }
@@ -947,9 +974,11 @@ impl App {
                 self.gs.edits.set(wx, wy, wz, Block::AIR);
                 let _ = self.gs.edits.bump_region_around(wx, wz);
                 for (cx, cz) in self.gs.edits.get_affected_chunks(wx, wz) {
-                    if self.renders.contains_key(&(cx, cz)) {
+                    let coord = ChunkCoord::new(cx, 0, cz);
+                    if self.renders.contains_key(&coord) {
                         self.queue.emit_now(Event::ChunkRebuildRequested {
                             cx,
+                            cy: coord.cy,
                             cz,
                             cause: RebuildCause::Edit,
                         });
@@ -975,6 +1004,7 @@ impl App {
                 let cz = wz.div_euclid(sz);
                 self.queue.emit_now(Event::ChunkRebuildRequested {
                     cx,
+                    cy: 0,
                     cz,
                     cause: RebuildCause::Edit,
                 });
@@ -987,90 +1017,100 @@ impl App {
                 let cz = wz.div_euclid(sz);
                 self.queue.emit_now(Event::ChunkRebuildRequested {
                     cx,
+                    cy: 0,
                     cz,
                     cause: RebuildCause::Edit,
                 });
             }
             Event::LightBordersUpdated {
                 cx,
+                cy,
                 cz,
                 xn_changed,
                 xp_changed,
+                yn_changed: _,
+                yp_changed: _,
                 zn_changed,
                 zp_changed,
             } => {
-                // Canonical seam ownership: only +X and +Z neighbors depend on our seam planes.
-                // Proactively schedule a light-only rebuild for affected neighbors to clear stale seam light,
-                // then mark owner readiness and attempt finalize once both owners have published.
-                let (ccx, ccz) = self.gs.center_chunk;
-                let r_gate = self.gs.view_radius_chunks + 1; // small hysteresis
+                let coord = ChunkCoord::new(cx, cy, cz);
+                let center = self.gs.center_chunk;
+                let r_gate = self.gs.view_radius_chunks + 1;
+
                 if xp_changed {
-                    let k = (cx + 1, cz);
+                    let neighbor = coord.offset(1, 0, 0);
                     let st = self
                         .gs
                         .finalize
-                        .entry(k)
+                        .entry(neighbor)
                         .or_insert(FinalizeState::default());
                     st.owner_x_ready = true;
-                    let ring = (k.0 - ccx).abs().max((k.1 - ccz).abs());
+                    let ring = (neighbor.cx - center.cx)
+                        .abs()
+                        .max((neighbor.cz - center.cz).abs());
                     if ring <= r_gate && !st.finalized && st.owner_z_ready {
-                        // Pre-finalization: do a single finalize rebuild only
-                        self.try_schedule_finalize(k.0, k.1);
+                        self.try_schedule_finalize(neighbor);
                     } else if st.finalized {
-                        // Post-finalization steady-state: do a targeted light-only rebuild
-                        if self.renders.contains_key(&k) {
+                        if self.renders.contains_key(&neighbor) {
                             self.queue.emit_now(Event::ChunkRebuildRequested {
-                                cx: k.0,
-                                cz: k.1,
+                                cx: neighbor.cx,
+                                cy: neighbor.cy,
+                                cz: neighbor.cz,
                                 cause: RebuildCause::LightingBorder,
                             });
                         }
                     }
                 }
-                // For -X/-Z neighbors, schedule gated light-only rebuilds (avoid finalize and ping-pong).
+
                 if zp_changed {
-                    let k = (cx, cz + 1);
+                    let neighbor = coord.offset(0, 0, 1);
                     let st = self
                         .gs
                         .finalize
-                        .entry(k)
+                        .entry(neighbor)
                         .or_insert(FinalizeState::default());
                     st.owner_z_ready = true;
-                    let ring = (k.0 - ccx).abs().max((k.1 - ccz).abs());
+                    let ring = (neighbor.cx - center.cx)
+                        .abs()
+                        .max((neighbor.cz - center.cz).abs());
                     if ring <= r_gate && !st.finalized && st.owner_x_ready {
-                        // Pre-finalization: single finalize rebuild only
-                        self.try_schedule_finalize(k.0, k.1);
+                        self.try_schedule_finalize(neighbor);
                     } else if st.finalized {
-                        // Post-finalization steady-state: targeted light-only rebuild
-                        if self.renders.contains_key(&k) {
+                        if self.renders.contains_key(&neighbor) {
                             self.queue.emit_now(Event::ChunkRebuildRequested {
-                                cx: k.0,
-                                cz: k.1,
+                                cx: neighbor.cx,
+                                cy: neighbor.cy,
+                                cz: neighbor.cz,
                                 cause: RebuildCause::LightingBorder,
                             });
                         }
                     }
                 }
-                // Also schedule light-only rebuilds for -X/-Z neighbors when our -X/-Z planes change,
-                // so they can pick up new seam seeds and then trigger our repack via their +X/+Z updates.
+
                 if xn_changed {
-                    let k = (cx - 1, cz);
-                    let ring = (k.0 - ccx).abs().max((k.1 - ccz).abs());
-                    if ring <= r_gate && self.renders.contains_key(&k) {
+                    let neighbor = coord.offset(-1, 0, 0);
+                    let ring = (neighbor.cx - center.cx)
+                        .abs()
+                        .max((neighbor.cz - center.cz).abs());
+                    if ring <= r_gate && self.renders.contains_key(&neighbor) {
                         self.queue.emit_now(Event::ChunkRebuildRequested {
-                            cx: k.0,
-                            cz: k.1,
+                            cx: neighbor.cx,
+                            cy: neighbor.cy,
+                            cz: neighbor.cz,
                             cause: RebuildCause::LightingBorder,
                         });
                     }
                 }
                 if zn_changed {
-                    let k = (cx, cz - 1);
-                    let ring = (k.0 - ccx).abs().max((k.1 - ccz).abs());
-                    if ring <= r_gate && self.renders.contains_key(&k) {
+                    let neighbor = coord.offset(0, 0, -1);
+                    let ring = (neighbor.cx - center.cx)
+                        .abs()
+                        .max((neighbor.cz - center.cz).abs());
+                    if ring <= r_gate && self.renders.contains_key(&neighbor) {
                         self.queue.emit_now(Event::ChunkRebuildRequested {
-                            cx: k.0,
-                            cz: k.1,
+                            cx: neighbor.cx,
+                            cy: neighbor.cy,
+                            cz: neighbor.cz,
                             cause: RebuildCause::LightingBorder,
                         });
                     }
@@ -1167,20 +1207,50 @@ impl App {
             E::BlockRemoved { wx, wy, wz } => {
                 log::info!(target: "events", "[tick {}] BlockRemoved ({},{},{})", tick, wx, wy, wz);
             }
-            E::ViewCenterChanged { ccx, ccz } => {
-                log::info!(target: "events", "[tick {}] ViewCenterChanged cc=({}, {})", tick, ccx, ccz);
+            E::ViewCenterChanged { ccx, ccy, ccz } => {
+                log::info!(
+                    target: "events",
+                    "[tick {}] ViewCenterChanged cc=({}, {}, {})",
+                    tick,
+                    ccx,
+                    ccy,
+                    ccz
+                );
             }
-            E::EnsureChunkLoaded { cx, cz } => {
-                log::info!(target: "events", "[tick {}] EnsureChunkLoaded ({}, {})", tick, cx, cz);
+            E::EnsureChunkLoaded { cx, cy, cz } => {
+                log::info!(
+                    target: "events",
+                    "[tick {}] EnsureChunkLoaded ({}, {}, {})",
+                    tick,
+                    cx,
+                    cy,
+                    cz
+                );
             }
-            E::EnsureChunkUnloaded { cx, cz } => {
-                log::info!(target: "events", "[tick {}] EnsureChunkUnloaded ({}, {})", tick, cx, cz);
+            E::EnsureChunkUnloaded { cx, cy, cz } => {
+                log::info!(
+                    target: "events",
+                    "[tick {}] EnsureChunkUnloaded ({}, {}, {})",
+                    tick,
+                    cx,
+                    cy,
+                    cz
+                );
             }
-            E::ChunkRebuildRequested { cx, cz, cause } => {
-                log::debug!(target: "events", "[tick {}] ChunkRebuildRequested ({}, {}) cause={:?}", tick, cx, cz, cause);
+            E::ChunkRebuildRequested { cx, cy, cz, cause } => {
+                log::debug!(
+                    target: "events",
+                    "[tick {}] ChunkRebuildRequested ({}, {}, {}) cause={:?}",
+                    tick,
+                    cx,
+                    cy,
+                    cz,
+                    cause
+                );
             }
             E::BuildChunkJobRequested {
                 cx,
+                cy,
                 cz,
                 neighbors,
                 rev,
@@ -1190,31 +1260,61 @@ impl App {
                 let mask = [
                     neighbors.neg_x,
                     neighbors.pos_x,
+                    neighbors.neg_y,
+                    neighbors.pos_y,
                     neighbors.neg_z,
                     neighbors.pos_z,
                 ];
-                log::debug!(target: "events", "[tick {}] BuildChunkJobRequested ({}, {}) rev={} cause={:?} nmask={:?} job_id={:#x}",
-                    tick, cx, cz, rev, cause, mask, job_id);
+                log::debug!(
+                    target: "events",
+                    "[tick {}] BuildChunkJobRequested ({}, {}, {}) rev={} cause={:?} nmask={:?} job_id={:#x}",
+                    tick,
+                    cx,
+                    cy,
+                    cz,
+                    rev,
+                    cause,
+                    mask,
+                    job_id
+                );
             }
             E::BuildChunkJobCompleted {
                 cx,
+                cy,
                 cz,
                 rev,
                 job_id,
                 ..
             } => {
-                log::debug!(target: "events", "[tick {}] BuildChunkJobCompleted ({}, {}) rev={} job_id={:#x}",
-                    tick, cx, cz, rev, job_id);
+                log::debug!(
+                    target: "events",
+                    "[tick {}] BuildChunkJobCompleted ({}, {}, {}) rev={} job_id={:#x}",
+                    tick,
+                    cx,
+                    cy,
+                    cz,
+                    rev,
+                    job_id
+                );
             }
             E::ChunkLightingRecomputed {
                 cx,
+                cy,
                 cz,
                 rev,
                 job_id,
                 ..
             } => {
-                log::debug!(target: "events", "[tick {}] ChunkLightingRecomputed ({}, {}) rev={} job_id={:#x}",
-                    tick, cx, cz, rev, job_id);
+                log::debug!(
+                    target: "events",
+                    "[tick {}] ChunkLightingRecomputed ({}, {}, {}) rev={} job_id={:#x}",
+                    tick,
+                    cx,
+                    cy,
+                    cz,
+                    rev,
+                    job_id
+                );
             }
             E::StructureBuildRequested { id, rev } => {
                 log::info!(target: "events", "[tick {}] StructureBuildRequested id={} rev={}", tick, id, rev);
@@ -1265,13 +1365,29 @@ impl App {
             }
             E::LightBordersUpdated {
                 cx,
+                cy,
                 cz,
                 xn_changed,
                 xp_changed,
+                yn_changed,
+                yp_changed,
                 zn_changed,
                 zp_changed,
             } => {
-                log::debug!(target: "events", "[tick {}] LightBordersUpdated ({}, {}) xn={} xp={} zn={} zp={}", tick, cx, cz, xn_changed, xp_changed, zn_changed, zp_changed);
+                log::debug!(
+                    target: "events",
+                    "[tick {}] LightBordersUpdated ({}, {}, {}) xn={} xp={} yn={} yp={} zn={} zp={}",
+                    tick,
+                    cx,
+                    cy,
+                    cz,
+                    xn_changed,
+                    xp_changed,
+                    yn_changed,
+                    yp_changed,
+                    zn_changed,
+                    zp_changed
+                );
             }
         }
     }

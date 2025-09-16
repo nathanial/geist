@@ -12,3 +12,4 @@ geist-geom = { path = "../geist-geom" }
 geist-blocks = { path = "../geist-blocks" }
 geist-mesh-cpu = { path = "../geist-mesh-cpu" }
 geist-lighting = { path = "../geist-lighting" }
+geist-world = { path = "../geist-world" }
