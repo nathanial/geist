@@ -2,12 +2,10 @@ use serde::Deserialize;
 use std::error::Error;
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct WorldGenConfig {
-    #[serde(default = "default_mode")]
-    #[allow(dead_code)]
-    pub mode: Mode,
     #[serde(default)]
     pub flat: Flat,
     #[serde(default)]
@@ -31,7 +29,6 @@ pub struct WorldGenConfig {
 impl Default for WorldGenConfig {
     fn default() -> Self {
         Self {
-            mode: Mode::Normal,
             flat: Flat::default(),
             platform: Platform::default(),
             height: Height::default(),
@@ -43,17 +40,6 @@ impl Default for WorldGenConfig {
             water: Water::default(),
         }
     }
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum Mode {
-    Normal,
-    Flat,
-}
-
-fn default_mode() -> Mode {
-    Mode::Normal
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -399,8 +385,8 @@ pub struct WorldGenParams {
     pub trunk_min: i32,
     pub trunk_max: i32,
     pub leaf_radius: i32,
-    pub features: Vec<FeatureRule>,
-    pub biomes: Option<BiomesParams>,
+    pub features: Arc<[FeatureRule]>,
+    pub biomes: Option<Arc<BiomesParams>>,
     // Platform controls (for flying structures)
     pub platform_y_ratio: f32,
     pub platform_y_offset: f32,
@@ -447,9 +433,9 @@ impl WorldGenParams {
             trunk_min: cfg.trees.trunk_min,
             trunk_max: cfg.trees.trunk_max,
             leaf_radius: cfg.trees.leaf_radius,
-            features: cfg.features.clone(),
+            features: Arc::from(cfg.features.clone()),
             biomes: if cfg.biomes.enable {
-                Some(BiomesParams::from(&cfg.biomes))
+                Some(Arc::new(BiomesParams::from(&cfg.biomes)))
             } else {
                 None
             },

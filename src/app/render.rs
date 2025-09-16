@@ -1,4 +1,5 @@
 use raylib::prelude::*;
+use std::sync::Arc;
 
 use super::{App, DebugStats};
 use crate::raycast;
@@ -488,8 +489,13 @@ impl App {
 
         // Showcase labels: draw block (or variant) names above each showcased block
         if matches!(self.gs.world.mode, WorldGenMode::Showcase) {
-            // Snapshot params
-            let params = { self.gs.world.gen_params.read().map(|g| g.clone()).ok() };
+            let params = self
+                .gs
+                .world
+                .gen_params
+                .read()
+                .ok()
+                .map(|g| Arc::clone(&*g));
             if let Some(p) = params {
                 // Compute showcase row Y and Z
                 let mut row_y = (self.gs.world.chunk_size_y as f32 * p.platform_y_ratio
@@ -497,62 +503,63 @@ impl App {
                     .round() as i32;
                 row_y = row_y.clamp(1, self.gs.world.chunk_size_y as i32 - 2);
                 let cz = (self.gs.world.world_size_z() as i32) / 2;
-                // Build showcase entries (mirrors worldgen layout)
-                let entries = geist_world::voxel::build_showcase_entries(&self.reg);
-                if !entries.is_empty() {
-                    let spacing = 2i32; // air gap of 1 block between entries
-                    let row_len = (entries.len() as i32) * spacing - 1;
-                    let cx = (self.gs.world.world_size_x() as i32) / 2;
-                    let start_x = cx - row_len / 2;
-                    // Draw each label
-                    let font_size = 16;
-                    for (i, e) in entries.iter().enumerate() {
-                        let bx = start_x + (i as i32) * spacing;
-                        if bx < 0 || bx >= self.gs.world.world_size_x() as i32 {
-                            continue;
+                if let Some(entries) = self.gs.world.showcase_entries(&self.reg) {
+                    if !entries.is_empty() {
+                        let spacing = 2i32;
+                        let row_len = (entries.len() as i32) * spacing - 1;
+                        let cx = (self.gs.world.world_size_x() as i32) / 2;
+                        let start_x = cx - row_len / 2;
+                        // Draw each label
+                        let font_size = 16;
+                        for (i, e) in entries.iter().enumerate() {
+                            let bx = start_x + (i as i32) * spacing;
+                            if bx < 0 || bx >= self.gs.world.world_size_x() as i32 {
+                                continue;
+                            }
+                            let pos3 =
+                                Vector3::new(bx as f32 + 0.5, row_y as f32 + 1.25, cz as f32 + 0.5);
+                            // Project to screen and draw text centered
+                            let sp = d.get_world_to_screen(pos3, camera3d);
+                            let text = e.label.as_str();
+                            let w = d.measure_text(text, font_size);
+                            let x = (sp.x as i32) - (w / 2);
+                            let y = (sp.y as i32) - (font_size + 2);
+                            // Shadow + main for readability
+                            d.draw_text(text, x + 1, y + 1, font_size, Color::BLACK);
+                            d.draw_text(text, x, y, font_size, Color::WHITE);
                         }
-                        let pos3 =
-                            Vector3::new(bx as f32 + 0.5, row_y as f32 + 1.25, cz as f32 + 0.5);
-                        // Project to screen and draw text centered
-                        let sp = d.get_world_to_screen(pos3, camera3d);
-                        let text = e.label.as_str();
-                        let w = d.measure_text(text, font_size);
-                        let x = (sp.x as i32) - (w / 2);
-                        let y = (sp.y as i32) - (font_size + 2);
-                        // Shadow + main for readability
-                        d.draw_text(text, x + 1, y + 1, font_size, Color::BLACK);
-                        d.draw_text(text, x, y, font_size, Color::WHITE);
                     }
                 }
 
                 // Stairs cluster labels (adjacency scenarios)
                 let stair_base_z = cz + 3; // matches worldgen placement
-                let placements = geist_world::voxel::build_showcase_stairs_cluster(&self.reg);
-                if !placements.is_empty() {
-                    let max_dx = placements.iter().map(|p| p.dx).max().unwrap_or(0);
-                    let cluster_w = max_dx + 1;
-                    let cx = (self.gs.world.world_size_x() as i32) / 2;
-                    let start_x = cx - cluster_w / 2;
-                    let font_size = 14;
-                    for p in &placements {
-                        let bx = start_x + p.dx;
-                        let bz = stair_base_z + p.dz;
-                        if bx < 0
-                            || bx >= self.gs.world.world_size_x() as i32
-                            || bz < 0
-                            || bz >= self.gs.world.world_size_z() as i32
-                        {
-                            continue;
+                if let Some(placements) = self.gs.world.showcase_placements(&self.reg) {
+                    if !placements.is_empty() {
+                        let max_dx = placements.iter().map(|p| p.dx).max().unwrap_or(0);
+                        let cluster_w = max_dx + 1;
+                        let cx = (self.gs.world.world_size_x() as i32) / 2;
+                        let start_x = cx - cluster_w / 2;
+                        let font_size = 14;
+                        for p in placements.iter() {
+                            let bx = start_x + p.dx;
+                            let bz = stair_base_z + p.dz;
+                            if bx < 0
+                                || bx >= self.gs.world.world_size_x() as i32
+                                || bz < 0
+                                || bz >= self.gs.world.world_size_z() as i32
+                            {
+                                continue;
+                            }
+                            let pos3 =
+                                Vector3::new(bx as f32 + 0.5, row_y as f32 + 1.25, bz as f32 + 0.5);
+                            let sp = d.get_world_to_screen(pos3, camera3d);
+                            let text = p.label.as_str();
+                            let w = d.measure_text(text, font_size);
+                            let x = (sp.x as i32) - (w / 2);
+                            let y = (sp.y as i32) - (font_size + 2);
+                            d.draw_text(text, x + 1, y + 1, font_size, Color::BLACK);
+                            d.draw_text(text, x, y, font_size, Color::WHITE);
                         }
-                        let pos3 =
-                            Vector3::new(bx as f32 + 0.5, row_y as f32 + 1.25, bz as f32 + 0.5);
-                        let sp = d.get_world_to_screen(pos3, camera3d);
-                        let text = p.label.as_str();
-                        let w = d.measure_text(text, font_size);
-                        let x = (sp.x as i32) - (w / 2);
-                        let y = (sp.y as i32) - (font_size + 2);
-                        d.draw_text(text, x + 1, y + 1, font_size, Color::BLACK);
-                        d.draw_text(text, x, y, font_size, Color::WHITE);
                     }
                 }
             }

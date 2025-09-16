@@ -1,4 +1,5 @@
 use fastnoise_lite::{FastNoiseLite, NoiseType};
+use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 use geist_blocks::registry::BlockRegistry;
@@ -18,6 +19,16 @@ pub struct ShowcasePlacement {
     pub dz: i32,
     pub block: RtBlock,
     pub label: String,
+}
+
+struct ShowcaseCache {
+    entries: Arc<[ShowcaseEntry]>,
+    placements: Arc<[ShowcasePlacement]>,
+    entry_spacing: i32,
+    entry_row_len: i32,
+    stairs_width: i32,
+    stairs_depth: i32,
+    stairs_lookup: HashMap<(i32, i32), RtBlock>,
 }
 
 // Build the list of showcase entries (blocks to place and their labels).
@@ -81,10 +92,9 @@ pub fn build_showcase_entries(reg: &BlockRegistry) -> Vec<ShowcaseEntry> {
 }
 
 pub fn build_showcase_stairs_cluster(reg: &BlockRegistry) -> Vec<ShowcasePlacement> {
-    let mut out: Vec<ShowcasePlacement> = Vec::new();
     let stairs = match reg.blocks.iter().find(|t| t.name == "stairs") {
         Some(t) => t,
-        None => return out,
+        None => return Vec::new(),
     };
     let mats = stairs
         .state_schema
@@ -97,7 +107,7 @@ pub fn build_showcase_stairs_cluster(reg: &BlockRegistry) -> Vec<ShowcasePlaceme
         mats.first().map(|s| s.as_str()).unwrap_or("smooth_stone")
     };
     let make = |half: &str, facing: &str| -> RtBlock {
-        let mut props = std::collections::HashMap::new();
+        let mut props = HashMap::new();
         props.insert("half".to_string(), half.to_string());
         props.insert("facing".to_string(), facing.to_string());
         props.insert("material".to_string(), material.to_string());
@@ -108,83 +118,31 @@ pub fn build_showcase_stairs_cluster(reg: &BlockRegistry) -> Vec<ShowcasePlaceme
         }
     };
 
-    let mut x = 0i32;
-    let dz0 = 0i32;
-    for (f, lbl) in [("north", "N"), ("east", "E"), ("south", "S"), ("west", "W")] {
-        out.push(ShowcasePlacement {
-            dx: x,
-            dz: dz0,
-            block: make("bottom", f),
-            label: format!("stairs({},bottom,{})", material, lbl),
-        });
-        x += 2;
-    }
-    x += 1;
-    out.push(ShowcasePlacement {
-        dx: x,
-        dz: dz0,
-        block: make("bottom", "east"),
-        label: format!("stairs({},bottom,E)", material),
-    });
-    out.push(ShowcasePlacement {
-        dx: x + 1,
-        dz: dz0,
-        block: make("bottom", "east"),
-        label: format!("stairs({},bottom,E)", material),
-    });
-    // move to next cluster only when needed
-    out.push(ShowcasePlacement {
-        dx: x,
-        dz: dz0,
-        block: make("bottom", "east"),
-        label: format!("stairs({},bottom,E)", material),
-    });
-    out.push(ShowcasePlacement {
-        dx: x + 1,
-        dz: dz0,
-        block: make("top", "east"),
-        label: format!("stairs({},top,E)", material),
-    });
-    // end of first row; start next row at fixed x positions
-    out.push(ShowcasePlacement {
-        dx: x,
-        dz: dz0,
-        block: make("bottom", "east"),
-        label: format!("stairs({},bottom,E)", material),
-    });
-    out.push(ShowcasePlacement {
-        dx: x + 1,
-        dz: dz0,
-        block: make("bottom", "west"),
-        label: format!("stairs({},bottom,W)", material),
-    });
-    // x advanced for previous row; unused thereafter
+    const LAYOUT: &[(i32, i32, &str, &str, &str)] = &[
+        (0, 0, "bottom", "north", "N"),
+        (2, 0, "bottom", "east", "E"),
+        (4, 0, "bottom", "south", "S"),
+        (6, 0, "bottom", "west", "W"),
+        (0, 2, "top", "north", "N"),
+        (2, 2, "top", "east", "E"),
+        (4, 2, "top", "south", "S"),
+        (6, 2, "top", "west", "W"),
+        // stacked examples for quick comparison of halves per facing
+        (0, 4, "bottom", "east", "E"),
+        (1, 4, "top", "east", "E"),
+        (3, 4, "bottom", "south", "S"),
+        (4, 4, "top", "south", "S"),
+    ];
 
-    let dz1 = 1i32;
-    out.push(ShowcasePlacement {
-        dx: 0,
-        dz: dz1,
-        block: make("bottom", "south"),
-        label: format!("stairs({},bottom,S)", material),
-    });
-    out.push(ShowcasePlacement {
-        dx: 0,
-        dz: dz1 + 1,
-        block: make("bottom", "south"),
-        label: format!("stairs({},bottom,S)", material),
-    });
-    out.push(ShowcasePlacement {
-        dx: 2,
-        dz: dz1,
-        block: make("bottom", "south"),
-        label: format!("stairs({},bottom,S)", material),
-    });
-    out.push(ShowcasePlacement {
-        dx: 2,
-        dz: dz1 + 1,
-        block: make("top", "south"),
-        label: format!("stairs({},top,S)", material),
-    });
+    let mut out = Vec::with_capacity(LAYOUT.len());
+    for &(dx, dz, half, facing, label) in LAYOUT {
+        out.push(ShowcasePlacement {
+            dx,
+            dz,
+            block: make(half, facing),
+            label: format!("stairs({},{},{})", material, half, label),
+        });
+    }
     out
 }
 
@@ -196,7 +154,9 @@ pub struct World {
     pub chunks_z: usize,
     pub seed: i32,
     pub mode: WorldGenMode,
-    pub gen_params: Arc<RwLock<WorldGenParams>>,
+    pub gen_params: Arc<RwLock<Arc<WorldGenParams>>>,
+    showcase_cache: RwLock<Option<Arc<ShowcaseCache>>>,
+    block_id_cache: RwLock<HashMap<String, u16>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -224,7 +184,9 @@ impl World {
             chunks_z,
             seed,
             mode,
-            gen_params: Arc::new(RwLock::new(WorldGenParams::default())),
+            gen_params: Arc::new(RwLock::new(Arc::new(WorldGenParams::default()))),
+            showcase_cache: RwLock::new(None),
+            block_id_cache: RwLock::new(HashMap::new()),
         }
     }
     #[inline]
@@ -245,14 +207,105 @@ pub struct GenCtx {
     pub terrain: FastNoiseLite,
     pub warp: FastNoiseLite,
     pub tunnel: FastNoiseLite,
-    pub params: WorldGenParams,
+    pub params: Arc<WorldGenParams>,
     pub temp2d: Option<FastNoiseLite>,
     pub moist2d: Option<FastNoiseLite>,
 }
 
 impl World {
+    fn resolve_block_id(&self, reg: &BlockRegistry, name: &str) -> u16 {
+        if let Ok(cache) = self.block_id_cache.read() {
+            if let Some(id) = cache.get(name) {
+                return *id;
+            }
+        }
+
+        let id = match reg.id_by_name(name) {
+            Some(id) => id,
+            None if name == "air" => 0,
+            None => self.resolve_block_id(reg, "air"),
+        };
+
+        if let Ok(mut cache) = self.block_id_cache.write() {
+            cache.entry(name.to_string()).or_insert(id);
+        }
+        id
+    }
+
+    fn air_block(&self, reg: &BlockRegistry) -> RtBlock {
+        RtBlock {
+            id: self.resolve_block_id(reg, "air"),
+            state: 0,
+        }
+    }
+
+    fn ensure_showcase_cache(&self, reg: &BlockRegistry) -> Option<Arc<ShowcaseCache>> {
+        if let Ok(cache) = self.showcase_cache.read() {
+            if let Some(existing) = cache.as_ref() {
+                return Some(Arc::clone(existing));
+            }
+        }
+
+        let entries_vec = build_showcase_entries(reg);
+        let placements_vec = build_showcase_stairs_cluster(reg);
+        let entry_spacing = 2i32;
+        let entry_row_len = if entries_vec.is_empty() {
+            0
+        } else {
+            (entries_vec.len() as i32) * entry_spacing - 1
+        };
+        let stairs_width = placements_vec
+            .iter()
+            .map(|p| p.dx)
+            .max()
+            .map(|m| m + 1)
+            .unwrap_or(0);
+        let stairs_depth = placements_vec
+            .iter()
+            .map(|p| p.dz)
+            .max()
+            .map(|m| m + 1)
+            .unwrap_or(0);
+        let mut stairs_lookup = HashMap::with_capacity(placements_vec.len());
+        for p in &placements_vec {
+            stairs_lookup.insert((p.dx, p.dz), p.block);
+        }
+
+        let cache = Arc::new(ShowcaseCache {
+            entries: Arc::<[ShowcaseEntry]>::from(entries_vec),
+            placements: Arc::<[ShowcasePlacement]>::from(placements_vec),
+            entry_spacing,
+            entry_row_len,
+            stairs_width,
+            stairs_depth,
+            stairs_lookup,
+        });
+
+        if let Ok(mut guard) = self.showcase_cache.write() {
+            if let Some(existing) = guard.as_ref() {
+                return Some(Arc::clone(existing));
+            }
+            *guard = Some(Arc::clone(&cache));
+        }
+
+        Some(cache)
+    }
+
+    pub fn showcase_entries(&self, reg: &BlockRegistry) -> Option<Arc<[ShowcaseEntry]>> {
+        self.ensure_showcase_cache(reg)
+            .map(|cache| Arc::clone(&cache.entries))
+    }
+
+    pub fn showcase_placements(&self, reg: &BlockRegistry) -> Option<Arc<[ShowcasePlacement]>> {
+        self.ensure_showcase_cache(reg)
+            .map(|cache| Arc::clone(&cache.placements))
+    }
+
     pub fn make_gen_ctx(&self) -> GenCtx {
-        let params = { self.gen_params.read().unwrap().clone() };
+        let params = {
+            let guard = self.gen_params.read().unwrap();
+            Arc::clone(&*guard)
+        };
         let mut terrain = FastNoiseLite::with_seed(self.seed);
         terrain.set_noise_type(Some(NoiseType::OpenSimplex2));
         terrain.set_frequency(Some(params.height_frequency));
@@ -262,7 +315,8 @@ impl World {
         let mut tunnel = FastNoiseLite::with_seed(self.seed ^ 41_337);
         tunnel.set_noise_type(Some(NoiseType::OpenSimplex2));
         tunnel.set_frequency(Some(0.017));
-        let (temp2d, moist2d) = if let Some(ref b) = params.biomes {
+        let (temp2d, moist2d) = if let Some(b) = params.biomes.as_ref() {
+            let b = &**b;
             let mut t = FastNoiseLite::with_seed(self.seed ^ 0x1203_5F31);
             t.set_noise_type(Some(NoiseType::OpenSimplex2));
             t.set_frequency(Some(b.temp_freq));
@@ -296,15 +350,11 @@ impl World {
         y: i32,
         z: i32,
     ) -> RtBlock {
+        let air = self.air_block(reg);
         if y < 0 || y >= self.chunk_size_y as i32 {
-            let id = reg.id_by_name("air").unwrap_or(0);
-            return RtBlock { id, state: 0 };
+            return air;
         }
         if let WorldGenMode::Showcase = self.mode {
-            let air = RtBlock {
-                id: reg.id_by_name("air").unwrap_or(0),
-                state: 0,
-            };
             let mut row_y = (self.chunk_size_y as f32 * ctx.params.platform_y_ratio
                 + ctx.params.platform_y_offset)
                 .round() as i32;
@@ -313,13 +363,16 @@ impl World {
                 return air;
             }
             let cz = (self.world_size_z() as i32) / 2;
+            let cache = match self.ensure_showcase_cache(reg) {
+                Some(cache) => cache,
+                None => return air,
+            };
             if z == cz {
-                let entries = build_showcase_entries(reg);
-                if entries.is_empty() {
+                if cache.entries.is_empty() || cache.entry_row_len <= 0 {
                     return air;
                 }
-                let spacing = 2;
-                let row_len = (entries.len() as i32) * spacing - 1;
+                let spacing = cache.entry_spacing;
+                let row_len = cache.entry_row_len;
                 let cx = (self.world_size_x() as i32) / 2;
                 let start_x = cx - row_len / 2;
                 if x < start_x || x >= start_x + row_len {
@@ -330,35 +383,27 @@ impl World {
                     return air;
                 }
                 let idx = (dx / spacing) as usize;
-                return entries.get(idx).map(|e| e.block).unwrap_or(air);
+                return cache.entries.get(idx).map(|e| e.block).unwrap_or(air);
             }
             let stair_base_z = cz + 3;
-            if z >= stair_base_z && z <= stair_base_z + 4 {
-                let placements = build_showcase_stairs_cluster(reg);
-                if placements.is_empty() {
-                    return air;
-                }
-                let max_dx = placements.iter().map(|p| p.dx).max().unwrap_or(0);
-                let cluster_w = max_dx + 1;
-                let cx = (self.world_size_x() as i32) / 2;
-                let start_x = cx - cluster_w / 2;
-                let dx = x - start_x;
-                if dx < 0 || dx >= cluster_w {
-                    return air;
-                }
-                let dz = z - stair_base_z;
-                for p in &placements {
-                    if p.dx == dx && p.dz == dz {
-                        return p.block;
+            let local_z = z - stair_base_z;
+            if local_z >= 0 && local_z < cache.stairs_depth {
+                if cache.stairs_width > 0 {
+                    let cx = (self.world_size_x() as i32) / 2;
+                    let start_x = cx - cache.stairs_width / 2;
+                    let dx = x - start_x;
+                    if dx >= 0 && dx < cache.stairs_width {
+                        if let Some(block) = cache.stairs_lookup.get(&(dx, local_z)) {
+                            return *block;
+                        }
                     }
                 }
-                return air;
             }
             return air;
         }
         if let WorldGenMode::Flat { thickness } = self.mode {
             let name = if y < thickness { "stone" } else { "air" };
-            let id = reg.id_by_name(name).unwrap_or(0);
+            let id = self.resolve_block_id(reg, name);
             return RtBlock { id, state: 0 };
         }
 
@@ -379,9 +424,9 @@ impl World {
 
         // Biomes helpers
         let climate_for = |wx: i32, wz: i32| -> Option<(f32, f32)> {
-            match (&ctx.temp2d, &ctx.moist2d) {
-                (Some(t), Some(m)) => {
-                    let b = ctx.params.biomes.as_ref().unwrap();
+            match (&ctx.temp2d, &ctx.moist2d, ctx.params.biomes.as_ref()) {
+                (Some(t), Some(m), Some(b_arc)) => {
+                    let b = &**b_arc;
                     let sx = if b.scale_x == 0.0 { 1.0 } else { b.scale_x };
                     let sz = if b.scale_z == 0.0 { 1.0 } else { b.scale_z };
                     let x = wx as f32 * sx;
@@ -395,6 +440,7 @@ impl World {
         };
         let biome_for = |wx: i32, wz: i32| -> Option<&crate::worldgen::BiomeDefParam> {
             let b = ctx.params.biomes.as_ref()?;
+            let b = &**b;
             if b.debug_pack_all && !b.defs.is_empty() {
                 let cell = b.debug_cell_size.max(1);
                 let cx = (wx.div_euclid(cell)) as i64;
@@ -706,7 +752,8 @@ impl World {
 
         // Tree placement (uses biome densities when available)
         let tree_prob_for = |wx: i32, wz: i32| -> f32 {
-            if let Some(ref b) = ctx.params.biomes {
+            if let Some(b_arc) = ctx.params.biomes.as_ref() {
+                let b = &**b_arc;
                 if b.debug_pack_all && !b.defs.is_empty() {
                     let cell = b.debug_cell_size.max(1);
                     let cx = (wx.div_euclid(cell)) as i64;
@@ -884,16 +931,22 @@ impl World {
             }
         }
 
-        let id = reg
-            .id_by_name(base)
-            .unwrap_or_else(|| reg.id_by_name("air").unwrap_or(0));
+        let id = self.resolve_block_id(reg, base);
         RtBlock { id, state: 0 }
     }
 }
 
 impl World {
     pub fn update_worldgen_params(&self, params: WorldGenParams) {
-        *self.gen_params.write().expect("worldgen params lock") = params;
+        if let Ok(mut guard) = self.gen_params.write() {
+            *guard = Arc::new(params);
+        }
+        if let Ok(mut cache) = self.showcase_cache.write() {
+            *cache = None;
+        }
+        if let Ok(mut ids) = self.block_id_cache.write() {
+            ids.clear();
+        }
     }
 
     #[inline]
@@ -902,26 +955,31 @@ impl World {
     }
 
     pub fn biome_at(&self, wx: i32, wz: i32) -> Option<crate::worldgen::BiomeDefParam> {
-        let params = self.gen_params.read().ok()?.clone();
-        let b = params.biomes?;
-        // Recreate noise for temperature and moisture using the same seed scheme.
+        let params = {
+            let guard = self.gen_params.read().ok()?;
+            Arc::clone(&*guard)
+        };
+        let biomes = params.biomes.as_ref()?.clone();
+        let b = &*biomes;
         let mut t = FastNoiseLite::with_seed(self.seed ^ 0x1203_5F31);
         t.set_noise_type(Some(NoiseType::OpenSimplex2));
         t.set_frequency(Some(b.temp_freq));
         let mut m = FastNoiseLite::with_seed(((self.seed as u32) ^ 0x92E3_A1B2u32) as i32);
         m.set_noise_type(Some(NoiseType::OpenSimplex2));
         m.set_frequency(Some(b.moisture_freq));
-        let x = (wx as f32) / b.scale_x.max(1e-6);
-        let z = (wz as f32) / b.scale_z.max(1e-6);
+        let sx = if b.scale_x == 0.0 { 1.0 } else { b.scale_x };
+        let sz = if b.scale_z == 0.0 { 1.0 } else { b.scale_z };
+        let x = wx as f32 * sx;
+        let z = wz as f32 * sz;
         let temp = (t.get_noise_2d(x, z) * 0.5 + 0.5).clamp(0.0, 1.0);
         let moist = (m.get_noise_2d(x, z) * 0.5 + 0.5).clamp(0.0, 1.0);
-        for def in b.defs {
+        for def in &b.defs {
             if temp >= def.temp_min
-                && temp <= def.temp_max
+                && temp < def.temp_max
                 && moist >= def.moisture_min
-                && moist <= def.moisture_max
+                && moist < def.moisture_max
             {
-                return Some(def);
+                return Some(def.clone());
             }
         }
         None
