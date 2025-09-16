@@ -211,8 +211,9 @@ impl App {
                             return b;
                         }
                         let cx = wx.div_euclid(sx);
+                        let cy = wy.div_euclid(self.gs.world.chunk_size_y as i32);
                         let cz = wz.div_euclid(sz);
-                        if let Some(cent) = self.gs.chunks.get(&ChunkCoord::new(cx, 0, cz)) {
+                        if let Some(cent) = self.gs.chunks.get(&ChunkCoord::new(cx, cy, cz)) {
                             if let Some(ref buf) = cent.buf {
                                 return buf.get_world(wx, wy, wz).unwrap_or(Block::AIR);
                             }
@@ -404,8 +405,8 @@ impl App {
             } => {
                 let coord = ChunkCoord::new(cx, cy, cz);
                 // Prepare edit snapshots for workers (pure)
-                let chunk_edits = self.gs.edits.snapshot_for_chunk(cx, cz);
-                let region_edits = self.gs.edits.snapshot_for_region(cx, cz, 1);
+                let chunk_edits = self.gs.edits.snapshot_for_chunk(cx, cy, cz);
+                let region_edits = self.gs.edits.snapshot_for_region(cx, cy, cz, 1, 1);
                 // Try to reuse previous buffer if present (and not invalidated)
                 let prev_buf = self
                     .gs
@@ -511,7 +512,7 @@ impl App {
             } => {
                 let coord = ChunkCoord::new(cx, cy, cz);
                 // Drop if stale
-                let cur_rev = self.gs.edits.get_rev(cx, cz);
+                let cur_rev = self.gs.edits.get_rev(cx, cy, cz);
                 if rev < cur_rev {
                     // Only re-enqueue if there isn't already a newer inflight job
                     let inflight = self.gs.inflight_rev.get(&coord).copied().unwrap_or(0);
@@ -614,7 +615,7 @@ impl App {
                 );
                 self.gs.loaded.insert(coord);
                 self.gs.inflight_rev.remove(&coord);
-                self.gs.edits.mark_built(cx, cz, rev);
+                self.gs.edits.mark_built(cx, cy, cz, rev);
 
                 // Track mesh completion count for minimap/debug purposes
                 *self.gs.mesh_counts.entry(coord).or_insert(0) += 1;
@@ -685,7 +686,7 @@ impl App {
             } => {
                 let coord = ChunkCoord::new(cx, cy, cz);
                 // Drop if stale
-                let cur_rev = self.gs.edits.get_rev(cx, cz);
+                let cur_rev = self.gs.edits.get_rev(cx, cy, cz);
                 if rev < cur_rev {
                     self.gs.inflight_rev.remove(&coord);
                     return;
@@ -735,6 +736,7 @@ impl App {
                 let org = self.cam.position;
                 let dir = self.cam.forward();
                 let sx = self.gs.world.chunk_size_x as i32;
+                let sy = self.gs.world.chunk_size_y as i32;
                 let sz = self.gs.world.chunk_size_z as i32;
                 let reg = self.reg.clone();
                 let sampler = |wx: i32, wy: i32, wz: i32| -> Block {
@@ -742,8 +744,9 @@ impl App {
                         return b;
                     }
                     let cx = wx.div_euclid(sx);
+                    let cy = wy.div_euclid(sy);
                     let cz = wz.div_euclid(sz);
-                    if let Some(cent) = self.gs.chunks.get(&ChunkCoord::new(cx, 0, cz)) {
+                    if let Some(cent) = self.gs.chunks.get(&ChunkCoord::new(cx, cy, cz)) {
                         if let Some(ref buf) = cent.buf {
                             return buf.get_world(wx, wy, wz).unwrap_or(Block {
                                 id: reg.id_by_name("air").unwrap_or(0),
@@ -924,14 +927,14 @@ impl App {
                         is_beacon,
                     });
                 }
-                let _ = self.gs.edits.bump_region_around(wx, wz);
+                let _ = self.gs.edits.bump_region_around(wx, wy, wz);
                 // Rebuild edited chunk and any boundary-adjacent neighbors that are loaded
-                for (cx, cz) in self.gs.edits.get_affected_chunks(wx, wz) {
-                    let coord = ChunkCoord::new(cx, 0, cz);
+                for (cx, cy, cz) in self.gs.edits.get_affected_chunks(wx, wy, wz) {
+                    let coord = ChunkCoord::new(cx, cy, cz);
                     if self.renders.contains_key(&coord) {
                         self.queue.emit_now(Event::ChunkRebuildRequested {
                             cx,
-                            cy: coord.cy,
+                            cy,
                             cz,
                             cause: RebuildCause::Edit,
                         });
@@ -946,6 +949,7 @@ impl App {
             Event::BlockRemoved { wx, wy, wz } => {
                 // Determine previous block to update lighting
                 let sx = self.gs.world.chunk_size_x as i32;
+                let sy = self.gs.world.chunk_size_y as i32;
                 let sz = self.gs.world.chunk_size_z as i32;
                 let reg = &self.reg;
                 let sampler = |wx: i32, wy: i32, wz: i32| -> Block {
@@ -953,8 +957,9 @@ impl App {
                         return b;
                     }
                     let cx = wx.div_euclid(sx);
+                    let cy = wy.div_euclid(sy);
                     let cz = wz.div_euclid(sz);
-                    if let Some(cent) = self.gs.chunks.get(&ChunkCoord::new(cx, 0, cz)) {
+                    if let Some(cent) = self.gs.chunks.get(&ChunkCoord::new(cx, cy, cz)) {
                         if let Some(ref buf) = cent.buf {
                             return buf.get_world(wx, wy, wz).unwrap_or(Block::AIR);
                         }
@@ -972,13 +977,13 @@ impl App {
                         .emit_now(Event::LightEmitterRemoved { wx, wy, wz });
                 }
                 self.gs.edits.set(wx, wy, wz, Block::AIR);
-                let _ = self.gs.edits.bump_region_around(wx, wz);
-                for (cx, cz) in self.gs.edits.get_affected_chunks(wx, wz) {
-                    let coord = ChunkCoord::new(cx, 0, cz);
+                let _ = self.gs.edits.bump_region_around(wx, wy, wz);
+                for (cx, cy, cz) in self.gs.edits.get_affected_chunks(wx, wy, wz) {
+                    let coord = ChunkCoord::new(cx, cy, cz);
                     if self.renders.contains_key(&coord) {
                         self.queue.emit_now(Event::ChunkRebuildRequested {
                             cx,
-                            cy: coord.cy,
+                            cy,
                             cz,
                             cause: RebuildCause::Edit,
                         });
@@ -999,12 +1004,14 @@ impl App {
                 }
                 // schedule rebuild of that chunk
                 let sx = self.gs.world.chunk_size_x as i32;
+                let sy = self.gs.world.chunk_size_y as i32;
                 let sz = self.gs.world.chunk_size_z as i32;
                 let cx = wx.div_euclid(sx);
+                let cy = wy.div_euclid(sy);
                 let cz = wz.div_euclid(sz);
                 self.queue.emit_now(Event::ChunkRebuildRequested {
                     cx,
-                    cy: 0,
+                    cy,
                     cz,
                     cause: RebuildCause::Edit,
                 });
@@ -1012,12 +1019,14 @@ impl App {
             Event::LightEmitterRemoved { wx, wy, wz } => {
                 self.gs.lighting.remove_emitter_world(wx, wy, wz);
                 let sx = self.gs.world.chunk_size_x as i32;
+                let sy = self.gs.world.chunk_size_y as i32;
                 let sz = self.gs.world.chunk_size_z as i32;
                 let cx = wx.div_euclid(sx);
+                let cy = wy.div_euclid(sy);
                 let cz = wz.div_euclid(sz);
                 self.queue.emit_now(Event::ChunkRebuildRequested {
                     cx,
-                    cy: 0,
+                    cy,
                     cz,
                     cause: RebuildCause::Edit,
                 });

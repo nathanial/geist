@@ -148,7 +148,7 @@ impl App {
     }
 
     pub(super) fn record_intent(&mut self, coord: ChunkCoord, cause: IntentCause) {
-        let cur_rev = self.gs.edits.get_rev(coord.cx, coord.cz);
+        let cur_rev = self.gs.edits.get_rev(coord.cx, coord.cy, coord.cz);
         let now = self.gs.tick;
         self.intents
             .entry(coord)
