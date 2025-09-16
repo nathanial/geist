@@ -104,12 +104,13 @@ pub(crate) fn is_occluder(
     }
     if buf.contains_world(nx, ny, nz) {
         let x0 = buf.coord.cx * buf.sx as i32;
+        let y0 = buf.coord.cy * buf.sy as i32;
         let z0 = buf.coord.cz * buf.sz as i32;
-        if ny < 0 || ny >= buf.sy as i32 {
+        if ny < y0 || ny >= y0 + buf.sy as i32 {
             return false;
         }
         let lx = (nx - x0) as usize;
-        let ly = ny as usize;
+        let ly = (ny - y0) as usize;
         let lz = (nz - z0) as usize;
         let nb = buf.get_local(lx, ly, lz);
         if let (Some(h), Some(_n)) = (reg.get(here.id), reg.get(nb.id)) {

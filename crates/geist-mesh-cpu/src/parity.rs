@@ -165,6 +165,7 @@ pub struct ParityMesher<'a> {
     sy: usize,
     sz: usize,
     base_x: i32,
+    base_y: i32,
     base_z: i32,
     reg: &'a BlockRegistry,
     buf: &'a ChunkBuf,
@@ -183,6 +184,7 @@ impl<'a> ParityMesher<'a> {
         reg: &'a BlockRegistry,
         s: usize,
         base_x: i32,
+        base_y: i32,
         base_z: i32,
         world: &'a World,
         edits: Option<&'a HashMap<(i32, i32, i32), Block>>,
@@ -265,6 +267,7 @@ impl<'a> ParityMesher<'a> {
             sy,
             sz,
             base_x,
+            base_y,
             base_z,
             reg,
             buf,
@@ -378,7 +381,11 @@ impl<'a> ParityMesher<'a> {
         }
         for ly in 0..sy {
             for lz in 0..sz {
-                let nb = self.world_block(self.base_x - 1, ly as i32, self.base_z + lz as i32);
+                let nb = self.world_block(
+                    self.base_x - 1,
+                    self.base_y + ly as i32,
+                    self.base_z + lz as i32,
+                );
                 if nb.id == 0 {
                     continue;
                 }
@@ -431,7 +438,11 @@ impl<'a> ParityMesher<'a> {
         let t_z = Instant::now();
         for ly in 0..sy {
             for lx in 0..sx {
-                let nb = self.world_block(self.base_x + lx as i32, ly as i32, self.base_z - 1);
+                let nb = self.world_block(
+                    self.base_x + lx as i32,
+                    self.base_y + ly as i32,
+                    self.base_z - 1,
+                );
                 if nb.id == 0 {
                     continue;
                 }
@@ -520,7 +531,7 @@ impl<'a> ParityMesher<'a> {
                             let bz = (iz / s).min(self.sz - 1);
                             let nb = self.world_block(
                                 self.base_x - 1,
-                                by as i32,
+                                self.base_y + by as i32,
                                 self.base_z + bz as i32,
                             );
                             self.reg
@@ -598,7 +609,7 @@ impl<'a> ParityMesher<'a> {
                             let bz = (iz / s).min(self.sz - 1);
                             let nb = self.world_block(
                                 self.base_x - 1,
-                                by as i32,
+                                self.base_y + by as i32,
                                 self.base_z + bz as i32,
                             );
                             self.reg
@@ -758,7 +769,7 @@ impl<'a> ParityMesher<'a> {
                             let by = (iy / s).min(self.sy - 1);
                             let nb = self.world_block(
                                 self.base_x + bx as i32,
-                                by as i32,
+                                self.base_y + by as i32,
                                 self.base_z - 1,
                             );
                             self.reg
@@ -834,7 +845,7 @@ impl<'a> ParityMesher<'a> {
                             let by = (iy / s).min(self.sy - 1);
                             let nb = self.world_block(
                                 self.base_x + bx as i32,
-                                by as i32,
+                                self.base_y + by as i32,
                                 self.base_z - 1,
                             );
                             self.reg
@@ -892,6 +903,7 @@ impl<'a> ParityMesher<'a> {
                 self.sy,
                 self.sz,
                 self.base_x,
+                self.base_y,
                 self.base_z,
                 &self.grids,
                 builds,
@@ -903,6 +915,7 @@ impl<'a> ParityMesher<'a> {
                 self.sy,
                 self.sz,
                 self.base_x,
+                self.base_y,
                 self.base_z,
                 &self.grids,
                 builds,
@@ -914,6 +927,7 @@ impl<'a> ParityMesher<'a> {
                 self.sy,
                 self.sz,
                 self.base_x,
+                self.base_y,
                 self.base_z,
                 &self.grids,
                 builds,
@@ -926,6 +940,7 @@ impl<'a> ParityMesher<'a> {
                 self.sy,
                 self.sz,
                 self.base_x,
+                self.base_y,
                 self.base_z,
                 &self.grids_water,
                 builds,
@@ -937,6 +952,7 @@ impl<'a> ParityMesher<'a> {
                 self.sy,
                 self.sz,
                 self.base_x,
+                self.base_y,
                 self.base_z,
                 &self.grids_water,
                 builds,
@@ -948,6 +964,7 @@ impl<'a> ParityMesher<'a> {
                 self.sy,
                 self.sz,
                 self.base_x,
+                self.base_y,
                 self.base_z,
                 &self.grids_water,
                 builds,
@@ -964,6 +981,7 @@ fn emit_plane_x<B: crate::emit::BuildSink>(
     sy: usize,
     sz: usize,
     base_x: i32,
+    base_y: i32,
     base_z: i32,
     grids: &FaceGrids,
     builds: &mut B,
@@ -1036,14 +1054,14 @@ fn emit_plane_x<B: crate::emit::BuildSink>(
                 let face = if pos { Face::PosX } else { Face::NegX };
                 let origin = Vec3 {
                     x: (base_x as f32) + (ix as f32) * scale,
-                    y: (v as f32) * scale,
+                    y: (base_y as f32) + (v as f32) * scale,
                     z: (base_z as f32) + (u as f32) * scale,
                 };
                 let u1 = (run_w as f32) * scale;
                 let v1 = (run_h as f32) * scale;
                 let rgba = [255u8, 255u8, 255u8, OPAQUE_ALPHA];
                 emit_face_rect_for_clipped(
-                    builds, mid, face, origin, u1, v1, rgba, base_x, sx, sy, base_z, sz,
+                    builds, mid, face, origin, u1, v1, rgba, base_x, sx, sy, base_y, base_z, sz,
                 );
                 for dv in 0..run_h {
                     for du in 0..run_w {
@@ -1065,6 +1083,7 @@ fn emit_plane_y<B: crate::emit::BuildSink>(
     sy: usize,
     sz: usize,
     base_x: i32,
+    base_y: i32,
     base_z: i32,
     grids: &FaceGrids,
     builds: &mut B,
@@ -1137,14 +1156,14 @@ fn emit_plane_y<B: crate::emit::BuildSink>(
                 let face = if pos { Face::PosY } else { Face::NegY };
                 let origin = Vec3 {
                     x: (base_x as f32) + (u as f32) * scale,
-                    y: (iy as f32) * scale,
+                    y: (base_y as f32) + (iy as f32) * scale,
                     z: (base_z as f32) + (v as f32) * scale,
                 };
                 let u1 = (run_w as f32) * scale;
                 let v1 = (run_h as f32) * scale;
                 let rgba = [255u8, 255u8, 255u8, OPAQUE_ALPHA];
                 emit_face_rect_for_clipped(
-                    builds, mid, face, origin, u1, v1, rgba, base_x, sx, sy, base_z, sz,
+                    builds, mid, face, origin, u1, v1, rgba, base_x, sx, sy, base_y, base_z, sz,
                 );
                 for dv in 0..run_h {
                     for du in 0..run_w {
@@ -1166,6 +1185,7 @@ fn emit_plane_z<B: crate::emit::BuildSink>(
     sy: usize,
     sz: usize,
     base_x: i32,
+    base_y: i32,
     base_z: i32,
     grids: &FaceGrids,
     builds: &mut B,
@@ -1238,14 +1258,14 @@ fn emit_plane_z<B: crate::emit::BuildSink>(
                 let face = if pos { Face::PosZ } else { Face::NegZ };
                 let origin = Vec3 {
                     x: (base_x as f32) + (u as f32) * scale,
-                    y: (v as f32) * scale,
+                    y: (base_y as f32) + (v as f32) * scale,
                     z: (base_z as f32) + (iz as f32) * scale,
                 };
                 let u1 = (run_w as f32) * scale;
                 let v1 = (run_h as f32) * scale;
                 let rgba = [255u8, 255u8, 255u8, OPAQUE_ALPHA];
                 emit_face_rect_for_clipped(
-                    builds, mid, face, origin, u1, v1, rgba, base_x, sx, sy, base_z, sz,
+                    builds, mid, face, origin, u1, v1, rgba, base_x, sx, sy, base_y, base_z, sz,
                 );
                 for dv in 0..run_h {
                     for du in 0..run_w {

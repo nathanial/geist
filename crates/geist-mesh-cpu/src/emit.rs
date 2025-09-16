@@ -49,7 +49,7 @@ pub(crate) fn emit_face_rect_for(
 }
 
 /// Clips a face-aligned rectangle to the current chunk interior and emits any visible portion.
-/// Chunk interior bounds: X in [base_x, base_x+sx), Z in [base_z, base_z+sz), Y in [0, sy).
+/// Chunk interior bounds: X in [base_x, base_x+sx), Z in [base_z, base_z+sz), Y in [base_y, base_y+sy).
 #[inline]
 pub(crate) fn emit_face_rect_for_clipped(
     builds: &mut impl BuildSink,
@@ -62,6 +62,7 @@ pub(crate) fn emit_face_rect_for_clipped(
     base_x: i32,
     sx: usize,
     sy: usize,
+    base_y: i32,
     base_z: i32,
     sz: usize,
 ) {
@@ -75,8 +76,8 @@ pub(crate) fn emit_face_rect_for_clipped(
     let bx1 = (base_x + sx as i32) as f32;
     let bz0 = base_z as f32;
     let bz1 = (base_z + sz as i32) as f32;
-    let by0 = 0.0f32;
-    let by1 = sy as f32;
+    let by0 = base_y as f32;
+    let by1 = (base_y + sy as i32) as f32;
 
     let mut out = None;
     match face {
@@ -245,13 +246,14 @@ pub(crate) fn emit_box_generic_clipped(
     base_x: i32,
     sx: usize,
     sy: usize,
+    base_y: i32,
     base_z: i32,
     sz: usize,
 ) {
     let bx0 = base_x as f32;
     let bx1 = (base_x + sx as i32) as f32;
-    let by0 = 0.0f32;
-    let by1 = sy as f32;
+    let by0 = base_y as f32;
+    let by1 = (base_y + sy as i32) as f32;
     let bz0 = base_z as f32;
     let bz1 = (base_z + sz as i32) as f32;
     min.x = min.x.max(bx0);

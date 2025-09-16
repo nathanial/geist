@@ -66,10 +66,11 @@ fn run_wcc_phase(
     edits: Option<&HashMap<(i32, i32, i32), Block>>,
     s: usize,
     base_x: i32,
+    base_y: i32,
     base_z: i32,
     mat_count: usize,
 ) -> WccOutput {
-    let mut pm = ParityMesher::new(buf, reg, s, base_x, base_z, world, edits);
+    let mut pm = ParityMesher::new(buf, reg, s, base_x, base_y, base_z, world, edits);
 
     let t_scan_start = Instant::now();
     pm.build_occupancy();
@@ -103,6 +104,7 @@ fn thin_dynamic_shapes(
     world: &World,
     edits: Option<&HashMap<(i32, i32, i32), Block>>,
     base_x: i32,
+    base_y: i32,
     base_z: i32,
     sx: usize,
     sy: usize,
@@ -118,11 +120,11 @@ fn thin_dynamic_shapes(
                         continue;
                     }
                     let fx = (base_x + x as i32) as f32;
-                    let fy = y as f32;
+                    let fy = (base_y + y as i32) as f32;
                     let fz = (base_z + z as i32) as f32;
                     emit_thin_shape(
-                        builds, buf, reg, world, edits, here, ty, fx, fy, fz, base_x, base_z, sx,
-                        sy, sz,
+                        builds, buf, reg, world, edits, here, ty, fx, fy, fz, base_x, base_y,
+                        base_z, sx, sy, sz,
                     );
                 }
             }
@@ -143,6 +145,7 @@ fn emit_thin_shape(
     fy: f32,
     fz: f32,
     base_x: i32,
+    base_y: i32,
     base_z: i32,
     sx: usize,
     sy: usize,
@@ -152,13 +155,16 @@ fn emit_thin_shape(
 
     match &ty.shape {
         Shape::Pane => emit_pane(
-            builds, buf, reg, world, edits, here, ty, fx, fy, fz, base_x, base_z, sx, sy, sz,
+            builds, buf, reg, world, edits, here, ty, fx, fy, fz, base_x, base_y, base_z, sx, sy,
+            sz,
         ),
         Shape::Fence => emit_fence(
-            builds, buf, reg, world, edits, here, ty, fx, fy, fz, base_x, base_z, sx, sy, sz,
+            builds, buf, reg, world, edits, here, ty, fx, fy, fz, base_x, base_y, base_z, sx, sy,
+            sz,
         ),
         Shape::Carpet => emit_carpet(
-            builds, buf, reg, world, edits, here, ty, fx, fy, fz, base_x, base_z, sx, sy, sz,
+            builds, buf, reg, world, edits, here, ty, fx, fy, fz, base_x, base_y, base_z, sx, sy,
+            sz,
         ),
         _ => {}
     }
@@ -176,6 +182,7 @@ fn emit_pane(
     fy: f32,
     fz: f32,
     base_x: i32,
+    base_y: i32,
     base_z: i32,
     sx: usize,
     sy: usize,
@@ -209,6 +216,7 @@ fn emit_pane(
         base_x,
         sx,
         sy,
+        base_y,
         base_z,
         sz,
     );
@@ -242,6 +250,7 @@ fn emit_pane(
             base_x,
             sx,
             sy,
+            base_y,
             base_z,
             sz,
         );
@@ -267,6 +276,7 @@ fn emit_pane(
             base_x,
             sx,
             sy,
+            base_y,
             base_z,
             sz,
         );
@@ -292,6 +302,7 @@ fn emit_pane(
             base_x,
             sx,
             sy,
+            base_y,
             base_z,
             sz,
         );
@@ -317,6 +328,7 @@ fn emit_pane(
             base_x,
             sx,
             sy,
+            base_y,
             base_z,
             sz,
         );
@@ -335,6 +347,7 @@ fn emit_fence(
     fy: f32,
     fz: f32,
     base_x: i32,
+    base_y: i32,
     base_z: i32,
     sx: usize,
     sy: usize,
@@ -367,6 +380,7 @@ fn emit_fence(
         base_x,
         sx,
         sy,
+        base_y,
         base_z,
         sz,
     );
@@ -401,6 +415,7 @@ fn emit_fence(
                         base_x,
                         sx,
                         sy,
+                        base_y,
                         base_z,
                         sz,
                     );
@@ -430,6 +445,7 @@ fn emit_fence(
                         base_x,
                         sx,
                         sy,
+                        base_y,
                         base_z,
                         sz,
                     );
@@ -457,6 +473,7 @@ fn emit_fence(
                         base_x,
                         sx,
                         sy,
+                        base_y,
                         base_z,
                         sz,
                     );
@@ -478,6 +495,7 @@ fn emit_carpet(
     fy: f32,
     fz: f32,
     base_x: i32,
+    base_y: i32,
     base_z: i32,
     sx: usize,
     sy: usize,
@@ -511,6 +529,7 @@ fn emit_carpet(
         base_x,
         sx,
         sy,
+        base_y,
         base_z,
         sz,
     );
@@ -548,6 +567,7 @@ fn finalize_chunk(
     builds: Vec<MeshBuild>,
     light: &LightGrid,
     base_x: i32,
+    base_y: i32,
     base_z: i32,
     sx: usize,
     sy: usize,
@@ -560,12 +580,12 @@ fn finalize_chunk(
     let bbox = Aabb {
         min: Vec3 {
             x: base_x as f32,
-            y: 0.0,
+            y: base_y as f32,
             z: base_z as f32,
         },
         max: Vec3 {
             x: base_x as f32 + sx as f32,
-            y: sy as f32,
+            y: base_y as f32 + sy as f32,
             z: base_z as f32 + sz as f32,
         },
     };
@@ -614,6 +634,7 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
     let sz = buf.sz;
     debug_assert_eq!(buf.coord, coord);
     let base_x = buf.coord.cx * sx as i32;
+    let base_y = buf.coord.cy * sy as i32;
     let base_z = buf.coord.cz * sz as i32;
     let mat_count = reg.materials.materials.len();
 
@@ -625,7 +646,7 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
         scan_ms,
         seed_ms,
         emit_ms,
-    } = run_wcc_phase(buf, reg, world, edits, s, base_x, base_z, mat_count);
+    } = run_wcc_phase(buf, reg, world, edits, s, base_x, base_y, base_z, mat_count);
 
     let thin_ms = thin_dynamic_shapes(
         &mut builds,
@@ -634,6 +655,7 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
         world,
         edits,
         base_x,
+        base_y,
         base_z,
         sx,
         sy,
@@ -650,7 +672,8 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
     };
     log_mesher_perf(s, coord, &perf);
 
-    let (chunk, light_borders) = finalize_chunk(builds, light, base_x, base_z, sx, sy, sz, coord);
+    let (chunk, light_borders) =
+        finalize_chunk(builds, light, base_x, base_y, base_z, sx, sy, sz, coord);
 
     Some((chunk, light_borders))
 }
@@ -658,6 +681,7 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
 /// Builds a simple voxel body mesh for debug/solid rendering using a flat ambient light.
 pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry) -> ChunkMeshCPU {
     let base_x = buf.coord.cx * buf.sx as i32;
+    let base_y = buf.coord.cy * buf.sy as i32;
     let base_z = buf.coord.cz * buf.sz as i32;
     let mat_count = reg.materials.materials.len();
     let mut builds_v: Vec<MeshBuild> = vec![MeshBuild::default(); mat_count];
@@ -669,7 +693,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                     continue;
                 }
                 let fx = (base_x + x as i32) as f32;
-                let fy = y as f32;
+                let fy = (base_y + y as i32) as f32;
                 let fz = (base_z + z as i32) as f32;
                 let face_material = |face: Face| {
                     reg.get(here.id)
@@ -693,6 +717,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                                 base_x,
                                 buf.sx,
                                 buf.sy,
+                                base_y,
                                 base_z,
                                 buf.sz,
                             );
@@ -723,6 +748,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             base_x,
                             buf.sx,
                             buf.sy,
+                            base_y,
                             base_z,
                             buf.sz,
                         );
@@ -749,6 +775,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             base_x,
                             buf.sx,
                             buf.sy,
+                            base_y,
                             base_z,
                             buf.sz,
                         );
@@ -775,6 +802,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             base_x,
                             buf.sx,
                             buf.sy,
+                            base_y,
                             base_z,
                             buf.sz,
                         );
@@ -860,6 +888,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                                 base_x,
                                 buf.sx,
                                 buf.sy,
+                                base_y,
                                 base_z,
                                 buf.sz,
                             );
@@ -887,6 +916,7 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             base_x,
                             buf.sx,
                             buf.sy,
+                            base_y,
                             base_z,
                             buf.sz,
                         );
@@ -919,12 +949,12 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
         bbox: Aabb {
             min: Vec3 {
                 x: base_x as f32,
-                y: 0.0,
+                y: base_y as f32,
                 z: base_z as f32,
             },
             max: Vec3 {
                 x: base_x as f32 + buf.sx as f32,
-                y: buf.sy as f32,
+                y: base_y as f32 + buf.sy as f32,
                 z: base_z as f32 + buf.sz as f32,
             },
         },
