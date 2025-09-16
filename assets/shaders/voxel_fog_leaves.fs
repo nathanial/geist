@@ -7,7 +7,7 @@ out vec4 finalColor;
 uniform sampler2D texture0;
 // Phase 2 lighting
 uniform sampler2D lightTex;
-uniform ivec3 lightDims;
+uniform ivec3 lightDims;            // (sx+2, sy+2, sz+2) including seam rings
 uniform ivec2 lightGrid;
 uniform vec3  chunkOrigin;
 uniform float visualLightMin;
@@ -58,9 +58,9 @@ float sampleBrightness(vec3 worldPos, vec3 nrm) {
   if (lightDims.x == 0 || lightDims.y == 0 || lightDims.z == 0) {
     return visualLightMin;
   }
-  // Interior dims exclude rings on X/Z
+  // Interior dims exclude seam rings on all axes
   vec3 p = worldPos - chunkOrigin;
-  ivec3 innerDims = ivec3(lightDims.x - 2, lightDims.y, lightDims.z - 2);
+  ivec3 innerDims = ivec3(lightDims.x - 2, lightDims.y - 2, lightDims.z - 2);
   ivec3 vInner = ivec3(clamp(floor(p), vec3(0.0), vec3(innerDims) - vec3(1.0)));
   ivec3 step = ivec3(0,0,0);
   if (abs(nrm.x) > abs(nrm.y) && abs(nrm.x) > abs(nrm.z)) {
@@ -70,10 +70,12 @@ float sampleBrightness(vec3 worldPos, vec3 nrm) {
   } else {
     step.y = (nrm.y > 0.0) ? 1 : -1;
   }
-  // Allow sampling of both -X/-Z and +X/+Z atlas rings by clamping up to innerDims (inclusive)
-  ivec3 vnInner = clamp(vInner + step, ivec3(-1), innerDims);
-  ivec3 vAtlas = vInner + ivec3(1, 0, 1);
-  ivec3 vnAtlas = vnInner + ivec3(1, 0, 1);
+  ivec3 vnInner = vInner + step;
+  vnInner.x = clamp(vnInner.x, -1, innerDims.x);
+  vnInner.z = clamp(vnInner.z, -1, innerDims.z);
+  vnInner.y = clamp(vnInner.y, -1, innerDims.y);
+  ivec3 vAtlas = vInner + ivec3(1, 1, 1);
+  ivec3 vnAtlas = vnInner + ivec3(1, 1, 1);
   vec2 uv0 = lightAtlasUV(vAtlas);
   vec3 l0 = texture(lightTex, uv0).rgb;
   vec2 uv1 = lightAtlasUV(vnAtlas);

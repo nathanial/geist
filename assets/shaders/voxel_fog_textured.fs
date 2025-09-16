@@ -7,7 +7,7 @@ out vec4 finalColor;
 uniform sampler2D texture0;
 // Phase 2 lighting
 uniform sampler2D lightTex;         // packed 2D atlas of (sx x sz) tiles across Y slices
-uniform ivec3 lightDims;            // (sx, sy, sz)
+uniform ivec3 lightDims;            // (sx+2, sy+2, sz+2) including seam rings
 uniform ivec2 lightGrid;            // (grid_cols, grid_rows)
 uniform vec3  chunkOrigin;          // world-space min corner of this chunk
 uniform float visualLightMin;       // 0..1 brightness floor
@@ -41,9 +41,9 @@ float sampleBrightness(vec3 worldPos, vec3 nrm) {
   if (lightDims.x == 0 || lightDims.y == 0 || lightDims.z == 0) {
     return visualLightMin;
   }
-  // Voxel indices in chunk-local space (interior dims exclude 2 ring texels on X/Z)
+  // Voxel indices in chunk-local space (interior dims exclude seam rings on each axis)
   vec3 p = worldPos - chunkOrigin;
-  ivec3 innerDims = ivec3(lightDims.x - 2, lightDims.y, lightDims.z - 2);
+  ivec3 innerDims = ivec3(lightDims.x - 2, lightDims.y - 2, lightDims.z - 2);
   ivec3 vInner = ivec3(clamp(floor(p), vec3(0.0), vec3(innerDims) - vec3(1.0)));
   // Determine neighbor direction from dominant normal axis
   ivec3 step = ivec3(0,0,0);
@@ -54,12 +54,14 @@ float sampleBrightness(vec3 worldPos, vec3 nrm) {
   } else {
     step.y = (nrm.y > 0.0) ? 1 : -1;
   }
-  // Clamp neighbor within [-1 .. inner-1] so we can shift by +1 into ring-inclusive atlas coords
-  // Allow sampling of both -X/-Z and +X/+Z atlas rings by clamping up to innerDims (inclusive)
-  ivec3 vnInner = clamp(vInner + step, ivec3(-1), innerDims);
-  // Shift to atlas coords (+1 offset to account for -X/-Z rings at index 0)
-  ivec3 vAtlas = vInner + ivec3(1, 0, 1);
-  ivec3 vnAtlas = vnInner + ivec3(1, 0, 1);
+  // Clamp neighbor index; allow seam rings on all axes
+  ivec3 vnInner = vInner + step;
+  vnInner.x = clamp(vnInner.x, -1, innerDims.x);
+  vnInner.z = clamp(vnInner.z, -1, innerDims.z);
+  vnInner.y = clamp(vnInner.y, -1, innerDims.y);
+  // Shift to atlas coords (+1 offset per axis to account for negative rings)
+  ivec3 vAtlas = vInner + ivec3(1, 1, 1);
+  ivec3 vnAtlas = vnInner + ivec3(1, 1, 1);
   // Fetch R,G,B = block, sky, beacon; take max of local and neighbor
   vec2 uv0 = lightAtlasUV(vAtlas);
   vec3 l0 = texture(lightTex, uv0).rgb;

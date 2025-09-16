@@ -1098,7 +1098,7 @@ fn emit_plane_y<B: crate::emit::BuildSink>(
     // Reused buffer may contain epochs from previous axis; clear the active window.
     visited_buf[..needed].fill(0);
     let mut epoch: u8 = 1;
-    for iy in 0..(s * sy) {
+    for iy in 0..=(s * sy) {
         epoch = epoch.wrapping_add(1);
         if epoch == 0 {
             visited_buf[..needed].fill(0);

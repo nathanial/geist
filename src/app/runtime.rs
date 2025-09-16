@@ -35,18 +35,63 @@ impl App {
         let tile_h = atlas.sz; // extended: sz + 2
         let inner_sx = tile_w.saturating_sub(2);
         let inner_sz = tile_h.saturating_sub(2);
-        let sy = atlas.sy;
         let data = &atlas.data;
         let at = |x: usize, y: usize| -> (u8, u8, u8) {
             let di = (y * width + x) * 4;
             (data[di + 0], data[di + 1], data[di + 2])
         };
-        for y in 0..sy {
-            let tx = y % grid_cols;
-            let ty = y / grid_cols;
+        let total_slices = atlas.sy;
+        let inner_sy = total_slices.saturating_sub(2);
+        for slice in 0..total_slices {
+            let tx = slice % grid_cols;
+            let ty = slice / grid_cols;
             let ox = tx * tile_w;
             let oy = ty * tile_h;
-            // -X ring (x=0, z in 1..=inner_sz)
+            if slice == 0 {
+                if let (Some(ref blk), Some(ref sky), Some(ref bcn)) =
+                    (nb.yn.as_ref(), nb.sk_yn.as_ref(), nb.bcn_yn.as_ref())
+                {
+                    for z in 0..inner_sz {
+                        for x in 0..inner_sx {
+                            let (r, g, b) = at(ox + 1 + x, oy + 1 + z);
+                            let ii = z * inner_sx + x;
+                            let er = blk.get(ii).cloned().unwrap_or(0);
+                            let eg = sky.get(ii).cloned().unwrap_or(0);
+                            let eb = bcn.get(ii).cloned().unwrap_or(0);
+                            if r != er || g != eg || b != eb {
+                                panic!(
+                                    "Light atlas -Y plane mismatch at chunk ({},{},{}) z={} x={} got=({},{},{}) exp=({},{},{})",
+                                    cx, cy, cz, z, x, r, g, b, er, eg, eb
+                                );
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+            if slice == inner_sy + 1 {
+                if let (Some(ref blk), Some(ref sky), Some(ref bcn)) =
+                    (nb.yp.as_ref(), nb.sk_yp.as_ref(), nb.bcn_yp.as_ref())
+                {
+                    for z in 0..inner_sz {
+                        for x in 0..inner_sx {
+                            let (r, g, b) = at(ox + 1 + x, oy + 1 + z);
+                            let ii = z * inner_sx + x;
+                            let er = blk.get(ii).cloned().unwrap_or(0);
+                            let eg = sky.get(ii).cloned().unwrap_or(0);
+                            let eb = bcn.get(ii).cloned().unwrap_or(0);
+                            if r != er || g != eg || b != eb {
+                                panic!(
+                                    "Light atlas +Y plane mismatch at chunk ({},{},{}) z={} x={} got=({},{},{}) exp=({},{},{})",
+                                    cx, cy, cz, z, x, r, g, b, er, eg, eb
+                                );
+                            }
+                        }
+                    }
+                }
+                continue;
+            }
+            let y = slice - 1;
             if let (Some(ref blk), Some(ref sky), Some(ref bcn)) =
                 (nb.xn.as_ref(), nb.sk_xn.as_ref(), nb.bcn_xn.as_ref())
             {
@@ -64,7 +109,6 @@ impl App {
                     }
                 }
             }
-            // +X ring (x=inner_sx+1)
             if let (Some(ref blk), Some(ref sky), Some(ref bcn)) =
                 (nb.xp.as_ref(), nb.sk_xp.as_ref(), nb.bcn_xp.as_ref())
             {
@@ -82,7 +126,6 @@ impl App {
                     }
                 }
             }
-            // -Z ring (z=0, x in 1..=inner_sx)
             if let (Some(ref blk), Some(ref sky), Some(ref bcn)) =
                 (nb.zn.as_ref(), nb.sk_zn.as_ref(), nb.bcn_zn.as_ref())
             {
@@ -100,7 +143,6 @@ impl App {
                     }
                 }
             }
-            // +Z ring (z=inner_sz+1)
             if let (Some(ref blk), Some(ref sky), Some(ref bcn)) =
                 (nb.zp.as_ref(), nb.sk_zp.as_ref(), nb.bcn_zp.as_ref())
             {

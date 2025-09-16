@@ -729,6 +729,12 @@ fn atlas_border_rings_match_neighbors() {
     let mut zp_blk = vec![0u8; sy * sx];
     let mut zp_sky = vec![0u8; sy * sx];
     let mut zp_bcn = vec![0u8; sy * sx];
+    let mut yn_blk = vec![0u8; sx * sz];
+    let mut yn_sky = vec![0u8; sx * sz];
+    let mut yn_bcn = vec![0u8; sx * sz];
+    let mut yp_blk = vec![0u8; sx * sz];
+    let mut yp_sky = vec![0u8; sx * sz];
+    let mut yp_bcn = vec![0u8; sx * sz];
     // Fill plane patterns
     for y in 0..sy {
         for z in 0..sz {
@@ -750,6 +756,17 @@ fn atlas_border_rings_match_neighbors() {
             zp_bcn[ii] = 120 + (y as u8) * 5 + (x as u8);
         }
     }
+    for z in 0..sz {
+        for x in 0..sx {
+            let ii = z * sx + x;
+            yn_blk[ii] = 130 + (z as u8) * 5 + (x as u8);
+            yn_sky[ii] = 140 + (z as u8) * 5 + (x as u8);
+            yn_bcn[ii] = 150 + (z as u8) * 5 + (x as u8);
+            yp_blk[ii] = 160 + (z as u8) * 5 + (x as u8);
+            yp_sky[ii] = 170 + (z as u8) * 5 + (x as u8);
+            yp_bcn[ii] = 180 + (z as u8) * 5 + (x as u8);
+        }
+    }
     nb.xn = Some(xn_blk.into());
     nb.sk_xn = Some(xn_sky.into());
     nb.bcn_xn = Some(xn_bcn.into());
@@ -762,6 +779,12 @@ fn atlas_border_rings_match_neighbors() {
     nb.zp = Some(zp_blk.into());
     nb.sk_zp = Some(zp_sky.into());
     nb.bcn_zp = Some(zp_bcn.into());
+    nb.yn = Some(yn_blk.into());
+    nb.sk_yn = Some(yn_sky.into());
+    nb.bcn_yn = Some(yn_bcn.into());
+    nb.yp = Some(yp_blk.into());
+    nb.sk_yp = Some(yp_sky.into());
+    nb.bcn_yp = Some(yp_bcn.into());
     let atlas = super::pack_light_grid_atlas_with_neighbors(&lg, &nb);
     let width = atlas.width;
     let grid_cols = atlas.grid_cols;
@@ -771,12 +794,74 @@ fn atlas_border_rings_match_neighbors() {
         let di = (y * width + x) * 4;
         (atlas.data[di + 0], atlas.data[di + 1], atlas.data[di + 2])
     };
-    for y in 0..sy {
-        let tx = y % grid_cols;
-        let ty = y / grid_cols;
+    let total_slices = atlas.sy;
+    let inner_sy = total_slices.saturating_sub(2);
+    for slice in 0..total_slices {
+        let tx = slice % grid_cols;
+        let ty = slice / grid_cols;
         let ox = tx * tile_w;
         let oy = ty * tile_h;
-        // -X ring x=0, z in [0..sz)
+        if slice == 0 {
+            for z in 0..sz {
+                for x in 0..sx {
+                    let (r, g, b) = at(ox + 1 + x, oy + 1 + z);
+                    let ii = z * sx + x;
+                    assert_eq!(
+                        r,
+                        nb.yn.as_ref().unwrap()[ii],
+                        "yn.r mismatch z={} x={}",
+                        z,
+                        x
+                    );
+                    assert_eq!(
+                        g,
+                        nb.sk_yn.as_ref().unwrap()[ii],
+                        "yn.g mismatch z={} x={}",
+                        z,
+                        x
+                    );
+                    assert_eq!(
+                        b,
+                        nb.bcn_yn.as_ref().unwrap()[ii],
+                        "yn.b mismatch z={} x={}",
+                        z,
+                        x
+                    );
+                }
+            }
+            continue;
+        }
+        if slice == inner_sy + 1 {
+            for z in 0..sz {
+                for x in 0..sx {
+                    let (r, g, b) = at(ox + 1 + x, oy + 1 + z);
+                    let ii = z * sx + x;
+                    assert_eq!(
+                        r,
+                        nb.yp.as_ref().unwrap()[ii],
+                        "yp.r mismatch z={} x={}",
+                        z,
+                        x
+                    );
+                    assert_eq!(
+                        g,
+                        nb.sk_yp.as_ref().unwrap()[ii],
+                        "yp.g mismatch z={} x={}",
+                        z,
+                        x
+                    );
+                    assert_eq!(
+                        b,
+                        nb.bcn_yp.as_ref().unwrap()[ii],
+                        "yp.b mismatch z={} x={}",
+                        z,
+                        x
+                    );
+                }
+            }
+            continue;
+        }
+        let y = slice - 1;
         for z in 0..sz {
             let (r, g, b) = at(ox + 0, oy + 1 + z);
             let ii = y * sz + z;
@@ -802,7 +887,6 @@ fn atlas_border_rings_match_neighbors() {
                 z
             );
         }
-        // +X ring x=sx+1
         for z in 0..sz {
             let (r, g, b) = at(ox + (sx + 1), oy + 1 + z);
             let ii = y * sz + z;
@@ -828,7 +912,6 @@ fn atlas_border_rings_match_neighbors() {
                 z
             );
         }
-        // -Z ring y=0 (oy + 0)
         for x in 0..sx {
             let (r, g, b) = at(ox + 1 + x, oy + 0);
             let ii = y * sx + x;
@@ -854,7 +937,6 @@ fn atlas_border_rings_match_neighbors() {
                 x
             );
         }
-        // +Z ring y=sz+1
         for x in 0..sx {
             let (r, g, b) = at(ox + 1 + x, oy + (sz + 1));
             let ii = y * sx + x;
@@ -926,12 +1008,47 @@ fn atlas_interior_and_missing_ring_corners() {
         let di = (y * width + x) * 4;
         (atlas.data[di + 0], atlas.data[di + 1], atlas.data[di + 2])
     };
-    for y in 0..sy {
-        let tx = y % grid_cols;
-        let ty = y / grid_cols;
+    let total_slices = atlas.sy;
+    let inner_sy = total_slices.saturating_sub(2);
+    for slice in 0..total_slices {
+        let tx = slice % grid_cols;
+        let ty = slice / grid_cols;
         let ox = tx * tile_w;
         let oy = ty * tile_h;
-        // Interior matches light grid
+        if slice == 0 || slice == inner_sy + 1 {
+            for z in 0..sz {
+                for x in 0..sx {
+                    let (r, g, b) = at(ox + 1 + x, oy + 1 + z);
+                    assert_eq!(
+                        (r, g, b),
+                        (0, 0, 0),
+                        "Y plane not zero at slice={} z={} x={}",
+                        slice,
+                        z,
+                        x
+                    );
+                }
+            }
+            let corners = [
+                (ox + 0, oy + 0),
+                (ox + (sx + 1), oy + 0),
+                (ox + 0, oy + (sz + 1)),
+                (ox + (sx + 1), oy + (sz + 1)),
+            ];
+            for &(cx, cy) in &corners {
+                let (r, g, b) = at(cx, cy);
+                assert_eq!(
+                    (r, g, b),
+                    (0, 0, 0),
+                    "corner not zero at Y slice {} pos=({}, {})",
+                    slice,
+                    cx,
+                    cy
+                );
+            }
+            continue;
+        }
+        let y = slice - 1;
         for z in 0..sz {
             for x in 0..sx {
                 let (r, g, b) = at(ox + 1 + x, oy + 1 + z);
@@ -946,7 +1063,6 @@ fn atlas_interior_and_missing_ring_corners() {
                 );
             }
         }
-        // +X ring present
         for z in 0..sz {
             let (r, g, b) = at(ox + (sx + 1), oy + 1 + z);
             let ii = y * sz + z;
@@ -954,7 +1070,6 @@ fn atlas_interior_and_missing_ring_corners() {
             assert_eq!(g, nb.sk_xp.as_ref().unwrap()[ii]);
             assert_eq!(b, nb.bcn_xp.as_ref().unwrap()[ii]);
         }
-        // -X, -Z, +Z rings absent -> zero
         for z in 0..sz {
             let (r, g, b) = at(ox + 0, oy + 1 + z);
             assert_eq!((r, g, b), (0, 0, 0), "-X ring not zero at y={}, z={}", y, z);
@@ -977,7 +1092,6 @@ fn atlas_interior_and_missing_ring_corners() {
                 x
             );
         }
-        // Corners remain zero
         let corners = [
             (ox + 0, oy + 0),
             (ox + (sx + 1), oy + 0),
