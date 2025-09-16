@@ -274,8 +274,8 @@ pub fn compute_light_with_borders_buf_micro(
     }
 
     // Seed from neighbor micro border planes with S=2 ghost halo; fall back to coarse upsample with proper seam gating
-    let nbm = store.get_neighbor_micro_borders(buf.coord.cx, buf.coord.cz);
-    let nb = store.get_neighbor_borders(buf.coord.cx, buf.coord.cz);
+    let nbm = store.get_neighbor_micro_borders(buf.coord);
+    let nb = store.get_neighbor_borders(buf.coord);
     let plane_nonzero = |p: &Option<std::sync::Arc<[u8]>>| -> bool {
         if let Some(a) = p {
             a.iter().any(|&v| v != 0)
@@ -922,7 +922,7 @@ pub fn compute_light_with_borders_buf_micro(
     }
     // B) Overlay: also seed explicit runtime emitters from the store (e.g., interactive placements)
     // Treat beacons as omni seeds for now to ensure visible emission in Micro S=2.
-    for (lx, ly, lz, level, _is_beacon) in store.emitters_for_chunk(buf.coord.cx, buf.coord.cz) {
+    for (lx, ly, lz, level, _is_beacon) in store.emitters_for_chunk(buf.coord) {
         if level == 0 {
             continue;
         }
@@ -1274,8 +1274,7 @@ pub fn compute_light_with_borders_buf_micro(
         }
     }
     store.update_micro_borders(
-        buf.coord.cx,
-        buf.coord.cz,
+        buf.coord,
         MicroBorders {
             xm_sk_neg: xm_sk_neg.into(),
             xm_sk_pos: xm_sk_pos.into(),

@@ -5,6 +5,7 @@ use geist_blocks::BlockRegistry;
 use geist_blocks::micro::micro_face_cell_open_s2;
 use geist_blocks::types::Block;
 use geist_chunk::ChunkBuf;
+use geist_world::{ChunkCoord, World};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex};
@@ -317,7 +318,7 @@ impl LightGrid {
             }
         }
         // Seed from neighbors
-        let nb = store.get_neighbor_borders(buf.coord.cx, buf.coord.cz);
+        let nb = store.get_neighbor_borders(buf.coord);
         lg.nb_xn_blk = nb.xn.clone();
         lg.nb_xp_blk = nb.xp.clone();
         lg.nb_zn_blk = nb.zn.clone();
@@ -1385,9 +1386,9 @@ pub struct LightingStore {
     sx: usize,
     sy: usize,
     sz: usize,
-    borders: Mutex<HashMap<(i32, i32), LightBorders>>,
-    emitters: Mutex<HashMap<(i32, i32), Vec<(usize, usize, usize, u8, bool)>>>,
-    micro_borders: Mutex<HashMap<(i32, i32), MicroBorders>>,
+    borders: Mutex<HashMap<ChunkCoord, LightBorders>>,
+    emitters: Mutex<HashMap<ChunkCoord, Vec<(usize, usize, usize, u8, bool)>>>,
+    micro_borders: Mutex<HashMap<ChunkCoord, MicroBorders>>,
     // Runtime mode selection
     mode: AtomicU8,
 }
@@ -1414,62 +1415,71 @@ impl LightingStore {
         let _ = self.mode.load(Ordering::Relaxed);
         LightingMode::FullMicro
     }
-    pub fn clear_chunk(&self, cx: i32, cz: i32) {
+    pub fn clear_chunk(&self, coord: ChunkCoord) {
         {
             let mut m = self.borders.lock().unwrap();
-            m.remove(&(cx, cz));
+            m.remove(&coord);
         }
         {
             let mut m = self.emitters.lock().unwrap();
-            m.remove(&(cx, cz));
+            m.remove(&coord);
         }
         {
             let mut m = self.micro_borders.lock().unwrap();
-            m.remove(&(cx, cz));
+            m.remove(&coord);
         }
     }
     pub fn clear_all_borders(&self) {
         let mut m = self.borders.lock().unwrap();
         m.clear();
     }
-    pub fn get_neighbor_borders(&self, cx: i32, cz: i32) -> NeighborBorders {
+    pub fn get_neighbor_borders(&self, coord: ChunkCoord) -> NeighborBorders {
         let map = self.borders.lock().unwrap();
         let mut nb = NeighborBorders::empty(self.sx, self.sy, self.sz);
-        if let Some(b) = map.get(&(cx - 1, cz)) {
+        if let Some(b) = map.get(&coord.offset(-1, 0, 0)) {
             nb.xn = Some(b.xp.clone());
             nb.sk_xn = Some(b.sk_xp.clone());
             nb.bcn_xn = Some(b.bcn_xp.clone());
             nb.bcn_dir_xn = Some(b.bcn_dir_xp.clone());
         }
-        if let Some(b) = map.get(&(cx + 1, cz)) {
+        if let Some(b) = map.get(&coord.offset(1, 0, 0)) {
             nb.xp = Some(b.xn.clone());
             nb.sk_xp = Some(b.sk_xn.clone());
             nb.bcn_xp = Some(b.bcn_xn.clone());
             nb.bcn_dir_xp = Some(b.bcn_dir_xn.clone());
         }
-        if let Some(b) = map.get(&(cx, cz - 1)) {
+        if let Some(b) = map.get(&coord.offset(0, 0, -1)) {
             nb.zn = Some(b.zp.clone());
             nb.sk_zn = Some(b.sk_zp.clone());
             nb.bcn_zn = Some(b.bcn_zp.clone());
             nb.bcn_dir_zn = Some(b.bcn_dir_zp.clone());
         }
-        if let Some(b) = map.get(&(cx, cz + 1)) {
+        if let Some(b) = map.get(&coord.offset(0, 0, 1)) {
             nb.zp = Some(b.zn.clone());
             nb.sk_zp = Some(b.sk_zn.clone());
             nb.bcn_zp = Some(b.bcn_zn.clone());
             nb.bcn_dir_zp = Some(b.bcn_dir_zn.clone());
+        }
+        if let Some(b) = map.get(&coord.offset(0, -1, 0)) {
+            nb.yn = Some(b.yp.clone());
+            nb.sk_yn = Some(b.sk_yp.clone());
+            nb.bcn_yn = Some(b.bcn_yp.clone());
+        }
+        if let Some(b) = map.get(&coord.offset(0, 1, 0)) {
+            nb.yp = Some(b.yn.clone());
+            nb.sk_yp = Some(b.sk_yn.clone());
+            nb.bcn_yp = Some(b.bcn_yn.clone());
         }
         nb
     }
     /// Update stored borders and return whether anything changed, plus a per-face change mask.
     pub fn update_borders_mask(
         &self,
-        cx: i32,
-        cz: i32,
+        coord: ChunkCoord,
         lb: LightBorders,
     ) -> (bool, BorderChangeMask) {
         let mut map = self.borders.lock().unwrap();
-        match map.get_mut(&(cx, cz)) {
+        match map.get_mut(&coord) {
             Some(existing) => {
                 let mut mask = BorderChangeMask::default();
                 // Per-face change detection (coarse + skylight + beacon planes)
@@ -1502,18 +1512,20 @@ impl LightingStore {
                 (any, mask)
             }
             None => {
-                // New entry: treat as a change; mark +X and +Z as changed for owner notification.
+                // New entry: treat as a change; mark owned faces (xp/zp/yp) plus downward seam for initial sync.
                 let mut mask = BorderChangeMask::default();
                 mask.xp = true;
                 mask.zp = true;
-                map.insert((cx, cz), lb);
+                mask.yn = true;
+                mask.yp = true;
+                map.insert(coord, lb);
                 (true, mask)
             }
         }
     }
     /// Backward-compatible update that only returns 'changed' (any face).
-    pub fn update_borders(&self, cx: i32, cz: i32, lb: LightBorders) -> bool {
-        let (changed, _mask) = self.update_borders_mask(cx, cz, lb);
+    pub fn update_borders(&self, coord: ChunkCoord, lb: LightBorders) -> bool {
+        let (changed, _mask) = self.update_borders_mask(coord, lb);
         changed
     }
     pub fn add_emitter_world(&self, wx: i32, wy: i32, wz: i32, level: u8) {
@@ -1523,18 +1535,15 @@ impl LightingStore {
         self.add_emitter_world_typed(wx, wy, wz, level, true);
     }
     fn add_emitter_world_typed(&self, wx: i32, wy: i32, wz: i32, level: u8, is_beacon: bool) {
-        if wy < 0 || wy >= self.sy as i32 {
-            return;
-        }
         let sx = self.sx as i32;
+        let sy = self.sy as i32;
         let sz = self.sz as i32;
-        let cx = wx.div_euclid(sx);
-        let cz = wz.div_euclid(sz);
+        let coord = ChunkCoord::new(wx.div_euclid(sx), wy.div_euclid(sy), wz.div_euclid(sz));
         let lx = wx.rem_euclid(sx) as usize;
         let lz = wz.rem_euclid(sz) as usize;
-        let ly = wy as usize;
+        let ly = wy.rem_euclid(sy) as usize;
         let mut map = self.emitters.lock().unwrap();
-        let v = map.entry((cx, cz)).or_default();
+        let v = map.entry(coord).or_default();
         if !v
             .iter()
             .any(|&(x, y, z, _, _)| x == lx && y == ly && z == lz)
@@ -1543,33 +1552,30 @@ impl LightingStore {
         }
     }
     pub fn remove_emitter_world(&self, wx: i32, wy: i32, wz: i32) {
-        if wy < 0 || wy >= self.sy as i32 {
-            return;
-        }
         let sx = self.sx as i32;
+        let sy = self.sy as i32;
         let sz = self.sz as i32;
-        let cx = wx.div_euclid(sx);
-        let cz = wz.div_euclid(sz);
+        let coord = ChunkCoord::new(wx.div_euclid(sx), wy.div_euclid(sy), wz.div_euclid(sz));
         let lx = wx.rem_euclid(sx) as usize;
         let lz = wz.rem_euclid(sz) as usize;
-        let ly = wy as usize;
+        let ly = wy.rem_euclid(sy) as usize;
         let mut map = self.emitters.lock().unwrap();
-        if let Some(v) = map.get_mut(&(cx, cz)) {
+        if let Some(v) = map.get_mut(&coord) {
             v.retain(|&(x, y, z, _, _)| !(x == lx && y == ly && z == lz));
             if v.is_empty() {
-                map.remove(&(cx, cz));
+                map.remove(&coord);
             }
         }
     }
-    pub fn emitters_for_chunk(&self, cx: i32, cz: i32) -> Vec<(usize, usize, usize, u8, bool)> {
+    pub fn emitters_for_chunk(&self, coord: ChunkCoord) -> Vec<(usize, usize, usize, u8, bool)> {
         let map = self.emitters.lock().unwrap();
-        map.get(&(cx, cz)).cloned().unwrap_or_default()
+        map.get(&coord).cloned().unwrap_or_default()
     }
-    pub fn update_micro_borders(&self, cx: i32, cz: i32, mb: MicroBorders) {
+    pub fn update_micro_borders(&self, coord: ChunkCoord, mb: MicroBorders) {
         let mut m = self.micro_borders.lock().unwrap();
-        m.insert((cx, cz), mb);
+        m.insert(coord, mb);
     }
-    pub fn get_neighbor_micro_borders(&self, cx: i32, cz: i32) -> NeighborMicroBorders {
+    pub fn get_neighbor_micro_borders(&self, coord: ChunkCoord) -> NeighborMicroBorders {
         let xm = self.sx * 2;
         let ym = self.sy * 2;
         let zm = self.sz * 2;
@@ -1591,23 +1597,30 @@ impl LightingStore {
             ym,
             zm,
         };
-        if let Some(m) = map.get(&(cx - 1, cz)) {
+        if let Some(m) = map.get(&coord.offset(-1, 0, 0)) {
             nb.xm_sk_neg = Some(m.xm_sk_pos.clone());
             nb.xm_bl_neg = Some(m.xm_bl_pos.clone());
         }
-        if let Some(m) = map.get(&(cx + 1, cz)) {
+        if let Some(m) = map.get(&coord.offset(1, 0, 0)) {
             nb.xm_sk_pos = Some(m.xm_sk_neg.clone());
             nb.xm_bl_pos = Some(m.xm_bl_neg.clone());
         }
-        if let Some(m) = map.get(&(cx, cz - 1)) {
+        if let Some(m) = map.get(&coord.offset(0, 0, -1)) {
             nb.zm_sk_neg = Some(m.zm_sk_pos.clone());
             nb.zm_bl_neg = Some(m.zm_bl_pos.clone());
         }
-        if let Some(m) = map.get(&(cx, cz + 1)) {
+        if let Some(m) = map.get(&coord.offset(0, 0, 1)) {
             nb.zm_sk_pos = Some(m.zm_sk_neg.clone());
             nb.zm_bl_pos = Some(m.zm_bl_neg.clone());
         }
-        // Vertical neighbors are not chunked here; keep None. If vertically chunked, add mapping like above.
+        if let Some(m) = map.get(&coord.offset(0, -1, 0)) {
+            nb.ym_sk_neg = Some(m.ym_sk_pos.clone());
+            nb.ym_bl_neg = Some(m.ym_bl_pos.clone());
+        }
+        if let Some(m) = map.get(&coord.offset(0, 1, 0)) {
+            nb.ym_sk_pos = Some(m.ym_sk_neg.clone());
+            nb.ym_bl_pos = Some(m.ym_bl_neg.clone());
+        }
         nb
     }
 }
@@ -1643,14 +1656,20 @@ pub struct NeighborBorders {
     pub xp: Option<Arc<[u8]>>,
     pub zn: Option<Arc<[u8]>>,
     pub zp: Option<Arc<[u8]>>,
+    pub yn: Option<Arc<[u8]>>,
+    pub yp: Option<Arc<[u8]>>,
     pub sk_xn: Option<Arc<[u8]>>,
     pub sk_xp: Option<Arc<[u8]>>,
     pub sk_zn: Option<Arc<[u8]>>,
     pub sk_zp: Option<Arc<[u8]>>,
+    pub sk_yn: Option<Arc<[u8]>>,
+    pub sk_yp: Option<Arc<[u8]>>,
     pub bcn_xn: Option<Arc<[u8]>>,
     pub bcn_xp: Option<Arc<[u8]>>,
     pub bcn_zn: Option<Arc<[u8]>>,
     pub bcn_zp: Option<Arc<[u8]>>,
+    pub bcn_yn: Option<Arc<[u8]>>,
+    pub bcn_yp: Option<Arc<[u8]>>,
     pub bcn_dir_xn: Option<Arc<[u8]>>,
     pub bcn_dir_xp: Option<Arc<[u8]>>,
     pub bcn_dir_zn: Option<Arc<[u8]>>,
@@ -1664,14 +1683,20 @@ impl NeighborBorders {
             xp: None,
             zn: None,
             zp: None,
+            yn: None,
+            yp: None,
             sk_xn: None,
             sk_xp: None,
             sk_zn: None,
             sk_zp: None,
+            sk_yn: None,
+            sk_yp: None,
             bcn_xn: None,
             bcn_xp: None,
             bcn_zn: None,
             bcn_zp: None,
+            bcn_yn: None,
+            bcn_yp: None,
             bcn_dir_xn: None,
             bcn_dir_xp: None,
             bcn_dir_zn: None,
@@ -1681,7 +1706,6 @@ impl NeighborBorders {
 }
 
 // Entry point that chooses the lighting algorithm based on LightingStore runtime toggle.
-use geist_world::World;
 
 // use crate::micro::MICRO_SKY_ATTENUATION; // unused in this module
 

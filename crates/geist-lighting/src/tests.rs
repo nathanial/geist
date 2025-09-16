@@ -274,21 +274,21 @@ fn lightingstore_borders_and_micro_neighbors() {
     b.sk_xp = vec![22; 1 * 2].into();
     b.bcn_xp = vec![33; 1 * 2].into();
     b.bcn_dir_xp = vec![1; 1 * 2].into();
-    store.update_borders(-1, 0, b.clone());
-    let nb = store.get_neighbor_borders(0, 0);
+    store.update_borders(ChunkCoord::new(-1, 0, 0), b.clone());
+    let nb = store.get_neighbor_borders(ChunkCoord::new(0, 0, 0));
     assert_eq!(nb.xn.as_ref().unwrap(), &b.xp);
     assert_eq!(nb.sk_xn.as_ref().unwrap(), &b.sk_xp);
     assert_eq!(nb.bcn_xn.as_ref().unwrap(), &b.bcn_xp);
     assert_eq!(nb.bcn_dir_xn.as_ref().unwrap(), &b.bcn_dir_xp);
 
     // Update borders returns false when unchanged
-    assert!(!store.update_borders(-1, 0, b.clone()));
+    assert!(!store.update_borders(ChunkCoord::new(-1, 0, 0), b.clone()));
     // And true when changed
     let mut b_changed = b.clone();
     let mut tmp = b_changed.xp.to_vec();
     tmp[0] = 99;
     b_changed.xp = tmp.into();
-    assert!(store.update_borders(-1, 0, b_changed));
+    assert!(store.update_borders(ChunkCoord::new(-1, 0, 0), b_changed));
 
     // Micro neighbor mapping
     let mb = MicroBorders {
@@ -308,25 +308,25 @@ fn lightingstore_borders_and_micro_neighbors() {
         ym: 2,
         zm: 4,
     };
-    store.update_micro_borders(-1, 0, mb.clone());
-    let nbm = store.get_neighbor_micro_borders(0, 0);
+    store.update_micro_borders(ChunkCoord::new(-1, 0, 0), mb.clone());
+    let nbm = store.get_neighbor_micro_borders(ChunkCoord::new(0, 0, 0));
     // -X neighbor provides xm_*_neg/pos to our neg
     assert_eq!(nbm.xm_sk_neg.as_ref().unwrap(), &mb.xm_sk_pos);
     assert_eq!(nbm.xm_bl_neg.as_ref().unwrap(), &mb.xm_bl_pos);
     // +X neighbor mapping
     let mut mb2 = mb.clone();
-    store.update_micro_borders(1, 0, mb2.clone());
-    let nbm2 = store.get_neighbor_micro_borders(0, 0);
+    store.update_micro_borders(ChunkCoord::new(1, 0, 0), mb2.clone());
+    let nbm2 = store.get_neighbor_micro_borders(ChunkCoord::new(0, 0, 0));
     assert_eq!(nbm2.xm_sk_pos.as_ref().unwrap(), &mb2.xm_sk_neg);
     assert_eq!(nbm2.xm_bl_pos.as_ref().unwrap(), &mb2.xm_bl_neg);
     // -Z neighbor mapping
-    store.update_micro_borders(0, -1, mb.clone());
-    let nbm3 = store.get_neighbor_micro_borders(0, 0);
+    store.update_micro_borders(ChunkCoord::new(0, 0, -1), mb.clone());
+    let nbm3 = store.get_neighbor_micro_borders(ChunkCoord::new(0, 0, 0));
     assert_eq!(nbm3.zm_sk_neg.as_ref().unwrap(), &mb.zm_sk_pos);
     assert_eq!(nbm3.zm_bl_neg.as_ref().unwrap(), &mb.zm_bl_pos);
     // +Z neighbor mapping
-    store.update_micro_borders(0, 1, mb2.clone());
-    let nbm4 = store.get_neighbor_micro_borders(0, 0);
+    store.update_micro_borders(ChunkCoord::new(0, 0, 1), mb2.clone());
+    let nbm4 = store.get_neighbor_micro_borders(ChunkCoord::new(0, 0, 0));
     assert_eq!(nbm4.zm_sk_pos.as_ref().unwrap(), &mb2.zm_sk_neg);
     assert_eq!(nbm4.zm_bl_pos.as_ref().unwrap(), &mb2.zm_bl_neg);
 }
@@ -381,7 +381,7 @@ fn compute_with_borders_buf_seeds_from_coarse_neighbors() {
     let store = LightingStore::new(sx, sy, sz);
     let mut nb = LightBorders::new(sx, sy, sz);
     nb.xp = vec![200; sy * sz].into();
-    store.update_borders(-1, 0, nb);
+    store.update_borders(ChunkCoord::new(-1, 0, 0), nb);
 
     let lg = super::compute_light_with_borders_buf(&buf, &store, &reg, &world);
     // Expect V-atten on x=0 edge where V=200 atten=32
@@ -423,7 +423,7 @@ fn compute_with_borders_buf_micro_neighbors_take_precedence() {
     // Provide both coarse and micro neighbors on -X; micro should win
     let mut coarse = LightBorders::new(sx, sy, sz);
     coarse.xp = vec![200; sy * sz].into();
-    store.update_borders(-1, 0, coarse);
+    store.update_borders(ChunkCoord::new(-1, 0, 0), coarse);
 
     // Neighbor micro planes for chunk (-1,0): we need xm_bl_pos to be present (maps to our xm_bl_neg)
     let (mxs, mys, mzs) = (sx * 2, sy * 2, sz * 2);
@@ -445,7 +445,7 @@ fn compute_with_borders_buf_micro_neighbors_take_precedence() {
         zm: mzs,
     };
     // Publish neighbor micro borders for (-1,0)
-    store.update_micro_borders(-1, 0, mb.clone());
+    store.update_micro_borders(ChunkCoord::new(-1, 0, 0), mb.clone());
 
     let lg = super::compute_light_with_borders_buf(&buf, &store, &reg, &world);
     // With MICRO_BLOCK_ATTENUATION=16, expect 200-16=184 on x=0 edge
@@ -505,7 +505,7 @@ fn skylight_neighbors_coarse_and_micro_precedence() {
     let store = LightingStore::new(sx, sy, sz);
     let mut nb = LightBorders::new(sx, sy, sz);
     nb.sk_xp = vec![200; sy * sz].into(); // neighbor (-1,0)'s +X skylight
-    store.update_borders(-1, 0, nb);
+    store.update_borders(ChunkCoord::new(-1, 0, 0), nb);
     let lg = super::compute_light_with_borders_buf(&buf, &store, &reg, &world);
     // Edge x=0 attenuated by COARSE_SEAM_ATTENUATION=32
     for z in 0..sz {
@@ -539,8 +539,8 @@ fn skylight_neighbors_coarse_and_micro_precedence() {
     // Publish both coarse and micro for (-1,0)
     let mut coarse = LightBorders::new(sx, sy, sz);
     coarse.sk_xp = vec![200; sy * sz].into();
-    store2.update_borders(-1, 0, coarse);
-    store2.update_micro_borders(-1, 0, mb.clone());
+    store2.update_borders(ChunkCoord::new(-1, 0, 0), coarse);
+    store2.update_micro_borders(ChunkCoord::new(-1, 0, 0), mb.clone());
     let lg2 = super::compute_light_with_borders_buf(&buf, &store2, &reg, &world);
     for z in 0..sz {
         assert_eq!(lg2.skylight[lg2.idx(0, 0, z)], 184); // 200-16 using micro seam
@@ -581,7 +581,7 @@ fn lightingstore_clear_chunk_and_all_borders() {
     // Seed (-1,0) coarse borders so (0,0) has -X neighbor planes
     let mut b = LightBorders::new(2, 2, 2);
     b.xp = vec![50; 4].into();
-    store.update_borders(-1, 0, b);
+    store.update_borders(ChunkCoord::new(-1, 0, 0), b);
     // Seed micro borders at (-1,0)
     let mb = MicroBorders {
         xm_sk_neg: vec![1; 4].into(),
@@ -600,29 +600,52 @@ fn lightingstore_clear_chunk_and_all_borders() {
         ym: 4,
         zm: 4,
     };
-    store.update_micro_borders(-1, 0, mb);
+    store.update_micro_borders(ChunkCoord::new(-1, 0, 0), mb);
     // Add an emitter in chunk (-1,0)
     store.add_emitter_world(-1, 0, 0, 100);
     // Verify present
-    assert!(store.get_neighbor_borders(0, 0).xn.is_some());
-    assert!(store.get_neighbor_micro_borders(0, 0).xm_sk_neg.is_some());
-    assert!(!store.emitters_for_chunk(-1, 0).is_empty());
+    assert!(
+        store
+            .get_neighbor_borders(ChunkCoord::new(0, 0, 0))
+            .xn
+            .is_some()
+    );
+    assert!(
+        store
+            .get_neighbor_micro_borders(ChunkCoord::new(0, 0, 0))
+            .xm_sk_neg
+            .is_some()
+    );
+    assert!(
+        !store
+            .emitters_for_chunk(ChunkCoord::new(-1, 0, 0))
+            .is_empty()
+    );
 
     // Clear that chunk only
-    store.clear_chunk(-1, 0);
-    let nb = store.get_neighbor_borders(0, 0);
+    store.clear_chunk(ChunkCoord::new(-1, 0, 0));
+    let nb = store.get_neighbor_borders(ChunkCoord::new(0, 0, 0));
     assert!(nb.xn.is_none());
-    let nbm = store.get_neighbor_micro_borders(0, 0);
+    let nbm = store.get_neighbor_micro_borders(ChunkCoord::new(0, 0, 0));
     assert!(nbm.xm_sk_neg.is_none());
-    assert!(store.emitters_for_chunk(-1, 0).is_empty());
+    assert!(
+        store
+            .emitters_for_chunk(ChunkCoord::new(-1, 0, 0))
+            .is_empty()
+    );
 
     // Repopulate borders at multiple neighbors and then clear all borders only
     let mut b2 = LightBorders::new(2, 2, 2);
     b2.zp = vec![77; 4].into();
-    store.update_borders(0, -1, b2); // provides zn to (0,0)
-    assert!(store.get_neighbor_borders(0, 0).zn.is_some());
+    store.update_borders(ChunkCoord::new(0, 0, -1), b2); // provides zn to (0,0)
+    assert!(
+        store
+            .get_neighbor_borders(ChunkCoord::new(0, 0, 0))
+            .zn
+            .is_some()
+    );
     store.clear_all_borders();
-    let nb_after = store.get_neighbor_borders(0, 0);
+    let nb_after = store.get_neighbor_borders(ChunkCoord::new(0, 0, 0));
     assert!(nb_after.zn.is_none());
 }
 
@@ -933,7 +956,7 @@ fn seam_symmetry_block_and_sky_z_plus_minus_with_micro_override() {
     let mut nb = LightBorders::new(sx, sy, sz);
     nb.zp = vec![200; sy * sx].into();
     nb.sk_zp = vec![200; sy * sx].into();
-    store.update_borders(0, -1, nb);
+    store.update_borders(ChunkCoord::new(0, 0, -1), nb);
     let lg = super::compute_light_with_borders_buf(&buf, &store, &reg, &world);
     for x in 0..sx {
         assert_eq!(lg.block_light[lg.idx(x, 0, 0)], 168);
@@ -949,7 +972,7 @@ fn seam_symmetry_block_and_sky_z_plus_minus_with_micro_override() {
     let mut nb2 = LightBorders::new(sx, sy, sz);
     nb2.zn = vec![200; sy * sx].into();
     nb2.sk_zn = vec![200; sy * sx].into();
-    store2.update_borders(0, 1, nb2);
+    store2.update_borders(ChunkCoord::new(0, 0, 1), nb2);
     // Micro neighbor at +Z: zm_*_neg maps to our zm_*_pos
     let (mxs, mys, mzs) = (sx * 2, sy * 2, sz * 2);
     let mb = MicroBorders {
@@ -969,7 +992,7 @@ fn seam_symmetry_block_and_sky_z_plus_minus_with_micro_override() {
         ym: mys,
         zm: mzs,
     };
-    store2.update_micro_borders(0, 1, mb);
+    store2.update_micro_borders(ChunkCoord::new(0, 0, 1), mb);
     let lg2 = super::compute_light_with_borders_buf(&buf, &store2, &reg, &world);
     for x in 0..sx {
         assert_eq!(lg2.block_light[lg2.idx(x, 0, sz - 1)], 184);
@@ -995,7 +1018,7 @@ fn seam_symmetry_block_and_sky_x_plus_with_micro_override() {
     let mut nb = LightBorders::new(sx, sy, sz);
     nb.xn = vec![200; sy * sz].into();
     nb.sk_xn = vec![200; sy * sz].into();
-    store.update_borders(1, 0, nb);
+    store.update_borders(ChunkCoord::new(1, 0, 0), nb);
     let lg = super::compute_light_with_borders_buf(&buf, &store, &reg, &world);
     // Only bottom layer (y=0) is air; top is stone and remains dark
     for z in 0..sz {
@@ -1011,7 +1034,7 @@ fn seam_symmetry_block_and_sky_x_plus_with_micro_override() {
     let mut nb2 = LightBorders::new(sx, sy, sz);
     nb2.xp = vec![200; sy * sz].into();
     nb2.sk_xp = vec![200; sy * sz].into();
-    store2.update_borders(-1, 0, nb2);
+    store2.update_borders(ChunkCoord::new(-1, 0, 0), nb2);
     let (mxs, mys, mzs) = (sx * 2, sy * 2, sz * 2);
     let mb = MicroBorders {
         xm_sk_neg: vec![0; mys * mzs].into(),
@@ -1030,7 +1053,7 @@ fn seam_symmetry_block_and_sky_x_plus_with_micro_override() {
         ym: mys,
         zm: mzs,
     };
-    store2.update_micro_borders(-1, 0, mb);
+    store2.update_micro_borders(ChunkCoord::new(-1, 0, 0), mb);
     let lg2 = super::compute_light_with_borders_buf(&buf, &store2, &reg, &world);
     for z in 0..sz {
         assert_eq!(lg2.block_light[lg2.idx(0, 0, z)], 184);
@@ -1180,17 +1203,37 @@ fn clear_all_borders_does_not_clear_micro_planes() {
         ym: 2,
         zm: 4,
     };
-    store.update_micro_borders(-1, 0, mb);
-    assert!(store.get_neighbor_micro_borders(0, 0).xm_sk_neg.is_some());
+    store.update_micro_borders(ChunkCoord::new(-1, 0, 0), mb);
+    assert!(
+        store
+            .get_neighbor_micro_borders(ChunkCoord::new(0, 0, 0))
+            .xm_sk_neg
+            .is_some()
+    );
     // Add coarse borders and then clear them
     let mut b = LightBorders::new(2, 1, 2);
     b.xp = vec![1; 2].into();
-    store.update_borders(-1, 0, b);
-    assert!(store.get_neighbor_borders(0, 0).xn.is_some());
+    store.update_borders(ChunkCoord::new(-1, 0, 0), b);
+    assert!(
+        store
+            .get_neighbor_borders(ChunkCoord::new(0, 0, 0))
+            .xn
+            .is_some()
+    );
     store.clear_all_borders();
-    assert!(store.get_neighbor_borders(0, 0).xn.is_none());
+    assert!(
+        store
+            .get_neighbor_borders(ChunkCoord::new(0, 0, 0))
+            .xn
+            .is_none()
+    );
     // Micro planes still present
-    assert!(store.get_neighbor_micro_borders(0, 0).xm_sk_neg.is_some());
+    assert!(
+        store
+            .get_neighbor_micro_borders(ChunkCoord::new(0, 0, 0))
+            .xm_sk_neg
+            .is_some()
+    );
 }
 
 #[test]

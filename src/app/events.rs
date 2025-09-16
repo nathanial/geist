@@ -368,7 +368,7 @@ impl App {
                 self.gs.inflight_rev.remove(&coord);
                 self.gs.finalize.remove(&coord);
                 // Also drop any persisted lighting state for this chunk to prevent growth
-                self.gs.lighting.clear_chunk(cx, cz);
+                self.gs.lighting.clear_chunk(coord);
             }
             Event::EnsureChunkLoaded { cx, cy, cz } => {
                 let coord = ChunkCoord::new(cx, cy, cz);
@@ -383,7 +383,7 @@ impl App {
                         .entry(coord)
                         .or_insert(FinalizeState::default());
                     // Prime readiness from currently available owner planes, so we don't wait for future events
-                    let nb = self.gs.lighting.get_neighbor_borders(cx, cz);
+                    let nb = self.gs.lighting.get_neighbor_borders(coord);
                     if nb.xn.is_some() {
                         st.owner_x_ready = true;
                     }
@@ -596,7 +596,7 @@ impl App {
                     }
                     self.renders.insert(coord, cr);
                     if let Some(lg) = light_grid {
-                        let nb = self.gs.lighting.get_neighbor_borders(cx, cz);
+                        let nb = self.gs.lighting.get_neighbor_borders(coord);
                         let atlas = pack_light_grid_atlas_with_neighbors(&lg, &nb);
                         self.validate_chunk_light_atlas(coord, &atlas);
                         if let Some(cr) = self.renders.get_mut(&coord) {
@@ -642,7 +642,7 @@ impl App {
 
                 // Update light borders in main thread; if changed, emit a dedicated event
                 if let Some(lb) = light_borders {
-                    let (changed, mask) = self.gs.lighting.update_borders_mask(cx, cz, lb);
+                    let (changed, mask) = self.gs.lighting.update_borders_mask(coord, lb);
                     // Only notify neighbors when borders actually change to avoid cascades
                     if changed {
                         self.queue.emit_now(Event::LightBordersUpdated {
@@ -651,8 +651,8 @@ impl App {
                             cz,
                             xn_changed: mask.xn,
                             xp_changed: mask.xp,
-                            yn_changed: false,
-                            yp_changed: false,
+                            yn_changed: mask.yn,
+                            yp_changed: mask.yp,
                             zn_changed: mask.zn,
                             zp_changed: mask.zp,
                         });
@@ -700,7 +700,7 @@ impl App {
                     self.gs.inflight_rev.remove(&coord);
                     return;
                 }
-                let nb = self.gs.lighting.get_neighbor_borders(cx, cz);
+                let nb = self.gs.lighting.get_neighbor_borders(coord);
                 let atlas = pack_light_grid_atlas_with_neighbors(&light_grid, &nb);
                 self.validate_chunk_light_atlas(coord, &atlas);
                 if let Some(cr) = self.renders.get_mut(&coord) {
@@ -1037,8 +1037,8 @@ impl App {
                 cz,
                 xn_changed,
                 xp_changed,
-                yn_changed: _,
-                yp_changed: _,
+                yn_changed,
+                yp_changed,
                 zn_changed,
                 zp_changed,
             } => {
@@ -1112,6 +1112,34 @@ impl App {
                 }
                 if zn_changed {
                     let neighbor = coord.offset(0, 0, -1);
+                    let ring = (neighbor.cx - center.cx)
+                        .abs()
+                        .max((neighbor.cz - center.cz).abs());
+                    if ring <= r_gate && self.renders.contains_key(&neighbor) {
+                        self.queue.emit_now(Event::ChunkRebuildRequested {
+                            cx: neighbor.cx,
+                            cy: neighbor.cy,
+                            cz: neighbor.cz,
+                            cause: RebuildCause::LightingBorder,
+                        });
+                    }
+                }
+                if yp_changed {
+                    let neighbor = coord.offset(0, 1, 0);
+                    let ring = (neighbor.cx - center.cx)
+                        .abs()
+                        .max((neighbor.cz - center.cz).abs());
+                    if ring <= r_gate && self.renders.contains_key(&neighbor) {
+                        self.queue.emit_now(Event::ChunkRebuildRequested {
+                            cx: neighbor.cx,
+                            cy: neighbor.cy,
+                            cz: neighbor.cz,
+                            cause: RebuildCause::LightingBorder,
+                        });
+                    }
+                }
+                if yn_changed {
+                    let neighbor = coord.offset(0, -1, 0);
                     let ring = (neighbor.cx - center.cx)
                         .abs()
                         .max((neighbor.cz - center.cz).abs());

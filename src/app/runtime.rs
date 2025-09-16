@@ -25,9 +25,10 @@ impl App {
 
     pub(super) fn validate_chunk_light_atlas(&self, coord: ChunkCoord, atlas: &LightAtlas) {
         let cx = coord.cx;
+        let cy = coord.cy;
         let cz = coord.cz;
         // Compare atlas border rings against LightingStore neighbor planes; panic on mismatch.
-        let nb = self.gs.lighting.get_neighbor_borders(cx, cz);
+        let nb = self.gs.lighting.get_neighbor_borders(coord);
         let width = atlas.width;
         let grid_cols = atlas.grid_cols;
         let tile_w = atlas.sx; // extended: sx + 2
@@ -57,8 +58,8 @@ impl App {
                     let eb = bcn.get(ii).cloned().unwrap_or(0);
                     if r != er || g != eg || b != eb {
                         panic!(
-                            "Light atlas -X ring mismatch at chunk ({},{}) slice y={} z={} got=({},{},{}) exp=({},{},{})",
-                            cx, cz, y, z, r, g, b, er, eg, eb
+                            "Light atlas -X ring mismatch at chunk ({},{},{}) slice y={} z={} got=({},{},{}) exp=({},{},{})",
+                            cx, cy, cz, y, z, r, g, b, er, eg, eb
                         );
                     }
                 }
@@ -75,8 +76,8 @@ impl App {
                     let eb = bcn.get(ii).cloned().unwrap_or(0);
                     if r != er || g != eg || b != eb {
                         panic!(
-                            "Light atlas +X ring mismatch at chunk ({},{}) slice y={} z={} got=({},{},{}) exp=({},{},{})",
-                            cx, cz, y, z, r, g, b, er, eg, eb
+                            "Light atlas +X ring mismatch at chunk ({},{},{}) slice y={} z={} got=({},{},{}) exp=({},{},{})",
+                            cx, cy, cz, y, z, r, g, b, er, eg, eb
                         );
                     }
                 }
@@ -93,8 +94,8 @@ impl App {
                     let eb = bcn.get(ii).cloned().unwrap_or(0);
                     if r != er || g != eg || b != eb {
                         panic!(
-                            "Light atlas -Z ring mismatch at chunk ({},{}) slice y={} x={} got=({},{},{}) exp=({},{},{})",
-                            cx, cz, y, x, r, g, b, er, eg, eb
+                            "Light atlas -Z ring mismatch at chunk ({},{},{}) slice y={} x={} got=({},{},{}) exp=({},{},{})",
+                            cx, cy, cz, y, x, r, g, b, er, eg, eb
                         );
                     }
                 }
@@ -111,8 +112,8 @@ impl App {
                     let eb = bcn.get(ii).cloned().unwrap_or(0);
                     if r != er || g != eg || b != eb {
                         panic!(
-                            "Light atlas +Z ring mismatch at chunk ({},{}) slice y={} x={} got=({},{},{}) exp=({},{},{})",
-                            cx, cz, y, x, r, g, b, er, eg, eb
+                            "Light atlas +Z ring mismatch at chunk ({},{},{}) slice y={} x={} got=({},{},{}) exp=({},{},{})",
+                            cx, cy, cz, y, x, r, g, b, er, eg, eb
                         );
                     }
                 }

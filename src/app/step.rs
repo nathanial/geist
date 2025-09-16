@@ -396,7 +396,8 @@ impl App {
                 // If macro light borders were computed on the light-only lane, update them here
                 // and notify neighbors on changes so they can refresh their seam rings.
                 if let Some(lb) = r.light_borders {
-                    let (changed, mask) = self.gs.lighting.update_borders_mask(r.cx, r.cz, lb);
+                    let coord = ChunkCoord::new(r.cx, r.cy, r.cz);
+                    let (changed, mask) = self.gs.lighting.update_borders_mask(coord, lb);
                     if changed {
                         self.queue.emit_now(Event::LightBordersUpdated {
                             cx: r.cx,
@@ -404,8 +405,8 @@ impl App {
                             cz: r.cz,
                             xn_changed: mask.xn,
                             xp_changed: mask.xp,
-                            yn_changed: false,
-                            yp_changed: false,
+                            yn_changed: mask.yn,
+                            yp_changed: mask.yp,
                             zn_changed: mask.zn,
                             zp_changed: mask.zp,
                         });
