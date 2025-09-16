@@ -80,6 +80,7 @@ pub struct ChunkLightTex {
 
 pub struct ChunkRender {
     pub coord: ChunkCoord,
+    pub origin: [f32; 3],
     pub bbox: raylib::core::math::BoundingBox,
     pub parts: Vec<ChunkPart>,
     pub leaf_tint: Option<[f32; 3]>,
@@ -93,8 +94,9 @@ pub fn upload_chunk_mesh(
     tex_cache: &mut TextureCache,
     mats: &MaterialCatalog,
 ) -> Option<ChunkRender> {
+    let ChunkMeshCPU { coord, bbox, parts } = cpu;
     let mut parts_gpu: Vec<ChunkPart> = Vec::new();
-    for (mid, mb) in cpu.parts.into_iter() {
+    for (mid, mb) in parts.into_iter() {
         let total_verts = mb.pos.len() / 3;
         if total_verts == 0 {
             continue;
@@ -226,8 +228,9 @@ pub fn upload_chunk_mesh(
         }
     }
     Some(ChunkRender {
-        coord: cpu.coord,
-        bbox: conv::aabb_to_rl(cpu.bbox),
+        coord,
+        origin: [bbox.min.x, bbox.min.y, bbox.min.z],
+        bbox: conv::aabb_to_rl(bbox),
         parts: parts_gpu,
         leaf_tint: None,
         light_tex: None,

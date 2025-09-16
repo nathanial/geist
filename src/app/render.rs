@@ -172,11 +172,7 @@ impl App {
                 let dist2 = dx * dx + dy * dy + dz * dz;
                 visible_chunks.push((*ckey, dist2));
                 // Precompute per-chunk lighting parameters
-                let origin = [
-                    (cr.coord.cx * self.gs.world.chunk_size_x as i32) as f32,
-                    (cr.coord.cy * self.gs.world.chunk_size_y as i32) as f32,
-                    (cr.coord.cz * self.gs.world.chunk_size_z as i32) as f32,
-                ];
+                let origin = cr.origin;
                 let vis_min = 18.0f32 / 255.0f32;
                 let (dims_some, grid_some) = if let Some(ref lt) = cr.light_tex {
                     ((lt.sx, lt.sy, lt.sz), (lt.grid_cols, lt.grid_rows))
@@ -314,11 +310,7 @@ impl App {
                         continue;
                     }
                     // Precompute per-chunk lighting parameters
-                    let origin = [
-                        (cr.coord.cx * self.gs.world.chunk_size_x as i32) as f32,
-                        (cr.coord.cy * self.gs.world.chunk_size_y as i32) as f32,
-                        (cr.coord.cz * self.gs.world.chunk_size_z as i32) as f32,
-                    ];
+                    let origin = cr.origin;
                     let vis_min = 18.0f32 / 255.0f32;
                     let (dims_some, grid_some) = if let Some(ref lt) = cr.light_tex {
                         ((lt.sx, lt.sy, lt.sz), (lt.grid_cols, lt.grid_rows))
@@ -434,7 +426,8 @@ impl App {
             if let Some(hit) = raycast::raycast_first_hit_with_face(org, dir, 5.0, is_solid) {
                 // Outline only the struck face of the solid block (bx,by,bz)
                 let (bx, by, bz) = (hit.bx, hit.by, hit.bz);
-                if by >= 0 && by < sy {
+                let world_height = self.gs.world.world_height() as i32;
+                if by >= 0 && by < world_height {
                     let (x0, y0, z0) = (bx as f32, by as f32, bz as f32);
                     let (x1, y1, z1) = (x0 + 1.0, y0 + 1.0, z0 + 1.0);
                     let eps = 0.002f32;
@@ -473,7 +466,7 @@ impl App {
             }
 
             if self.gs.show_chunk_bounds {
-                let col = Color::new(255, 64, 32, 200);
+                let center_chunk = self.gs.center_chunk;
                 for cr in self.renders.values() {
                     let min = cr.bbox.min;
                     let max = cr.bbox.max;
@@ -487,6 +480,19 @@ impl App {
                         (max.y - min.y).abs(),
                         (max.z - min.z).abs(),
                     );
+                    let dy = cr.coord.cy - center_chunk.cy;
+                    let abs_dy = dy.abs();
+                    let alpha = (220 - (abs_dy.min(4) * 30)).clamp(90, 220) as u8;
+                    let mut col = if dy > 0 {
+                        Color::new(72, 144, 255, alpha)
+                    } else if dy < 0 {
+                        Color::new(255, 140, 88, alpha)
+                    } else {
+                        Color::new(255, 64, 32, alpha)
+                    };
+                    if cr.coord == center_chunk {
+                        col = Color::YELLOW;
+                    }
                     d3.draw_cube_wires(center, size.x, size.y, size.z, col);
                 }
             }
@@ -585,6 +591,12 @@ impl App {
                 self.debug_stats.draw_calls
             );
             let mut text_lines = 6; // Base number of lines in debug text
+            let center_chunk = self.gs.center_chunk;
+            debug_text.push_str(&format!(
+                "\nCenter chunk: ({}, {}, {})",
+                center_chunk.cx, center_chunk.cy, center_chunk.cz
+            ));
+            text_lines += 1;
             if self.gs.show_biome_label {
                 let wx = self.cam.position.x.floor() as i32;
                 let wz = self.cam.position.z.floor() as i32;
@@ -734,6 +746,19 @@ impl App {
                     let ccx = center.cx;
                     let ccy = center.cy;
                     let ccz = center.cz;
+                    let label = format!("Slice cy {}", ccy);
+                    let label_fs = 18;
+                    let label_w = d.measure_text(&label, label_fs);
+                    let mut label_x = mx + map_w - label_w - pad;
+                    if label_x < mx + pad {
+                        label_x = mx + pad;
+                    }
+                    let mut label_y = my - label_fs - 4;
+                    if label_y < margin {
+                        label_y = (my + map_h + 4).min(scr_h - label_fs - margin);
+                    }
+                    d.draw_text(&label, label_x + 1, label_y + 1, label_fs, Color::BLACK);
+                    d.draw_text(&label, label_x, label_y, label_fs, Color::WHITE);
                     for dz in -r..=r {
                         for dx in -r..=r {
                             let cx = ccx + dx;
@@ -761,6 +786,25 @@ impl App {
                                 Color::new(180, 180, 180, 200)
                             };
                             d.draw_rectangle_lines(cell_x, cell_y, tile, tile, border);
+                            let stride = (tile / 6).max(1);
+                            if self.gs.loaded.contains(&coord.offset(0, 1, 0)) {
+                                d.draw_rectangle(
+                                    cell_x,
+                                    cell_y,
+                                    tile,
+                                    stride,
+                                    Color::new(64, 128, 255, 180),
+                                );
+                            }
+                            if self.gs.loaded.contains(&coord.offset(0, -1, 0)) {
+                                d.draw_rectangle(
+                                    cell_x,
+                                    cell_y + tile - stride,
+                                    tile,
+                                    stride,
+                                    Color::new(255, 140, 88, 180),
+                                );
+                            }
                             // Count label: mesh/light
                             let label = format!("{}/{}", mesh_c, light_c);
                             // Pick a font size that fits inside the tile (width + height)
