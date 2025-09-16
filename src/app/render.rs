@@ -503,10 +503,10 @@ impl App {
                 .map(|g| Arc::clone(&*g));
             if let Some(p) = params {
                 // Compute showcase row Y and Z
-                let mut row_y = (self.gs.world.chunk_size_y as f32 * p.platform_y_ratio
+                let mut row_y = (self.gs.world.world_height() as f32 * p.platform_y_ratio
                     + p.platform_y_offset)
                     .round() as i32;
-                row_y = row_y.clamp(1, self.gs.world.chunk_size_y as i32 - 2);
+                row_y = row_y.clamp(1, self.gs.world.world_height() as i32 - 2);
                 let cz = (self.gs.world.world_size_z() as i32) / 2;
                 if let Some(entries) = self.gs.world.showcase_entries(&self.reg) {
                     if !entries.is_empty() {

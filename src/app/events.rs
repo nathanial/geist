@@ -861,7 +861,7 @@ impl App {
                         let wx = hit.px;
                         let wy = hit.py;
                         let wz = hit.pz;
-                        if wy >= 0 && wy < self.gs.world.chunk_size_y as i32 {
+                        if wy >= 0 && wy < self.gs.world.world_height() as i32 {
                             self.queue
                                 .emit_now(Event::BlockPlaced { wx, wy, wz, block });
                         }

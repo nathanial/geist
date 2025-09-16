@@ -219,7 +219,7 @@ impl World {
     ) -> Self {
         Self {
             chunk_size_x: CHUNK_SIZE,
-            chunk_size_y: CHUNK_SIZE * chunks_y,
+            chunk_size_y: CHUNK_SIZE,
             chunk_size_z: CHUNK_SIZE,
             chunks_x,
             chunks_y,
@@ -237,11 +237,16 @@ impl World {
     }
     #[inline]
     pub fn world_size_y(&self) -> usize {
-        self.chunk_size_y
+        self.chunk_size_y * self.chunks_y
     }
     #[inline]
     pub fn world_size_z(&self) -> usize {
         self.chunk_size_z * self.chunks_z
+    }
+
+    #[inline]
+    pub fn world_height(&self) -> usize {
+        self.world_size_y()
     }
 }
 
@@ -393,14 +398,16 @@ impl World {
         z: i32,
     ) -> RtBlock {
         let air = self.air_block(reg);
-        if y < 0 || y >= self.chunk_size_y as i32 {
+        let world_height = self.world_height() as i32;
+        let world_height_f = world_height as f32;
+        if y < 0 || y >= world_height {
             return air;
         }
         if let WorldGenMode::Showcase = self.mode {
-            let mut row_y = (self.chunk_size_y as f32 * ctx.params.platform_y_ratio
+            let mut row_y = (world_height_f * ctx.params.platform_y_ratio
                 + ctx.params.platform_y_offset)
                 .round() as i32;
-            row_y = row_y.clamp(1, self.chunk_size_y as i32 - 2);
+            row_y = row_y.clamp(1, world_height - 2);
             if y != row_y {
                 return air;
             }
@@ -452,14 +459,14 @@ impl World {
         // Base terrain sampling using reusable noise
         let height_for = |wx: i32, wz: i32| {
             let h = ctx.terrain.get_noise_2d(wx as f32, wz as f32);
-            let min_h = (self.chunk_size_y as f32 * ctx.params.min_y_ratio) as i32;
-            let max_h = (self.chunk_size_y as f32 * ctx.params.max_y_ratio) as i32;
+            let min_h = (world_height_f * ctx.params.min_y_ratio) as i32;
+            let max_h = (world_height_f * ctx.params.max_y_ratio) as i32;
             let hh = ((h + 1.0) * 0.5 * (max_h - min_h) as f32) as i32 + min_h;
-            hh.clamp(1, self.chunk_size_y as i32 - 1)
+            hh.clamp(1, world_height - 1)
         };
         let height = height_for(x, z);
         let water_level_y = if ctx.params.water_enable {
-            (self.chunk_size_y as f32 * ctx.params.water_level_ratio).round() as i32
+            (world_height_f * ctx.params.water_level_ratio).round() as i32
         } else {
             -1
         };
@@ -505,10 +512,10 @@ impl World {
             None
         };
         let top_block_for_column = |wx: i32, wz: i32, hh: i32| -> &str {
-            if hh as f32 >= self.chunk_size_y as f32 * ctx.params.snow_threshold {
+            if hh as f32 >= world_height_f * ctx.params.snow_threshold {
                 return &ctx.params.top_high;
             }
-            if hh as f32 <= self.chunk_size_y as f32 * ctx.params.sand_threshold {
+            if hh as f32 <= world_height_f * ctx.params.sand_threshold {
                 return &ctx.params.top_low;
             }
             if let Some(def) = biome_for(wx, wz) {
@@ -645,7 +652,7 @@ impl World {
                 let yp = wyf + wyw * warp_y;
                 let zp = wz + wzw * warp_xy;
                 let tn = fractal3(&ctx.tunnel, xp, yp * y_scale, zp, &ctx.params.tunnel);
-                let depth01 = (soil / (self.chunk_size_y as f32)).clamp(0.0, 1.0);
+                let depth01 = (soil / world_height_f).clamp(0.0, 1.0);
                 let eps = eps_base + eps_add * depth01;
                 let wn = worley3_f1_norm(xp, yp, zp, room_cell);
                 let room_thr = room_thr_base + room_thr_add * depth01;
@@ -676,7 +683,7 @@ impl World {
                         let nx = x + dx;
                         let ny = y + dy;
                         let nz = z + dz;
-                        if ny < 0 || ny >= self.chunk_size_y as i32 {
+                        if ny < 0 || ny >= world_height {
                             continue;
                         }
                         let nh = height_for(nx, nz);
@@ -707,7 +714,7 @@ impl World {
                         let tn_n =
                             fractal3(&ctx.tunnel, nxp, nyp * y_scale, nzp, &ctx.params.tunnel);
                         let nsoil = nh as f32 - wyn;
-                        let n_depth = (nsoil / (self.chunk_size_y as f32)).clamp(0.0, 1.0);
+                        let n_depth = (nsoil / world_height_f).clamp(0.0, 1.0);
                         let eps_n = eps_base + eps_add * n_depth;
                         let wn_n = worley3_f1_norm(nxp, nyp, nzp, room_cell);
                         let room_thr_n = room_thr_base + room_thr_add * n_depth;
@@ -912,7 +919,7 @@ impl World {
             let span = (trunk_max - trunk_min).max(0) as u32;
             let hsel = hash2(tx, tz, 0x0051_F0A7) % (span + 1);
             let th = trunk_min + hsel as i32;
-            if surf <= 2 || surf >= (self.chunk_size_y as i32 - 6) {
+            if surf <= 2 || surf >= (world_height - 6) {
                 return None;
             }
             let sp = pick_species(tx, tz);
