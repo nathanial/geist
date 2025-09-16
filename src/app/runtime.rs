@@ -257,12 +257,20 @@ impl App {
                         continue;
                     }
                 }
-                IntentCause::StreamLoad | IntentCause::HotReload => {
-                    if !is_loaded && dist_bucket > gate_stream_sq {
+                IntentCause::StreamLoad => {
+                    if is_loaded {
                         continue;
                     }
-                    if is_loaded {
-                        // already loaded; schedule rebuild only if HotReload
+                    if dist_bucket > gate_stream_sq {
+                        continue;
+                    }
+                    if budget_bg == 0 {
+                        continue;
+                    }
+                }
+                IntentCause::HotReload => {
+                    if dist_bucket > gate_stream_sq {
+                        continue;
                     }
                     if budget_bg == 0 {
                         continue;
@@ -272,7 +280,8 @@ impl App {
             let cause = match ent.cause {
                 IntentCause::Edit => RebuildCause::Edit,
                 IntentCause::Light => RebuildCause::LightingBorder,
-                IntentCause::StreamLoad | IntentCause::HotReload => RebuildCause::StreamLoad,
+                IntentCause::StreamLoad => RebuildCause::StreamLoad,
+                IntentCause::HotReload => RebuildCause::HotReload,
             };
             self.queue.emit_after(
                 1,

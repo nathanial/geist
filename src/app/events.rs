@@ -444,7 +444,7 @@ impl App {
                     RebuildCause::LightingBorder => {
                         self.runtime.submit_build_job_light(job);
                     }
-                    RebuildCause::StreamLoad => {
+                    RebuildCause::StreamLoad | RebuildCause::HotReload => {
                         self.runtime.submit_build_job_bg(job);
                     }
                 }
@@ -740,6 +740,7 @@ impl App {
                     RebuildCause::Edit => IntentCause::Edit,
                     RebuildCause::LightingBorder => IntentCause::Light,
                     RebuildCause::StreamLoad => IntentCause::StreamLoad,
+                    RebuildCause::HotReload => IntentCause::HotReload,
                 };
                 self.record_intent(coord, ic);
             }

@@ -12,6 +12,7 @@ pub enum RebuildCause {
     Edit,
     LightingBorder,
     StreamLoad,
+    HotReload,
 }
 
 #[allow(clippy::large_enum_variant)]

@@ -89,7 +89,7 @@ impl App {
                             cx: coord.cx,
                             cy: coord.cy,
                             cz: coord.cz,
-                            cause: RebuildCause::StreamLoad,
+                            cause: RebuildCause::HotReload,
                         });
                     }
                     for (id, st) in self.gs.structures.iter() {
@@ -107,19 +107,18 @@ impl App {
         // Handle worldgen hot-reload
         // Always invalidate previous CPU buffers on change; optionally schedule rebuilds
         if self.take_worldgen_dirty() {
-            let keys: Vec<ChunkCoord> = self.renders.keys().copied().collect();
-            for coord in keys.iter().copied() {
-                if let Some(ent) = self.gs.chunks.get_mut(&coord) {
-                    ent.buf = None; // prevent reuse across worldgen param changes
-                }
+            let keys: Vec<ChunkCoord> = self.gs.loaded.iter().copied().collect();
+            let total_chunks = self.gs.chunks.len();
+            for ent in self.gs.chunks.values_mut() {
+                ent.buf = None; // prevent reuse across worldgen param changes
             }
             if self.rebuild_on_worldgen {
-                for coord in keys.iter().copied() {
+                for coord in &keys {
                     self.queue.emit_now(Event::ChunkRebuildRequested {
                         cx: coord.cx,
                         cy: coord.cy,
                         cz: coord.cz,
-                        cause: RebuildCause::StreamLoad,
+                        cause: RebuildCause::HotReload,
                     });
                 }
                 log::info!(
@@ -129,7 +128,7 @@ impl App {
             } else {
                 log::info!(
                     "Worldgen changed; invalidated {} chunk buffers (rebuild on demand)",
-                    keys.len()
+                    total_chunks
                 );
             }
         }
