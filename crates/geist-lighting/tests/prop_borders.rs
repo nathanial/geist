@@ -49,12 +49,22 @@ proptest! {
         back.zn = zp.clone().into();
         prop_assert!(store.update_borders(ChunkCoord::new(0, 0, 1), back));
 
-        // No vertical neighbors managed; skip yn/yp mapping
+        // Below neighbor (negative Y) provides its +Y to our -Y
+        let mut below = LightBorders::new(sx, sy, sz);
+        below.yp = yn.clone().into();
+        prop_assert!(store.update_borders(ChunkCoord::new(0, -1, 0), below));
+
+        // Above neighbor (positive Y) provides its -Y to our +Y
+        let mut above = LightBorders::new(sx, sy, sz);
+        above.yn = yp.clone().into();
+        prop_assert!(store.update_borders(ChunkCoord::new(0, 1, 0), above));
 
         let nb = store.get_neighbor_borders(ChunkCoord::new(0, 0, 0));
         prop_assert_eq!(nb.xn.as_ref().unwrap().as_ref(), &xn[..]);
         prop_assert_eq!(nb.xp.as_ref().unwrap().as_ref(), &xp[..]);
         prop_assert_eq!(nb.zn.as_ref().unwrap().as_ref(), &zn[..]);
         prop_assert_eq!(nb.zp.as_ref().unwrap().as_ref(), &zp[..]);
+        prop_assert_eq!(nb.yn.as_ref().unwrap().as_ref(), &yn[..]);
+        prop_assert_eq!(nb.yp.as_ref().unwrap().as_ref(), &yp[..]);
     }
 }

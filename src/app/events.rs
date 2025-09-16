@@ -17,6 +17,30 @@ use geist_runtime::{BuildJob, StructureBuildJob};
 use geist_structures::{Structure, StructureId, rotate_yaw, rotate_yaw_inv};
 use geist_world::ChunkCoord;
 
+fn spherical_chunk_coords(center: ChunkCoord, radius: i32) -> Vec<ChunkCoord> {
+    if radius < 0 {
+        return Vec::new();
+    }
+    let mut coords = Vec::new();
+    let r_sq = i64::from(radius) * i64::from(radius);
+    for dy in -radius..=radius {
+        for dz in -radius..=radius {
+            for dx in -radius..=radius {
+                let dist_sq = {
+                    let dx64 = i64::from(dx);
+                    let dy64 = i64::from(dy);
+                    let dz64 = i64::from(dz);
+                    dx64 * dx64 + dy64 * dy64 + dz64 * dz64
+                };
+                if dist_sq <= r_sq {
+                    coords.push(center.offset(dx, dy, dz));
+                }
+            }
+        }
+    }
+    coords
+}
+
 impl App {
     fn structure_block_solid_at_local(
         reg: &BlockRegistry,
@@ -315,21 +339,8 @@ impl App {
                 let center = ChunkCoord::new(ccx, ccy, ccz);
                 self.gs.center_chunk = center;
                 let r = self.gs.view_radius_chunks.max(0);
-                let r_sq = i64::from(r) * i64::from(r);
-                let mut desired: HashSet<ChunkCoord> = HashSet::new();
-                for dy in -r..=r {
-                    for dz in -r..=r {
-                        for dx in -r..=r {
-                            let dx64 = i64::from(dx);
-                            let dy64 = i64::from(dy);
-                            let dz64 = i64::from(dz);
-                            let dist_sq = dx64 * dx64 + dy64 * dy64 + dz64 * dz64;
-                            if dist_sq <= r_sq {
-                                desired.insert(ChunkCoord::new(ccx + dx, ccy + dy, ccz + dz));
-                            }
-                        }
-                    }
-                }
+                let desired: HashSet<ChunkCoord> =
+                    spherical_chunk_coords(center, r).into_iter().collect();
                 // Unload far ones
                 let current: Vec<ChunkCoord> = self.renders.keys().cloned().collect();
                 for key in current {
@@ -1451,5 +1462,52 @@ impl App {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn spherical_range_includes_vertical_diagonals() {
+        let center = ChunkCoord::new(5, 4, -2);
+        let coords = spherical_chunk_coords(center, 2);
+        let set: HashSet<_> = coords.into_iter().collect();
+        assert!(
+            set.contains(&ChunkCoord::new(6, 5, -1)),
+            "missing vertical diagonal"
+        );
+        assert!(
+            set.contains(&ChunkCoord::new(5, 6, -2)),
+            "missing +Y neighbor"
+        );
+        assert!(
+            !set.contains(&ChunkCoord::new(7, 5, -2)),
+            "included chunk outside radius"
+        );
+        assert!(
+            !set.contains(&ChunkCoord::new(5, 7, -2)),
+            "included chunk above radius"
+        );
+    }
+
+    #[test]
+    fn spherical_range_excludes_far_diagonals_at_radius_one() {
+        let center = ChunkCoord::new(0, 0, 0);
+        let coords = spherical_chunk_coords(center, 1);
+        let set: HashSet<_> = coords.into_iter().collect();
+        assert!(set.contains(&center));
+        assert!(set.contains(&ChunkCoord::new(0, 1, 0)));
+        assert!(set.contains(&ChunkCoord::new(1, 0, 0)));
+        assert!(
+            !set.contains(&ChunkCoord::new(1, 1, 0)),
+            "diagonal should be outside radius 1"
+        );
+        assert!(
+            !set.contains(&ChunkCoord::new(0, 0, 2)),
+            "distance sqrt(4) > 1 should be excluded"
+        );
     }
 }

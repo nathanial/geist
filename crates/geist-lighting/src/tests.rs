@@ -457,6 +457,66 @@ fn compute_with_borders_buf_micro_neighbors_take_precedence() {
 }
 
 #[test]
+fn vertical_neighbor_planes_map_to_lower_chunk() {
+    let sx = 2usize;
+    let sy = 2usize;
+    let sz = 2usize;
+    let store = LightingStore::new(sx, sy, sz);
+    let top_coord = ChunkCoord::new(0, 1, 0);
+    let bottom_coord = ChunkCoord::new(0, 0, 0);
+
+    // Coarse -Y planes from the upper chunk map to +Y neighbors below.
+    let mut coarse = LightBorders::new(sx, sy, sz);
+    let yn_vals: Vec<u8> = (0..(sx * sz)).map(|i| (i as u8) + 40).collect();
+    coarse.yn = yn_vals.clone().into();
+    store.update_borders(top_coord, coarse.clone());
+
+    let nb = store.get_neighbor_borders(bottom_coord);
+    assert_eq!(
+        nb.yp.as_ref().unwrap().as_ref(),
+        coarse.yn.as_ref(),
+        "upper chunk -Y coarse plane not exposed as lower +Y neighbor",
+    );
+
+    // Micro S=2 planes should follow the same mapping.
+    let mxs = sx * 2;
+    let mys = sy * 2;
+    let mzs = sz * 2;
+    let zeros = vec![0u8; mys * mzs];
+    let ym_sk_neg: Vec<u8> = (0..(mzs * mxs)).map(|i| (i as u8) + 5).collect();
+    let ym_bl_neg: Vec<u8> = (0..(mzs * mxs)).map(|i| (i as u8) + 80).collect();
+    let micro = MicroBorders {
+        xm_sk_neg: zeros.clone().into(),
+        xm_sk_pos: zeros.clone().into(),
+        ym_sk_neg: ym_sk_neg.clone().into(),
+        ym_sk_pos: vec![0; mzs * mxs].into(),
+        zm_sk_neg: zeros.clone().into(),
+        zm_sk_pos: zeros.clone().into(),
+        xm_bl_neg: zeros.clone().into(),
+        xm_bl_pos: zeros.clone().into(),
+        ym_bl_neg: ym_bl_neg.clone().into(),
+        ym_bl_pos: vec![0; mzs * mxs].into(),
+        zm_bl_neg: zeros.clone().into(),
+        zm_bl_pos: zeros.into(),
+        xm: mxs,
+        ym: mys,
+        zm: mzs,
+    };
+    store.update_micro_borders(top_coord, micro);
+    let nbm = store.get_neighbor_micro_borders(bottom_coord);
+    assert_eq!(
+        nbm.ym_sk_pos.as_ref().unwrap().as_ref(),
+        &ym_sk_neg[..],
+        "upper chunk -Y micro skylight plane not mapped to lower +Y neighbor",
+    );
+    assert_eq!(
+        nbm.ym_bl_pos.as_ref().unwrap().as_ref(),
+        &ym_bl_neg[..],
+        "upper chunk -Y micro block plane not mapped to lower +Y neighbor",
+    );
+}
+
+#[test]
 fn micro_skylight_open_above_and_blocked() {
     let reg = make_test_registry();
     let sx = 1;

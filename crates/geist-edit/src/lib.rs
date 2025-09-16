@@ -216,3 +216,51 @@ impl EditStore {
         self.built.get(&(cx, cy, cz)).copied().unwrap_or(0)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_store() -> EditStore {
+        EditStore::new(32, 32, 32)
+    }
+
+    #[test]
+    fn vertical_seam_bump_marks_neighbors() {
+        let mut store = make_store();
+        let cx = 4;
+        let cy = 7;
+        let cz = -2;
+        let sx = store.sx;
+        let sy = store.sy;
+        let sz = store.sz;
+        let base_x = cx * sx;
+        let base_y = cy * sy;
+        let base_z = cz * sz;
+
+        // Edit near top face -> mark chunk and +Y neighbor only.
+        let wx_top = base_x + 5;
+        let wy_top = base_y + sy - 1;
+        let wz_top = base_z + 11;
+        let stamp_top = store.bump_region_around(wx_top, wy_top, wz_top);
+        assert_eq!(store.get_rev(cx, cy, cz), stamp_top);
+        assert_eq!(store.get_rev(cx, cy + 1, cz), stamp_top);
+        assert_eq!(store.get_rev(cx, cy - 1, cz), 0);
+        let mut affected_top = store.get_affected_chunks(wx_top, wy_top, wz_top);
+        affected_top.sort();
+        assert_eq!(affected_top, vec![(cx, cy, cz), (cx, cy + 1, cz)]);
+
+        // Edit near bottom face -> mark chunk and -Y neighbor only.
+        let wx_bottom = base_x + 9;
+        let wy_bottom = base_y;
+        let wz_bottom = base_z + 3;
+        let stamp_bottom = store.bump_region_around(wx_bottom, wy_bottom, wz_bottom);
+        assert_eq!(store.get_rev(cx, cy, cz), stamp_bottom);
+        assert_eq!(store.get_rev(cx, cy - 1, cz), stamp_bottom);
+        // Top neighbor still has top stamp even after bottom edit.
+        assert_eq!(store.get_rev(cx, cy + 1, cz), stamp_top);
+        let mut affected_bottom = store.get_affected_chunks(wx_bottom, wy_bottom, wz_bottom);
+        affected_bottom.sort();
+        assert_eq!(affected_bottom, vec![(cx, cy - 1, cz), (cx, cy, cz)]);
+    }
+}

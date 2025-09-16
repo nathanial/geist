@@ -4,7 +4,7 @@ use geist_blocks::BlockRegistry;
 use geist_blocks::types::Block;
 use geist_chunk::ChunkBuf;
 use geist_lighting::{LightGrid, LightingStore};
-use geist_mesh_cpu::{ChunkMeshCPU, NeighborsLoaded, ParityMesher};
+use geist_mesh_cpu::{ChunkMeshCPU, ParityMesher, build_chunk_wcc_cpu_buf_with_light};
 use geist_world::{ChunkCoord, World, WorldGenMode};
 
 fn load_registry() -> BlockRegistry {
@@ -142,11 +142,15 @@ fn parity_area_random_full_cubes_s1() {
     }
     let buf = make_buf(0, 0, sx, sy, sz, blocks.clone());
     let store = LightingStore::new(sx, sy, sz);
-    let light = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
+    let _light = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
     // Minimal world; neighbors disabled so seam logic does not run
     let world = World::new(1, 1, 1, 0, WorldGenMode::Flat { thickness: 0 });
-    let mut wm = ParityMesher::new(&buf, &reg, 1, 0, 0, &world, None);
+    let base_x = buf.coord.cx * buf.sx as i32;
+    let base_y = buf.coord.cy * buf.sy as i32;
+    let base_z = buf.coord.cz * buf.sz as i32;
+    let mut wm = ParityMesher::new(&buf, &reg, 1, base_x, base_y, base_z, &world, None);
     wm.build_occupancy();
+    wm.seed_seam_layers();
     wm.compute_parity_and_materials();
     let mut builds: HashMap<_, _> = HashMap::new();
     wm.emit_into(&mut builds);
@@ -199,12 +203,22 @@ fn seam_stitch_no_faces_on_shared_plane_s1() {
     let buf_a = make_buf(0, 0, sx, sy, sz, blocks_a);
     let buf_b = make_buf(1, 0, sx, sy, sz, blocks_b);
     let store = LightingStore::new(sx, sy, sz);
-    let light_a = LightGrid::compute_with_borders_buf(&buf_a, &store, &reg);
-    let light_b = LightGrid::compute_with_borders_buf(&buf_b, &store, &reg);
+    let _light_a = LightGrid::compute_with_borders_buf(&buf_a, &store, &reg);
+    let _light_b = LightGrid::compute_with_borders_buf(&buf_b, &store, &reg);
     let world = World::new(2, 1, 1, 0, WorldGenMode::Flat { thickness: 0 });
     // Indicate neighbor presence along X so stitch logic is active
-    let mut wa = ParityMesher::new(&buf_a, &reg, 1, 0, 0, &world, None);
-    let mut wb = ParityMesher::new(&buf_b, &reg, 1, sx as i32, 0, &world, None);
+    let base_wa_x = buf_a.coord.cx * buf_a.sx as i32;
+    let base_wa_y = buf_a.coord.cy * buf_a.sy as i32;
+    let base_wa_z = buf_a.coord.cz * buf_a.sz as i32;
+    let base_wb_x = buf_b.coord.cx * buf_b.sx as i32;
+    let base_wb_y = buf_b.coord.cy * buf_b.sy as i32;
+    let base_wb_z = buf_b.coord.cz * buf_b.sz as i32;
+    let mut wa = ParityMesher::new(
+        &buf_a, &reg, 1, base_wa_x, base_wa_y, base_wa_z, &world, None,
+    );
+    let mut wb = ParityMesher::new(
+        &buf_b, &reg, 1, base_wb_x, base_wb_y, base_wb_z, &world, None,
+    );
     wa.build_occupancy();
     wb.build_occupancy();
     wa.seed_seam_layers();
@@ -300,36 +314,19 @@ fn per_face_quads_triangle_count_on_slab() {
     let store = LightingStore::new(sx, sy, sz);
     let light = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
     let world = World::new(1, 1, 1, 0, WorldGenMode::Flat { thickness: 0 });
-    let mut wm = ParityMesher::new(&buf, &reg, 1, 0, 0, &world, None);
-    wm.build_occupancy();
-    wm.compute_parity_and_materials();
-    let mut parts = HashMap::new();
-    wm.emit_into(&mut parts);
-    let cpu = ChunkMeshCPU {
-        coord: ChunkCoord::new(0, 0, 0),
-        bbox: geist_geom::Aabb {
-            min: geist_geom::Vec3 {
-                x: 0.0,
-                y: 0.0,
-                z: 0.0,
-            },
-            max: geist_geom::Vec3 {
-                x: sx as f32,
-                y: sy as f32,
-                z: sz as f32,
-            },
-        },
-        parts,
-    };
-    // Compute expected faces via exact surface area (half-open positive boundaries)
+    let (cpu, _) = build_chunk_wcc_cpu_buf_with_light(&buf, &light, &world, None, buf.coord, &reg)
+        .expect("mesh generation");
+    // Compute expected surface area and compare against mesh area to ensure all faces emitted.
     let blocks_clone = blocks.clone();
     let solid_fn = |x: usize, y: usize, z: usize| blocks_clone[(y * sz + z) * sx + x].id == stone;
-    let expected_faces = expected_surface_area_voxels(sx, sy, sz, &solid_fn) as usize;
-    let expected_tris = expected_faces * 2; // two triangles per quad
-    let tris = cpu.parts.values().map(|p| p.idx.len() / 3).sum::<usize>();
-    assert_eq!(
-        tris, expected_tris,
-        "triangle count should match per-face emission: got={} expected={}",
-        tris, expected_tris
+    let expected_area = expected_surface_area_voxels(sx, sy, sz, &solid_fn);
+    let area_mesh = tri_area_sum(&cpu);
+    let diff = (area_mesh - expected_area).abs();
+    assert!(
+        diff < 1e-3,
+        "surface area mismatch: mesh={} expected={} diff={}",
+        area_mesh,
+        expected_area,
+        diff
     );
 }

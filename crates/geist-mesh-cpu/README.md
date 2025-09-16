@@ -5,7 +5,7 @@ This crate builds chunk meshes on the CPU using a Watertight Cubical Complex (WC
 Highlights
 - Watertight by construction: interior faces cancel via XOR parity; only boundaries remain.
 - Per‑face emission (no merging): keeps one quad per boundary cell.
-- Half‑open seam rule on X/Z: emit on −X/−Z planes; +X/+Z are owned by neighbors. Y is local to a chunk.
+- Half‑open seam rule on X/Z: emit on −X/−Z planes; +X/+Z are owned by neighbors. World origin for each chunk includes its Y stack index.
 - Micro occupancy at S=2: slabs/stairs (and similar) are 2×2×2 “micro boxes” processed by the same WCC toggler.
 - Thin dynamics (pane/fence/carpet) are emitted in a lightweight secondary box pass.
 
