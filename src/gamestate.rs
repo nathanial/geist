@@ -19,8 +19,9 @@ pub struct ChunkEntry {
 
 #[derive(Default, Clone, Copy)]
 pub struct FinalizeState {
-    pub owner_x_ready: bool, // left owner (cx-1,cz) published +X
-    pub owner_z_ready: bool, // front owner (cx,cz-1) published +Z
+    pub owner_neg_x_ready: bool, // neighbor (cx-1,cy,cz) published +X
+    pub owner_neg_y_ready: bool, // neighbor (cx,cy-1,cz) published +Y
+    pub owner_neg_z_ready: bool, // neighbor (cx,cy,cz-1) published +Z
     pub finalize_requested: bool,
     pub finalized: bool,
 }

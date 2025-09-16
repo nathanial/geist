@@ -130,7 +130,7 @@ impl App {
         if st.finalized || st.finalize_requested {
             return;
         }
-        if !(st.owner_x_ready && st.owner_z_ready) {
+        if !(st.owner_neg_x_ready && st.owner_neg_y_ready && st.owner_neg_z_ready) {
             return;
         }
         if !self.renders.contains_key(&coord) {
@@ -177,15 +177,15 @@ impl App {
         let ccy = (self.cam.position.y / self.gs.world.chunk_size_y as f32).floor() as i32;
         let ccz = (self.cam.position.z / self.gs.world.chunk_size_z as f32).floor() as i32;
         let now = self.gs.tick;
-        let mut items: Vec<(ChunkCoord, IntentEntry, u32, i32)> =
+        let mut items: Vec<(ChunkCoord, IntentEntry, i64, i32)> =
             Vec::with_capacity(self.intents.len());
         for (&key, &ent) in self.intents.iter() {
             let cx = key.cx;
             let cz = key.cz;
-            let dx = cx - ccx;
-            let dy = key.cy - ccy;
-            let dz = cz - ccz;
-            let dist_bucket: u32 = dx.abs().max(dy.abs()).max(dz.abs()) as u32;
+            let dx = i64::from(cx - ccx);
+            let dy = i64::from(key.cy - ccy);
+            let dz = i64::from(cz - ccz);
+            let dist_bucket: i64 = dx * dx + dy * dy + dz * dz;
             let age = now.saturating_sub(ent.last_tick);
             let age_boost: i32 = if age > 180 {
                 -2
@@ -217,6 +217,12 @@ impl App {
         let mut budget_edit = target_edit.saturating_sub(q_e + if_e);
         let mut budget_light = target_light.saturating_sub(q_l + if_l);
         let mut budget_bg = target_bg.saturating_sub(q_b + if_b);
+        let r = self.gs.view_radius_chunks.max(0);
+        let gate_light_sq = {
+            let rr = r + 1;
+            i64::from(rr) * i64::from(rr)
+        };
+        let gate_stream_sq = i64::from(r) * i64::from(r);
 
         for (key, ent, dist_bucket, _ab) in items.into_iter() {
             if submitted >= cap {
@@ -244,8 +250,7 @@ impl App {
                     }
                 }
                 IntentCause::Light => {
-                    let r = self.gs.view_radius_chunks;
-                    if dist_bucket as i32 > r + 1 {
+                    if dist_bucket > gate_light_sq {
                         continue;
                     }
                     if budget_light == 0 {
@@ -253,8 +258,7 @@ impl App {
                     }
                 }
                 IntentCause::StreamLoad | IntentCause::HotReload => {
-                    let r = self.gs.view_radius_chunks;
-                    if !is_loaded && dist_bucket as i32 > r {
+                    if !is_loaded && dist_bucket > gate_stream_sq {
                         continue;
                     }
                     if is_loaded {

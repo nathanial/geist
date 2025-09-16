@@ -35,6 +35,14 @@ impl ChunkCoord {
             cz: self.cz + dz,
         }
     }
+
+    #[inline]
+    pub fn distance_sq(self, other: ChunkCoord) -> i64 {
+        let dx = i64::from(self.cx - other.cx);
+        let dy = i64::from(self.cy - other.cy);
+        let dz = i64::from(self.cz - other.cz);
+        dx * dx + dy * dy + dz * dz
+    }
 }
 
 impl From<(i32, i32, i32)> for ChunkCoord {

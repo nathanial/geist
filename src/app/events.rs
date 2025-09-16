@@ -314,12 +314,20 @@ impl App {
             Event::ViewCenterChanged { ccx, ccy, ccz } => {
                 let center = ChunkCoord::new(ccx, ccy, ccz);
                 self.gs.center_chunk = center;
-                // Determine desired set (horizontal disk for now)
-                let r = self.gs.view_radius_chunks;
+                let r = self.gs.view_radius_chunks.max(0);
+                let r_sq = i64::from(r) * i64::from(r);
                 let mut desired: HashSet<ChunkCoord> = HashSet::new();
-                for dz in -r..=r {
-                    for dx in -r..=r {
-                        desired.insert(ChunkCoord::new(ccx + dx, ccy, ccz + dz));
+                for dy in -r..=r {
+                    for dz in -r..=r {
+                        for dx in -r..=r {
+                            let dx64 = i64::from(dx);
+                            let dy64 = i64::from(dy);
+                            let dz64 = i64::from(dz);
+                            let dist_sq = dx64 * dx64 + dy64 * dy64 + dz64 * dz64;
+                            if dist_sq <= r_sq {
+                                desired.insert(ChunkCoord::new(ccx + dx, ccy + dy, ccz + dz));
+                            }
+                        }
                     }
                 }
                 // Unload far ones
@@ -335,12 +343,12 @@ impl App {
                 }
                 // Prune stream-load intents well outside the new radius (hysteresis: r+1)
                 let mut to_remove: Vec<ChunkCoord> = Vec::new();
+                let drop_r = r + 1;
+                let drop_sq = i64::from(drop_r) * i64::from(drop_r);
                 for (&coord, ent) in self.intents.iter() {
                     if matches!(ent.cause, IntentCause::StreamLoad) {
-                        let dx = (coord.cx - ccx).abs();
-                        let dz = (coord.cz - ccz).abs();
-                        let ring = dx.max(dz);
-                        if ring > r + 1 {
+                        let dist_sq = center.distance_sq(coord);
+                        if dist_sq > drop_sq {
                             to_remove.push(coord);
                         }
                     }
@@ -385,10 +393,13 @@ impl App {
                     // Prime readiness from currently available owner planes, so we don't wait for future events
                     let nb = self.gs.lighting.get_neighbor_borders(coord);
                     if nb.xn.is_some() {
-                        st.owner_x_ready = true;
+                        st.owner_neg_x_ready = true;
+                    }
+                    if nb.yn.is_some() {
+                        st.owner_neg_y_ready = true;
                     }
                     if nb.zn.is_some() {
-                        st.owner_z_ready = true;
+                        st.owner_neg_z_ready = true;
                     }
                 }
                 // Record load intent; scheduler will cap and prioritize
@@ -535,10 +546,10 @@ impl App {
                 }
                 // Gate completion by desired radius: if chunk is no longer desired, drop
                 let center = self.gs.center_chunk;
-                let dx = (cx - center.cx).abs();
-                let dz = (cz - center.cz).abs();
-                let ring = dx.max(dz);
-                if ring > self.gs.view_radius_chunks {
+                let dist_sq = center.distance_sq(coord);
+                let r = self.gs.view_radius_chunks.max(0);
+                let r_sq = i64::from(r) * i64::from(r);
+                if dist_sq > r_sq {
                     // Not desired anymore: clear inflight and abandon result
                     self.gs.inflight_rev.remove(&coord);
                     // Do not upload or mark built; also avoid lighting border updates
@@ -660,8 +671,9 @@ impl App {
                 }
                 // If both owners are ready and finalize not yet requested, schedule finalize now
                 if let Some(st) = self.gs.finalize.get(&coord).copied() {
-                    if st.owner_x_ready
-                        && st.owner_z_ready
+                    if st.owner_neg_x_ready
+                        && st.owner_neg_y_ready
+                        && st.owner_neg_z_ready
                         && !st.finalized
                         && !st.finalize_requested
                     {
@@ -693,10 +705,10 @@ impl App {
                 }
                 // Gate by desired radius
                 let center = self.gs.center_chunk;
-                let dx = (cx - center.cx).abs();
-                let dz = (cz - center.cz).abs();
-                let ring = dx.max(dz);
-                if ring > self.gs.view_radius_chunks + 1 {
+                let dist_sq = center.distance_sq(coord);
+                let gate = self.gs.view_radius_chunks.max(0) + 1;
+                let gate_sq = i64::from(gate) * i64::from(gate);
+                if dist_sq > gate_sq {
                     self.gs.inflight_rev.remove(&coord);
                     return;
                 }
@@ -1044,7 +1056,8 @@ impl App {
             } => {
                 let coord = ChunkCoord::new(cx, cy, cz);
                 let center = self.gs.center_chunk;
-                let r_gate = self.gs.view_radius_chunks + 1;
+                let r_gate = self.gs.view_radius_chunks.max(0) + 1;
+                let r_gate_sq = i64::from(r_gate) * i64::from(r_gate);
 
                 if xp_changed {
                     let neighbor = coord.offset(1, 0, 0);
@@ -1053,14 +1066,16 @@ impl App {
                         .finalize
                         .entry(neighbor)
                         .or_insert(FinalizeState::default());
-                    st.owner_x_ready = true;
-                    let ring = (neighbor.cx - center.cx)
-                        .abs()
-                        .max((neighbor.cz - center.cz).abs());
-                    if ring <= r_gate && !st.finalized && st.owner_z_ready {
+                    st.owner_neg_x_ready = true;
+                    let dist_sq = center.distance_sq(neighbor);
+                    if dist_sq <= r_gate_sq
+                        && !st.finalized
+                        && st.owner_neg_y_ready
+                        && st.owner_neg_z_ready
+                    {
                         self.try_schedule_finalize(neighbor);
                     } else if st.finalized {
-                        if self.renders.contains_key(&neighbor) {
+                        if dist_sq <= r_gate_sq && self.renders.contains_key(&neighbor) {
                             self.queue.emit_now(Event::ChunkRebuildRequested {
                                 cx: neighbor.cx,
                                 cy: neighbor.cy,
@@ -1078,14 +1093,16 @@ impl App {
                         .finalize
                         .entry(neighbor)
                         .or_insert(FinalizeState::default());
-                    st.owner_z_ready = true;
-                    let ring = (neighbor.cx - center.cx)
-                        .abs()
-                        .max((neighbor.cz - center.cz).abs());
-                    if ring <= r_gate && !st.finalized && st.owner_x_ready {
+                    st.owner_neg_z_ready = true;
+                    let dist_sq = center.distance_sq(neighbor);
+                    if dist_sq <= r_gate_sq
+                        && !st.finalized
+                        && st.owner_neg_x_ready
+                        && st.owner_neg_y_ready
+                    {
                         self.try_schedule_finalize(neighbor);
                     } else if st.finalized {
-                        if self.renders.contains_key(&neighbor) {
+                        if dist_sq <= r_gate_sq && self.renders.contains_key(&neighbor) {
                             self.queue.emit_now(Event::ChunkRebuildRequested {
                                 cx: neighbor.cx,
                                 cy: neighbor.cy,
@@ -1098,10 +1115,8 @@ impl App {
 
                 if xn_changed {
                     let neighbor = coord.offset(-1, 0, 0);
-                    let ring = (neighbor.cx - center.cx)
-                        .abs()
-                        .max((neighbor.cz - center.cz).abs());
-                    if ring <= r_gate && self.renders.contains_key(&neighbor) {
+                    let dist_sq = center.distance_sq(neighbor);
+                    if dist_sq <= r_gate_sq && self.renders.contains_key(&neighbor) {
                         self.queue.emit_now(Event::ChunkRebuildRequested {
                             cx: neighbor.cx,
                             cy: neighbor.cy,
@@ -1112,10 +1127,8 @@ impl App {
                 }
                 if zn_changed {
                     let neighbor = coord.offset(0, 0, -1);
-                    let ring = (neighbor.cx - center.cx)
-                        .abs()
-                        .max((neighbor.cz - center.cz).abs());
-                    if ring <= r_gate && self.renders.contains_key(&neighbor) {
+                    let dist_sq = center.distance_sq(neighbor);
+                    if dist_sq <= r_gate_sq && self.renders.contains_key(&neighbor) {
                         self.queue.emit_now(Event::ChunkRebuildRequested {
                             cx: neighbor.cx,
                             cy: neighbor.cy,
@@ -1126,24 +1139,34 @@ impl App {
                 }
                 if yp_changed {
                     let neighbor = coord.offset(0, 1, 0);
-                    let ring = (neighbor.cx - center.cx)
-                        .abs()
-                        .max((neighbor.cz - center.cz).abs());
-                    if ring <= r_gate && self.renders.contains_key(&neighbor) {
-                        self.queue.emit_now(Event::ChunkRebuildRequested {
-                            cx: neighbor.cx,
-                            cy: neighbor.cy,
-                            cz: neighbor.cz,
-                            cause: RebuildCause::LightingBorder,
-                        });
+                    let st = self
+                        .gs
+                        .finalize
+                        .entry(neighbor)
+                        .or_insert(FinalizeState::default());
+                    st.owner_neg_y_ready = true;
+                    let dist_sq = center.distance_sq(neighbor);
+                    if dist_sq <= r_gate_sq
+                        && !st.finalized
+                        && st.owner_neg_x_ready
+                        && st.owner_neg_z_ready
+                    {
+                        self.try_schedule_finalize(neighbor);
+                    } else if st.finalized {
+                        if dist_sq <= r_gate_sq && self.renders.contains_key(&neighbor) {
+                            self.queue.emit_now(Event::ChunkRebuildRequested {
+                                cx: neighbor.cx,
+                                cy: neighbor.cy,
+                                cz: neighbor.cz,
+                                cause: RebuildCause::LightingBorder,
+                            });
+                        }
                     }
                 }
                 if yn_changed {
                     let neighbor = coord.offset(0, -1, 0);
-                    let ring = (neighbor.cx - center.cx)
-                        .abs()
-                        .max((neighbor.cz - center.cz).abs());
-                    if ring <= r_gate && self.renders.contains_key(&neighbor) {
+                    let dist_sq = center.distance_sq(neighbor);
+                    if dist_sq <= r_gate_sq && self.renders.contains_key(&neighbor) {
                         self.queue.emit_now(Event::ChunkRebuildRequested {
                             cx: neighbor.cx,
                             cy: neighbor.cy,
