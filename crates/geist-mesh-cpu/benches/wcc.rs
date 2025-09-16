@@ -19,18 +19,17 @@ fn load_registry() -> BlockRegistry {
 fn bench_build_chunk_wcc_flat(c: &mut Criterion) {
     let mut group = c.benchmark_group("build_chunk_wcc_flat");
     let reg = load_registry();
-    let (sx, sy, sz) = (16usize, 64usize, 16usize);
+    let chunks_y = 2;
     let world = World::new(
         1,
+        chunks_y,
         1,
-        sx,
-        sy,
-        sz,
         0xC0FFEE as i32,
         WorldGenMode::Flat { thickness: 32 },
     );
+    let (sx, sy, sz) = (world.chunk_size_x, world.chunk_size_y, world.chunk_size_z);
     let store = LightingStore::new(sx, sy, sz);
-    group.bench_function("flat_16x64x16", |b| {
+    group.bench_function("flat_32x64x32", |b| {
         b.iter(|| {
             let buf = generate_chunk_buffer(&world, 0, 0, &reg);
             let out = build_chunk_wcc_cpu_buf(&buf, Some(&store), &world, None, 0, 0, &reg);
@@ -44,8 +43,8 @@ fn bench_build_chunk_wcc_normal_dims(c: &mut Criterion) {
     let mut group = c.benchmark_group("build_chunk_wcc_normal_dims");
     let reg = load_registry();
     // Match normal worldgen defaults: 32 x 256 x 32
-    let (sx, sy, sz) = (32usize, 256usize, 32usize);
-    let world = World::new(1, 1, sx, sy, sz, 1337, WorldGenMode::Normal);
+    let world = World::new(1, 8, 1, 1337, WorldGenMode::Normal);
+    let (sx, sy, sz) = (world.chunk_size_x, world.chunk_size_y, world.chunk_size_z);
     let store = LightingStore::new(sx, sy, sz);
     group.bench_function("normal_32x256x32", |b| {
         b.iter(|| {
@@ -60,8 +59,7 @@ fn bench_build_chunk_wcc_normal_dims(c: &mut Criterion) {
 fn bench_worldgen_normal_dims(c: &mut Criterion) {
     let mut group = c.benchmark_group("worldgen_normal_dims");
     let reg = load_registry();
-    let (sx, sy, sz) = (32usize, 256usize, 32usize);
-    let world = World::new(1, 1, sx, sy, sz, 1337, WorldGenMode::Normal);
+    let world = World::new(1, 8, 1, 1337, WorldGenMode::Normal);
     group.bench_function("generate_chunk_buffer_32x256x32", |b| {
         b.iter(|| {
             let buf = generate_chunk_buffer(&world, 0, 0, &reg);
@@ -74,8 +72,8 @@ fn bench_worldgen_normal_dims(c: &mut Criterion) {
 fn bench_light_compute_normal_dims(c: &mut Criterion) {
     let mut group = c.benchmark_group("lighting_normal_dims");
     let reg = load_registry();
-    let (sx, sy, sz) = (32usize, 256usize, 32usize);
-    let world = World::new(1, 1, sx, sy, sz, 1337, WorldGenMode::Normal);
+    let world = World::new(1, 8, 1, 1337, WorldGenMode::Normal);
+    let (sx, sy, sz) = (world.chunk_size_x, world.chunk_size_y, world.chunk_size_z);
     let store = LightingStore::new(sx, sy, sz);
     let buf = generate_chunk_buffer(&world, 0, 0, &reg);
     group.bench_function("compute_light_with_borders_32x256x32", |b| {
@@ -90,8 +88,8 @@ fn bench_light_compute_normal_dims(c: &mut Criterion) {
 fn bench_wcc_toggle_emit_normal_dims(c: &mut Criterion) {
     let mut group = c.benchmark_group("wcc_toggle_emit_normal_dims");
     let reg = load_registry();
-    let (sx, sy, sz) = (32usize, 256usize, 32usize);
-    let world = World::new(1, 1, sx, sy, sz, 1337, WorldGenMode::Normal);
+    let world = World::new(1, 8, 1, 1337, WorldGenMode::Normal);
+    let (sx, sy, sz) = (world.chunk_size_x, world.chunk_size_y, world.chunk_size_z);
     let store = LightingStore::new(sx, sy, sz);
     let buf = generate_chunk_buffer(&world, 0, 0, &reg);
     let light = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
@@ -115,9 +113,10 @@ fn bench_build_chunk_wcc_normal_neighbors(c: &mut Criterion) {
     let mut group = c.benchmark_group("build_chunk_wcc_normal_neighbors");
     let reg = load_registry();
     // Use 2x2 neighbor grid at normal world dims
-    let (sx, sy, sz) = (32usize, 256usize, 32usize);
     let (chunks_x, chunks_z) = (2usize, 2usize);
-    let world = World::new(chunks_x, chunks_z, sx, sy, sz, 2025, WorldGenMode::Normal);
+    let chunks_y = 8usize;
+    let world = World::new(chunks_x, chunks_y, chunks_z, 2025, WorldGenMode::Normal);
+    let (sx, sy, sz) = (world.chunk_size_x, world.chunk_size_y, world.chunk_size_z);
     let store = LightingStore::new(sx, sy, sz);
     group.bench_function("normal_neighbors_2x2_32x256x32", |b| {
         b.iter(|| {
@@ -146,9 +145,9 @@ fn make_uniform_chunk(cx: i32, cz: i32, sx: usize, sy: usize, sz: usize, id: u16
 fn bench_wcc_mesher_s1_uniform(c: &mut Criterion) {
     let mut group = c.benchmark_group("wcc_mesher_s1_uniform");
     let reg = load_registry();
-    let (sx, sy, sz) = (32usize, 64usize, 32usize);
+    let world = World::new(1, 2, 1, 42, WorldGenMode::Flat { thickness: 0 });
+    let (sx, sy, sz) = (world.chunk_size_x, world.chunk_size_y, world.chunk_size_z);
     let stone = reg.id_by_name("stone").unwrap_or(1);
-    let world = World::new(1, 1, sx, sy, sz, 42, WorldGenMode::Flat { thickness: 0 });
     let buf = make_uniform_chunk(0, 0, sx, sy, sz, stone);
     let store = LightingStore::new(sx, sy, sz);
     let light = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
@@ -169,8 +168,8 @@ fn bench_wcc_mesher_s1_uniform(c: &mut Criterion) {
 fn bench_wcc_mesher_s2_mixed(c: &mut Criterion) {
     let mut group = c.benchmark_group("wcc_mesher_s2_mixed");
     let reg = load_registry();
-    let (sx, sy, sz) = (16usize, 64usize, 16usize);
-    let world = World::new(1, 1, sx, sy, sz, 7, WorldGenMode::Flat { thickness: 0 });
+    let world = World::new(1, 2, 1, 7, WorldGenMode::Flat { thickness: 0 });
+    let (sx, sy, sz) = (world.chunk_size_x, world.chunk_size_y, world.chunk_size_z);
     let stone = reg.id_by_name("stone").unwrap_or(1);
     let slab = reg.id_by_name("slab").unwrap_or(stone);
     let slab_state_bottom = reg
@@ -204,7 +203,7 @@ fn bench_wcc_mesher_s2_mixed(c: &mut Criterion) {
     let buf = ChunkBuf::from_blocks_local(0, 0, sx, sy, sz, blocks);
     let store = LightingStore::new(sx, sy, sz);
     let light = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
-    group.bench_function("toggle_emit_mixed_s2_16x64x16", |b| {
+    group.bench_function("toggle_emit_mixed_s2_32x64x32", |b| {
         b.iter(|| {
             let mut pm = ParityMesher::new(&buf, &reg, 2, 0, 0, &world, None);
             pm.build_occupancy();

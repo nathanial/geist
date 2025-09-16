@@ -7,6 +7,8 @@ use geist_blocks::types::Block as RtBlock;
 
 use crate::worldgen::WorldGenParams;
 
+pub const CHUNK_SIZE: usize = 32;
+
 #[derive(Clone, Debug)]
 pub struct ShowcaseEntry {
     pub block: RtBlock,
@@ -151,6 +153,7 @@ pub struct World {
     pub chunk_size_y: usize,
     pub chunk_size_z: usize,
     pub chunks_x: usize,
+    pub chunks_y: usize,
     pub chunks_z: usize,
     pub seed: i32,
     pub mode: WorldGenMode,
@@ -169,18 +172,17 @@ pub enum WorldGenMode {
 impl World {
     pub fn new(
         chunks_x: usize,
+        chunks_y: usize,
         chunks_z: usize,
-        chunk_size_x: usize,
-        chunk_size_y: usize,
-        chunk_size_z: usize,
         seed: i32,
         mode: WorldGenMode,
     ) -> Self {
         Self {
-            chunk_size_x,
-            chunk_size_y,
-            chunk_size_z,
+            chunk_size_x: CHUNK_SIZE,
+            chunk_size_y: CHUNK_SIZE * chunks_y,
+            chunk_size_z: CHUNK_SIZE,
             chunks_x,
+            chunks_y,
             chunks_z,
             seed,
             mode,

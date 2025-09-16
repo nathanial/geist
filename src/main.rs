@@ -63,19 +63,13 @@ struct RunArgs {
     /// Number of chunks along X
     #[arg(long, default_value_t = 4)]
     chunks_x: usize,
+
+    /// Number of chunks stacked vertically (world height = chunks_y × CHUNK_SIZE)
+    #[arg(long, default_value_t = 8)]
+    chunks_y: usize,
     /// Number of chunks along Z
     #[arg(long, default_value_t = 4)]
     chunks_z: usize,
-
-    /// Chunk size along X
-    #[arg(long, default_value_t = 32)]
-    chunk_size_x: usize,
-    /// Chunk size along Y
-    #[arg(long, default_value_t = 256)]
-    chunk_size_y: usize,
-    /// Chunk size along Z
-    #[arg(long, default_value_t = 32)]
-    chunk_size_z: usize,
 
     /// Watch assets/blocks for changes and hot-reload textures
     #[arg(long, default_value_t = true)]
@@ -109,10 +103,8 @@ impl Default for RunArgs {
             flat_thickness: None,
             seed: 1337,
             chunks_x: 4,
+            chunks_y: 8,
             chunks_z: 4,
-            chunk_size_x: 32,
-            chunk_size_y: 256,
-            chunk_size_z: 32,
             watch_textures: true,
             world_config: "assets/worldgen/worldgen.toml".to_string(),
             watch_worldgen: true,
@@ -295,10 +287,12 @@ fn run_app(run: RunArgs, assets_root: std::path::PathBuf) {
     );
     rl.disable_cursor();
     // World + stores (configurable via CLI)
-    let chunk_size_x = run.chunk_size_x;
-    let chunk_size_y = run.chunk_size_y;
-    let chunk_size_z = run.chunk_size_z;
     let chunks_x = run.chunks_x;
+    let mut chunks_y = run.chunks_y;
+    if chunks_y == 0 {
+        log::warn!("--chunks-y must be at least 1; using 1 instead");
+        chunks_y = 1;
+    }
     let chunks_z = run.chunks_z;
     let world_seed = run.seed;
     let world_mode = match run.world {
@@ -310,13 +304,7 @@ fn run_app(run: RunArgs, assets_root: std::path::PathBuf) {
         WorldKind::Normal => WorldGenMode::Normal,
     };
     let world = Arc::new(World::new(
-        chunks_x,
-        chunks_z,
-        chunk_size_x,
-        chunk_size_y,
-        chunk_size_z,
-        world_seed,
-        world_mode,
+        chunks_x, chunks_y, chunks_z, world_seed, world_mode,
     ));
     // Initial worldgen params load (optional)
     {
@@ -350,14 +338,14 @@ fn run_app(run: RunArgs, assets_root: std::path::PathBuf) {
         }
     }
     let lighting_store = Arc::new(geist_lighting::LightingStore::new(
-        chunk_size_x,
-        chunk_size_y,
-        chunk_size_z,
+        world.chunk_size_x,
+        world.chunk_size_y,
+        world.chunk_size_z,
     ));
     let edit_store = geist_edit::EditStore::new(
-        chunk_size_x as i32,
-        chunk_size_y as i32,
-        chunk_size_z as i32,
+        world.chunk_size_x as i32,
+        world.chunk_size_y as i32,
+        world.chunk_size_z as i32,
     );
 
     let mut app = crate::app::App::new(
@@ -425,21 +413,13 @@ pub struct SnapArgs {
     #[arg(long, default_value_t = 4)]
     pub chunks_x: usize,
 
+    /// Number of chunks stacked vertically (world height = chunks_y × CHUNK_SIZE)
+    #[arg(long, default_value_t = 8)]
+    pub chunks_y: usize,
+
     /// Number of chunks along Z
     #[arg(long, default_value_t = 4)]
     pub chunks_z: usize,
-
-    /// Chunk size along X
-    #[arg(long, default_value_t = 32)]
-    pub chunk_size_x: usize,
-
-    /// Chunk size along Y
-    #[arg(long, default_value_t = 256)]
-    pub chunk_size_y: usize,
-
-    /// Chunk size along Z
-    #[arg(long, default_value_t = 32)]
-    pub chunk_size_z: usize,
 
     /// Worldgen config path (TOML)
     #[arg(

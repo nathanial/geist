@@ -368,7 +368,7 @@ fn compute_with_borders_buf_seeds_from_coarse_neighbors() {
     let sx = 2;
     let sy = 2;
     let sz = 2;
-    let world = geist_world::World::new(1, 1, sx, sy, sz, 42, WorldGenMode::Flat { thickness: 0 });
+    let world = geist_world::World::new(1, 1, 1, 42, WorldGenMode::Flat { thickness: 0 });
     let air_id = reg.id_by_name("air").unwrap();
     // All air chunk at (0,0)
     let buf = make_chunk_buf_with(&reg, 0, 0, sx, sy, sz, &|_, _, _| Block {
@@ -411,7 +411,7 @@ fn compute_with_borders_buf_micro_neighbors_take_precedence() {
     let sx = 2;
     let sy = 2;
     let sz = 2;
-    let world = geist_world::World::new(1, 1, sx, sy, sz, 7, WorldGenMode::Flat { thickness: 0 });
+    let world = geist_world::World::new(1, 1, 1, 7, WorldGenMode::Flat { thickness: 0 });
     let air_id = reg.id_by_name("air").unwrap();
     let buf = make_chunk_buf_with(&reg, 0, 0, sx, sy, sz, &|_, _, _| Block {
         id: air_id,
@@ -461,7 +461,7 @@ fn micro_skylight_open_above_and_blocked() {
     let sx = 1;
     let sy = 2;
     let sz = 1;
-    let world = geist_world::World::new(1, 1, sx, sy, sz, 1, WorldGenMode::Flat { thickness: 0 });
+    let world = geist_world::World::new(1, 1, 1, 1, WorldGenMode::Flat { thickness: 0 });
     let air_id = reg.id_by_name("air").unwrap();
     let stone_id = reg.id_by_name("stone").unwrap();
 
@@ -491,7 +491,7 @@ fn skylight_neighbors_coarse_and_micro_precedence() {
     let sx = 2;
     let sy = 2; // top layer will be a roof to block local skylight
     let sz = 2;
-    let world = geist_world::World::new(1, 1, sx, sy, sz, 3, WorldGenMode::Flat { thickness: 0 });
+    let world = geist_world::World::new(1, 1, 1, 3, WorldGenMode::Flat { thickness: 0 });
     let air_id = reg.id_by_name("air").unwrap();
     // Bottom layer air, top layer stone: blocks skylight-from-above seeding locally
     let stone_id = reg.id_by_name("stone").unwrap();
@@ -552,7 +552,7 @@ fn emitters_seed_micro_and_remove() {
     let sx = 2;
     let sy = 1;
     let sz = 1;
-    let world = geist_world::World::new(1, 1, sx, sy, sz, 5, WorldGenMode::Flat { thickness: 0 });
+    let world = geist_world::World::new(1, 1, 1, 5, WorldGenMode::Flat { thickness: 0 });
     let air_id = reg.id_by_name("air").unwrap();
     let buf = make_chunk_buf_with(&reg, 0, 0, sx, sy, sz, &|_, _, _| Block {
         id: air_id,
@@ -919,7 +919,7 @@ fn seam_symmetry_block_and_sky_z_plus_minus_with_micro_override() {
     let sx = 2;
     let sy = 2;
     let sz = 2;
-    let world = geist_world::World::new(1, 1, sx, sy, sz, 10, WorldGenMode::Flat { thickness: 0 });
+    let world = geist_world::World::new(1, 1, 1, 10, WorldGenMode::Flat { thickness: 0 });
     let air_id = reg.id_by_name("air").unwrap();
     let stone_id = reg.id_by_name("stone").unwrap();
     // Roofed air to suppress local skylight seeding
@@ -982,7 +982,7 @@ fn seam_symmetry_block_and_sky_x_plus_with_micro_override() {
     let sx = 2;
     let sy = 2;
     let sz = 2;
-    let world = geist_world::World::new(1, 1, sx, sy, sz, 11, WorldGenMode::Flat { thickness: 0 });
+    let world = geist_world::World::new(1, 1, 1, 11, WorldGenMode::Flat { thickness: 0 });
     let air_id = reg.id_by_name("air").unwrap();
     let stone_id = reg.id_by_name("stone").unwrap();
     let buf = make_chunk_buf_with(&reg, 0, 0, sx, sy, sz, &|_, y, _| Block {
@@ -1043,7 +1043,7 @@ fn beacons_are_ignored_in_micro_path() {
     let sx = 1;
     let sy = 1;
     let sz = 1;
-    let world = geist_world::World::new(1, 1, sx, sy, sz, 6, WorldGenMode::Flat { thickness: 0 });
+    let world = geist_world::World::new(1, 1, 1, 6, WorldGenMode::Flat { thickness: 0 });
     let air_id = reg.id_by_name("air").unwrap();
     let buf = make_chunk_buf_with(&reg, 0, 0, sx, sy, sz, &|_, _, _| Block {
         id: air_id,
@@ -1061,7 +1061,7 @@ fn sample_face_local_s2_uses_neighbor_micro_planes() {
     let sx = 1;
     let sy = 1;
     let sz = 1;
-    let world = geist_world::World::new(2, 1, sx, sy, sz, 9, WorldGenMode::Flat { thickness: 0 });
+    let world = geist_world::World::new(2, 1, 1, 9, WorldGenMode::Flat { thickness: 0 });
     let air_id = reg.id_by_name("air").unwrap();
     let stone_id = reg.id_by_name("stone").unwrap();
 
@@ -1137,7 +1137,7 @@ fn sample_face_local_s2_uses_neighbor_micro_planes_z() {
     let sx = 1;
     let sy = 1;
     let sz = 1;
-    let world = geist_world::World::new(1, 2, sx, sy, sz, 12, WorldGenMode::Flat { thickness: 0 });
+    let world = geist_world::World::new(1, 1, 2, 12, WorldGenMode::Flat { thickness: 0 });
     let air_id = reg.id_by_name("air").unwrap();
     let stone_id = reg.id_by_name("stone").unwrap();
     // Compute neighbor (0,1) first so its micro planes are available

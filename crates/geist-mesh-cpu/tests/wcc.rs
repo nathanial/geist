@@ -144,7 +144,7 @@ fn parity_area_random_full_cubes_s1() {
     let store = LightingStore::new(sx, sy, sz);
     let light = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
     // Minimal world; neighbors disabled so seam logic does not run
-    let world = World::new(1, 1, sx, sy, sz, 0, WorldGenMode::Flat { thickness: 0 });
+    let world = World::new(1, 1, 1, 0, WorldGenMode::Flat { thickness: 0 });
     let mut wm = ParityMesher::new(&buf, &reg, 1, 0, 0, &world, None);
     wm.build_occupancy();
     wm.compute_parity_and_materials();
@@ -202,7 +202,7 @@ fn seam_stitch_no_faces_on_shared_plane_s1() {
     let store = LightingStore::new(sx, sy, sz);
     let light_a = LightGrid::compute_with_borders_buf(&buf_a, &store, &reg);
     let light_b = LightGrid::compute_with_borders_buf(&buf_b, &store, &reg);
-    let world = World::new(2, 1, sx, sy, sz, 0, WorldGenMode::Flat { thickness: 0 });
+    let world = World::new(2, 1, 1, 0, WorldGenMode::Flat { thickness: 0 });
     // Indicate neighbor presence along X so stitch logic is active
     let mut wa = ParityMesher::new(&buf_a, &reg, 1, 0, 0, &world, None);
     let mut wb = ParityMesher::new(&buf_b, &reg, 1, sx as i32, 0, &world, None);
@@ -302,7 +302,7 @@ fn per_face_quads_triangle_count_on_slab() {
     let buf = make_buf(0, 0, sx, sy, sz, blocks.clone());
     let store = LightingStore::new(sx, sy, sz);
     let light = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
-    let world = World::new(1, 1, sx, sy, sz, 0, WorldGenMode::Flat { thickness: 0 });
+    let world = World::new(1, 1, 1, 0, WorldGenMode::Flat { thickness: 0 });
     let mut wm = ParityMesher::new(&buf, &reg, 1, 0, 0, &world, None);
     wm.build_occupancy();
     wm.compute_parity_and_materials();
