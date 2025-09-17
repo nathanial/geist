@@ -78,6 +78,80 @@ impl App {
         }
     }
 
+    fn prepare_chunk_for_edit(&mut self, coord: ChunkCoord) {
+        self.gs.chunks.mark_loading(coord);
+
+        // Recompute negative-owner readiness from available data so finalize scheduling remains accurate.
+        let nb = self.gs.lighting.get_neighbor_borders(coord);
+        let mut owner_neg_x_ready = nb.xn.is_some();
+        let mut owner_neg_y_ready = nb.yn.is_some();
+        let mut owner_neg_z_ready = nb.zn.is_some();
+        let neg_neighbors = [(-1, 0, 0), (0, -1, 0), (0, 0, -1)];
+        for &(dx, dy, dz) in &neg_neighbors {
+            let ncoord = coord.offset(dx, dy, dz);
+            let empty_neighbor = self
+                .gs
+                .chunks
+                .get(&ncoord)
+                .map(|entry| entry.occupancy_or_empty().is_empty())
+                .unwrap_or(false);
+            let finalized_neighbor = self
+                .gs
+                .finalize
+                .get(&ncoord)
+                .map(|state| state.finalized)
+                .unwrap_or(false);
+            if empty_neighbor || finalized_neighbor {
+                match (dx, dy, dz) {
+                    (-1, 0, 0) => owner_neg_x_ready = true,
+                    (0, -1, 0) => owner_neg_y_ready = true,
+                    (0, 0, -1) => owner_neg_z_ready = true,
+                    _ => {}
+                }
+            }
+        }
+
+        {
+            let st = self
+                .gs
+                .finalize
+                .entry(coord)
+                .or_insert_with(FinalizeState::default);
+            st.owner_neg_x_ready = owner_neg_x_ready;
+            st.owner_neg_y_ready = owner_neg_y_ready;
+            st.owner_neg_z_ready = owner_neg_z_ready;
+            st.finalize_requested = false;
+            st.finalized = false;
+        }
+
+        // Invalidate positive-owner readiness on neighbors that previously counted on this chunk being empty.
+        let pos_neighbors = [(1, 0, 0), (0, 1, 0), (0, 0, 1)];
+        for &(dx, dy, dz) in &pos_neighbors {
+            let ncoord = coord.offset(dx, dy, dz);
+            if let Some(nstate) = self.gs.finalize.get_mut(&ncoord) {
+                let neighbor_has_blocks = self
+                    .gs
+                    .chunks
+                    .get(&ncoord)
+                    .map(|entry| entry.occupancy_or_empty().has_blocks())
+                    .unwrap_or(true);
+                if !neighbor_has_blocks {
+                    continue;
+                }
+                match (dx, dy, dz) {
+                    (1, 0, 0) => nstate.owner_neg_x_ready = false,
+                    (0, 1, 0) => nstate.owner_neg_y_ready = false,
+                    (0, 0, 1) => nstate.owner_neg_z_ready = false,
+                    _ => {}
+                }
+                nstate.finalize_requested = false;
+                nstate.finalized = false;
+            }
+        }
+
+        self.record_intent(coord, IntentCause::Edit);
+    }
+
     fn structure_block_solid_at_local(
         reg: &BlockRegistry,
         st: &Structure,
@@ -1091,6 +1165,8 @@ impl App {
                             .entry(coord)
                             .or_default()
                             .push_back(Instant::now());
+                    } else {
+                        self.prepare_chunk_for_edit(coord);
                     }
                 }
             }
@@ -1138,6 +1214,8 @@ impl App {
                             cz: coord.cz,
                             cause: RebuildCause::Edit,
                         });
+                    } else {
+                        self.prepare_chunk_for_edit(coord);
                     }
                 }
             }

@@ -465,7 +465,7 @@ impl World {
             return RtBlock { id, state: 0 };
         }
 
-        // Giant tower that reaches thousands of blocks high (bounded by world height).
+        // Giant tower that reaches thousands of blocks high (independent of the height hint).
         let tower_center_x = (self.world_size_x() as i32) / 2;
         let tower_center_z = (self.world_size_z() as i32) / 2;
         let dx = x - tower_center_x;
@@ -476,7 +476,7 @@ impl World {
         let outer_sq = (TOWER_OUTER_RADIUS as i64).pow(2);
         let inner_sq = (TOWER_INNER_RADIUS as i64).pow(2);
         if dist2 <= outer_sq {
-            let tower_top = world_height.min(4096);
+            let tower_top = 4096;
             if y < tower_top {
                 if dist2 <= inner_sq {
                     if y % 32 == 0 {
