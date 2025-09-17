@@ -398,6 +398,37 @@ impl LightGrid {
                 }
             }
         }
+        if let Some(ref plane) = nb.yn {
+            for z in 0..sz {
+                for x in 0..sx {
+                    let v = plane[z * sx + x] as i32 - atten;
+                    if v > 0 {
+                        let v8 = v as u8;
+                        let idx = lg.idx(x, 0, z);
+                        if lg.block_light[idx] < v8 {
+                            lg.block_light[idx] = v8;
+                            q.push_back((x, 0, z, v8, 32));
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(ref plane) = nb.yp {
+            for z in 0..sz {
+                for x in 0..sx {
+                    let v = plane[z * sx + x] as i32 - atten;
+                    if v > 0 {
+                        let v8 = v as u8;
+                        let yy = sy - 1;
+                        let idx = lg.idx(x, yy, z);
+                        if lg.block_light[idx] < v8 {
+                            lg.block_light[idx] = v8;
+                            q.push_back((x, yy, z, v8, 32));
+                        }
+                    }
+                }
+            }
+        }
         // Beacon from neighbors (respect direction planes)
         if let Some(ref plane) = nb.bcn_xn {
             for z in 0..sz {
@@ -493,6 +524,39 @@ impl LightGrid {
                 }
             }
         }
+        if let Some(ref plane) = nb.bcn_yn {
+            for z in 0..sz {
+                for x in 0..sx {
+                    let v = plane[z * sx + x] as i32 - 32;
+                    if v > 0 {
+                        let v8 = v as u8;
+                        let idx = lg.idx(x, 0, z);
+                        if lg.beacon_light[idx] < v8 {
+                            lg.beacon_light[idx] = v8;
+                            lg.beacon_dir[idx] = 5;
+                            q_beacon.push_back((x, 0, z, v8, 5, 1, 32, 32));
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(ref plane) = nb.bcn_yp {
+            for z in 0..sz {
+                for x in 0..sx {
+                    let v = plane[z * sx + x] as i32 - 32;
+                    if v > 0 {
+                        let v8 = v as u8;
+                        let yy = sy - 1;
+                        let idx = lg.idx(x, yy, z);
+                        if lg.beacon_light[idx] < v8 {
+                            lg.beacon_light[idx] = v8;
+                            lg.beacon_dir[idx] = 5;
+                            q_beacon.push_back((x, yy, z, v8, 5, 1, 32, 32));
+                        }
+                    }
+                }
+            }
+        }
         // Skylight neighbors
         if let Some(ref plane) = nb.sk_xn {
             for z in 0..sz {
@@ -551,6 +615,37 @@ impl LightGrid {
                         if lg.skylight[idx] < v8 {
                             lg.skylight[idx] = v8;
                             q_sky.push_back((x, y, zz, v8));
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(ref plane) = nb.sk_yn {
+            for z in 0..sz {
+                for x in 0..sx {
+                    let v = plane[z * sx + x] as i32 - atten;
+                    if v > 0 {
+                        let v8 = v as u8;
+                        let idx = lg.idx(x, 0, z);
+                        if lg.skylight[idx] < v8 {
+                            lg.skylight[idx] = v8;
+                            q_sky.push_back((x, 0, z, v8));
+                        }
+                    }
+                }
+            }
+        }
+        if let Some(ref plane) = nb.sk_yp {
+            for z in 0..sz {
+                for x in 0..sx {
+                    let v = plane[z * sx + x] as i32 - atten;
+                    if v > 0 {
+                        let v8 = v as u8;
+                        let yy = sy - 1;
+                        let idx = lg.idx(x, yy, z);
+                        if lg.skylight[idx] < v8 {
+                            lg.skylight[idx] = v8;
+                            q_sky.push_back((x, yy, z, v8));
                         }
                     }
                 }

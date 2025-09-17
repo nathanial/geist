@@ -299,8 +299,17 @@ pub fn compute_light_with_borders_buf_micro(
         || nbm.zm_sk_pos.is_some()
         || plane_nonzero(&nb.zp)
         || plane_nonzero(&nb.sk_zp);
+    let use_yn = nbm.ym_bl_neg.is_some()
+        || nbm.ym_sk_neg.is_some()
+        || plane_nonzero(&nb.yn)
+        || plane_nonzero(&nb.sk_yn);
+    let use_yp = nbm.ym_bl_pos.is_some()
+        || nbm.ym_sk_pos.is_some()
+        || plane_nonzero(&nb.yp)
+        || plane_nonzero(&nb.sk_yp);
     let atten: u8 = COARSE_SEAM_ATTENUATION;
     let base_x = buf.coord.cx * buf.sx as i32;
+    let base_y = buf.coord.cy * buf.sy as i32;
     let base_z = buf.coord.cz * buf.sz as i32;
     // Block light neighbors
     // Skylight neighbors: handled together with block after the coarse fallback expansion
@@ -801,6 +810,251 @@ pub fn compute_light_with_borders_buf_micro(
                             micro_sky[i] = seed_sky_pz;
                             q_sky.push_idx(i, seed_sky_pz);
                             let mi = (ly * buf.sz + (buf.sz - 1)) * buf.sx + lx;
+                            bs_set(&mut macro_touched, mi);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Y seams (block + sky)
+    for lx in 0..buf.sx {
+        for lz in 0..buf.sz {
+            if !(use_yn || use_yp) {
+                continue;
+            }
+            let here_ny = buf.get_local(lx, 0, lz);
+            let here_py = buf.get_local(lx, buf.sy - 1, lz);
+            let have_micro_ny = nbm.ym_bl_neg.is_some() || nbm.ym_sk_neg.is_some();
+            let have_micro_py = nbm.ym_bl_pos.is_some() || nbm.ym_sk_pos.is_some();
+            let mut mic_column_ny = false;
+            if have_micro_ny {
+                for ixm in 0..2 {
+                    for izm in 0..2 {
+                        let mx = (lx << 1) | ixm;
+                        let mz = (lz << 1) | izm;
+                        let off = mz * mxs + mx;
+                        let sblk = nbm
+                            .ym_bl_neg
+                            .as_ref()
+                            .map(|p| clamp_sub_u8(p[off], MICRO_BLOCK_ATTENUATION))
+                            .unwrap_or(0);
+                        let ssky = nbm
+                            .ym_sk_neg
+                            .as_ref()
+                            .map(|p| clamp_sub_u8(p[off], MICRO_SKY_ATTENUATION))
+                            .unwrap_or(0);
+                        if sblk > 0 || ssky > 0 {
+                            mic_column_ny = true;
+                            break;
+                        }
+                    }
+                    if mic_column_ny {
+                        break;
+                    }
+                }
+            }
+            let mut mic_column_py = false;
+            if have_micro_py {
+                for ixm in 0..2 {
+                    for izm in 0..2 {
+                        let mx = (lx << 1) | ixm;
+                        let mz = (lz << 1) | izm;
+                        let off = mz * mxs + mx;
+                        let sblk = nbm
+                            .ym_bl_pos
+                            .as_ref()
+                            .map(|p| clamp_sub_u8(p[off], MICRO_BLOCK_ATTENUATION))
+                            .unwrap_or(0);
+                        let ssky = nbm
+                            .ym_sk_pos
+                            .as_ref()
+                            .map(|p| clamp_sub_u8(p[off], MICRO_SKY_ATTENUATION))
+                            .unwrap_or(0);
+                        if sblk > 0 || ssky > 0 {
+                            mic_column_py = true;
+                            break;
+                        }
+                    }
+                    if mic_column_py {
+                        break;
+                    }
+                }
+            }
+            let mut coarse_yn = false;
+            if let Some(ref p) = nb.yn {
+                coarse_yn |= clamp_sub_u8(p[lz * buf.sx + lx], atten) > 0;
+            }
+            if let Some(ref p) = nb.sk_yn {
+                coarse_yn |= clamp_sub_u8(p[lz * buf.sx + lx], atten) > 0;
+            }
+            let mut coarse_yp = false;
+            if let Some(ref p) = nb.yp {
+                coarse_yp |= clamp_sub_u8(p[lz * buf.sx + lx], atten) > 0;
+            }
+            if let Some(ref p) = nb.sk_yp {
+                coarse_yp |= clamp_sub_u8(p[lz * buf.sx + lx], atten) > 0;
+            }
+            let mut do_yn = mic_column_ny || coarse_yn;
+            let mut do_yp = mic_column_py || coarse_yp;
+            if !do_yn && !do_yp {
+                continue;
+            }
+            let (there_ny, there_py) = if (!have_micro_ny && do_yn) || (!have_micro_py && do_yp) {
+                (
+                    world.block_at_runtime_with(
+                        reg,
+                        &mut reuse_ctx,
+                        base_x + lx as i32,
+                        base_y - 1,
+                        base_z + lz as i32,
+                    ),
+                    world.block_at_runtime_with(
+                        reg,
+                        &mut reuse_ctx,
+                        base_x + lx as i32,
+                        base_y + buf.sy as i32,
+                        base_z + lz as i32,
+                    ),
+                )
+            } else {
+                (here_ny, here_py)
+            };
+            let mut gate_ny = [[false; 2]; 2];
+            let mut gate_py = [[false; 2]; 2];
+            for ixm in 0..2 {
+                for izm in 0..2 {
+                    gate_ny[ixm][izm] = if do_yn && have_micro_ny {
+                        let mx = (lx << 1) | ixm;
+                        let mz = (lz << 1) | izm;
+                        !bs_get(&micro_solid_bits, midx(mx, 0, mz, mxs, mzs))
+                    } else if do_yn {
+                        micro_face_cell_open_s2(reg, here_ny, there_ny, 1, ixm, izm)
+                    } else {
+                        false
+                    };
+                    gate_py[ixm][izm] = if do_yp && have_micro_py {
+                        let mx = (lx << 1) | ixm;
+                        let mz = (lz << 1) | izm;
+                        !bs_get(&micro_solid_bits, midx(mx, mys - 1, mz, mxs, mzs))
+                    } else if do_yp {
+                        micro_face_cell_open_s2(reg, here_py, there_py, 0, ixm, izm)
+                    } else {
+                        false
+                    };
+                }
+            }
+            if do_yn {
+                let mut any = false;
+                for ixm in 0..2 {
+                    for izm in 0..2 {
+                        any |= gate_ny[ixm][izm];
+                    }
+                }
+                if !any {
+                    do_yn = false;
+                }
+            }
+            if do_yp {
+                let mut any = false;
+                for ixm in 0..2 {
+                    for izm in 0..2 {
+                        any |= gate_py[ixm][izm];
+                    }
+                }
+                if !any {
+                    do_yp = false;
+                }
+            }
+            if !do_yn && !do_yp {
+                continue;
+            }
+            for ixm in 0..2 {
+                for izm in 0..2 {
+                    let mx = (lx << 1) | ixm;
+                    let mz = (lz << 1) | izm;
+                    // -Y
+                    let seed_blk_ny = nbm
+                        .ym_bl_neg
+                        .as_ref()
+                        .map(|p| clamp_sub_u8(p[mz * mxs + mx], MICRO_BLOCK_ATTENUATION))
+                        .unwrap_or_else(|| {
+                            nb.yn
+                                .as_ref()
+                                .map(|p| clamp_sub_u8(p[lz * buf.sx + lx], atten))
+                                .unwrap_or(0)
+                        });
+                    let seed_sky_ny = nbm
+                        .ym_sk_neg
+                        .as_ref()
+                        .map(|p| clamp_sub_u8(p[mz * mxs + mx], MICRO_SKY_ATTENUATION))
+                        .unwrap_or_else(|| {
+                            nb.sk_yn
+                                .as_ref()
+                                .map(|p| clamp_sub_u8(p[lz * buf.sx + lx], atten))
+                                .unwrap_or(0)
+                        });
+                    if do_yn && (seed_blk_ny > 0 || seed_sky_ny > 0) && gate_ny[ixm][izm] {
+                        let i = midx(mx, 0, mz, mxs, mzs);
+                        if seed_blk_ny > 0
+                            && !bs_get(&micro_solid_bits, midx(mx, 0, mz, mxs, mzs))
+                            && micro_blk[i] < seed_blk_ny
+                        {
+                            micro_blk[i] = seed_blk_ny;
+                            q_blk.push_idx(i, seed_blk_ny);
+                            let mi = (0 * buf.sz + lz) * buf.sx + lx;
+                            bs_set(&mut macro_touched, mi);
+                        }
+                        if seed_sky_ny > 0
+                            && !bs_get(&micro_solid_bits, midx(mx, 0, mz, mxs, mzs))
+                            && micro_sky[i] < seed_sky_ny
+                        {
+                            micro_sky[i] = seed_sky_ny;
+                            q_sky.push_idx(i, seed_sky_ny);
+                            let mi = (0 * buf.sz + lz) * buf.sx + lx;
+                            bs_set(&mut macro_touched, mi);
+                        }
+                    }
+                    // +Y
+                    let seed_blk_py = nbm
+                        .ym_bl_pos
+                        .as_ref()
+                        .map(|p| clamp_sub_u8(p[mz * mxs + mx], MICRO_BLOCK_ATTENUATION))
+                        .unwrap_or_else(|| {
+                            nb.yp
+                                .as_ref()
+                                .map(|p| clamp_sub_u8(p[lz * buf.sx + lx], atten))
+                                .unwrap_or(0)
+                        });
+                    let seed_sky_py = nbm
+                        .ym_sk_pos
+                        .as_ref()
+                        .map(|p| clamp_sub_u8(p[mz * mxs + mx], MICRO_SKY_ATTENUATION))
+                        .unwrap_or_else(|| {
+                            nb.sk_yp
+                                .as_ref()
+                                .map(|p| clamp_sub_u8(p[lz * buf.sx + lx], atten))
+                                .unwrap_or(0)
+                        });
+                    if do_yp && (seed_blk_py > 0 || seed_sky_py > 0) && gate_py[ixm][izm] {
+                        let i = midx(mx, mys - 1, mz, mxs, mzs);
+                        if seed_blk_py > 0
+                            && !bs_get(&micro_solid_bits, midx(mx, mys - 1, mz, mxs, mzs))
+                            && micro_blk[i] < seed_blk_py
+                        {
+                            micro_blk[i] = seed_blk_py;
+                            q_blk.push_idx(i, seed_blk_py);
+                            let mi = ((buf.sy - 1) * buf.sz + lz) * buf.sx + lx;
+                            bs_set(&mut macro_touched, mi);
+                        }
+                        if seed_sky_py > 0
+                            && !bs_get(&micro_solid_bits, midx(mx, mys - 1, mz, mxs, mzs))
+                            && micro_sky[i] < seed_sky_py
+                        {
+                            micro_sky[i] = seed_sky_py;
+                            q_sky.push_idx(i, seed_sky_py);
+                            let mi = ((buf.sy - 1) * buf.sz + lz) * buf.sx + lx;
                             bs_set(&mut macro_touched, mi);
                         }
                     }

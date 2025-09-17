@@ -457,6 +457,64 @@ fn compute_with_borders_buf_micro_neighbors_take_precedence() {
 }
 
 #[test]
+fn compute_light_with_borders_buf_vertical_neighbor_seeding() {
+    let reg = make_test_registry();
+    let sx = 2;
+    let sy = 2;
+    let sz = 2;
+    let world = geist_world::World::new(1, 1, 1, 9, WorldGenMode::Flat { thickness: 0 });
+    let air_id = reg.id_by_name("air").unwrap();
+    let buf = make_chunk_buf_with(&reg, 0, 0, sx, sy, sz, &|_, _, _| Block {
+        id: air_id,
+        state: 0,
+    });
+
+    let store = LightingStore::new(sx, sy, sz);
+    let mut below = LightBorders::new(sx, sy, sz);
+    below.yp = vec![200; sx * sz].into();
+    store.update_borders(ChunkCoord::new(0, -1, 0), below);
+    let mut above = LightBorders::new(sx, sy, sz);
+    above.yn = vec![180; sx * sz].into();
+    store.update_borders(ChunkCoord::new(0, 1, 0), above);
+
+    let lg = super::compute_light_with_borders_buf(&buf, &store, &reg, &world);
+    for z in 0..sz {
+        for x in 0..sx {
+            assert_eq!(lg.block_light[lg.idx(x, 0, z)], 168);
+            assert_eq!(lg.block_light[lg.idx(x, sy - 1, z)], 148);
+        }
+    }
+}
+
+#[test]
+fn lightgrid_compute_with_borders_buf_vertical_neighbor_seeding() {
+    let reg = make_test_registry();
+    let sx = 2;
+    let sy = 2;
+    let sz = 2;
+    let store = LightingStore::new(sx, sy, sz);
+    let air_id = reg.id_by_name("air").unwrap();
+    let buf = make_chunk_buf_with(&reg, 0, 0, sx, sy, sz, &|_, _, _| Block {
+        id: air_id,
+        state: 0,
+    });
+    let mut below = LightBorders::new(sx, sy, sz);
+    below.yp = vec![200; sx * sz].into();
+    store.update_borders(ChunkCoord::new(0, -1, 0), below);
+    let mut above = LightBorders::new(sx, sy, sz);
+    above.yn = vec![180; sx * sz].into();
+    store.update_borders(ChunkCoord::new(0, 1, 0), above);
+
+    let lg = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
+    for z in 0..sz {
+        for x in 0..sx {
+            assert_eq!(lg.block_light[lg.idx(x, 0, z)], 168);
+            assert_eq!(lg.block_light[lg.idx(x, sy - 1, z)], 148);
+        }
+    }
+}
+
+#[test]
 fn vertical_neighbor_planes_map_to_lower_chunk() {
     let sx = 2usize;
     let sy = 2usize;
