@@ -61,3 +61,13 @@
 1. Implement Phase 0 audit: produce a checklist of `chunks_y` usages and current dense-array owners.
 2. Prototype a sparse `LightingStore` behind a feature flag to validate API changes before touching every subsystem.
 3. Decide on eviction heuristics (distance-based vs. LRU) so later phases can build against a concrete policy.
+
+## Phase 0 Findings
+- **Configuration & World Metadata:** `src/main.rs:64-135` still exposes `--chunks-y` and forwards the value into `World::new`, so the world stack remains bounded by the hint supplied on the CLI. `crates/geist-world/src/voxel.rs:203-257` stores `chunks_y` and derives `world_size_y()`, and terrain sampling clamps `y` into `[0, world_height)` (`crates/geist-world/src/voxel.rs:409-512`).
+- **Rendering & UI:** Camera spawn logic and debug overlays depend on finite world height via `world.world_size_y()` (`src/app/init.rs:20-66`, `src/app/render.rs:143-159`, `src/app/render.rs:529-566`).
+- **Runtime Finalization:** Neighbor readiness flags assume vertical owners exist inside the current stack (`src/gamestate.rs:12-53`, `src/app/runtime.rs:175-208`, `src/app/events.rs:399-699`).
+- **Streaming Scheduler:** View-radius updates build spherical load sets but still gate intent queues with finite vertical shells (`src/app/events.rs:314-546`, `src/app/runtime.rs:180-220`).
+- **Lighting & Edits:** Lighting borders are fetched from neighboring chunks stored in hash maps keyed by `(cx, cy, cz)` and expect contiguous availability for seam propagation (`crates/geist-lighting/src/lib.rs:1480-1660`), while the edit store tracks revisions per chunk coordinate and bumps neighbor slices on border hits (`crates/geist-edit/src/lib.rs:8-215`).
+
+### Instrumentation Added
+- Debug overlay now reports loaded vs active chunk counts, unique axis coverage, renderer cache size, and store residency metrics for lighting and edits (`src/app/state.rs:60-86`, `src/app/render.rs:21-156`).

@@ -43,7 +43,7 @@ impl App {
         } else {
             Vector3::new(
                 (world.world_size_x() as f32) * 0.5,
-                (world.world_size_y() as f32) * 0.8,
+                (world.world_height_hint() as f32) * 0.8,
                 (world.world_size_z() as f32) * 0.5,
             )
         };
@@ -295,7 +295,7 @@ impl App {
 
                                 // Helper: find terrain surface y given a world (x,z).
                                 let find_surface_y = |wx: i32, wz: i32| -> i32 {
-                                    let mut y = world.world_size_y() as i32 - 2;
+                                    let mut y = world.world_height_hint() as i32 - 2;
                                     while y >= 1 {
                                         let b = world.block_at_runtime(&reg, wx, y, wz);
                                         if reg
@@ -304,7 +304,7 @@ impl App {
                                             .unwrap_or(false)
                                         {
                                             return (y + 1)
-                                                .clamp(1, world.world_size_y() as i32 - 1);
+                                                .clamp(1, world.world_height_hint() as i32 - 1);
                                         }
                                         y -= 1;
                                     }
@@ -327,7 +327,7 @@ impl App {
                                         wy = wy.max(find_surface_y(cx, cz));
                                     }
                                     // Clamp so the schematic fits vertically within world bounds.
-                                    let world_y_top = world.world_size_y() as i32 - 2;
+                                    let world_y_top = world.world_height_hint() as i32 - 2;
                                     let wy = wy.min(world_y_top);
 
                                     match geist_io::load_any_schematic_apply_edits(

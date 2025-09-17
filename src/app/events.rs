@@ -1005,10 +1005,8 @@ impl App {
                         let wx = hit.px;
                         let wy = hit.py;
                         let wz = hit.pz;
-                        if wy >= 0 && wy < self.gs.world.world_height() as i32 {
-                            self.queue
-                                .emit_now(Event::BlockPlaced { wx, wy, wz, block });
-                        }
+                        self.queue
+                            .emit_now(Event::BlockPlaced { wx, wy, wz, block });
                     } else {
                         let wx = hit.bx;
                         let wy = hit.by;

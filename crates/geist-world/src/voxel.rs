@@ -201,7 +201,7 @@ pub struct World {
     pub chunk_size_y: usize,
     pub chunk_size_z: usize,
     pub chunks_x: usize,
-    pub chunks_y: usize,
+    pub chunks_y_hint: usize,
     pub chunks_z: usize,
     pub seed: i32,
     pub mode: WorldGenMode,
@@ -220,7 +220,7 @@ pub enum WorldGenMode {
 impl World {
     pub fn new(
         chunks_x: usize,
-        chunks_y: usize,
+        chunks_y_hint: usize,
         chunks_z: usize,
         seed: i32,
         mode: WorldGenMode,
@@ -230,7 +230,7 @@ impl World {
             chunk_size_y: CHUNK_SIZE,
             chunk_size_z: CHUNK_SIZE,
             chunks_x,
-            chunks_y,
+            chunks_y_hint,
             chunks_z,
             seed,
             mode,
@@ -244,17 +244,18 @@ impl World {
         self.chunk_size_x * self.chunks_x
     }
     #[inline]
-    pub fn world_size_y(&self) -> usize {
-        self.chunk_size_y * self.chunks_y
-    }
-    #[inline]
     pub fn world_size_z(&self) -> usize {
         self.chunk_size_z * self.chunks_z
     }
 
     #[inline]
-    pub fn world_height(&self) -> usize {
-        self.world_size_y()
+    pub fn chunk_stack_hint(&self) -> usize {
+        self.chunks_y_hint
+    }
+
+    #[inline]
+    pub fn world_height_hint(&self) -> usize {
+        self.chunk_size_y * self.chunks_y_hint
     }
 }
 
@@ -406,9 +407,9 @@ impl World {
         z: i32,
     ) -> RtBlock {
         let air = self.air_block(reg);
-        let world_height = self.world_height() as i32;
+        let world_height = self.world_height_hint() as i32;
         let world_height_f = world_height as f32;
-        if y < 0 || y >= world_height {
+        if y < 0 {
             return air;
         }
         if let WorldGenMode::Showcase = self.mode {

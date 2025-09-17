@@ -4,6 +4,14 @@
 use geist_blocks::types::Block;
 use std::collections::HashMap;
 
+#[derive(Default, Debug, Clone, Copy)]
+pub struct EditStoreStats {
+    pub chunk_entries: usize,
+    pub block_edits: usize,
+    pub rev_entries: usize,
+    pub built_entries: usize,
+}
+
 /// Chunk-aware persistent edit store with simple change tracking.
 pub struct EditStore {
     sx: i32,
@@ -27,6 +35,19 @@ impl EditStore {
             rev: HashMap::new(),
             built: HashMap::new(),
             counter: 0,
+        }
+    }
+
+    pub fn stats(&self) -> EditStoreStats {
+        let chunk_entries = self.inner.len();
+        let block_edits = self.inner.values().map(|m| m.len()).sum();
+        let rev_entries = self.rev.len();
+        let built_entries = self.built.len();
+        EditStoreStats {
+            chunk_entries,
+            block_edits,
+            rev_entries,
+            built_entries,
         }
     }
 

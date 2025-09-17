@@ -30,7 +30,7 @@ The app now uses subcommands via Clap.
   - `--world <normal|flat|schem-only>`: World preset (default: `normal`).
   - `--flat-thickness <N>`: Thickness for `--world flat` (default: 1).
   - `--seed <N>`: World seed (default: 1337).
-  - `--chunks-x <N>`, `--chunks-y <N>`, `--chunks-z <N>`: Chunk grid dimensions (default stack: 4x8x4). World height = `chunks_y * 32` voxels.
+  - `--chunks-x <N>`, `--chunks-y-hint <N>` (alias `--chunks-y`), `--chunks-z <N>`: Chunk grid sizing hints (default stack: 4×8×4). The Y hint seeds initial streaming; chunks now load vertically on demand.
 
 - `schem report [SCHEM_PATH]`: analyze a schematic file.
   - `--counts`: Show counts per block id instead of unsupported list.
@@ -48,8 +48,8 @@ cargo run -- run --world flat
 # Schematic-only (no terrain)
 cargo run -- run --world schem-only
 
-# Taller stack and custom seed
-cargo run -- run --seed 42 --chunks-x 6 --chunks-y 10 --chunks-z 6
+# Taller vertical hint and custom seed
+cargo run -- run --seed 42 --chunks-x 6 --chunks-y-hint 10 --chunks-z 6
 
 # Analyze a schematic (unsupported list)
 cargo run -- schem report schematics/castle.schem
@@ -86,7 +86,7 @@ Bedrock .mcworld
 Highlights
 
 - Multi‑chunk world (grid) with seamless noise generation.
-- Fixed 32x32x32 chunks stacked vertically; adjust `--chunks-y` to change world height.
+- Fixed 32×32×32 chunks; adjust `--chunks-y-hint` to guide initial vertical streaming (actual world height is now unbounded).
 - Per‑face meshing: one quad per boundary face cell for watertight output.
 - Per‑face textures for grass (top/side/bottom) with corrected side orientation.
 - Texture and worldgen config hot‑reload (see Assets).

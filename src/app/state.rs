@@ -68,6 +68,20 @@ pub struct DebugStats {
     pub queued_events_total: usize,
     pub queued_events_by: Vec<(String, usize)>,
     pub intents_size: usize,
+    pub loaded_chunks: usize,
+    pub chunk_resident_total: usize,
+    pub chunk_resident_nonempty: usize,
+    pub chunk_unique_cx: usize,
+    pub chunk_unique_cy: usize,
+    pub chunk_unique_cz: usize,
+    pub render_cache_chunks: usize,
+    pub lighting_border_chunks: usize,
+    pub lighting_emitter_chunks: usize,
+    pub lighting_micro_chunks: usize,
+    pub edit_chunk_entries: usize,
+    pub edit_block_edits: usize,
+    pub edit_rev_entries: usize,
+    pub edit_built_entries: usize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]

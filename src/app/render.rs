@@ -1,4 +1,5 @@
 use raylib::prelude::*;
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use super::{App, DebugStats};
@@ -21,6 +22,38 @@ impl App {
         self.debug_stats.queued_events_total = prev_q_total;
         self.debug_stats.queued_events_by = prev_q_by;
         self.debug_stats.intents_size = prev_intents;
+
+        // Snapshot current residency metrics for debug overlay
+        self.debug_stats.loaded_chunks = self.gs.loaded.len();
+        let mut unique_cx: HashSet<i32> = HashSet::new();
+        let mut unique_cy: HashSet<i32> = HashSet::new();
+        let mut unique_cz: HashSet<i32> = HashSet::new();
+        let mut nonempty = 0usize;
+        for (coord, entry) in self.gs.chunks.iter() {
+            unique_cx.insert(coord.cx);
+            unique_cy.insert(coord.cy);
+            unique_cz.insert(coord.cz);
+            if entry.occupancy.has_blocks() {
+                nonempty += 1;
+            }
+        }
+        self.debug_stats.chunk_resident_total = self.gs.chunks.len();
+        self.debug_stats.chunk_resident_nonempty = nonempty;
+        self.debug_stats.chunk_unique_cx = unique_cx.len();
+        self.debug_stats.chunk_unique_cy = unique_cy.len();
+        self.debug_stats.chunk_unique_cz = unique_cz.len();
+        self.debug_stats.render_cache_chunks = self.renders.len();
+
+        let light_stats = self.gs.lighting.stats();
+        self.debug_stats.lighting_border_chunks = light_stats.border_chunks;
+        self.debug_stats.lighting_emitter_chunks = light_stats.emitter_chunks;
+        self.debug_stats.lighting_micro_chunks = light_stats.micro_chunks;
+
+        let edit_stats = self.gs.edits.stats();
+        self.debug_stats.edit_chunk_entries = edit_stats.chunk_entries;
+        self.debug_stats.edit_block_edits = edit_stats.block_edits;
+        self.debug_stats.edit_rev_entries = edit_stats.rev_entries;
+        self.debug_stats.edit_built_entries = edit_stats.built_entries;
 
         // Calculate frustum for culling
         let screen_width = rl.get_screen_width() as f32;
@@ -111,7 +144,7 @@ impl App {
             let cave_fog = [0.0, 0.0, 0.0];
             // Underwater tint: soft blue-green
             let water_fog = [0.16, 0.32, 0.45];
-            let world_h = self.gs.world.world_size_y() as f32;
+            let world_h = self.gs.world.world_height_hint() as f32;
             let underground_thr = 0.30_f32 * world_h;
             let underground = self.cam.position.y < underground_thr;
             let fog_color = if underwater {
@@ -434,42 +467,39 @@ impl App {
             if let Some(hit) = raycast::raycast_first_hit_with_face(org, dir, 5.0, is_solid) {
                 // Outline only the struck face of the solid block (bx,by,bz)
                 let (bx, by, bz) = (hit.bx, hit.by, hit.bz);
-                let world_height = self.gs.world.world_height() as i32;
-                if by >= 0 && by < world_height {
-                    let (x0, y0, z0) = (bx as f32, by as f32, bz as f32);
-                    let (x1, y1, z1) = (x0 + 1.0, y0 + 1.0, z0 + 1.0);
-                    let eps = 0.002f32;
-                    if hit.nx != 0 {
-                        let xf = if hit.nx > 0 { x1 } else { x0 } + (hit.nx as f32) * eps;
-                        let p1 = Vector3::new(xf, y0, z0);
-                        let p2 = Vector3::new(xf, y1, z0);
-                        let p3 = Vector3::new(xf, y1, z1);
-                        let p4 = Vector3::new(xf, y0, z1);
-                        d3.draw_line_3D(p1, p2, Color::YELLOW);
-                        d3.draw_line_3D(p2, p3, Color::YELLOW);
-                        d3.draw_line_3D(p3, p4, Color::YELLOW);
-                        d3.draw_line_3D(p4, p1, Color::YELLOW);
-                    } else if hit.ny != 0 {
-                        let yf = if hit.ny > 0 { y1 } else { y0 } + (hit.ny as f32) * eps;
-                        let p1 = Vector3::new(x0, yf, z0);
-                        let p2 = Vector3::new(x1, yf, z0);
-                        let p3 = Vector3::new(x1, yf, z1);
-                        let p4 = Vector3::new(x0, yf, z1);
-                        d3.draw_line_3D(p1, p2, Color::YELLOW);
-                        d3.draw_line_3D(p2, p3, Color::YELLOW);
-                        d3.draw_line_3D(p3, p4, Color::YELLOW);
-                        d3.draw_line_3D(p4, p1, Color::YELLOW);
-                    } else if hit.nz != 0 {
-                        let zf = if hit.nz > 0 { z1 } else { z0 } + (hit.nz as f32) * eps;
-                        let p1 = Vector3::new(x0, y0, zf);
-                        let p2 = Vector3::new(x1, y0, zf);
-                        let p3 = Vector3::new(x1, y1, zf);
-                        let p4 = Vector3::new(x0, y1, zf);
-                        d3.draw_line_3D(p1, p2, Color::YELLOW);
-                        d3.draw_line_3D(p2, p3, Color::YELLOW);
-                        d3.draw_line_3D(p3, p4, Color::YELLOW);
-                        d3.draw_line_3D(p4, p1, Color::YELLOW);
-                    }
+                let (x0, y0, z0) = (bx as f32, by as f32, bz as f32);
+                let (x1, y1, z1) = (x0 + 1.0, y0 + 1.0, z0 + 1.0);
+                let eps = 0.002f32;
+                if hit.nx != 0 {
+                    let xf = if hit.nx > 0 { x1 } else { x0 } + (hit.nx as f32) * eps;
+                    let p1 = Vector3::new(xf, y0, z0);
+                    let p2 = Vector3::new(xf, y1, z0);
+                    let p3 = Vector3::new(xf, y1, z1);
+                    let p4 = Vector3::new(xf, y0, z1);
+                    d3.draw_line_3D(p1, p2, Color::YELLOW);
+                    d3.draw_line_3D(p2, p3, Color::YELLOW);
+                    d3.draw_line_3D(p3, p4, Color::YELLOW);
+                    d3.draw_line_3D(p4, p1, Color::YELLOW);
+                } else if hit.ny != 0 {
+                    let yf = if hit.ny > 0 { y1 } else { y0 } + (hit.ny as f32) * eps;
+                    let p1 = Vector3::new(x0, yf, z0);
+                    let p2 = Vector3::new(x1, yf, z0);
+                    let p3 = Vector3::new(x1, yf, z1);
+                    let p4 = Vector3::new(x0, yf, z1);
+                    d3.draw_line_3D(p1, p2, Color::YELLOW);
+                    d3.draw_line_3D(p2, p3, Color::YELLOW);
+                    d3.draw_line_3D(p3, p4, Color::YELLOW);
+                    d3.draw_line_3D(p4, p1, Color::YELLOW);
+                } else if hit.nz != 0 {
+                    let zf = if hit.nz > 0 { z1 } else { z0 } + (hit.nz as f32) * eps;
+                    let p1 = Vector3::new(x0, y0, zf);
+                    let p2 = Vector3::new(x1, y0, zf);
+                    let p3 = Vector3::new(x1, y1, zf);
+                    let p4 = Vector3::new(x0, y1, zf);
+                    d3.draw_line_3D(p1, p2, Color::YELLOW);
+                    d3.draw_line_3D(p2, p3, Color::YELLOW);
+                    d3.draw_line_3D(p3, p4, Color::YELLOW);
+                    d3.draw_line_3D(p4, p1, Color::YELLOW);
                 }
             }
 
@@ -517,10 +547,10 @@ impl App {
                 .map(|g| Arc::clone(&*g));
             if let Some(p) = params {
                 // Compute showcase row Y and Z
-                let mut row_y = (self.gs.world.world_height() as f32 * p.platform_y_ratio
+                let mut row_y = (self.gs.world.world_height_hint() as f32 * p.platform_y_ratio
                     + p.platform_y_offset)
                     .round() as i32;
-                row_y = row_y.clamp(1, self.gs.world.world_height() as i32 - 2);
+                row_y = row_y.clamp(1, self.gs.world.world_height_hint() as i32 - 2);
                 let cz = (self.gs.world.world_size_z() as i32) / 2;
                 if let Some(entries) = self.gs.world.showcase_entries(&self.reg) {
                     if !entries.is_empty() {
@@ -638,6 +668,41 @@ impl App {
             right_text.push_str(&format!("\n  Light - q={} inflight={}", q_l, if_l));
             right_text.push_str(&format!("\n  BG    - q={} inflight={}", q_b, if_b));
 
+            right_text.push_str("\nChunks:");
+            right_text.push_str(&format!(
+                "\n  Loaded={} active={} nonempty={}",
+                self.debug_stats.loaded_chunks,
+                self.debug_stats.chunk_resident_total,
+                self.debug_stats.chunk_resident_nonempty
+            ));
+            right_text.push_str(&format!(
+                "\n  Axes  x={} y={} z={}",
+                self.debug_stats.chunk_unique_cx,
+                self.debug_stats.chunk_unique_cy,
+                self.debug_stats.chunk_unique_cz
+            ));
+            right_text.push_str(&format!(
+                "\n  GPU renders={}",
+                self.debug_stats.render_cache_chunks
+            ));
+
+            right_text.push_str("\nLighting Store:");
+            right_text.push_str(&format!(
+                "\n  Borders={} Emitters={} Micro={}",
+                self.debug_stats.lighting_border_chunks,
+                self.debug_stats.lighting_emitter_chunks,
+                self.debug_stats.lighting_micro_chunks
+            ));
+
+            right_text.push_str("\nEdit Store:");
+            right_text.push_str(&format!(
+                "\n  Chunks={} Blocks={} Rev={} Built={}",
+                self.debug_stats.edit_chunk_entries,
+                self.debug_stats.edit_block_edits,
+                self.debug_stats.edit_rev_entries,
+                self.debug_stats.edit_built_entries
+            ));
+
             // Perf summary (rolling window average and p95)
             let stats = |q: &std::collections::VecDeque<u32>| -> (usize, u32, u32) {
                 let n = q.len();
@@ -685,6 +750,14 @@ impl App {
                 "  Edit  - q=1,000,000 inflight=1,000,000",
                 "  Light - q=1,000,000 inflight=1,000,000",
                 "  BG    - q=1,000,000 inflight=1,000,000",
+                "Chunks:",
+                "  Loaded=1,000,000 active=1,000,000 nonempty=1,000,000",
+                "  Axes  x=1,000,000 y=1,000,000 z=1,000,000",
+                "  GPU renders=1,000,000",
+                "Lighting Store:",
+                "  Borders=1,000,000 Emitters=1,000,000 Micro=1,000,000",
+                "Edit Store:",
+                "  Chunks=1,000,000 Blocks=1,000,000 Rev=1,000,000 Built=1,000,000",
                 "Perf (ms):",
                 "  Mesh   avg=9,999 p95=9,999 n=9,999",
                 "  Light  avg=9,999 p95=9,999 n=9,999",

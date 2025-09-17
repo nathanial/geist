@@ -64,9 +64,9 @@ struct RunArgs {
     #[arg(long, default_value_t = 4)]
     chunks_x: usize,
 
-    /// Number of chunks stacked vertically (world height = chunks_y × CHUNK_SIZE)
-    #[arg(long, default_value_t = 8)]
-    chunks_y: usize,
+    /// Hint for the number of vertical chunks to pre-stream near spawn (world height hint = chunks_y_hint × CHUNK_SIZE)
+    #[arg(long = "chunks-y-hint", alias = "chunks-y", default_value_t = 8)]
+    chunks_y_hint: usize,
     /// Number of chunks along Z
     #[arg(long, default_value_t = 4)]
     chunks_z: usize,
@@ -103,7 +103,7 @@ impl Default for RunArgs {
             flat_thickness: None,
             seed: 1337,
             chunks_x: 4,
-            chunks_y: 8,
+            chunks_y_hint: 8,
             chunks_z: 4,
             watch_textures: true,
             world_config: "assets/worldgen/worldgen.toml".to_string(),
@@ -288,10 +288,10 @@ fn run_app(run: RunArgs, assets_root: std::path::PathBuf) {
     rl.disable_cursor();
     // World + stores (configurable via CLI)
     let chunks_x = run.chunks_x;
-    let mut chunks_y = run.chunks_y;
-    if chunks_y == 0 {
-        log::warn!("--chunks-y must be at least 1; using 1 instead");
-        chunks_y = 1;
+    let mut chunks_y_hint = run.chunks_y_hint;
+    if chunks_y_hint == 0 {
+        log::warn!("--chunks-y-hint must be at least 1; using 1 instead");
+        chunks_y_hint = 1;
     }
     let chunks_z = run.chunks_z;
     let world_seed = run.seed;
@@ -304,7 +304,11 @@ fn run_app(run: RunArgs, assets_root: std::path::PathBuf) {
         WorldKind::Normal => WorldGenMode::Normal,
     };
     let world = Arc::new(World::new(
-        chunks_x, chunks_y, chunks_z, world_seed, world_mode,
+        chunks_x,
+        chunks_y_hint,
+        chunks_z,
+        world_seed,
+        world_mode,
     ));
     // Initial worldgen params load (optional)
     {
@@ -413,9 +417,9 @@ pub struct SnapArgs {
     #[arg(long, default_value_t = 4)]
     pub chunks_x: usize,
 
-    /// Number of chunks stacked vertically (world height = chunks_y × CHUNK_SIZE)
-    #[arg(long, default_value_t = 8)]
-    pub chunks_y: usize,
+    /// Hint for the number of vertical chunks to pre-stream
+    #[arg(long = "chunks-y-hint", alias = "chunks-y", default_value_t = 8)]
+    pub chunks_y_hint: usize,
 
     /// Number of chunks along Z
     #[arg(long, default_value_t = 4)]

@@ -1477,6 +1477,13 @@ pub enum LightingMode {
     FullMicro = 0,
 }
 
+#[derive(Default, Debug, Clone, Copy)]
+pub struct LightingStoreStats {
+    pub border_chunks: usize,
+    pub emitter_chunks: usize,
+    pub micro_chunks: usize,
+}
+
 pub struct LightingStore {
     sx: usize,
     sy: usize,
@@ -1527,6 +1534,16 @@ impl LightingStore {
     pub fn clear_all_borders(&self) {
         let mut m = self.borders.lock().unwrap();
         m.clear();
+    }
+    pub fn stats(&self) -> LightingStoreStats {
+        let borders = self.borders.lock().unwrap().len();
+        let emitters = self.emitters.lock().unwrap().len();
+        let micro = self.micro_borders.lock().unwrap().len();
+        LightingStoreStats {
+            border_chunks: borders,
+            emitter_chunks: emitters,
+            micro_chunks: micro,
+        }
     }
     pub fn get_neighbor_borders(&self, coord: ChunkCoord) -> NeighborBorders {
         let map = self.borders.lock().unwrap();
