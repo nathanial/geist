@@ -390,6 +390,7 @@ impl App {
             tex_cache,
             renders: HashMap::new(),
             structure_renders: HashMap::new(),
+            minimap_rt: None,
             reg: reg.clone(),
             evt_processed_total: 0,
             evt_processed_by: HashMap::new(),

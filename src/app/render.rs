@@ -53,6 +53,8 @@ impl App {
         ];
 
         let camera3d = self.cam.to_camera3d();
+        let minimap_side_px = App::minimap_side_px(self.gs.view_radius_chunks);
+        self.render_minimap_to_texture(rl, thread, minimap_side_px);
         let mut d = rl.begin_drawing(thread);
         // Skybox: clear background to time-of-day sky color
         d.clear_background(Color::new(
@@ -700,53 +702,37 @@ impl App {
             d.draw_text(&right_text, rx, ry, font_size, Color::WHITE);
             d.draw_text(&right_text, rx + 1, ry + 1, font_size, Color::BLACK);
 
-            // Minimap (bottom-right): show chunks in view radius and mesh counts
-            {
-                let r = self.gs.view_radius_chunks.max(0);
-                let w = r * 2 + 1;
-                let h = r * 2 + 1;
-                if w > 0 && h > 0 {
-                    let gap: i32 = 2;
-                    let pad: i32 = 6;
-                    // Pick a tile size that keeps minimap within ~3/4 screen in each dimension
-                    // Make tiles larger to fit mesh/light labels comfortably
-                    let max_tile: i32 = 32;
-                    let lim_w = (screen_width * 3) / 4;
-                    let lim_h = (screen_height * 3) / 4;
-                    let tile_w_fit = (lim_w - pad * 2 - (w - 1) * gap) / w;
-                    let tile_h_fit = (lim_h - pad * 2 - (h - 1) * gap) / h;
-                    let tile_fit = tile_w_fit.min(tile_h_fit);
-                    let mut tile = max_tile.min(tile_fit).max(8);
-                    // Ensure tile is large enough for label "mesh/light"
-                    // using a conservative width sample
-                    let fs_sample = 14;
-                    let label_req = d.measure_text("9999/9999", fs_sample) + 8; // text + small padding
-                    if label_req > tile {
-                        tile = label_req.min(tile_fit).max(8);
-                    }
-                    // Fallback if extreme aspect shrinks too far
-                    if tile < 6 {
-                        tile = 6;
-                    }
-                    let map_w: i32 = w * tile + (w - 1) * gap + pad * 2;
-                    let map_h: i32 = h * tile + (h - 1) * gap + pad * 2;
+            // Minimap (bottom-right): draw the 3D chunk sphere render texture
+            if minimap_side_px > 0 {
+                if let Some(ref minimap_rt) = self.minimap_rt {
+                    let pad: i32 = 8;
+                    let map_side = minimap_side_px;
+                    let map_w = map_side + pad * 2;
+                    let map_h = map_side + pad * 2;
                     let margin: i32 = 10;
-                    let scr_w: i32 = screen_width;
-                    let scr_h: i32 = screen_height;
-                    // Prefer to place just above the right overlay block; fallback to bottom-right
+                    let scr_w: i32 = screen_width as i32;
+                    let scr_h: i32 = screen_height as i32;
                     let mx = scr_w - map_w - margin;
                     let mut my = ry - map_h - 8; // 8px spacing above the right panel
                     if my < margin {
                         my = scr_h - map_h - margin;
                     }
-                    // Background panel
-                    d.draw_rectangle(mx, my, map_w, map_h, Color::new(0, 0, 0, 120));
-                    // Grid of chunks around center (x to the right, z downward)
-                    let center = self.gs.center_chunk;
-                    let ccx = center.cx;
-                    let ccy = center.cy;
-                    let ccz = center.cz;
-                    let label = format!("Slice cy {}", ccy);
+                    d.draw_rectangle(mx, my, map_w, map_h, Color::new(0, 0, 0, 150));
+                    d.draw_rectangle_lines(mx, my, map_w, map_h, Color::new(255, 255, 255, 40));
+                    let tex = minimap_rt.texture().clone();
+                    let src = Rectangle::new(0.0, 0.0, tex.width() as f32, -(tex.height() as f32));
+                    let dest = Rectangle::new(
+                        (mx + pad) as f32,
+                        (my + pad) as f32,
+                        map_side as f32,
+                        map_side as f32,
+                    );
+                    d.draw_texture_pro(tex, src, dest, Vector2::new(0.0, 0.0), 0.0, Color::WHITE);
+                    let label = format!(
+                        "Sphere r {} | Loaded {}",
+                        self.gs.view_radius_chunks,
+                        self.gs.loaded.len()
+                    );
                     let label_fs = 18;
                     let label_w = d.measure_text(&label, label_fs);
                     let mut label_x = mx + map_w - label_w - pad;
@@ -759,74 +745,6 @@ impl App {
                     }
                     d.draw_text(&label, label_x + 1, label_y + 1, label_fs, Color::BLACK);
                     d.draw_text(&label, label_x, label_y, label_fs, Color::WHITE);
-                    for dz in -r..=r {
-                        for dx in -r..=r {
-                            let cx = ccx + dx;
-                            let cz = ccz + dz;
-                            let ix = dx + r; // 0..w-1
-                            let iz = dz + r; // 0..h-1
-                            let cell_x = mx + pad + ix * (tile + gap);
-                            let cell_y = my + pad + iz * (tile + gap);
-                            let coord = ChunkCoord::new(cx, ccy, cz);
-                            let mesh_c = *self.gs.mesh_counts.get(&coord).unwrap_or(&0);
-                            let light_c = *self.gs.light_counts.get(&coord).unwrap_or(&0);
-                            // Fill color based on mesh count (simple green heat)
-                            let heat = mesh_c.min(12) as i32;
-                            let g = (40 + heat * 16).clamp(40, 255) as u8;
-                            let fill = if mesh_c == 0 {
-                                Color::new(60, 60, 60, 200)
-                            } else {
-                                Color::new(30, g, 50, 220)
-                            };
-                            d.draw_rectangle(cell_x, cell_y, tile, tile, fill);
-                            // Border: white for loaded chunks
-                            let border = if self.gs.loaded.contains(&coord) {
-                                Color::RAYWHITE
-                            } else {
-                                Color::new(180, 180, 180, 200)
-                            };
-                            d.draw_rectangle_lines(cell_x, cell_y, tile, tile, border);
-                            let stride = (tile / 6).max(1);
-                            if self.gs.loaded.contains(&coord.offset(0, 1, 0)) {
-                                d.draw_rectangle(
-                                    cell_x,
-                                    cell_y,
-                                    tile,
-                                    stride,
-                                    Color::new(64, 128, 255, 180),
-                                );
-                            }
-                            if self.gs.loaded.contains(&coord.offset(0, -1, 0)) {
-                                d.draw_rectangle(
-                                    cell_x,
-                                    cell_y + tile - stride,
-                                    tile,
-                                    stride,
-                                    Color::new(255, 140, 88, 180),
-                                );
-                            }
-                            // Count label: mesh/light
-                            let label = format!("{}/{}", mesh_c, light_c);
-                            // Pick a font size that fits inside the tile (width + height)
-                            let mut fs = 14;
-                            // bound by tile height too
-                            if fs > tile - 2 {
-                                fs = (tile - 2).max(8);
-                            }
-                            while fs > 8 && d.measure_text(&label, fs) > tile - 4 {
-                                fs -= 1;
-                            }
-                            let tw = d.measure_text(&label, fs);
-                            let tx = cell_x + tile / 2 - tw / 2;
-                            let ty = cell_y + tile / 2 - fs / 2;
-                            d.draw_text(&label, tx + 1, ty + 1, fs, Color::BLACK);
-                            d.draw_text(&label, tx, ty, fs, Color::WHITE);
-                        }
-                    }
-                    // Highlight current center chunk
-                    let hx = mx + pad + r * (tile + gap);
-                    let hy = my + pad + r * (tile + gap);
-                    d.draw_rectangle_lines(hx - 1, hy - 1, tile + 2, tile + 2, Color::YELLOW);
                 }
             }
         } // end debug overlay
@@ -1101,6 +1019,215 @@ impl App {
                 );
                 debug_y += 16;
             }
+        }
+    }
+}
+
+impl App {
+    fn minimap_side_px(view_radius_chunks: i32) -> i32 {
+        if view_radius_chunks < 0 {
+            return 0;
+        }
+        let radius = view_radius_chunks as f32;
+        let side = 220.0 + radius * 16.0;
+        side.clamp(180.0, 420.0) as i32
+    }
+
+    fn render_minimap_to_texture(
+        &mut self,
+        rl: &mut RaylibHandle,
+        thread: &RaylibThread,
+        side_px: i32,
+    ) {
+        if side_px <= 0 {
+            self.minimap_rt = None;
+            return;
+        }
+
+        let radius = self.gs.view_radius_chunks.max(0);
+        let center = self.gs.center_chunk;
+        let spacing = 1.15_f32;
+        let cube = 0.88_f32;
+        let radius_f = radius.max(1) as f32;
+
+        #[derive(Clone, Copy)]
+        struct MiniCell {
+            pos: Vector3,
+            color: Color,
+            border: Color,
+            has_above: bool,
+            has_below: bool,
+            is_center: bool,
+        }
+
+        let mut cells: Vec<MiniCell> = Vec::new();
+        let to_u8 = |v: f32| -> u8 { v.clamp(0.0, 255.0) as u8 };
+
+        for dy in -radius..=radius {
+            for dz in -radius..=radius {
+                for dx in -radius..=radius {
+                    let dist_sq = dx * dx + dy * dy + dz * dz;
+                    if dist_sq > radius * radius {
+                        continue;
+                    }
+                    let coord = center.offset(dx, dy, dz);
+                    let is_loaded = self.gs.loaded.contains(&coord);
+                    let mesh_c = *self.gs.mesh_counts.get(&coord).unwrap_or(&0);
+                    let light_c = *self.gs.light_counts.get(&coord).unwrap_or(&0);
+                    let mesh_heat = (mesh_c.min(16) as f32) / 16.0;
+                    let light_heat = (light_c.min(16) as f32) / 16.0;
+                    let dist_norm = if radius == 0 {
+                        0.0
+                    } else {
+                        (dist_sq as f32).sqrt() / radius_f
+                    };
+                    let mut r = 55.0 + 130.0 * light_heat;
+                    let mut g = 110.0 + 120.0 * mesh_heat;
+                    let mut b = 140.0 + 80.0 * (1.0 - mesh_heat);
+                    if dy > 0 {
+                        b += 45.0;
+                        g += 10.0;
+                    } else if dy < 0 {
+                        r += 50.0;
+                        g -= 15.0;
+                    }
+                    let fade = 0.4 + 0.6 * (1.0 - dist_norm * 0.7);
+                    r *= fade;
+                    g *= fade;
+                    b *= fade;
+                    let alpha = if is_loaded { 230.0 } else { 110.0 };
+                    if !is_loaded {
+                        r = 70.0;
+                        g = 70.0;
+                        b = 82.0;
+                    }
+                    let has_above = is_loaded && self.gs.loaded.contains(&coord.offset(0, 1, 0));
+                    let has_below = is_loaded && self.gs.loaded.contains(&coord.offset(0, -1, 0));
+                    let pos = Vector3::new(
+                        dx as f32 * spacing,
+                        dy as f32 * spacing,
+                        dz as f32 * spacing,
+                    );
+                    cells.push(MiniCell {
+                        pos,
+                        color: Color::new(to_u8(r), to_u8(g), to_u8(b), to_u8(alpha)),
+                        border: if is_loaded {
+                            Color::new(220, 220, 240, 160)
+                        } else {
+                            Color::new(120, 120, 130, 120)
+                        },
+                        has_above,
+                        has_below,
+                        is_center: dx == 0 && dy == 0 && dz == 0,
+                    });
+                }
+            }
+        }
+
+        let needs_new = match self.minimap_rt {
+            Some(ref rt) => rt.width() != side_px || rt.height() != side_px,
+            None => true,
+        };
+        if needs_new {
+            let side_u = side_px as u32;
+            match rl.load_render_texture(thread, side_u, side_u) {
+                Ok(rt) => self.minimap_rt = Some(rt),
+                Err(e) => {
+                    log::warn!("Failed to allocate minimap render texture: {}", e);
+                    self.minimap_rt = None;
+                    return;
+                }
+            }
+        }
+
+        let Some(minimap_rt) = self.minimap_rt.as_mut() else {
+            return;
+        };
+
+        {
+            let mut td = rl.begin_texture_mode(thread, minimap_rt);
+            td.clear_background(Color::new(0, 0, 0, 0));
+
+            let tick = self.gs.tick as f32;
+            let yaw = tick * 0.01;
+            let pitch = 0.85_f32;
+            let orbit = (radius as f32 + 1.5).max(1.5) * spacing * 2.4 + 4.0;
+            let cam_pos = Vector3::new(
+                orbit * yaw.cos() * pitch.cos(),
+                orbit * pitch.sin(),
+                orbit * yaw.sin() * pitch.cos(),
+            );
+            let camera = Camera3D::perspective(
+                cam_pos,
+                Vector3::new(0.0, 0.0, 0.0),
+                Vector3::new(0.0, 1.0, 0.0),
+                35.0,
+            );
+
+            {
+                let mut d3 = td.begin_mode3D(camera);
+                let sphere_r = if radius == 0 {
+                    spacing
+                } else {
+                    radius as f32 * spacing + cube * 0.6
+                };
+                d3.draw_sphere_wires(
+                    Vector3::new(0.0, 0.0, 0.0),
+                    sphere_r,
+                    16,
+                    16,
+                    Color::new(120, 130, 165, 40),
+                );
+                for cell in &cells {
+                    d3.draw_cube(cell.pos, cube, cube, cube, cell.color);
+                    d3.draw_cube_wires(cell.pos, cube, cube, cube, cell.border);
+                    if cell.has_above {
+                        let top = Vector3::new(cell.pos.x, cell.pos.y + cube * 0.5, cell.pos.z);
+                        let tip = Vector3::new(cell.pos.x, cell.pos.y + spacing * 0.5, cell.pos.z);
+                        d3.draw_line_3D(top, tip, Color::new(64, 128, 255, 160));
+                    }
+                    if cell.has_below {
+                        let bottom = Vector3::new(cell.pos.x, cell.pos.y - cube * 0.5, cell.pos.z);
+                        let tip = Vector3::new(cell.pos.x, cell.pos.y - spacing * 0.5, cell.pos.z);
+                        d3.draw_line_3D(bottom, tip, Color::new(255, 140, 88, 160));
+                    }
+                    if cell.is_center {
+                        d3.draw_cube_wires(
+                            cell.pos,
+                            cube + 0.12,
+                            cube + 0.12,
+                            cube + 0.12,
+                            Color::YELLOW,
+                        );
+                    }
+                }
+            }
+
+            let center_px = side_px / 2;
+            let cross = side_px as f32 * 0.45;
+            td.draw_circle_lines(center_px, center_px, cross, Color::new(255, 255, 255, 36));
+            let cross_i = cross as i32;
+            td.draw_line(
+                center_px - cross_i,
+                center_px,
+                center_px + cross_i,
+                center_px,
+                Color::new(255, 255, 255, 24),
+            );
+            td.draw_line(
+                center_px,
+                center_px - cross_i,
+                center_px,
+                center_px + cross_i,
+                Color::new(255, 255, 255, 24),
+            );
+            td.draw_text(
+                &format!("cy {}", center.cy),
+                8,
+                side_px - 26,
+                16,
+                Color::new(220, 220, 255, 220),
+            );
         }
     }
 }
