@@ -7,7 +7,7 @@ use geist_blocks::types::Block as RtBlock;
 
 use crate::worldgen::WorldGenParams;
 
-pub const CHUNK_SIZE: usize = 32;
+pub const CHUNK_SIZE: usize = 64;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct ChunkCoord {
