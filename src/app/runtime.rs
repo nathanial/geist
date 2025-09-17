@@ -218,16 +218,12 @@ impl App {
         let ccx = (self.cam.position.x / self.gs.world.chunk_size_x as f32).floor() as i32;
         let ccy = (self.cam.position.y / self.gs.world.chunk_size_y as f32).floor() as i32;
         let ccz = (self.cam.position.z / self.gs.world.chunk_size_z as f32).floor() as i32;
+        let center = ChunkCoord::new(ccx, ccy, ccz);
         let now = self.gs.tick;
         let mut items: Vec<(ChunkCoord, IntentEntry, i64, i32)> =
             Vec::with_capacity(self.intents.len());
         for (&key, &ent) in self.intents.iter() {
-            let cx = key.cx;
-            let cz = key.cz;
-            let dx = i64::from(cx - ccx);
-            let dy = i64::from(key.cy - ccy);
-            let dz = i64::from(cz - ccz);
-            let dist_bucket: i64 = dx * dx + dy * dy + dz * dz;
+            let dist_bucket = center.distance_sq(key);
             let age = now.saturating_sub(ent.last_tick);
             let age_boost: i32 = if age > 180 {
                 -2
@@ -259,12 +255,12 @@ impl App {
         let mut budget_edit = target_edit.saturating_sub(q_e + if_e);
         let mut budget_light = target_light.saturating_sub(q_l + if_l);
         let mut budget_bg = target_bg.saturating_sub(q_b + if_b);
-        let r = self.gs.view_radius_chunks.max(0);
-        let gate_light_sq = {
-            let rr = r + 1;
-            i64::from(rr) * i64::from(rr)
-        };
-        let gate_stream_sq = i64::from(r) * i64::from(r);
+        let load_radius = self.stream_load_radius();
+        let evict_radius = self.stream_evict_radius();
+        let light_gate_r = evict_radius.saturating_add(1);
+        let gate_light_sq = i64::from(light_gate_r) * i64::from(light_gate_r);
+        let gate_stream_sq = i64::from(load_radius) * i64::from(load_radius);
+        let gate_hot_reload_sq = i64::from(evict_radius) * i64::from(evict_radius);
 
         for (key, ent, dist_bucket, _ab) in items.into_iter() {
             if submitted >= cap {
@@ -311,7 +307,7 @@ impl App {
                     }
                 }
                 IntentCause::HotReload => {
-                    if dist_bucket > gate_stream_sq {
+                    if dist_bucket > gate_hot_reload_sq {
                         continue;
                     }
                     if budget_bg == 0 {

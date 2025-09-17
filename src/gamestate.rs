@@ -107,6 +107,10 @@ impl ChunkInventory {
         self.slots.iter_mut().filter(|(_, entry)| entry.is_ready())
     }
 
+    pub fn coords_any(&self) -> impl Iterator<Item = ChunkCoord> + '_ {
+        self.slots.keys().copied()
+    }
+
     #[inline]
     pub fn mark_loading(&mut self, coord: ChunkCoord) -> &mut ChunkEntry {
         self.slots

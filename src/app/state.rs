@@ -15,6 +15,9 @@ use crate::camera::FlyCamera;
 use crate::event::EventQueue;
 use crate::gamestate::GameState;
 
+pub(crate) const STREAM_LOAD_SHELLS: i32 = 1;
+pub(crate) const STREAM_EVICT_SHELLS: i32 = 2;
+
 pub struct App {
     pub gs: GameState,
     pub queue: EventQueue,
@@ -98,4 +101,24 @@ pub(crate) struct IntentEntry {
     pub(crate) rev: u64,
     pub(crate) cause: IntentCause,
     pub(crate) last_tick: u64,
+}
+
+impl App {
+    #[inline]
+    pub(crate) fn stream_base_radius(&self) -> i32 {
+        self.gs.view_radius_chunks.max(0)
+    }
+
+    #[inline]
+    pub(crate) fn stream_load_radius(&self) -> i32 {
+        let load_shells = STREAM_LOAD_SHELLS.max(0);
+        self.stream_base_radius().saturating_add(load_shells)
+    }
+
+    #[inline]
+    pub(crate) fn stream_evict_radius(&self) -> i32 {
+        let load_shells = STREAM_LOAD_SHELLS.max(0);
+        let evict_shells = STREAM_EVICT_SHELLS.max(load_shells);
+        self.stream_base_radius().saturating_add(evict_shells)
+    }
 }

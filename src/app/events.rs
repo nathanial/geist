@@ -43,6 +43,41 @@ fn spherical_chunk_coords(center: ChunkCoord, radius: i32) -> Vec<ChunkCoord> {
 }
 
 impl App {
+    fn mark_empty_chunk_ready(&mut self, coord: ChunkCoord) {
+        let st = self
+            .gs
+            .finalize
+            .entry(coord)
+            .or_insert_with(FinalizeState::default);
+        st.owner_neg_x_ready = true;
+        st.owner_neg_y_ready = true;
+        st.owner_neg_z_ready = true;
+        st.finalize_requested = false;
+        st.finalized = true;
+
+        let neighbors = [(1, 0, 0), (0, 1, 0), (0, 0, 1)];
+
+        for &(dx, dy, dz) in &neighbors {
+            let ncoord = coord.offset(dx, dy, dz);
+            if let Some(nstate) = self.gs.finalize.get_mut(&ncoord) {
+                match (dx, dy, dz) {
+                    (1, 0, 0) => nstate.owner_neg_x_ready = true,
+                    (0, 1, 0) => nstate.owner_neg_y_ready = true,
+                    (0, 0, 1) => nstate.owner_neg_z_ready = true,
+                    _ => {}
+                }
+                if nstate.owner_neg_x_ready
+                    && nstate.owner_neg_y_ready
+                    && nstate.owner_neg_z_ready
+                    && !nstate.finalized
+                    && !nstate.finalize_requested
+                {
+                    self.try_schedule_finalize(ncoord);
+                }
+            }
+        }
+    }
+
     fn structure_block_solid_at_local(
         reg: &BlockRegistry,
         st: &Structure,
@@ -343,13 +378,17 @@ impl App {
             Event::ViewCenterChanged { ccx, ccy, ccz } => {
                 let center = ChunkCoord::new(ccx, ccy, ccz);
                 self.gs.center_chunk = center;
-                let r = self.gs.view_radius_chunks.max(0);
-                let desired: HashSet<ChunkCoord> =
-                    spherical_chunk_coords(center, r).into_iter().collect();
-                // Unload far ones
-                let current: Vec<ChunkCoord> = self.renders.keys().cloned().collect();
-                for key in current {
-                    if !desired.contains(&key) {
+                let load_radius = self.stream_load_radius();
+                let evict_radius = self.stream_evict_radius();
+                let desired: HashSet<ChunkCoord> = spherical_chunk_coords(center, load_radius)
+                    .into_iter()
+                    .collect();
+                let evict_limit_sq = {
+                    let er = evict_radius;
+                    i64::from(er) * i64::from(er)
+                };
+                for key in self.gs.chunks.coords_any().collect::<Vec<_>>() {
+                    if center.distance_sq(key) > evict_limit_sq {
                         self.queue.emit_now(Event::EnsureChunkUnloaded {
                             cx: key.cx,
                             cy: key.cy,
@@ -359,8 +398,7 @@ impl App {
                 }
                 // Prune stream-load intents well outside the new radius (hysteresis: r+1)
                 let mut to_remove: Vec<ChunkCoord> = Vec::new();
-                let drop_r = r + 1;
-                let drop_sq = i64::from(drop_r) * i64::from(drop_r);
+                let drop_sq = i64::from(load_radius) * i64::from(load_radius);
                 for (&coord, ent) in self.intents.iter() {
                     if matches!(ent.cause, IntentCause::StreamLoad) {
                         let dist_sq = center.distance_sq(coord);
@@ -396,6 +434,7 @@ impl App {
                 let coord = ChunkCoord::new(cx, cy, cz);
                 if let Some(entry) = self.gs.chunks.get(&coord) {
                     if entry.occupancy_or_empty().is_empty() {
+                        self.mark_empty_chunk_ready(coord);
                         return;
                     }
                 }
@@ -405,20 +444,47 @@ impl App {
                 self.gs.chunks.mark_loading(coord);
                 // Init finalization tracking entry
                 {
+                    let nb = self.gs.lighting.get_neighbor_borders(coord);
+                    let mut owner_neg_x_ready = nb.xn.is_some();
+                    let mut owner_neg_y_ready = nb.yn.is_some();
+                    let mut owner_neg_z_ready = nb.zn.is_some();
+                    let neg_neighbors = [(-1, 0, 0), (0, -1, 0), (0, 0, -1)];
+                    for &(dx, dy, dz) in &neg_neighbors {
+                        let ncoord = coord.offset(dx, dy, dz);
+                        let empty_neighbor = self
+                            .gs
+                            .chunks
+                            .get(&ncoord)
+                            .map(|entry| entry.occupancy_or_empty().is_empty())
+                            .unwrap_or(false);
+                        let finalized_neighbor = self
+                            .gs
+                            .finalize
+                            .get(&ncoord)
+                            .map(|state| state.finalized)
+                            .unwrap_or(false);
+                        if empty_neighbor || finalized_neighbor {
+                            match (dx, dy, dz) {
+                                (-1, 0, 0) => owner_neg_x_ready = true,
+                                (0, -1, 0) => owner_neg_y_ready = true,
+                                (0, 0, -1) => owner_neg_z_ready = true,
+                                _ => {}
+                            }
+                        }
+                    }
                     let st = self
                         .gs
                         .finalize
                         .entry(coord)
                         .or_insert(FinalizeState::default());
                     // Prime readiness from currently available owner planes, so we don't wait for future events
-                    let nb = self.gs.lighting.get_neighbor_borders(coord);
-                    if nb.xn.is_some() {
+                    if owner_neg_x_ready {
                         st.owner_neg_x_ready = true;
                     }
-                    if nb.yn.is_some() {
+                    if owner_neg_y_ready {
                         st.owner_neg_y_ready = true;
                     }
-                    if nb.zn.is_some() {
+                    if owner_neg_z_ready {
                         st.owner_neg_z_ready = true;
                     }
                 }
@@ -568,9 +634,9 @@ impl App {
                 // Gate completion by desired radius: if chunk is no longer desired, drop
                 let center = self.gs.center_chunk;
                 let dist_sq = center.distance_sq(coord);
-                let r = self.gs.view_radius_chunks.max(0);
-                let r_sq = i64::from(r) * i64::from(r);
-                if dist_sq > r_sq {
+                let keep_r = self.stream_evict_radius();
+                let keep_sq = i64::from(keep_r) * i64::from(keep_r);
+                if dist_sq > keep_sq {
                     // Not desired anymore: clear inflight and abandon result
                     self.gs.inflight_rev.remove(&coord);
                     // Do not upload or mark built; also avoid lighting border updates
@@ -589,44 +655,7 @@ impl App {
                     self.gs.mesh_counts.remove(&coord);
                     self.gs.light_counts.remove(&coord);
 
-                    // Empty chunks are trivially finalized and satisfy downstream owners.
-                    let st = self
-                        .gs
-                        .finalize
-                        .entry(coord)
-                        .or_insert(FinalizeState::default());
-                    st.owner_neg_x_ready = true;
-                    st.owner_neg_y_ready = true;
-                    st.owner_neg_z_ready = true;
-                    st.finalize_requested = false;
-                    st.finalized = true;
-
-                    // Mark positive neighbor owners as ready so they don't wait on seams.
-                    let neighbors: &[(i32, i32, i32, fn(&mut FinalizeState))] = &[
-                        (1, 0, 0, |st: &mut FinalizeState| {
-                            st.owner_neg_x_ready = true
-                        }),
-                        (0, 1, 0, |st: &mut FinalizeState| {
-                            st.owner_neg_y_ready = true
-                        }),
-                        (0, 0, 1, |st: &mut FinalizeState| {
-                            st.owner_neg_z_ready = true
-                        }),
-                    ];
-                    for &(dx, dy, dz, setter) in neighbors {
-                        let ncoord = coord.offset(dx, dy, dz);
-                        if let Some(nstate) = self.gs.finalize.get_mut(&ncoord) {
-                            setter(nstate);
-                            if nstate.owner_neg_x_ready
-                                && nstate.owner_neg_y_ready
-                                && nstate.owner_neg_z_ready
-                                && !nstate.finalized
-                                && !nstate.finalize_requested
-                            {
-                                self.try_schedule_finalize(ncoord);
-                            }
-                        }
-                    }
+                    self.mark_empty_chunk_ready(coord);
                     return;
                 }
 
@@ -803,7 +832,7 @@ impl App {
                 // Gate by desired radius
                 let center = self.gs.center_chunk;
                 let dist_sq = center.distance_sq(coord);
-                let gate = self.gs.view_radius_chunks.max(0) + 1;
+                let gate = self.stream_evict_radius().saturating_add(1);
                 let gate_sq = i64::from(gate) * i64::from(gate);
                 if dist_sq > gate_sq {
                     self.gs.inflight_rev.remove(&coord);
@@ -1166,7 +1195,7 @@ impl App {
             } => {
                 let coord = ChunkCoord::new(cx, cy, cz);
                 let center = self.gs.center_chunk;
-                let r_gate = self.gs.view_radius_chunks.max(0) + 1;
+                let r_gate = self.stream_evict_radius().saturating_add(1);
                 let r_gate_sq = i64::from(r_gate) * i64::from(r_gate);
 
                 if xp_changed {
