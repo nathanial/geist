@@ -42,7 +42,10 @@ impl MaterialCatalog {
     pub fn from_toml_str(toml_str: &str) -> Result<Self, Box<dyn Error>> {
         let cfg: MaterialsConfig = toml::from_str(toml_str)?;
         let mut catalog = MaterialCatalog::new();
-        for (key, entry) in cfg.materials.into_iter() {
+        let mut entries: Vec<(String, MaterialEntry)> = cfg.materials.into_iter().collect();
+        // HashMap iteration order is nondeterministic; sort keys so MaterialId assignment is stable.
+        entries.sort_by(|a, b| a.0.cmp(&b.0));
+        for (key, entry) in entries {
             let (paths, render_tag) = match entry {
                 MaterialEntry::Paths(v) => (v, None),
                 MaterialEntry::Detail { paths, render_tag } => (paths, render_tag),
