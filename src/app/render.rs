@@ -24,7 +24,7 @@ impl App {
         self.debug_stats.intents_size = prev_intents;
 
         // Snapshot current residency metrics for debug overlay
-        self.debug_stats.loaded_chunks = self.gs.loaded.len();
+        self.debug_stats.loaded_chunks = self.gs.chunks.ready_len();
         let mut unique_cx: HashSet<i32> = HashSet::new();
         let mut unique_cy: HashSet<i32> = HashSet::new();
         let mut unique_cz: HashSet<i32> = HashSet::new();
@@ -33,11 +33,11 @@ impl App {
             unique_cx.insert(coord.cx);
             unique_cy.insert(coord.cy);
             unique_cz.insert(coord.cz);
-            if entry.occupancy.has_blocks() {
+            if entry.has_blocks() {
                 nonempty += 1;
             }
         }
-        self.debug_stats.chunk_resident_total = self.gs.chunks.len();
+        self.debug_stats.chunk_resident_total = self.gs.chunks.ready_len();
         self.debug_stats.chunk_resident_nonempty = nonempty;
         self.debug_stats.chunk_unique_cx = unique_cx.len();
         self.debug_stats.chunk_unique_cy = unique_cy.len();
@@ -125,7 +125,7 @@ impl App {
                 let cz = wz.div_euclid(sz);
                 let coord = ChunkCoord::new(cx, cy, cz);
                 if let Some(cent) = self.gs.chunks.get(&coord) {
-                    match (cent.occupancy, cent.buf.as_ref()) {
+                    match (cent.occupancy_or_empty(), cent.buf.as_ref()) {
                         (ChunkOccupancy::Empty, _) => Block::AIR,
                         (_, Some(buf)) => buf.get_world(wx, wy, wz).unwrap_or(Block::AIR),
                         (_, None) => self.gs.world.block_at_runtime(&self.reg, wx, wy, wz),
@@ -447,7 +447,7 @@ impl App {
                 let cz = wz.div_euclid(sz);
                 let coord = ChunkCoord::new(cx, cy, cz);
                 if let Some(cent) = self.gs.chunks.get(&coord) {
-                    match (cent.occupancy, cent.buf.as_ref()) {
+                    match (cent.occupancy_or_empty(), cent.buf.as_ref()) {
                         (ChunkOccupancy::Empty, _) => return Block::AIR,
                         (_, Some(buf)) => {
                             return buf.get_world(wx, wy, wz).unwrap_or(Block::AIR);
@@ -811,7 +811,7 @@ impl App {
                     let label = format!(
                         "Sphere r {} | Loaded {}",
                         self.gs.view_radius_chunks,
-                        self.gs.loaded.len()
+                        self.gs.chunks.ready_len()
                     );
                     let label_fs = 18;
                     let label_w = d.measure_text(&label, label_fs);
@@ -1180,13 +1180,16 @@ impl App {
                     }
                     let coord = center.offset(dx, dy, dz);
                     let entry = self.gs.chunks.get(&coord);
-                    let known_empty = entry.map(|c| c.occupancy.is_empty()).unwrap_or(false);
-                    let is_loaded = self.gs.loaded.contains(&coord) && !known_empty;
+                    let known_empty = entry
+                        .map(|c| c.occupancy_or_empty().is_empty())
+                        .unwrap_or(false);
+                    let is_ready = self.gs.chunks.is_ready(coord);
+                    let is_loaded = is_ready && !known_empty;
                     let is_center = dx == 0 && dy == 0 && dz == 0;
                     if known_empty && !is_center {
                         continue;
                     }
-                    if !is_loaded && !is_center {
+                    if !is_ready && !is_center {
                         continue;
                     }
                     let mesh_c = *self.gs.mesh_counts.get(&coord).unwrap_or(&0);
@@ -1217,13 +1220,13 @@ impl App {
                         .gs
                         .chunks
                         .get(&coord.offset(0, 1, 0))
-                        .map(|c| c.occupancy.has_blocks())
+                        .map(|c| c.has_blocks())
                         .unwrap_or(false);
                     let below_has_blocks = self
                         .gs
                         .chunks
                         .get(&coord.offset(0, -1, 0))
-                        .map(|c| c.occupancy.has_blocks())
+                        .map(|c| c.has_blocks())
                         .unwrap_or(false);
                     let has_above = is_loaded && above_has_blocks;
                     let has_below = is_loaded && below_has_blocks;

@@ -8,3 +8,4 @@ path = "src/lib.rs"
 
 [dependencies]
 geist-blocks = { path = "../geist-blocks" }
+geist-world = { path = "../geist-world" }

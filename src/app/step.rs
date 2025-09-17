@@ -107,9 +107,9 @@ impl App {
         // Handle worldgen hot-reload
         // Always invalidate previous CPU buffers on change; optionally schedule rebuilds
         if self.take_worldgen_dirty() {
-            let keys: Vec<ChunkCoord> = self.gs.loaded.iter().copied().collect();
-            let total_chunks = self.gs.chunks.len();
-            for ent in self.gs.chunks.values_mut() {
+            let keys: Vec<ChunkCoord> = self.gs.chunks.ready_coords().collect();
+            let total_chunks = self.gs.chunks.ready_len();
+            for (_coord, ent) in self.gs.chunks.iter_mut() {
                 ent.buf = None; // prevent reuse across worldgen param changes
             }
             if self.rebuild_on_worldgen {

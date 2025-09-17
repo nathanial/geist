@@ -643,6 +643,7 @@ name = "geist-edit"
 version = "0.1.0"
 dependencies = [
  "geist-blocks",
+ "geist-world",
 ]
 
 [[package]]

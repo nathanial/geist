@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 use geist_blocks::types::Block;
+use geist_world::ChunkCoord;
 use std::collections::HashMap;
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -17,11 +18,11 @@ pub struct EditStore {
     sx: i32,
     sy: i32,
     sz: i32,
-    // Map per-chunk: key=(cx,cy,cz) -> map of world coords -> Block
-    inner: HashMap<(i32, i32, i32), HashMap<(i32, i32, i32), Block>>,
+    // Map per-chunk: key=ChunkCoord -> map of world coords -> Block
+    inner: HashMap<ChunkCoord, HashMap<(i32, i32, i32), Block>>,
     // Change-tracking
-    rev: HashMap<(i32, i32, i32), u64>, // latest requested change affecting chunk
-    built: HashMap<(i32, i32, i32), u64>, // last built rev for chunk
+    rev: HashMap<ChunkCoord, u64>, // latest requested change affecting chunk
+    built: HashMap<ChunkCoord, u64>, // last built rev for chunk
     counter: u64,
 }
 
@@ -52,8 +53,8 @@ impl EditStore {
     }
 
     #[inline]
-    fn chunk_key(&self, wx: i32, wy: i32, wz: i32) -> (i32, i32, i32) {
-        (
+    fn chunk_key(&self, wx: i32, wy: i32, wz: i32) -> ChunkCoord {
+        ChunkCoord::new(
             wx.div_euclid(self.sx),
             wy.div_euclid(self.sy),
             wz.div_euclid(self.sz),
@@ -75,7 +76,7 @@ impl EditStore {
 
     /// Snapshot of all edits for a specific chunk
     pub fn snapshot_for_chunk(&self, cx: i32, cy: i32, cz: i32) -> Vec<((i32, i32, i32), Block)> {
-        if let Some(m) = self.inner.get(&(cx, cy, cz)) {
+        if let Some(m) = self.inner.get(&ChunkCoord::new(cx, cy, cz)) {
             return m.iter().map(|(k, v)| (*k, *v)).collect();
         }
         Vec::new()
@@ -94,8 +95,8 @@ impl EditStore {
         for dy in -radius_y..=radius_y {
             for dz in -radius_xz..=radius_xz {
                 for dx in -radius_xz..=radius_xz {
-                    let k = (cx + dx, cy + dy, cz + dz);
-                    if let Some(m) = self.inner.get(&k) {
+                    let coord = ChunkCoord::new(cx + dx, cy + dy, cz + dz);
+                    if let Some(m) = self.inner.get(&coord) {
                         for (k2, v) in m.iter() {
                             out.push((*k2, *v));
                         }
@@ -111,7 +112,10 @@ impl EditStore {
     pub fn bump_region_around(&mut self, wx: i32, wy: i32, wz: i32) -> u64 {
         self.counter = self.counter.wrapping_add(1).max(1);
         let stamp = self.counter;
-        let (cx, cy, cz) = self.chunk_key(wx, wy, wz);
+        let coord = self.chunk_key(wx, wy, wz);
+        let cx = coord.cx;
+        let cy = coord.cy;
+        let cz = coord.cz;
         // Only bump the chunk that was directly edited and its immediate neighbors
         // if the edit is near a chunk boundary (within 1 block of edge)
         let x0 = cx * self.sx;
@@ -122,7 +126,7 @@ impl EditStore {
         let lz = wz - z0;
 
         // Always bump the current chunk
-        self.rev.insert((cx, cy, cz), stamp);
+        self.rev.insert(coord, stamp);
 
         let mut offsets_x = vec![0];
         let mut offsets_y = vec![0];
@@ -152,7 +156,8 @@ impl EditStore {
                     if dx == 0 && *dy == 0 && *dz == 0 {
                         continue;
                     }
-                    self.rev.insert((cx + dx, cy + *dy, cz + *dz), stamp);
+                    let neighbor = ChunkCoord::new(cx + dx, cy + *dy, cz + *dz);
+                    self.rev.insert(neighbor, stamp);
                 }
             }
         }
@@ -160,9 +165,12 @@ impl EditStore {
     }
 
     /// Get list of chunks affected by an edit at world position
-    pub fn get_affected_chunks(&self, wx: i32, wy: i32, wz: i32) -> Vec<(i32, i32, i32)> {
-        let mut affected: Vec<(i32, i32, i32)> = Vec::new();
-        let (cx, cy, cz) = self.chunk_key(wx, wy, wz);
+    pub fn get_affected_chunks(&self, wx: i32, wy: i32, wz: i32) -> Vec<ChunkCoord> {
+        let mut affected: Vec<ChunkCoord> = Vec::new();
+        let coord = self.chunk_key(wx, wy, wz);
+        let cx = coord.cx;
+        let cy = coord.cy;
+        let cz = coord.cz;
         let x0 = cx * self.sx;
         let y0 = cy * self.sy;
         let z0 = cz * self.sz;
@@ -171,7 +179,7 @@ impl EditStore {
         let lz = wz - z0;
 
         // Always include current chunk
-        affected.push((cx, cy, cz));
+        affected.push(coord);
 
         let mut offsets_x = vec![0];
         let mut offsets_y = vec![0];
@@ -201,7 +209,7 @@ impl EditStore {
                     if dx == 0 && *dy == 0 && *dz == 0 {
                         continue;
                     }
-                    let key = (cx + dx, cy + *dy, cz + *dz);
+                    let key = ChunkCoord::new(cx + dx, cy + *dy, cz + *dz);
                     if !affected.contains(&key) {
                         affected.push(key);
                     }
@@ -213,12 +221,15 @@ impl EditStore {
     }
 
     pub fn get_rev(&self, cx: i32, cy: i32, cz: i32) -> u64 {
-        self.rev.get(&(cx, cy, cz)).copied().unwrap_or(0)
+        self.rev
+            .get(&ChunkCoord::new(cx, cy, cz))
+            .copied()
+            .unwrap_or(0)
     }
 
     pub fn mark_built(&mut self, cx: i32, cy: i32, cz: i32, rev: u64) {
         // Only update if this is a newer revision
-        let e = self.built.entry((cx, cy, cz)).or_insert(0);
+        let e = self.built.entry(ChunkCoord::new(cx, cy, cz)).or_insert(0);
         if rev > *e {
             *e = rev;
         }
@@ -234,7 +245,10 @@ impl EditStore {
 
     #[allow(dead_code)]
     pub fn get_built_rev(&self, cx: i32, cy: i32, cz: i32) -> u64 {
-        self.built.get(&(cx, cy, cz)).copied().unwrap_or(0)
+        self.built
+            .get(&ChunkCoord::new(cx, cy, cz))
+            .copied()
+            .unwrap_or(0)
     }
 }
 
@@ -268,8 +282,11 @@ mod tests {
         assert_eq!(store.get_rev(cx, cy + 1, cz), stamp_top);
         assert_eq!(store.get_rev(cx, cy - 1, cz), 0);
         let mut affected_top = store.get_affected_chunks(wx_top, wy_top, wz_top);
-        affected_top.sort();
-        assert_eq!(affected_top, vec![(cx, cy, cz), (cx, cy + 1, cz)]);
+        affected_top.sort_by_key(|c| (c.cx, c.cy, c.cz));
+        assert_eq!(
+            affected_top,
+            vec![ChunkCoord::new(cx, cy, cz), ChunkCoord::new(cx, cy + 1, cz)]
+        );
 
         // Edit near bottom face -> mark chunk and -Y neighbor only.
         let wx_bottom = base_x + 9;
@@ -281,7 +298,10 @@ mod tests {
         // Top neighbor still has top stamp even after bottom edit.
         assert_eq!(store.get_rev(cx, cy + 1, cz), stamp_top);
         let mut affected_bottom = store.get_affected_chunks(wx_bottom, wy_bottom, wz_bottom);
-        affected_bottom.sort();
-        assert_eq!(affected_bottom, vec![(cx, cy - 1, cz), (cx, cy, cz)]);
+        affected_bottom.sort_by_key(|c| (c.cx, c.cy, c.cz));
+        assert_eq!(
+            affected_bottom,
+            vec![ChunkCoord::new(cx, cy - 1, cz), ChunkCoord::new(cx, cy, cz)]
+        );
     }
 }

@@ -175,7 +175,7 @@ impl App {
         if !(st.owner_neg_x_ready && st.owner_neg_y_ready && st.owner_neg_z_ready) {
             return;
         }
-        if !self.renders.contains_key(&coord) {
+        if !self.gs.chunks.mesh_ready(coord) {
             return;
         }
         if self.gs.inflight_rev.contains_key(&coord) {
@@ -284,7 +284,7 @@ impl App {
             let neighbors = self.neighbor_mask(key);
             let rev = ent.rev;
             let job_id = Self::job_hash(key, rev, neighbors);
-            let is_loaded = self.renders.contains_key(&key);
+            let is_ready = self.gs.chunks.is_ready(key);
             match ent.cause {
                 IntentCause::Edit => {
                     if budget_edit == 0 {
@@ -300,7 +300,7 @@ impl App {
                     }
                 }
                 IntentCause::StreamLoad => {
-                    if is_loaded {
+                    if is_ready {
                         continue;
                     }
                     if dist_bucket > gate_stream_sq {
@@ -359,12 +359,12 @@ impl App {
 
     pub(super) fn neighbor_mask(&self, coord: ChunkCoord) -> NeighborsLoaded {
         NeighborsLoaded {
-            neg_x: self.renders.contains_key(&coord.offset(-1, 0, 0)),
-            pos_x: self.renders.contains_key(&coord.offset(1, 0, 0)),
-            neg_y: self.renders.contains_key(&coord.offset(0, -1, 0)),
-            pos_y: self.renders.contains_key(&coord.offset(0, 1, 0)),
-            neg_z: self.renders.contains_key(&coord.offset(0, 0, -1)),
-            pos_z: self.renders.contains_key(&coord.offset(0, 0, 1)),
+            neg_x: self.gs.chunks.mesh_ready(coord.offset(-1, 0, 0)),
+            pos_x: self.gs.chunks.mesh_ready(coord.offset(1, 0, 0)),
+            neg_y: self.gs.chunks.mesh_ready(coord.offset(0, -1, 0)),
+            pos_y: self.gs.chunks.mesh_ready(coord.offset(0, 1, 0)),
+            neg_z: self.gs.chunks.mesh_ready(coord.offset(0, 0, -1)),
+            pos_z: self.gs.chunks.mesh_ready(coord.offset(0, 0, 1)),
         }
     }
 

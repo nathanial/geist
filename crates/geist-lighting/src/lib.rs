@@ -1484,13 +1484,25 @@ pub struct LightingStoreStats {
     pub micro_chunks: usize,
 }
 
+#[derive(Default)]
+struct LightingChunkEntry {
+    borders: Option<LightBorders>,
+    emitters: Vec<(usize, usize, usize, u8, bool)>,
+    micro_borders: Option<MicroBorders>,
+}
+
+impl LightingChunkEntry {
+    #[inline]
+    fn is_empty(&self) -> bool {
+        self.borders.is_none() && self.micro_borders.is_none() && self.emitters.is_empty()
+    }
+}
+
 pub struct LightingStore {
     sx: usize,
     sy: usize,
     sz: usize,
-    borders: Mutex<HashMap<ChunkCoord, LightBorders>>,
-    emitters: Mutex<HashMap<ChunkCoord, Vec<(usize, usize, usize, u8, bool)>>>,
-    micro_borders: Mutex<HashMap<ChunkCoord, MicroBorders>>,
+    chunks: Mutex<HashMap<ChunkCoord, LightingChunkEntry>>,
     // Runtime mode selection
     mode: AtomicU8,
 }
@@ -1501,9 +1513,7 @@ impl LightingStore {
             sx,
             sy,
             sz,
-            borders: Mutex::new(HashMap::new()),
-            emitters: Mutex::new(HashMap::new()),
-            micro_borders: Mutex::new(HashMap::new()),
+            chunks: Mutex::new(HashMap::new()),
             // FullMicro is the only supported mode
             mode: AtomicU8::new(LightingMode::FullMicro as u8),
         }
@@ -1518,27 +1528,32 @@ impl LightingStore {
         LightingMode::FullMicro
     }
     pub fn clear_chunk(&self, coord: ChunkCoord) {
-        {
-            let mut m = self.borders.lock().unwrap();
-            m.remove(&coord);
-        }
-        {
-            let mut m = self.emitters.lock().unwrap();
-            m.remove(&coord);
-        }
-        {
-            let mut m = self.micro_borders.lock().unwrap();
-            m.remove(&coord);
-        }
+        let mut map = self.chunks.lock().unwrap();
+        map.remove(&coord);
     }
     pub fn clear_all_borders(&self) {
-        let mut m = self.borders.lock().unwrap();
-        m.clear();
+        let mut map = self.chunks.lock().unwrap();
+        map.retain(|_, entry| {
+            entry.borders = None;
+            !entry.is_empty()
+        });
     }
     pub fn stats(&self) -> LightingStoreStats {
-        let borders = self.borders.lock().unwrap().len();
-        let emitters = self.emitters.lock().unwrap().len();
-        let micro = self.micro_borders.lock().unwrap().len();
+        let map = self.chunks.lock().unwrap();
+        let mut borders = 0usize;
+        let mut emitters = 0usize;
+        let mut micro = 0usize;
+        for entry in map.values() {
+            if entry.borders.is_some() {
+                borders += 1;
+            }
+            if !entry.emitters.is_empty() {
+                emitters += 1;
+            }
+            if entry.micro_borders.is_some() {
+                micro += 1;
+            }
+        }
         LightingStoreStats {
             border_chunks: borders,
             emitter_chunks: emitters,
@@ -1546,38 +1561,56 @@ impl LightingStore {
         }
     }
     pub fn get_neighbor_borders(&self, coord: ChunkCoord) -> NeighborBorders {
-        let map = self.borders.lock().unwrap();
+        let map = self.chunks.lock().unwrap();
         let mut nb = NeighborBorders::empty(self.sx, self.sy, self.sz);
-        if let Some(b) = map.get(&coord.offset(-1, 0, 0)) {
+        if let Some(b) = map
+            .get(&coord.offset(-1, 0, 0))
+            .and_then(|entry| entry.borders.as_ref())
+        {
             nb.xn = Some(b.xp.clone());
             nb.sk_xn = Some(b.sk_xp.clone());
             nb.bcn_xn = Some(b.bcn_xp.clone());
             nb.bcn_dir_xn = Some(b.bcn_dir_xp.clone());
         }
-        if let Some(b) = map.get(&coord.offset(1, 0, 0)) {
+        if let Some(b) = map
+            .get(&coord.offset(1, 0, 0))
+            .and_then(|entry| entry.borders.as_ref())
+        {
             nb.xp = Some(b.xn.clone());
             nb.sk_xp = Some(b.sk_xn.clone());
             nb.bcn_xp = Some(b.bcn_xn.clone());
             nb.bcn_dir_xp = Some(b.bcn_dir_xn.clone());
         }
-        if let Some(b) = map.get(&coord.offset(0, 0, -1)) {
+        if let Some(b) = map
+            .get(&coord.offset(0, 0, -1))
+            .and_then(|entry| entry.borders.as_ref())
+        {
             nb.zn = Some(b.zp.clone());
             nb.sk_zn = Some(b.sk_zp.clone());
             nb.bcn_zn = Some(b.bcn_zp.clone());
             nb.bcn_dir_zn = Some(b.bcn_dir_zp.clone());
         }
-        if let Some(b) = map.get(&coord.offset(0, 0, 1)) {
+        if let Some(b) = map
+            .get(&coord.offset(0, 0, 1))
+            .and_then(|entry| entry.borders.as_ref())
+        {
             nb.zp = Some(b.zn.clone());
             nb.sk_zp = Some(b.sk_zn.clone());
             nb.bcn_zp = Some(b.bcn_zn.clone());
             nb.bcn_dir_zp = Some(b.bcn_dir_zn.clone());
         }
-        if let Some(b) = map.get(&coord.offset(0, -1, 0)) {
+        if let Some(b) = map
+            .get(&coord.offset(0, -1, 0))
+            .and_then(|entry| entry.borders.as_ref())
+        {
             nb.yn = Some(b.yp.clone());
             nb.sk_yn = Some(b.sk_yp.clone());
             nb.bcn_yn = Some(b.bcn_yp.clone());
         }
-        if let Some(b) = map.get(&coord.offset(0, 1, 0)) {
+        if let Some(b) = map
+            .get(&coord.offset(0, 1, 0))
+            .and_then(|entry| entry.borders.as_ref())
+        {
             nb.yp = Some(b.yn.clone());
             nb.sk_yp = Some(b.sk_yn.clone());
             nb.bcn_yp = Some(b.bcn_yn.clone());
@@ -1590,11 +1623,11 @@ impl LightingStore {
         coord: ChunkCoord,
         lb: LightBorders,
     ) -> (bool, BorderChangeMask) {
-        let mut map = self.borders.lock().unwrap();
-        match map.get_mut(&coord) {
+        let mut map = self.chunks.lock().unwrap();
+        let entry = map.entry(coord).or_insert_with(LightingChunkEntry::default);
+        match entry.borders.as_mut() {
             Some(existing) => {
                 let mut mask = BorderChangeMask::default();
-                // Per-face change detection (coarse + skylight + beacon planes)
                 mask.xn = existing.xn.as_ref() != lb.xn.as_ref()
                     || existing.sk_xn.as_ref() != lb.sk_xn.as_ref()
                     || existing.bcn_xn.as_ref() != lb.bcn_xn.as_ref()
@@ -1624,13 +1657,12 @@ impl LightingStore {
                 (any, mask)
             }
             None => {
-                // New entry: treat as a change; mark owned faces (xp/zp/yp) plus downward seam for initial sync.
                 let mut mask = BorderChangeMask::default();
                 mask.xp = true;
                 mask.zp = true;
                 mask.yn = true;
                 mask.yp = true;
-                map.insert(coord, lb);
+                entry.borders = Some(lb);
                 (true, mask)
             }
         }
@@ -1654,13 +1686,14 @@ impl LightingStore {
         let lx = wx.rem_euclid(sx) as usize;
         let lz = wz.rem_euclid(sz) as usize;
         let ly = wy.rem_euclid(sy) as usize;
-        let mut map = self.emitters.lock().unwrap();
-        let v = map.entry(coord).or_default();
-        if !v
+        let mut map = self.chunks.lock().unwrap();
+        let entry = map.entry(coord).or_insert_with(LightingChunkEntry::default);
+        if !entry
+            .emitters
             .iter()
             .any(|&(x, y, z, _, _)| x == lx && y == ly && z == lz)
         {
-            v.push((lx, ly, lz, level, is_beacon));
+            entry.emitters.push((lx, ly, lz, level, is_beacon));
         }
     }
     pub fn remove_emitter_world(&self, wx: i32, wy: i32, wz: i32) {
@@ -1671,27 +1704,34 @@ impl LightingStore {
         let lx = wx.rem_euclid(sx) as usize;
         let lz = wz.rem_euclid(sz) as usize;
         let ly = wy.rem_euclid(sy) as usize;
-        let mut map = self.emitters.lock().unwrap();
-        if let Some(v) = map.get_mut(&coord) {
-            v.retain(|&(x, y, z, _, _)| !(x == lx && y == ly && z == lz));
-            if v.is_empty() {
-                map.remove(&coord);
+        let mut map = self.chunks.lock().unwrap();
+        if let std::collections::hash_map::Entry::Occupied(mut occ) = map.entry(coord) {
+            let entry = occ.get_mut();
+            entry
+                .emitters
+                .retain(|&(x, y, z, _, _)| !(x == lx && y == ly && z == lz));
+            if entry.is_empty() {
+                occ.remove_entry();
             }
         }
     }
     pub fn emitters_for_chunk(&self, coord: ChunkCoord) -> Vec<(usize, usize, usize, u8, bool)> {
-        let map = self.emitters.lock().unwrap();
-        map.get(&coord).cloned().unwrap_or_default()
+        let map = self.chunks.lock().unwrap();
+        map.get(&coord)
+            .map(|entry| entry.emitters.clone())
+            .unwrap_or_default()
     }
     pub fn update_micro_borders(&self, coord: ChunkCoord, mb: MicroBorders) {
-        let mut m = self.micro_borders.lock().unwrap();
-        m.insert(coord, mb);
+        let mut map = self.chunks.lock().unwrap();
+        map.entry(coord)
+            .or_insert_with(LightingChunkEntry::default)
+            .micro_borders = Some(mb);
     }
     pub fn get_neighbor_micro_borders(&self, coord: ChunkCoord) -> NeighborMicroBorders {
         let xm = self.sx * 2;
         let ym = self.sy * 2;
         let zm = self.sz * 2;
-        let map = self.micro_borders.lock().unwrap();
+        let map = self.chunks.lock().unwrap();
         let mut nb = NeighborMicroBorders {
             xm_sk_neg: None,
             xm_sk_pos: None,
@@ -1709,27 +1749,45 @@ impl LightingStore {
             ym,
             zm,
         };
-        if let Some(m) = map.get(&coord.offset(-1, 0, 0)) {
+        if let Some(m) = map
+            .get(&coord.offset(-1, 0, 0))
+            .and_then(|entry| entry.micro_borders.as_ref())
+        {
             nb.xm_sk_neg = Some(m.xm_sk_pos.clone());
             nb.xm_bl_neg = Some(m.xm_bl_pos.clone());
         }
-        if let Some(m) = map.get(&coord.offset(1, 0, 0)) {
+        if let Some(m) = map
+            .get(&coord.offset(1, 0, 0))
+            .and_then(|entry| entry.micro_borders.as_ref())
+        {
             nb.xm_sk_pos = Some(m.xm_sk_neg.clone());
             nb.xm_bl_pos = Some(m.xm_bl_neg.clone());
         }
-        if let Some(m) = map.get(&coord.offset(0, 0, -1)) {
+        if let Some(m) = map
+            .get(&coord.offset(0, 0, -1))
+            .and_then(|entry| entry.micro_borders.as_ref())
+        {
             nb.zm_sk_neg = Some(m.zm_sk_pos.clone());
             nb.zm_bl_neg = Some(m.zm_bl_pos.clone());
         }
-        if let Some(m) = map.get(&coord.offset(0, 0, 1)) {
+        if let Some(m) = map
+            .get(&coord.offset(0, 0, 1))
+            .and_then(|entry| entry.micro_borders.as_ref())
+        {
             nb.zm_sk_pos = Some(m.zm_sk_neg.clone());
             nb.zm_bl_pos = Some(m.zm_bl_neg.clone());
         }
-        if let Some(m) = map.get(&coord.offset(0, -1, 0)) {
+        if let Some(m) = map
+            .get(&coord.offset(0, -1, 0))
+            .and_then(|entry| entry.micro_borders.as_ref())
+        {
             nb.ym_sk_neg = Some(m.ym_sk_pos.clone());
             nb.ym_bl_neg = Some(m.ym_bl_pos.clone());
         }
-        if let Some(m) = map.get(&coord.offset(0, 1, 0)) {
+        if let Some(m) = map
+            .get(&coord.offset(0, 1, 0))
+            .and_then(|entry| entry.micro_borders.as_ref())
+        {
             nb.ym_sk_pos = Some(m.ym_sk_neg.clone());
             nb.ym_bl_pos = Some(m.ym_bl_neg.clone());
         }

@@ -6,7 +6,7 @@ use raylib::prelude::*;
 use super::App;
 use super::state::IntentCause;
 use crate::event::{Event, EventEnvelope, RebuildCause};
-use crate::gamestate::{ChunkEntry, FinalizeState};
+use crate::gamestate::FinalizeState;
 use crate::raycast;
 use geist_blocks::{Block, BlockRegistry};
 use geist_chunk::ChunkOccupancy;
@@ -239,7 +239,7 @@ impl App {
                         let cy = wy.div_euclid(self.gs.world.chunk_size_y as i32);
                         let cz = wz.div_euclid(sz);
                         if let Some(cent) = self.gs.chunks.get(&ChunkCoord::new(cx, cy, cz)) {
-                            match (cent.occupancy, cent.buf.as_ref()) {
+                            match (cent.occupancy_or_empty(), cent.buf.as_ref()) {
                                 (ChunkOccupancy::Empty, _) => return Block::AIR,
                                 (_, Some(buf)) => {
                                     return buf.get_world(wx, wy, wz).unwrap_or(Block::AIR);
@@ -374,8 +374,7 @@ impl App {
                 }
                 // Load new ones
                 for key in desired {
-                    if !self.renders.contains_key(&key) && !self.gs.inflight_rev.contains_key(&key)
-                    {
+                    if !self.gs.chunks.mesh_ready(key) && !self.gs.inflight_rev.contains_key(&key) {
                         self.queue.emit_now(Event::EnsureChunkLoaded {
                             cx: key.cx,
                             cy: key.cy,
@@ -387,8 +386,7 @@ impl App {
             Event::EnsureChunkUnloaded { cx, cy, cz } => {
                 let coord = ChunkCoord::new(cx, cy, cz);
                 self.renders.remove(&coord);
-                self.gs.chunks.remove(&coord);
-                self.gs.loaded.remove(&coord);
+                self.gs.chunks.mark_missing(coord);
                 self.gs.inflight_rev.remove(&coord);
                 self.gs.finalize.remove(&coord);
                 // Also drop any persisted lighting state for this chunk to prevent growth
@@ -397,14 +395,14 @@ impl App {
             Event::EnsureChunkLoaded { cx, cy, cz } => {
                 let coord = ChunkCoord::new(cx, cy, cz);
                 if let Some(entry) = self.gs.chunks.get(&coord) {
-                    if entry.occupancy.is_empty() {
-                        self.gs.loaded.insert(coord);
+                    if entry.occupancy_or_empty().is_empty() {
                         return;
                     }
                 }
-                if self.renders.contains_key(&coord) || self.gs.inflight_rev.contains_key(&coord) {
+                if self.gs.chunks.mesh_ready(coord) || self.gs.inflight_rev.contains_key(&coord) {
                     return;
                 }
+                self.gs.chunks.mark_loading(coord);
                 // Init finalization tracking entry
                 {
                     let st = self
@@ -445,13 +443,7 @@ impl App {
                     .gs
                     .chunks
                     .get(&coord)
-                    .and_then(|c| {
-                        if c.occupancy.has_blocks() {
-                            c.buf.as_ref()
-                        } else {
-                            None
-                        }
-                    })
+                    .and_then(|c| if c.has_blocks() { c.buf.as_ref() } else { None })
                     .cloned();
                 let job = BuildJob {
                     cx,
@@ -589,16 +581,9 @@ impl App {
                     // Remove any previous render/lighting and mark chunk as a sparse placeholder.
                     self.renders.remove(&coord);
                     self.gs.lighting.clear_chunk(coord);
-                    self.gs.chunks.insert(
-                        coord,
-                        ChunkEntry {
-                            coord,
-                            buf: None,
-                            occupancy,
-                            built_rev: rev,
-                        },
-                    );
-                    self.gs.loaded.insert(coord);
+                    let entry = self.gs.chunks.mark_ready(coord, occupancy, None, rev);
+                    entry.lighting_ready = true;
+                    entry.mesh_ready = false;
                     self.gs.inflight_rev.remove(&coord);
                     self.gs.edits.mark_built(cx, cy, cz, rev);
                     self.gs.mesh_counts.remove(&coord);
@@ -724,9 +709,9 @@ impl App {
                         }
                     }
                     self.renders.insert(coord, cr);
-                    if let Some(lg) = light_grid {
+                    if let Some(ref lg) = light_grid {
                         let nb = self.gs.lighting.get_neighbor_borders(coord);
-                        let atlas = pack_light_grid_atlas_with_neighbors(&lg, &nb);
+                        let atlas = pack_light_grid_atlas_with_neighbors(lg, &nb);
                         self.validate_chunk_light_atlas(coord, &atlas);
                         if let Some(cr) = self.renders.get_mut(&coord) {
                             update_chunk_light_texture(rl, thread, cr, &atlas);
@@ -734,16 +719,9 @@ impl App {
                     }
                 }
                 // Update CPU buf & built rev
-                self.gs.chunks.insert(
-                    coord,
-                    ChunkEntry {
-                        coord,
-                        buf: Some(buf),
-                        occupancy,
-                        built_rev: rev,
-                    },
-                );
-                self.gs.loaded.insert(coord);
+                let entry = self.gs.chunks.mark_ready(coord, occupancy, Some(buf), rev);
+                entry.mesh_ready = true;
+                entry.lighting_ready = light_grid.is_some();
                 self.gs.inflight_rev.remove(&coord);
                 self.gs.edits.mark_built(cx, cy, cz, rev);
 
@@ -839,6 +817,9 @@ impl App {
                 }
                 // Track light-only recompute count for minimap/debug
                 *self.gs.light_counts.entry(coord).or_insert(0) += 1;
+                if let Some(entry) = self.gs.chunks.get_any_mut(&coord) {
+                    entry.lighting_ready = true;
+                }
                 // If this was a finalize pass scheduled via lighting-only lane, mark completion
                 if let Some(st) = self.gs.finalize.get_mut(&coord) {
                     if st.finalize_requested {
@@ -851,7 +832,7 @@ impl App {
             }
             Event::ChunkRebuildRequested { cx, cy, cz, cause } => {
                 let coord = ChunkCoord::new(cx, cy, cz);
-                if !self.renders.contains_key(&coord) {
+                if !self.gs.chunks.mesh_ready(coord) {
                     return;
                 }
                 // Record rebuild intent; scheduler will cap and prioritize
@@ -879,7 +860,7 @@ impl App {
                     let cy = wy.div_euclid(sy);
                     let cz = wz.div_euclid(sz);
                     if let Some(cent) = self.gs.chunks.get(&ChunkCoord::new(cx, cy, cz)) {
-                        match (cent.occupancy, cent.buf.as_ref()) {
+                        match (cent.occupancy_or_empty(), cent.buf.as_ref()) {
                             (ChunkOccupancy::Empty, _) => {
                                 return Block {
                                     id: reg.id_by_name("air").unwrap_or(0),
@@ -1068,13 +1049,12 @@ impl App {
                 }
                 let _ = self.gs.edits.bump_region_around(wx, wy, wz);
                 // Rebuild edited chunk and any boundary-adjacent neighbors that are loaded
-                for (cx, cy, cz) in self.gs.edits.get_affected_chunks(wx, wy, wz) {
-                    let coord = ChunkCoord::new(cx, cy, cz);
-                    if self.renders.contains_key(&coord) {
+                for coord in self.gs.edits.get_affected_chunks(wx, wy, wz) {
+                    if self.gs.chunks.mesh_ready(coord) {
                         self.queue.emit_now(Event::ChunkRebuildRequested {
-                            cx,
-                            cy,
-                            cz,
+                            cx: coord.cx,
+                            cy: coord.cy,
+                            cz: coord.cz,
                             cause: RebuildCause::Edit,
                         });
                         // Start removal→render timer for this affected chunk
@@ -1099,7 +1079,7 @@ impl App {
                     let cy = wy.div_euclid(sy);
                     let cz = wz.div_euclid(sz);
                     if let Some(cent) = self.gs.chunks.get(&ChunkCoord::new(cx, cy, cz)) {
-                        match (cent.occupancy, cent.buf.as_ref()) {
+                        match (cent.occupancy_or_empty(), cent.buf.as_ref()) {
                             (ChunkOccupancy::Empty, _) => return Block::AIR,
                             (_, Some(buf)) => {
                                 return buf.get_world(wx, wy, wz).unwrap_or(Block::AIR);
@@ -1121,13 +1101,12 @@ impl App {
                 }
                 self.gs.edits.set(wx, wy, wz, Block::AIR);
                 let _ = self.gs.edits.bump_region_around(wx, wy, wz);
-                for (cx, cy, cz) in self.gs.edits.get_affected_chunks(wx, wy, wz) {
-                    let coord = ChunkCoord::new(cx, cy, cz);
-                    if self.renders.contains_key(&coord) {
+                for coord in self.gs.edits.get_affected_chunks(wx, wy, wz) {
+                    if self.gs.chunks.mesh_ready(coord) {
                         self.queue.emit_now(Event::ChunkRebuildRequested {
-                            cx,
-                            cy,
-                            cz,
+                            cx: coord.cx,
+                            cy: coord.cy,
+                            cz: coord.cz,
                             cause: RebuildCause::Edit,
                         });
                     }
@@ -1206,7 +1185,7 @@ impl App {
                     {
                         self.try_schedule_finalize(neighbor);
                     } else if st.finalized {
-                        if dist_sq <= r_gate_sq && self.renders.contains_key(&neighbor) {
+                        if dist_sq <= r_gate_sq && self.gs.chunks.mesh_ready(neighbor) {
                             self.queue.emit_now(Event::ChunkRebuildRequested {
                                 cx: neighbor.cx,
                                 cy: neighbor.cy,
@@ -1233,7 +1212,7 @@ impl App {
                     {
                         self.try_schedule_finalize(neighbor);
                     } else if st.finalized {
-                        if dist_sq <= r_gate_sq && self.renders.contains_key(&neighbor) {
+                        if dist_sq <= r_gate_sq && self.gs.chunks.mesh_ready(neighbor) {
                             self.queue.emit_now(Event::ChunkRebuildRequested {
                                 cx: neighbor.cx,
                                 cy: neighbor.cy,
@@ -1247,7 +1226,7 @@ impl App {
                 if xn_changed {
                     let neighbor = coord.offset(-1, 0, 0);
                     let dist_sq = center.distance_sq(neighbor);
-                    if dist_sq <= r_gate_sq && self.renders.contains_key(&neighbor) {
+                    if dist_sq <= r_gate_sq && self.gs.chunks.mesh_ready(neighbor) {
                         self.queue.emit_now(Event::ChunkRebuildRequested {
                             cx: neighbor.cx,
                             cy: neighbor.cy,
@@ -1259,7 +1238,7 @@ impl App {
                 if zn_changed {
                     let neighbor = coord.offset(0, 0, -1);
                     let dist_sq = center.distance_sq(neighbor);
-                    if dist_sq <= r_gate_sq && self.renders.contains_key(&neighbor) {
+                    if dist_sq <= r_gate_sq && self.gs.chunks.mesh_ready(neighbor) {
                         self.queue.emit_now(Event::ChunkRebuildRequested {
                             cx: neighbor.cx,
                             cy: neighbor.cy,
@@ -1284,7 +1263,7 @@ impl App {
                     {
                         self.try_schedule_finalize(neighbor);
                     } else if st.finalized {
-                        if dist_sq <= r_gate_sq && self.renders.contains_key(&neighbor) {
+                        if dist_sq <= r_gate_sq && self.gs.chunks.mesh_ready(neighbor) {
                             self.queue.emit_now(Event::ChunkRebuildRequested {
                                 cx: neighbor.cx,
                                 cy: neighbor.cy,
@@ -1297,7 +1276,7 @@ impl App {
                 if yn_changed {
                     let neighbor = coord.offset(0, -1, 0);
                     let dist_sq = center.distance_sq(neighbor);
-                    if dist_sq <= r_gate_sq && self.renders.contains_key(&neighbor) {
+                    if dist_sq <= r_gate_sq && self.gs.chunks.mesh_ready(neighbor) {
                         self.queue.emit_now(Event::ChunkRebuildRequested {
                             cx: neighbor.cx,
                             cy: neighbor.cy,

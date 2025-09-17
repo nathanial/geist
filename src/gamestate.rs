@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::player::Walker;
@@ -9,13 +9,149 @@ use geist_lighting::LightingStore;
 use geist_structures::{Structure, StructureId};
 use geist_world::voxel::{ChunkCoord, World};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChunkLifecycle {
+    Loading,
+    Ready,
+}
+
+impl ChunkLifecycle {
+    #[inline]
+    pub fn is_ready(self) -> bool {
+        matches!(self, ChunkLifecycle::Ready)
+    }
+}
+
 pub struct ChunkEntry {
-    #[allow(dead_code)]
-    pub coord: ChunkCoord,
     pub buf: Option<ChunkBuf>,
-    pub occupancy: ChunkOccupancy,
-    #[allow(dead_code)]
+    occupancy: Option<ChunkOccupancy>,
     pub built_rev: u64,
+    pub lifecycle: ChunkLifecycle,
+    pub lighting_ready: bool,
+    pub mesh_ready: bool,
+}
+
+impl ChunkEntry {
+    #[inline]
+    pub fn loading() -> Self {
+        Self {
+            buf: None,
+            occupancy: None,
+            built_rev: 0,
+            lifecycle: ChunkLifecycle::Loading,
+            lighting_ready: false,
+            mesh_ready: false,
+        }
+    }
+
+    #[inline]
+    pub fn is_ready(&self) -> bool {
+        self.lifecycle.is_ready()
+    }
+
+    #[inline]
+    pub fn occupancy_or_empty(&self) -> ChunkOccupancy {
+        self.occupancy.unwrap_or(ChunkOccupancy::Empty)
+    }
+
+    #[inline]
+    pub fn has_blocks(&self) -> bool {
+        self.occupancy
+            .map(ChunkOccupancy::has_blocks)
+            .unwrap_or(false)
+    }
+
+    #[inline]
+    pub fn set_ready(&mut self, occ: ChunkOccupancy, buf: Option<ChunkBuf>, built_rev: u64) {
+        self.occupancy = Some(occ);
+        self.buf = buf;
+        self.built_rev = built_rev;
+        self.lifecycle = ChunkLifecycle::Ready;
+    }
+}
+
+#[derive(Default)]
+pub struct ChunkInventory {
+    slots: HashMap<ChunkCoord, ChunkEntry>,
+}
+
+impl ChunkInventory {
+    #[inline]
+    pub fn ready_len(&self) -> usize {
+        self.slots.values().filter(|entry| entry.is_ready()).count()
+    }
+
+    #[inline]
+    pub fn is_ready(&self, coord: ChunkCoord) -> bool {
+        self.slots
+            .get(&coord)
+            .map(|entry| entry.is_ready())
+            .unwrap_or(false)
+    }
+
+    #[inline]
+    pub fn get(&self, coord: &ChunkCoord) -> Option<&ChunkEntry> {
+        self.slots.get(coord).filter(|entry| entry.is_ready())
+    }
+
+    #[inline]
+    pub fn get_any_mut(&mut self, coord: &ChunkCoord) -> Option<&mut ChunkEntry> {
+        self.slots.get_mut(coord)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&ChunkCoord, &ChunkEntry)> {
+        self.slots.iter().filter(|(_, entry)| entry.is_ready())
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&ChunkCoord, &mut ChunkEntry)> {
+        self.slots.iter_mut().filter(|(_, entry)| entry.is_ready())
+    }
+
+    #[inline]
+    pub fn mark_loading(&mut self, coord: ChunkCoord) -> &mut ChunkEntry {
+        self.slots
+            .entry(coord)
+            .and_modify(|entry| {
+                entry.lifecycle = ChunkLifecycle::Loading;
+                entry.lighting_ready = false;
+                entry.mesh_ready = false;
+                entry.occupancy = None;
+                entry.buf = None;
+            })
+            .or_insert_with(ChunkEntry::loading)
+    }
+
+    #[inline]
+    pub fn mark_ready(
+        &mut self,
+        coord: ChunkCoord,
+        occupancy: ChunkOccupancy,
+        buf: Option<ChunkBuf>,
+        built_rev: u64,
+    ) -> &mut ChunkEntry {
+        let entry = self.slots.entry(coord).or_insert_with(ChunkEntry::loading);
+        entry.set_ready(occupancy, buf, built_rev);
+        entry
+    }
+
+    #[inline]
+    pub fn mark_missing(&mut self, coord: ChunkCoord) {
+        self.slots.remove(&coord);
+    }
+
+    pub fn ready_coords(&self) -> impl Iterator<Item = ChunkCoord> + '_ {
+        self.slots
+            .iter()
+            .filter_map(|(coord, entry)| entry.is_ready().then_some(*coord))
+    }
+
+    #[inline]
+    pub fn mesh_ready(&self, coord: ChunkCoord) -> bool {
+        self.slots
+            .get(&coord)
+            .map(|entry| entry.mesh_ready && entry.is_ready())
+            .unwrap_or(false)
+    }
 }
 
 #[derive(Default, Clone, Copy)]
@@ -34,8 +170,7 @@ pub struct GameState {
     // Streaming
     pub view_radius_chunks: i32,
     pub center_chunk: ChunkCoord,
-    pub loaded: HashSet<ChunkCoord>,
-    pub chunks: HashMap<ChunkCoord, ChunkEntry>,
+    pub chunks: ChunkInventory,
     // How many times each chunk has completed meshing (by chunk coordinate)
     pub mesh_counts: HashMap<ChunkCoord, u32>,
     // How many times each chunk has completed a light-only recompute (no mesh)
@@ -92,8 +227,7 @@ impl GameState {
             tick: 0,
             center_chunk: ChunkCoord::new(i32::MIN, i32::MIN, i32::MIN),
             view_radius_chunks: 12,
-            loaded: HashSet::new(),
-            chunks: HashMap::new(),
+            chunks: ChunkInventory::default(),
             mesh_counts: HashMap::new(),
             light_counts: HashMap::new(),
             inflight_rev: HashMap::new(),
