@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, VecDeque};
 
 use geist_blocks::types::Block;
-use geist_chunk::ChunkBuf;
+use geist_chunk::{ChunkBuf, ChunkOccupancy};
 use geist_lighting::LightBorders;
 use geist_mesh_cpu::{ChunkMeshCPU, NeighborsLoaded};
 use geist_structures::StructureId;
@@ -92,8 +92,9 @@ pub enum Event {
         cy: i32,
         cz: i32,
         rev: u64,
-        cpu: ChunkMeshCPU,
-        buf: ChunkBuf,
+        occupancy: ChunkOccupancy,
+        cpu: Option<ChunkMeshCPU>,
+        buf: Option<ChunkBuf>,
         light_borders: Option<LightBorders>,
         light_grid: Option<geist_lighting::LightGrid>,
         job_id: u64,

@@ -449,19 +449,40 @@ impl App {
                     );
                 }
             }
-            if let Some(cpu) = r.cpu {
-                // For mesh builds, pass through the grid; pack atlas later during event handling
+            if r.occupancy.is_empty() {
                 self.queue.emit_now(Event::BuildChunkJobCompleted {
                     cx: r.cx,
                     cy: r.cy,
                     cz: r.cz,
                     rev: r.rev,
-                    cpu,
-                    buf: r.buf,
-                    light_borders: r.light_borders,
-                    light_grid: r.light_grid,
+                    occupancy: r.occupancy,
+                    cpu: None,
+                    buf: None,
+                    light_borders: None,
+                    light_grid: None,
                     job_id: r.job_id,
                 });
+            } else if let Some(cpu) = r.cpu {
+                if let Some(buf) = r.buf {
+                    // For mesh builds, pass through the grid; pack atlas later during event handling
+                    self.queue.emit_now(Event::BuildChunkJobCompleted {
+                        cx: r.cx,
+                        cy: r.cy,
+                        cz: r.cz,
+                        rev: r.rev,
+                        occupancy: r.occupancy,
+                        cpu: Some(cpu),
+                        buf: Some(buf),
+                        light_borders: r.light_borders,
+                        light_grid: r.light_grid,
+                        job_id: r.job_id,
+                    });
+                } else {
+                    log::warn!(
+                        "build job {:?} missing buffer despite non-empty occupancy",
+                        ChunkCoord::new(r.cx, r.cy, r.cz)
+                    );
+                }
             } else if let Some(lg) = r.light_grid {
                 // If macro light borders were computed on the light-only lane, update them here
                 // and notify neighbors on changes so they can refresh their seam rings.

@@ -70,9 +70,47 @@ impl ChunkBuf {
             blocks: b,
         }
     }
+
+    #[inline]
+    pub fn has_non_air(&self) -> bool {
+        self.blocks.iter().any(|b| *b != Block::AIR)
+    }
+
+    #[inline]
+    pub fn is_all_air(&self) -> bool {
+        !self.has_non_air()
+    }
 }
 
-pub fn generate_chunk_buffer(world: &World, coord: ChunkCoord, reg: &BlockRegistry) -> ChunkBuf {
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum ChunkOccupancy {
+    Empty,
+    Populated,
+}
+
+impl ChunkOccupancy {
+    #[inline]
+    pub fn is_empty(self) -> bool {
+        matches!(self, ChunkOccupancy::Empty)
+    }
+
+    #[inline]
+    pub fn has_blocks(self) -> bool {
+        matches!(self, ChunkOccupancy::Populated)
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct ChunkGenerateResult {
+    pub buf: ChunkBuf,
+    pub occupancy: ChunkOccupancy,
+}
+
+pub fn generate_chunk_buffer(
+    world: &World,
+    coord: ChunkCoord,
+    reg: &BlockRegistry,
+) -> ChunkGenerateResult {
     let sx = world.chunk_size_x;
     let sy = world.chunk_size_y;
     let sz = world.chunk_size_z;
@@ -83,22 +121,33 @@ pub fn generate_chunk_buffer(world: &World, coord: ChunkCoord, reg: &BlockRegist
     let base_z = coord.cz * sz as i32;
     // Use reusable worldgen context per chunk to avoid heavy per-voxel allocations
     let mut ctx = world.make_gen_ctx();
+    let mut has_blocks = false;
     for z in 0..sz {
         for y in 0..sy {
             for x in 0..sx {
                 let wx = base_x + x as i32;
                 let wy = base_y + y as i32;
                 let wz = base_z + z as i32;
-                blocks[(y * sz + z) * sx + x] =
-                    world.block_at_runtime_with(reg, &mut ctx, wx, wy, wz);
+                let block = world.block_at_runtime_with(reg, &mut ctx, wx, wy, wz);
+                if block != Block::AIR {
+                    has_blocks = true;
+                }
+                blocks[(y * sz + z) * sx + x] = block;
             }
         }
     }
-    ChunkBuf {
-        coord,
-        sx,
-        sy,
-        sz,
-        blocks,
+    ChunkGenerateResult {
+        buf: ChunkBuf {
+            coord,
+            sx,
+            sy,
+            sz,
+            blocks,
+        },
+        occupancy: if has_blocks {
+            ChunkOccupancy::Populated
+        } else {
+            ChunkOccupancy::Empty
+        },
     }
 }

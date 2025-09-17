@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::player::Walker;
 use geist_blocks::types::Block;
-use geist_chunk::ChunkBuf;
+use geist_chunk::{ChunkBuf, ChunkOccupancy};
 use geist_edit::EditStore;
 use geist_lighting::LightingStore;
 use geist_structures::{Structure, StructureId};
@@ -13,6 +13,7 @@ pub struct ChunkEntry {
     #[allow(dead_code)]
     pub coord: ChunkCoord,
     pub buf: Option<ChunkBuf>,
+    pub occupancy: ChunkOccupancy,
     #[allow(dead_code)]
     pub built_rev: u64,
 }

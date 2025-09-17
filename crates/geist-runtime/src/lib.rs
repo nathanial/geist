@@ -34,13 +34,14 @@ pub struct JobOut {
     pub cpu: Option<ChunkMeshCPU>,
     pub light_atlas: Option<LightAtlas>,
     pub light_grid: Option<LightGrid>,
-    pub buf: chunkbuf::ChunkBuf,
+    pub buf: Option<chunkbuf::ChunkBuf>,
     pub light_borders: Option<LightBorders>,
     pub cx: i32,
     pub cy: i32,
     pub cz: i32,
     pub rev: u64,
     pub job_id: u64,
+    pub occupancy: chunkbuf::ChunkOccupancy,
     // Perf metrics
     pub kind: JobKind,
     pub t_total_ms: u32,
@@ -144,18 +145,24 @@ impl Runtime {
                     let mut t_gen_ms: u32 = 0;
                     let mut t_mesh_ms: u32 = 0;
                     let coord = ChunkCoord::new(job.cx, job.cy, job.cz);
-                    let mut buf = if let Some(prev) = job.prev_buf {
-                        prev
+                    let (mut buf, mut occupancy) = if let Some(prev) = job.prev_buf {
+                        let occ = if prev.has_non_air() {
+                            chunkbuf::ChunkOccupancy::Populated
+                        } else {
+                            chunkbuf::ChunkOccupancy::Empty
+                        };
+                        (prev, occ)
                     } else {
                         let t0 = Instant::now();
-                        let out = chunkbuf::generate_chunk_buffer(&w, coord, &job.reg);
+                        let generated = chunkbuf::generate_chunk_buffer(&w, coord, &job.reg);
                         t_gen_ms = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
-                        out
+                        (generated.buf, generated.occupancy)
                     };
                     // Apply persistent edits for this chunk before meshing
                     let base_x = job.cx * buf.sx as i32;
                     let base_y = job.cy * buf.sy as i32;
                     let base_z = job.cz * buf.sz as i32;
+                    let mut applied_chunk_edit = false;
                     let t_apply_ms = {
                         let t0 = Instant::now();
                         for ((wx, wy, wz), b) in job.chunk_edits.iter().copied() {
@@ -168,12 +175,51 @@ impl Runtime {
                             if lx < buf.sx && lz < buf.sz {
                                 let idx = buf.idx(lx, ly, lz);
                                 buf.blocks[idx] = b;
+                                applied_chunk_edit = true;
                             }
                         }
                         t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32
                     };
-                    let snap_map: std::collections::HashMap<(i32, i32, i32), Block> =
+                    if applied_chunk_edit {
+                        occupancy = if buf.has_non_air() {
+                            chunkbuf::ChunkOccupancy::Populated
+                        } else {
+                            chunkbuf::ChunkOccupancy::Empty
+                        };
+                    }
+                    let region_edits: std::collections::HashMap<(i32, i32, i32), Block> =
                         job.region_edits.into_iter().collect();
+                    let job_kind = match lane {
+                        Lane::Edit => JobKind::Edit,
+                        Lane::Light => JobKind::Light,
+                        Lane::Bg => JobKind::Bg,
+                    };
+                    if !occupancy.has_blocks() {
+                        drop(buf);
+                        let t_light_ms = 0u32;
+                        let t_total_ms =
+                            t_job_start.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+                        let _ = tx.send(JobOut {
+                            cpu: None,
+                            light_atlas: None,
+                            light_grid: None,
+                            buf: None,
+                            light_borders: None,
+                            cx: job.cx,
+                            cy: job.cy,
+                            cz: job.cz,
+                            rev: job.rev,
+                            job_id: job.job_id,
+                            occupancy,
+                            kind: job_kind,
+                            t_total_ms,
+                            t_gen_ms,
+                            t_apply_ms,
+                            t_light_ms,
+                            t_mesh_ms,
+                        });
+                        continue;
+                    }
                     match lane {
                         Lane::Light => {
                             // Compute light only; upload atlas on main thread.
@@ -189,14 +235,15 @@ impl Runtime {
                                 cpu: None,
                                 light_atlas: None,
                                 light_grid: Some(lg),
-                                buf,
+                                buf: Some(buf),
                                 light_borders: Some(borders),
                                 cx: job.cx,
                                 cy: job.cy,
                                 cz: job.cz,
                                 rev: job.rev,
                                 job_id: job.job_id,
-                                kind: JobKind::Light,
+                                occupancy,
+                                kind: job_kind,
                                 t_total_ms,
                                 t_gen_ms,
                                 t_apply_ms,
@@ -204,7 +251,7 @@ impl Runtime {
                                 t_mesh_ms,
                             });
                         }
-                        _ => {
+                        Lane::Edit | Lane::Bg => {
                             // Compute lighting once; reuse for meshing and atlas.
                             let t0 = Instant::now();
                             let lg = compute_light_with_borders_buf(&buf, &ls, &job.reg, &w);
@@ -215,7 +262,7 @@ impl Runtime {
                                 &buf,
                                 &lg,
                                 &w,
-                                Some(&snap_map),
+                                Some(&region_edits),
                                 coord,
                                 &job.reg,
                             );
@@ -228,18 +275,15 @@ impl Runtime {
                                     cpu: Some(cpu),
                                     light_atlas: None,
                                     light_grid: Some(lg),
-                                    buf,
+                                    buf: Some(buf),
                                     light_borders,
                                     cx: job.cx,
                                     cy: job.cy,
                                     cz: job.cz,
                                     rev: job.rev,
                                     job_id: job.job_id,
-                                    kind: match lane {
-                                        Lane::Edit => JobKind::Edit,
-                                        Lane::Bg => JobKind::Bg,
-                                        Lane::Light => JobKind::Light, // unreachable in this arm
-                                    },
+                                    occupancy,
+                                    kind: job_kind,
                                     t_total_ms,
                                     t_gen_ms,
                                     t_apply_ms,

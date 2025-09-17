@@ -31,7 +31,7 @@ fn bench_build_chunk_wcc_flat(c: &mut Criterion) {
     let store = LightingStore::new(sx, sy, sz);
     group.bench_function("flat_32x64x32", |b| {
         b.iter(|| {
-            let buf = generate_chunk_buffer(&world, ChunkCoord::new(0, 0, 0), &reg);
+            let buf = generate_chunk_buffer(&world, ChunkCoord::new(0, 0, 0), &reg).buf;
             let out = build_chunk_wcc_cpu_buf(
                 &buf,
                 Some(&store),
@@ -55,7 +55,7 @@ fn bench_build_chunk_wcc_normal_dims(c: &mut Criterion) {
     let store = LightingStore::new(sx, sy, sz);
     group.bench_function("normal_32x256x32", |b| {
         b.iter(|| {
-            let buf = generate_chunk_buffer(&world, ChunkCoord::new(0, 0, 0), &reg);
+            let buf = generate_chunk_buffer(&world, ChunkCoord::new(0, 0, 0), &reg).buf;
             let out = build_chunk_wcc_cpu_buf(
                 &buf,
                 Some(&store),
@@ -89,7 +89,7 @@ fn bench_light_compute_normal_dims(c: &mut Criterion) {
     let world = World::new(1, 8, 1, 1337, WorldGenMode::Normal);
     let (sx, sy, sz) = (world.chunk_size_x, world.chunk_size_y, world.chunk_size_z);
     let store = LightingStore::new(sx, sy, sz);
-    let buf = generate_chunk_buffer(&world, ChunkCoord::new(0, 0, 0), &reg);
+    let buf = generate_chunk_buffer(&world, ChunkCoord::new(0, 0, 0), &reg).buf;
     group.bench_function("compute_light_with_borders_32x256x32", |b| {
         b.iter(|| {
             let lg = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
@@ -105,7 +105,7 @@ fn bench_wcc_toggle_emit_normal_dims(c: &mut Criterion) {
     let world = World::new(1, 8, 1, 1337, WorldGenMode::Normal);
     let (sx, sy, sz) = (world.chunk_size_x, world.chunk_size_y, world.chunk_size_z);
     let store = LightingStore::new(sx, sy, sz);
-    let buf = generate_chunk_buffer(&world, ChunkCoord::new(0, 0, 0), &reg);
+    let buf = generate_chunk_buffer(&world, ChunkCoord::new(0, 0, 0), &reg).buf;
     let light = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
     group.bench_function("toggle_emit_S2_no_thin_32x256x32", |b| {
         b.iter(|| {
@@ -138,7 +138,7 @@ fn bench_build_chunk_wcc_normal_neighbors(c: &mut Criterion) {
             let mut total_parts = 0usize;
             for cz in 0..(chunks_z as i32) {
                 for cx in 0..(chunks_x as i32) {
-                    let buf = generate_chunk_buffer(&world, ChunkCoord::new(cx, 0, cz), &reg);
+                    let buf = generate_chunk_buffer(&world, ChunkCoord::new(cx, 0, cz), &reg).buf;
                     if let Some((cpu, _borders)) = build_chunk_wcc_cpu_buf(
                         &buf,
                         Some(&store),

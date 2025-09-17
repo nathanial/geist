@@ -9,6 +9,7 @@ use crate::event::{Event, EventEnvelope, RebuildCause};
 use crate::gamestate::{ChunkEntry, FinalizeState};
 use crate::raycast;
 use geist_blocks::{Block, BlockRegistry};
+use geist_chunk::ChunkOccupancy;
 use geist_geom::Vec3;
 use geist_lighting::pack_light_grid_atlas_with_neighbors;
 use geist_render_raylib::conv::{vec3_from_rl, vec3_to_rl};
@@ -238,8 +239,12 @@ impl App {
                         let cy = wy.div_euclid(self.gs.world.chunk_size_y as i32);
                         let cz = wz.div_euclid(sz);
                         if let Some(cent) = self.gs.chunks.get(&ChunkCoord::new(cx, cy, cz)) {
-                            if let Some(ref buf) = cent.buf {
-                                return buf.get_world(wx, wy, wz).unwrap_or(Block::AIR);
+                            match (cent.occupancy, cent.buf.as_ref()) {
+                                (ChunkOccupancy::Empty, _) => return Block::AIR,
+                                (_, Some(buf)) => {
+                                    return buf.get_world(wx, wy, wz).unwrap_or(Block::AIR);
+                                }
+                                (_, None) => {}
                             }
                         }
                         self.gs.world.block_at_runtime(reg, wx, wy, wz)
@@ -391,6 +396,12 @@ impl App {
             }
             Event::EnsureChunkLoaded { cx, cy, cz } => {
                 let coord = ChunkCoord::new(cx, cy, cz);
+                if let Some(entry) = self.gs.chunks.get(&coord) {
+                    if entry.occupancy.is_empty() {
+                        self.gs.loaded.insert(coord);
+                        return;
+                    }
+                }
                 if self.renders.contains_key(&coord) || self.gs.inflight_rev.contains_key(&coord) {
                     return;
                 }
@@ -434,7 +445,13 @@ impl App {
                     .gs
                     .chunks
                     .get(&coord)
-                    .and_then(|c| c.buf.as_ref())
+                    .and_then(|c| {
+                        if c.occupancy.has_blocks() {
+                            c.buf.as_ref()
+                        } else {
+                            None
+                        }
+                    })
                     .cloned();
                 let job = BuildJob {
                     cx,
@@ -526,6 +543,7 @@ impl App {
                 cy,
                 cz,
                 rev,
+                occupancy,
                 cpu,
                 buf,
                 light_borders,
@@ -566,6 +584,95 @@ impl App {
                     // Do not upload or mark built; also avoid lighting border updates
                     return;
                 }
+
+                if occupancy.is_empty() {
+                    // Remove any previous render/lighting and mark chunk as a sparse placeholder.
+                    self.renders.remove(&coord);
+                    self.gs.lighting.clear_chunk(coord);
+                    self.gs.chunks.insert(
+                        coord,
+                        ChunkEntry {
+                            coord,
+                            buf: None,
+                            occupancy,
+                            built_rev: rev,
+                        },
+                    );
+                    self.gs.loaded.insert(coord);
+                    self.gs.inflight_rev.remove(&coord);
+                    self.gs.edits.mark_built(cx, cy, cz, rev);
+                    self.gs.mesh_counts.remove(&coord);
+                    self.gs.light_counts.remove(&coord);
+
+                    // Empty chunks are trivially finalized and satisfy downstream owners.
+                    let st = self
+                        .gs
+                        .finalize
+                        .entry(coord)
+                        .or_insert(FinalizeState::default());
+                    st.owner_neg_x_ready = true;
+                    st.owner_neg_y_ready = true;
+                    st.owner_neg_z_ready = true;
+                    st.finalize_requested = false;
+                    st.finalized = true;
+
+                    // Mark positive neighbor owners as ready so they don't wait on seams.
+                    let neighbors: &[(i32, i32, i32, fn(&mut FinalizeState))] = &[
+                        (1, 0, 0, |st: &mut FinalizeState| {
+                            st.owner_neg_x_ready = true
+                        }),
+                        (0, 1, 0, |st: &mut FinalizeState| {
+                            st.owner_neg_y_ready = true
+                        }),
+                        (0, 0, 1, |st: &mut FinalizeState| {
+                            st.owner_neg_z_ready = true
+                        }),
+                    ];
+                    for &(dx, dy, dz, setter) in neighbors {
+                        let ncoord = coord.offset(dx, dy, dz);
+                        if let Some(nstate) = self.gs.finalize.get_mut(&ncoord) {
+                            setter(nstate);
+                            if nstate.owner_neg_x_ready
+                                && nstate.owner_neg_y_ready
+                                && nstate.owner_neg_z_ready
+                                && !nstate.finalized
+                                && !nstate.finalize_requested
+                            {
+                                self.try_schedule_finalize(ncoord);
+                            }
+                        }
+                    }
+                    return;
+                }
+
+                let cpu = match cpu {
+                    Some(cpu) => cpu,
+                    None => {
+                        log::warn!(
+                            "populated chunk build missing mesh output at ({},{},{}) rev={}",
+                            cx,
+                            cy,
+                            cz,
+                            rev
+                        );
+                        self.gs.inflight_rev.remove(&coord);
+                        return;
+                    }
+                };
+                let buf = match buf {
+                    Some(buf) => buf,
+                    None => {
+                        log::warn!(
+                            "populated chunk build missing buffer at ({},{},{}) rev={}",
+                            cx,
+                            cy,
+                            cz,
+                            rev
+                        );
+                        self.gs.inflight_rev.remove(&coord);
+                        return;
+                    }
+                };
                 // Upload to GPU
                 if let Some(mut cr) =
                     upload_chunk_mesh(rl, thread, cpu, &mut self.tex_cache, &self.reg.materials)
@@ -632,6 +739,7 @@ impl App {
                     ChunkEntry {
                         coord,
                         buf: Some(buf),
+                        occupancy,
                         built_rev: rev,
                     },
                 );
@@ -771,11 +879,20 @@ impl App {
                     let cy = wy.div_euclid(sy);
                     let cz = wz.div_euclid(sz);
                     if let Some(cent) = self.gs.chunks.get(&ChunkCoord::new(cx, cy, cz)) {
-                        if let Some(ref buf) = cent.buf {
-                            return buf.get_world(wx, wy, wz).unwrap_or(Block {
-                                id: reg.id_by_name("air").unwrap_or(0),
-                                state: 0,
-                            });
+                        match (cent.occupancy, cent.buf.as_ref()) {
+                            (ChunkOccupancy::Empty, _) => {
+                                return Block {
+                                    id: reg.id_by_name("air").unwrap_or(0),
+                                    state: 0,
+                                };
+                            }
+                            (_, Some(buf)) => {
+                                return buf.get_world(wx, wy, wz).unwrap_or(Block {
+                                    id: reg.id_by_name("air").unwrap_or(0),
+                                    state: 0,
+                                });
+                            }
+                            (_, None) => {}
                         }
                     }
                     // Outside loaded buffers: treat as air
@@ -984,8 +1101,12 @@ impl App {
                     let cy = wy.div_euclid(sy);
                     let cz = wz.div_euclid(sz);
                     if let Some(cent) = self.gs.chunks.get(&ChunkCoord::new(cx, cy, cz)) {
-                        if let Some(ref buf) = cent.buf {
-                            return buf.get_world(wx, wy, wz).unwrap_or(Block::AIR);
+                        match (cent.occupancy, cent.buf.as_ref()) {
+                            (ChunkOccupancy::Empty, _) => return Block::AIR,
+                            (_, Some(buf)) => {
+                                return buf.get_world(wx, wy, wz).unwrap_or(Block::AIR);
+                            }
+                            (_, None) => {}
                         }
                     }
                     self.gs.world.block_at_runtime(reg, wx, wy, wz)

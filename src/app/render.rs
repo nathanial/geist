@@ -4,6 +4,7 @@ use std::sync::Arc;
 use super::{App, DebugStats};
 use crate::raycast;
 use geist_blocks::Block;
+use geist_chunk::ChunkOccupancy;
 use geist_geom::Vec3;
 use geist_render_raylib::conv::{vec3_from_rl, vec3_to_rl};
 use geist_structures::{StructureId, rotate_yaw_inv};
@@ -91,10 +92,10 @@ impl App {
                 let cz = wz.div_euclid(sz);
                 let coord = ChunkCoord::new(cx, cy, cz);
                 if let Some(cent) = self.gs.chunks.get(&coord) {
-                    if let Some(ref buf) = cent.buf {
-                        buf.get_world(wx, wy, wz).unwrap_or(Block::AIR)
-                    } else {
-                        self.gs.world.block_at_runtime(&self.reg, wx, wy, wz)
+                    match (cent.occupancy, cent.buf.as_ref()) {
+                        (ChunkOccupancy::Empty, _) => Block::AIR,
+                        (_, Some(buf)) => buf.get_world(wx, wy, wz).unwrap_or(Block::AIR),
+                        (_, None) => self.gs.world.block_at_runtime(&self.reg, wx, wy, wz),
                     }
                 } else {
                     self.gs.world.block_at_runtime(&self.reg, wx, wy, wz)
@@ -413,8 +414,12 @@ impl App {
                 let cz = wz.div_euclid(sz);
                 let coord = ChunkCoord::new(cx, cy, cz);
                 if let Some(cent) = self.gs.chunks.get(&coord) {
-                    if let Some(ref buf) = cent.buf {
-                        return buf.get_world(wx, wy, wz).unwrap_or(Block::AIR);
+                    match (cent.occupancy, cent.buf.as_ref()) {
+                        (ChunkOccupancy::Empty, _) => return Block::AIR,
+                        (_, Some(buf)) => {
+                            return buf.get_world(wx, wy, wz).unwrap_or(Block::AIR);
+                        }
+                        (_, None) => {}
                     }
                 }
                 self.gs.world.block_at_runtime(&self.reg, wx, wy, wz)
@@ -1101,8 +1106,13 @@ impl App {
                         continue;
                     }
                     let coord = center.offset(dx, dy, dz);
-                    let is_loaded = self.gs.loaded.contains(&coord);
+                    let entry = self.gs.chunks.get(&coord);
+                    let known_empty = entry.map(|c| c.occupancy.is_empty()).unwrap_or(false);
+                    let is_loaded = self.gs.loaded.contains(&coord) && !known_empty;
                     let is_center = dx == 0 && dy == 0 && dz == 0;
+                    if known_empty && !is_center {
+                        continue;
+                    }
                     if !is_loaded && !is_center {
                         continue;
                     }
@@ -1130,8 +1140,20 @@ impl App {
                     g *= fade;
                     b *= fade;
                     let alpha = if is_loaded { 230.0 } else { 130.0 };
-                    let has_above = is_loaded && self.gs.loaded.contains(&coord.offset(0, 1, 0));
-                    let has_below = is_loaded && self.gs.loaded.contains(&coord.offset(0, -1, 0));
+                    let above_has_blocks = self
+                        .gs
+                        .chunks
+                        .get(&coord.offset(0, 1, 0))
+                        .map(|c| c.occupancy.has_blocks())
+                        .unwrap_or(false);
+                    let below_has_blocks = self
+                        .gs
+                        .chunks
+                        .get(&coord.offset(0, -1, 0))
+                        .map(|c| c.occupancy.has_blocks())
+                        .unwrap_or(false);
+                    let has_above = is_loaded && above_has_blocks;
+                    let has_below = is_loaded && below_has_blocks;
                     let pos = Vector3::new(
                         dx as f32 * spacing,
                         dy as f32 * spacing,
