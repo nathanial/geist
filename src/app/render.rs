@@ -55,6 +55,7 @@ impl App {
         let camera3d = self.cam.to_camera3d();
         let minimap_side_px = App::minimap_side_px(self.gs.view_radius_chunks);
         self.render_minimap_to_texture(rl, thread, minimap_side_px);
+        self.minimap_ui_rect = None;
         let mut d = rl.begin_drawing(thread);
         // Skybox: clear background to time-of-day sky color
         d.clear_background(Color::new(
@@ -719,6 +720,7 @@ impl App {
                     }
                     d.draw_rectangle(mx, my, map_w, map_h, Color::new(0, 0, 0, 150));
                     d.draw_rectangle_lines(mx, my, map_w, map_h, Color::new(255, 255, 255, 40));
+                    self.minimap_ui_rect = Some((mx, my, map_w, map_h));
                     let tex = minimap_rt.texture().clone();
                     let src = Rectangle::new(0.0, 0.0, tex.width() as f32, -(tex.height() as f32));
                     let dest = Rectangle::new(
@@ -745,6 +747,31 @@ impl App {
                     }
                     d.draw_text(&label, label_x + 1, label_y + 1, label_fs, Color::BLACK);
                     d.draw_text(&label, label_x, label_y, label_fs, Color::WHITE);
+
+                    let legend = ["Scroll: zoom", "LMB drag: orbit", "Shift+Drag/RMB: pan"];
+                    let legend_fs = 14;
+                    let legend_h = (legend.len() as i32) * (legend_fs + 2);
+                    let mut legend_y = my + map_h - pad - legend_h;
+                    if legend_y < my + pad {
+                        legend_y = my + pad;
+                    }
+                    for line in legend.iter() {
+                        d.draw_text(
+                            line,
+                            mx + pad + 1,
+                            legend_y + 1,
+                            legend_fs,
+                            Color::new(0, 0, 0, 200),
+                        );
+                        d.draw_text(
+                            line,
+                            mx + pad,
+                            legend_y,
+                            legend_fs,
+                            Color::new(220, 220, 240, 240),
+                        );
+                        legend_y += legend_fs + 2;
+                    }
                 }
             }
         } // end debug overlay
@@ -1049,6 +1076,9 @@ impl App {
         let spacing = 1.15_f32;
         let cube = 0.88_f32;
         let radius_f = radius.max(1) as f32;
+        let zoom = self.minimap_zoom.clamp(0.3, 8.0);
+        let yaw = self.minimap_yaw;
+        let pitch = self.minimap_pitch.clamp(0.05, 1.5);
 
         #[derive(Clone, Copy)]
         struct MiniCell {
@@ -1072,6 +1102,10 @@ impl App {
                     }
                     let coord = center.offset(dx, dy, dz);
                     let is_loaded = self.gs.loaded.contains(&coord);
+                    let is_center = dx == 0 && dy == 0 && dz == 0;
+                    if !is_loaded && !is_center {
+                        continue;
+                    }
                     let mesh_c = *self.gs.mesh_counts.get(&coord).unwrap_or(&0);
                     let light_c = *self.gs.light_counts.get(&coord).unwrap_or(&0);
                     let mesh_heat = (mesh_c.min(16) as f32) / 16.0;
@@ -1095,12 +1129,7 @@ impl App {
                     r *= fade;
                     g *= fade;
                     b *= fade;
-                    let alpha = if is_loaded { 230.0 } else { 110.0 };
-                    if !is_loaded {
-                        r = 70.0;
-                        g = 70.0;
-                        b = 82.0;
-                    }
+                    let alpha = if is_loaded { 230.0 } else { 130.0 };
                     let has_above = is_loaded && self.gs.loaded.contains(&coord.offset(0, 1, 0));
                     let has_below = is_loaded && self.gs.loaded.contains(&coord.offset(0, -1, 0));
                     let pos = Vector3::new(
@@ -1118,10 +1147,21 @@ impl App {
                         },
                         has_above,
                         has_below,
-                        is_center: dx == 0 && dy == 0 && dz == 0,
+                        is_center,
                     });
                 }
             }
+        }
+
+        if cells.is_empty() {
+            cells.push(MiniCell {
+                pos: Vector3::zero(),
+                color: Color::new(70, 70, 90, 160),
+                border: Color::new(180, 180, 200, 120),
+                has_above: false,
+                has_below: false,
+                is_center: true,
+            });
         }
 
         let needs_new = match self.minimap_rt {
@@ -1144,24 +1184,30 @@ impl App {
             return;
         };
 
+        let max_pan = (radius as f32 + 1.0) * spacing;
+        self.minimap_pan.x = self.minimap_pan.x.clamp(-max_pan, max_pan);
+        self.minimap_pan.y = self.minimap_pan.y.clamp(-max_pan, max_pan);
+        self.minimap_pan.z = self.minimap_pan.z.clamp(-max_pan, max_pan);
+        let target = self.minimap_pan;
+
         {
             let mut td = rl.begin_texture_mode(thread, minimap_rt);
             td.clear_background(Color::new(0, 0, 0, 0));
 
-            let tick = self.gs.tick as f32;
-            let yaw = tick * 0.01;
-            let pitch = 0.85_f32;
-            let orbit = (radius as f32 + 1.5).max(1.5) * spacing * 2.4 + 4.0;
-            let cam_pos = Vector3::new(
+            let orbit_base = (radius as f32 + 1.5).max(1.5) * spacing * 2.4 + 4.0;
+            let orbit = (orbit_base / zoom).clamp(2.0, 160.0);
+            let dir = Vector3::new(
                 orbit * yaw.cos() * pitch.cos(),
                 orbit * pitch.sin(),
                 orbit * yaw.sin() * pitch.cos(),
             );
+            let cam_pos = Vector3::new(target.x + dir.x, target.y + dir.y, target.z + dir.z);
+            let up = Vector3::new(0.0, 1.0, 0.0);
             let camera = Camera3D::perspective(
                 cam_pos,
-                Vector3::new(0.0, 0.0, 0.0),
-                Vector3::new(0.0, 1.0, 0.0),
-                35.0,
+                target,
+                up,
+                (35.0 / zoom.powf(0.25)).clamp(18.0, 55.0),
             );
 
             {

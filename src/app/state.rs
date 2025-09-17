@@ -9,7 +9,7 @@ use geist_render_raylib::{ChunkRender, FogShader, LeavesShader, TextureCache, Wa
 use geist_runtime::Runtime;
 use geist_structures::StructureId;
 use geist_world::ChunkCoord;
-use raylib::prelude::RenderTexture2D;
+use raylib::prelude::{MouseButton, RenderTexture2D, Vector2, Vector3};
 
 use crate::camera::FlyCamera;
 use crate::event::EventQueue;
@@ -29,6 +29,14 @@ pub struct App {
     pub renders: HashMap<ChunkCoord, ChunkRender>,
     pub structure_renders: HashMap<StructureId, ChunkRender>,
     pub minimap_rt: Option<RenderTexture2D>,
+    pub minimap_zoom: f32,
+    pub minimap_yaw: f32,
+    pub minimap_pitch: f32,
+    pub minimap_pan: Vector3,
+    pub minimap_ui_rect: Option<(i32, i32, i32, i32)>,
+    pub minimap_drag_button: Option<MouseButton>,
+    pub minimap_drag_pan: bool,
+    pub minimap_last_cursor: Option<Vector2>,
     pub reg: Arc<BlockRegistry>,
     pub(crate) evt_processed_total: usize,
     pub(crate) evt_processed_by: HashMap<String, usize>,

@@ -240,6 +240,76 @@ impl App {
             }
         }
 
+        // Minimap interactions (zoom/orbit/pan)
+        let mut minimap_hovered = false;
+        if !self.gs.show_debug_overlay {
+            self.minimap_drag_button = None;
+            self.minimap_last_cursor = None;
+        }
+        if self.gs.show_debug_overlay {
+            if let Some((mx, my, mw, mh)) = self.minimap_ui_rect {
+                let mouse = rl.get_mouse_position();
+                if mouse.x >= mx as f32
+                    && mouse.x <= (mx + mw) as f32
+                    && mouse.y >= my as f32
+                    && mouse.y <= (my + mh) as f32
+                {
+                    minimap_hovered = true;
+                    let wheel = rl.get_mouse_wheel_move();
+                    if wheel.abs() > f32::EPSILON {
+                        let factor = 1.0 + wheel * 0.18;
+                        self.minimap_zoom = (self.minimap_zoom * factor).clamp(0.35, 6.0);
+                    }
+                    if rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT) {
+                        self.minimap_drag_button = Some(MouseButton::MOUSE_BUTTON_LEFT);
+                        self.minimap_drag_pan = rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT)
+                            || rl.is_key_down(KeyboardKey::KEY_RIGHT_SHIFT);
+                        self.minimap_last_cursor = Some(mouse);
+                    }
+                    if rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_RIGHT) {
+                        self.minimap_drag_button = Some(MouseButton::MOUSE_BUTTON_RIGHT);
+                        self.minimap_drag_pan = true;
+                        self.minimap_last_cursor = Some(mouse);
+                    }
+                }
+            }
+        }
+
+        if let Some(button) = self.minimap_drag_button {
+            if !rl.is_mouse_button_down(button) {
+                self.minimap_drag_button = None;
+                self.minimap_last_cursor = None;
+            } else if let Some(prev) = self.minimap_last_cursor {
+                let mouse = rl.get_mouse_position();
+                let dx = mouse.x - prev.x;
+                let dy = mouse.y - prev.y;
+                if dx.abs() > f32::EPSILON || dy.abs() > f32::EPSILON {
+                    if self.minimap_drag_pan {
+                        let pan_scale = 0.01 * self.minimap_zoom.max(0.4);
+                        self.minimap_pan.x -= dx * pan_scale;
+                        self.minimap_pan.z += dy * pan_scale;
+                    } else {
+                        let yaw_speed = 0.010;
+                        let pitch_speed = 0.010;
+                        self.minimap_yaw += dx * yaw_speed;
+                        self.minimap_pitch =
+                            (self.minimap_pitch - dy * pitch_speed).clamp(0.12, 1.45);
+                        let tau = std::f32::consts::TAU;
+                        if self.minimap_yaw > std::f32::consts::PI {
+                            self.minimap_yaw -= tau;
+                        } else if self.minimap_yaw < -std::f32::consts::PI {
+                            self.minimap_yaw += tau;
+                        }
+                    }
+                    self.minimap_last_cursor = Some(mouse);
+                }
+            }
+        } else if !minimap_hovered {
+            self.minimap_last_cursor = None;
+        }
+
+        let block_minimap_input = minimap_hovered || self.minimap_drag_button.is_some();
+
         // Structure speed controls (horizontal X)
         if rl.is_key_pressed(KeyboardKey::KEY_MINUS) {
             self.gs.structure_speed = (self.gs.structure_speed - 1.0).max(0.0);
@@ -290,8 +360,9 @@ impl App {
         // Lighting mode cycling removed; FullMicro is the only supported mode.
 
         // Mouse edit intents
-        let want_edit = rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT)
-            || rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_RIGHT);
+        let want_edit = !block_minimap_input
+            && (rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT)
+                || rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_RIGHT));
         if want_edit {
             let place = rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_RIGHT);
             let block = self.gs.place_type;
