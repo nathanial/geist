@@ -57,145 +57,6 @@ impl From<ChunkCoord> for (i32, i32, i32) {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct ShowcaseEntry {
-    pub block: RtBlock,
-    pub label: String,
-}
-
-#[derive(Clone, Debug)]
-pub struct ShowcasePlacement {
-    pub dx: i32,
-    pub dz: i32,
-    pub block: RtBlock,
-    pub label: String,
-}
-
-struct ShowcaseCache {
-    entries: Arc<[ShowcaseEntry]>,
-    placements: Arc<[ShowcasePlacement]>,
-    entry_spacing: i32,
-    entry_row_len: i32,
-    stairs_width: i32,
-    stairs_depth: i32,
-    stairs_lookup: HashMap<(i32, i32), RtBlock>,
-}
-
-// Build the list of showcase entries (blocks to place and their labels).
-pub fn build_showcase_entries(reg: &BlockRegistry) -> Vec<ShowcaseEntry> {
-    let mut out: Vec<ShowcaseEntry> = Vec::new();
-    let air_id = reg.id_by_name("air").unwrap_or(0);
-    for ty in &reg.blocks {
-        if ty.id == air_id {
-            continue;
-        }
-        if ty.name == "slab" {
-            if let Some(mats) = ty.state_schema.get("material") {
-                for m in mats {
-                    let mut props = std::collections::HashMap::new();
-                    props.insert("half".to_string(), "bottom".to_string());
-                    props.insert("material".to_string(), m.clone());
-                    let state = ty.pack_state(&props);
-                    out.push(ShowcaseEntry {
-                        block: RtBlock { id: ty.id, state },
-                        label: format!("slab({},bottom)", m),
-                    });
-                    let mut props_top = std::collections::HashMap::new();
-                    props_top.insert("half".to_string(), "top".to_string());
-                    props_top.insert("material".to_string(), m.clone());
-                    let state_top = ty.pack_state(&props_top);
-                    out.push(ShowcaseEntry {
-                        block: RtBlock {
-                            id: ty.id,
-                            state: state_top,
-                        },
-                        label: format!("slab({},top)", m),
-                    });
-                }
-                continue;
-            }
-        } else if ty.name == "stairs" {
-            if let Some(mats) = ty.state_schema.get("material") {
-                for m in mats {
-                    let mut props = std::collections::HashMap::new();
-                    props.insert("half".to_string(), "bottom".to_string());
-                    props.insert("facing".to_string(), "north".to_string());
-                    props.insert("material".to_string(), m.clone());
-                    let state = ty.pack_state(&props);
-                    out.push(ShowcaseEntry {
-                        block: RtBlock { id: ty.id, state },
-                        label: format!("stairs({})", m),
-                    });
-                }
-                continue;
-            }
-        }
-        out.push(ShowcaseEntry {
-            block: RtBlock {
-                id: ty.id,
-                state: 0,
-            },
-            label: ty.name.clone(),
-        });
-    }
-    out
-}
-
-pub fn build_showcase_stairs_cluster(reg: &BlockRegistry) -> Vec<ShowcasePlacement> {
-    let stairs = match reg.blocks.iter().find(|t| t.name == "stairs") {
-        Some(t) => t,
-        None => return Vec::new(),
-    };
-    let mats = stairs
-        .state_schema
-        .get("material")
-        .cloned()
-        .unwrap_or_default();
-    let material = if mats.iter().any(|m| m == "stone_bricks") {
-        "stone_bricks"
-    } else {
-        mats.first().map(|s| s.as_str()).unwrap_or("smooth_stone")
-    };
-    let make = |half: &str, facing: &str| -> RtBlock {
-        let mut props = HashMap::new();
-        props.insert("half".to_string(), half.to_string());
-        props.insert("facing".to_string(), facing.to_string());
-        props.insert("material".to_string(), material.to_string());
-        let state = stairs.pack_state(&props);
-        RtBlock {
-            id: stairs.id,
-            state,
-        }
-    };
-
-    const LAYOUT: &[(i32, i32, &str, &str, &str)] = &[
-        (0, 0, "bottom", "north", "N"),
-        (2, 0, "bottom", "east", "E"),
-        (4, 0, "bottom", "south", "S"),
-        (6, 0, "bottom", "west", "W"),
-        (0, 2, "top", "north", "N"),
-        (2, 2, "top", "east", "E"),
-        (4, 2, "top", "south", "S"),
-        (6, 2, "top", "west", "W"),
-        // stacked examples for quick comparison of halves per facing
-        (0, 4, "bottom", "east", "E"),
-        (1, 4, "top", "east", "E"),
-        (3, 4, "bottom", "south", "S"),
-        (4, 4, "top", "south", "S"),
-    ];
-
-    let mut out = Vec::with_capacity(LAYOUT.len());
-    for &(dx, dz, half, facing, label) in LAYOUT {
-        out.push(ShowcasePlacement {
-            dx,
-            dz,
-            block: make(half, facing),
-            label: format!("stairs({},{},{})", material, half, label),
-        });
-    }
-    out
-}
-
 pub struct World {
     pub chunk_size_x: usize,
     pub chunk_size_y: usize,
@@ -206,15 +67,13 @@ pub struct World {
     pub seed: i32,
     pub mode: WorldGenMode,
     pub gen_params: Arc<RwLock<Arc<WorldGenParams>>>,
-    showcase_cache: RwLock<Option<Arc<ShowcaseCache>>>,
     block_id_cache: RwLock<HashMap<String, u16>>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum WorldGenMode {
     Normal,
-    Flat { thickness: i32 },
-    Showcase,
+    Flat { thickness: i32 }
 }
 
 impl World {
@@ -235,7 +94,6 @@ impl World {
             seed,
             mode,
             gen_params: Arc::new(RwLock::new(Arc::new(WorldGenParams::default()))),
-            showcase_cache: RwLock::new(None),
             block_id_cache: RwLock::new(HashMap::new()),
         }
     }
@@ -295,68 +153,6 @@ impl World {
         }
     }
 
-    fn ensure_showcase_cache(&self, reg: &BlockRegistry) -> Option<Arc<ShowcaseCache>> {
-        if let Ok(cache) = self.showcase_cache.read() {
-            if let Some(existing) = cache.as_ref() {
-                return Some(Arc::clone(existing));
-            }
-        }
-
-        let entries_vec = build_showcase_entries(reg);
-        let placements_vec = build_showcase_stairs_cluster(reg);
-        let entry_spacing = 2i32;
-        let entry_row_len = if entries_vec.is_empty() {
-            0
-        } else {
-            (entries_vec.len() as i32) * entry_spacing - 1
-        };
-        let stairs_width = placements_vec
-            .iter()
-            .map(|p| p.dx)
-            .max()
-            .map(|m| m + 1)
-            .unwrap_or(0);
-        let stairs_depth = placements_vec
-            .iter()
-            .map(|p| p.dz)
-            .max()
-            .map(|m| m + 1)
-            .unwrap_or(0);
-        let mut stairs_lookup = HashMap::with_capacity(placements_vec.len());
-        for p in &placements_vec {
-            stairs_lookup.insert((p.dx, p.dz), p.block);
-        }
-
-        let cache = Arc::new(ShowcaseCache {
-            entries: Arc::<[ShowcaseEntry]>::from(entries_vec),
-            placements: Arc::<[ShowcasePlacement]>::from(placements_vec),
-            entry_spacing,
-            entry_row_len,
-            stairs_width,
-            stairs_depth,
-            stairs_lookup,
-        });
-
-        if let Ok(mut guard) = self.showcase_cache.write() {
-            if let Some(existing) = guard.as_ref() {
-                return Some(Arc::clone(existing));
-            }
-            *guard = Some(Arc::clone(&cache));
-        }
-
-        Some(cache)
-    }
-
-    pub fn showcase_entries(&self, reg: &BlockRegistry) -> Option<Arc<[ShowcaseEntry]>> {
-        self.ensure_showcase_cache(reg)
-            .map(|cache| Arc::clone(&cache.entries))
-    }
-
-    pub fn showcase_placements(&self, reg: &BlockRegistry) -> Option<Arc<[ShowcasePlacement]>> {
-        self.ensure_showcase_cache(reg)
-            .map(|cache| Arc::clone(&cache.placements))
-    }
-
     pub fn make_gen_ctx(&self) -> GenCtx {
         let params = {
             let guard = self.gen_params.read().unwrap();
@@ -410,53 +206,6 @@ impl World {
         let world_height = self.world_height_hint() as i32;
         let world_height_f = world_height as f32;
         if y < 0 {
-            return air;
-        }
-        if let WorldGenMode::Showcase = self.mode {
-            let mut row_y = (world_height_f * ctx.params.platform_y_ratio
-                + ctx.params.platform_y_offset)
-                .round() as i32;
-            row_y = row_y.clamp(1, world_height - 2);
-            if y != row_y {
-                return air;
-            }
-            let cz = (self.world_size_z() as i32) / 2;
-            let cache = match self.ensure_showcase_cache(reg) {
-                Some(cache) => cache,
-                None => return air,
-            };
-            if z == cz {
-                if cache.entries.is_empty() || cache.entry_row_len <= 0 {
-                    return air;
-                }
-                let spacing = cache.entry_spacing;
-                let row_len = cache.entry_row_len;
-                let cx = (self.world_size_x() as i32) / 2;
-                let start_x = cx - row_len / 2;
-                if x < start_x || x >= start_x + row_len {
-                    return air;
-                }
-                let dx = x - start_x;
-                if dx % spacing != 0 {
-                    return air;
-                }
-                let idx = (dx / spacing) as usize;
-                return cache.entries.get(idx).map(|e| e.block).unwrap_or(air);
-            }
-            let stair_base_z = cz + 3;
-            let local_z = z - stair_base_z;
-            if local_z >= 0 && local_z < cache.stairs_depth {
-                if cache.stairs_width > 0 {
-                    let cx = (self.world_size_x() as i32) / 2;
-                    let start_x = cx - cache.stairs_width / 2;
-                    let dx = x - start_x;
-                    if dx >= 0 && dx < cache.stairs_width {
-                        if let Some(block) = cache.stairs_lookup.get(&(dx, local_z)) {
-                            return *block;
-                        }
-                    }
-                }
-            }
             return air;
         }
         if let WorldGenMode::Flat { thickness } = self.mode {
@@ -1032,9 +781,6 @@ impl World {
     pub fn update_worldgen_params(&self, params: WorldGenParams) {
         if let Ok(mut guard) = self.gen_params.write() {
             *guard = Arc::new(params);
-        }
-        if let Ok(mut cache) = self.showcase_cache.write() {
-            *cache = None;
         }
         if let Ok(mut ids) = self.block_id_cache.write() {
             ids.clear();

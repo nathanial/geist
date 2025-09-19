@@ -119,7 +119,6 @@ enum WorldKind {
     #[default]
     Normal,
     Flat,
-    Showcase,
     SchemOnly,
 }
 
@@ -300,7 +299,6 @@ fn run_app(run: RunArgs, assets_root: std::path::PathBuf) {
         WorldKind::Flat => WorldGenMode::Flat {
             thickness: run.flat_thickness.unwrap_or(1),
         },
-        WorldKind::Showcase => WorldGenMode::Showcase,
         WorldKind::Normal => WorldGenMode::Normal,
     };
     let world = Arc::new(World::new(
@@ -393,9 +391,6 @@ fn run_app(run: RunArgs, assets_root: std::path::PathBuf) {
 
 #[derive(Args, Debug)]
 pub struct SnapArgs {
-    /// Output directory for screenshots and manifest.xml
-    #[arg(long, default_value = "showcase_output")]
-    pub out_dir: String,
 
     /// Screenshot width in pixels
     #[arg(long, default_value_t = 512)]
