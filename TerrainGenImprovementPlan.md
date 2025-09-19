@@ -20,25 +20,23 @@ These hotspots explain the ~1 s per chunk load time that was observed: the same 
 
 ## Recommended Improvements
 
-### 1. Build Column Caches Up Front (High Impact, Moderate Effort)
-- During chunk generation, iterate `(x, z)` once to compute and store:
-  - Terrain height, surface block name, water depth thresholds.
-  - Biome/temperature/moisture triples and resolved tree probability/species choices.
-  - Any feature rule flags that depend only on column data (e.g. `below_height_offset`, biome filters).
-- Feed this cache into a second pass over `y`, eliminating redundant noise calls and hashmap lookups. This mirrors the previously spiked “pre-compact” approach that was reverted; reintroduce it with focused tests to guarantee behavioural parity.
-- Expected results: remove ~70–80% of the 2D noise and hash work per chunk.
+### 1. Chunk-Local Column Array (High Impact, Moderate Effort)
+- Allocate a `Vec<ColumnData>` sized `sx * sz` per chunk and index it by `(lx, lz)` instead of hashing world positions. Populate the array in a first pass with:
+  - Terrain height, waterline, and pre-resolved block IDs for surface/subsoil.
+  - Biome climate snapshots and tree metadata (species enum, trunk height, cached leaf/log IDs) so the voxel loop never touches strings.
+- Reuse the array in the `y` sweep as well as in neighbour checks (`near_solid`, tree canopy fill), eliminating the per-voxel hashmap traffic and repeated block name resolution.
+- Expected results: shave the column book-keeping to O(1) pointer math while setting up for deeper noise caching.
 
-### 2. Precompute Tree Instances per Column (High Impact, Higher Effort)
-- Generate a sparse list of tree placements per chunk using cached column data (surface height, biome, hashed randomness) and store `(x, z, surface_y, height, species)`.
-- Use this list to stamp trunks and leaf volumes during the `y` sweep instead of calling `trunk_at` dynamically.
-- Cache leaf neighbourhoods (e.g. store per-tree bounding boxes) so leaf filling becomes a simple geometric test with integer math.
-- Benefit: removes the nested `trunk_at` calls and associated noise/hash churn; clears up to tens of millions of redundant operations in forested areas.
+### 2. Chunk-Level Noise Buffers (High Impact, Higher Effort)
+- Precompute warp/tunnel fractal values and Worley F1 distances on a `(sx+2) × (sy+2) × (sz+2)` grid so both the voxel itself and its six neighbours can read cached values.
+- Store results in flat arrays keyed by local coordinates; neighbour lookups become direct index hits instead of re-running `FastNoiseLite` and hash-based Worley sampling.
+- Integrate the buffers into the cavern carve path and `near_solid` closure, reducing the noise workload from millions of calls per chunk to a single pass per buffer.
+- Combine with the column array to amortize biome/feature decisions across the chunk.
 
-### 3. Cache Carver Noise Fields (Medium Impact, Medium Effort)
-- Evaluate the warp (`ctx.warp`) and tunnel (`ctx.tunnel`) noise on a grid once per chunk (e.g. using `FastNoiseLite::get_noise_set` or manual tiling) and reuse the values for both the voxel itself and neighbour-solid checks.
-- Precompute Worley offsets for a chunk cell neighbourhood so the 27-sample loop pulls from arrays rather than rehashing per voxel.
-- Split the cave logic so neighbour-solid checks read from cached results instead of recomputing their own warp/tunnel paths.
-- This should cut fractal/Worley calls by roughly 5–6× and trim the hash workload dramatically.
+### 3. Tree Placement Results (Medium Impact, Moderate Effort)
+- During the column pass, emit a compact list/array of tree instances (`(lx, lz, surface_y, height, species, leaf/log ids)`).
+- Use this data to stamp trunk blocks and leaf volumes during the voxel sweep via integer comparisons, avoiding repeated `rand01`/noise calls inside nested loops.
+- Keep canopy checks within the column array so per-voxel work is pure arithmetic.
 
 ### 4. Feature Rule Acceleration (Medium Impact, Low Effort)
 - Partition `ctx.params.features` by simple predicates (e.g. base block, y-range) before voxel iteration, so most rules are skipped without touching per-voxel hashes.
