@@ -391,7 +391,6 @@ fn run_app(run: RunArgs, assets_root: std::path::PathBuf) {
 
 #[derive(Args, Debug)]
 pub struct SnapArgs {
-
     /// Screenshot width in pixels
     #[arg(long, default_value_t = 512)]
     pub width: i32,
