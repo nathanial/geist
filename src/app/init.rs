@@ -418,6 +418,7 @@ impl App {
             perf_light_ms: std::collections::VecDeque::new(),
             perf_total_ms: std::collections::VecDeque::new(),
             perf_remove_ms: std::collections::VecDeque::new(),
+            perf_gen_ms: std::collections::VecDeque::new(),
             tex_event_rx: tex_rx,
             worldgen_event_rx: wg_rx,
             world_config_path,

@@ -495,6 +495,9 @@ impl App {
                     Self::perf_push(&mut self.perf_total_ms, r.t_total_ms);
                 }
             }
+            if r.t_gen_ms > 0 {
+                Self::perf_push(&mut self.perf_gen_ms, r.t_gen_ms);
+            }
             // Perf logging per job
             match r.kind {
                 geist_runtime::JobKind::Light => {

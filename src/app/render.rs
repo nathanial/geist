@@ -727,6 +727,8 @@ impl App {
             let (n_light, avg_light, p95_light) = stats(&self.perf_light_ms);
             let (n_total, avg_total, p95_total) = stats(&self.perf_total_ms);
             let (n_rr, avg_rr, p95_rr) = stats(&self.perf_remove_ms);
+            let (n_gen, avg_gen, p95_gen) = stats(&self.perf_gen_ms);
+            let last_gen = self.perf_gen_ms.back().copied().unwrap_or(0);
             right_text.push_str("\nPerf (ms):");
             right_text.push_str(&format!(
                 "\n  Mesh   avg={} p95={} n={}",
@@ -743,6 +745,10 @@ impl App {
             right_text.push_str(&format!(
                 "\n  Remove->Render avg={} p95={} n={}",
                 avg_rr, p95_rr, n_rr
+            ));
+            right_text.push_str(&format!(
+                "\n  Load  last={} avg={} p95={} n={}",
+                last_gen, avg_gen, p95_gen, n_gen
             ));
 
             let screen_width = d.get_screen_width();

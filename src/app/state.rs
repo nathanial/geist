@@ -59,6 +59,7 @@ pub struct App {
     pub(crate) perf_light_ms: VecDeque<u32>,
     pub(crate) perf_total_ms: VecDeque<u32>,
     pub(crate) perf_remove_ms: VecDeque<u32>,
+    pub(crate) perf_gen_ms: VecDeque<u32>,
     pub(crate) tex_event_rx: Receiver<String>,
     pub(crate) worldgen_event_rx: Receiver<()>,
     pub(crate) world_config_path: String,
