@@ -94,8 +94,14 @@ impl App {
         self.render_minimap_to_texture(rl, thread, minimap_side_px);
         self.minimap_ui_rect = None;
         self.event_histogram_rect = None;
+        self.event_histogram_titlebar_rect = None;
+        self.event_histogram_resize_rect = None;
         self.intent_histogram_rect = None;
+        self.intent_histogram_titlebar_rect = None;
+        self.intent_histogram_resize_rect = None;
         self.terrain_histogram_rect = None;
+        self.terrain_histogram_titlebar_rect = None;
+        self.terrain_histogram_resize_rect = None;
         let mut d = rl.begin_drawing(thread);
         // Skybox: clear background to time-of-day sky color
         d.clear_background(Color::new(
@@ -1077,33 +1083,45 @@ impl App {
     }
 
     fn draw_event_histogram(&mut self, d: &mut RaylibDrawHandle) {
-        const MAX_ROWS: usize = 12;
-        const PADDING_X: i32 = 14;
-        const PADDING_Y: i32 = 12;
-        const HEADER_HEIGHT: i32 = 28;
-        const ROW_HEIGHT: i32 = 22;
-        const LABEL_WIDTH: i32 = 210;
-        const BAR_WIDTH: i32 = 220;
+        const TITLEBAR_HEIGHT: i32 = 34;
+        const PADDING_X: i32 = 18;
+        const PADDING_Y: i32 = 16;
+        const ROW_HEIGHT: i32 = 26;
+        const LABEL_WIDTH: i32 = 220;
         const GAP_X: i32 = 12;
+        const DEFAULT_MIN_WIDTH: i32 = PADDING_X * 2 + LABEL_WIDTH + GAP_X + 220;
+        const DEFAULT_MIN_HEIGHT: i32 = 220;
         const TITLE_FONT: i32 = 20;
-        const ROW_FONT: i32 = 18;
+        const SUBTITLE_FONT: i32 = 16;
+        const ROW_FONT: i32 = 16;
 
         let total = self.debug_stats.queued_events_total;
-        let all = &self.debug_stats.queued_events_by;
-        let (entries, remainder) = if all.len() > MAX_ROWS {
-            (&all[..MAX_ROWS], all.len() - MAX_ROWS)
-        } else {
-            (all.as_slice(), 0)
-        };
+        let entries = &self.debug_stats.queued_events_by;
 
-        let bar_rows = entries.len().max(1) as i32;
-        let base_height = PADDING_Y * 2 + HEADER_HEIGHT + bar_rows * ROW_HEIGHT;
-        let height = if remainder > 0 {
-            base_height + ROW_HEIGHT
-        } else {
-            base_height + 8
-        };
-        let width = PADDING_X * 2 + LABEL_WIDTH + GAP_X + BAR_WIDTH;
+        let base_rows = entries.len().min(12).max(1);
+        let base_remainder = entries.len().saturating_sub(base_rows);
+        let mut min_height = TITLEBAR_HEIGHT + PADDING_Y * 2 + (base_rows as i32) * ROW_HEIGHT;
+        if base_remainder > 0 {
+            min_height += ROW_HEIGHT;
+        }
+        min_height = min_height.max(DEFAULT_MIN_HEIGHT);
+
+        let min_width = DEFAULT_MIN_WIDTH;
+        self.event_histogram_min_size = (min_width, min_height);
+
+        let mut width = self
+            .event_histogram_manual_size
+            .map(|(w, _)| w)
+            .unwrap_or(min_width);
+        let mut height = self
+            .event_histogram_manual_size
+            .map(|(_, h)| h)
+            .unwrap_or(min_height);
+        width = width.max(min_width);
+        height = height.max(min_height);
+        if self.event_histogram_manual_size.is_some() {
+            self.event_histogram_manual_size = Some((width, height));
+        }
 
         let screen_w = d.get_screen_width();
         let screen_h = d.get_screen_height();
@@ -1116,177 +1134,278 @@ impl App {
         self.event_histogram_pos = Vector2::new(x as f32, y as f32);
         self.event_histogram_rect = Some((x, y, width, height));
         self.event_histogram_size = (width, height);
+        self.event_histogram_titlebar_rect = Some((x, y, width, TITLEBAR_HEIGHT));
+        let handle_size = 18.min(width).min(height);
+        self.event_histogram_resize_rect = Some((
+            x + width - handle_size,
+            y + height - handle_size,
+            handle_size,
+            handle_size,
+        ));
 
-        let bg_color = Color::new(16, 20, 32, 220);
-        let border_color = Color::new(200, 215, 240, 140);
-        d.draw_rectangle(x, y, width, height, bg_color);
-        d.draw_rectangle_lines(x, y, width, height, border_color);
+        // Drop shadow for depth
+        d.draw_rectangle(x + 6, y + 8, width, height, Color::new(6, 10, 18, 145));
 
-        let title = format!("Event Queue — {} pending", total);
-        d.draw_text(
-            &title,
-            x + PADDING_X + 1,
-            y + PADDING_Y + 1,
-            TITLE_FONT,
-            Color::BLACK,
+        // Window body and titlebar
+        d.draw_rectangle(x, y, width, height, Color::new(18, 22, 32, 235));
+        let mid = TITLEBAR_HEIGHT / 2;
+        d.draw_rectangle(x, y, width, mid, Color::new(66, 98, 154, 240));
+        d.draw_rectangle(
+            x,
+            y + mid,
+            width,
+            TITLEBAR_HEIGHT - mid,
+            Color::new(48, 74, 116, 235),
         );
+        if height > TITLEBAR_HEIGHT {
+            d.draw_rectangle(
+                x,
+                y + TITLEBAR_HEIGHT,
+                width,
+                height - TITLEBAR_HEIGHT,
+                Color::new(16, 20, 30, 228),
+            );
+        }
+
+        // Border and highlights
+        d.draw_rectangle(x, y, width, 1, Color::new(158, 190, 242, 210));
+        d.draw_rectangle(
+            x,
+            y + TITLEBAR_HEIGHT - 1,
+            width,
+            1,
+            Color::new(24, 32, 48, 255),
+        );
+        d.draw_rectangle_lines(x, y, width, height, Color::new(96, 114, 156, 200));
+        if width > 2 && height > 2 {
+            d.draw_rectangle_lines(
+                x + 1,
+                y + 1,
+                width - 2,
+                height - 2,
+                Color::new(28, 36, 52, 210),
+            );
+        }
+
+        // Title text
+        let title_text = "Event Queue";
+        let title_y = y + (TITLEBAR_HEIGHT - TITLE_FONT) / 2;
         d.draw_text(
-            &title,
+            title_text,
             x + PADDING_X,
-            y + PADDING_Y,
+            title_y,
             TITLE_FONT,
-            Color::WHITE,
+            Color::new(238, 244, 255, 255),
+        );
+        let subtitle = format!("{} pending", total);
+        let subtitle_w = d.measure_text(&subtitle, SUBTITLE_FONT);
+        let subtitle_y = title_y + TITLE_FONT - SUBTITLE_FONT - 2;
+        let subtitle_x = x + width - PADDING_X - subtitle_w;
+        d.draw_text(
+            &subtitle,
+            subtitle_x,
+            subtitle_y,
+            SUBTITLE_FONT,
+            Color::new(202, 214, 238, 255),
         );
 
-        let bar_origin_y = y + PADDING_Y + HEADER_HEIGHT;
-        if entries.is_empty() {
-            let msg = "No queued events".to_owned();
-            d.draw_text(
-                &msg,
-                x + PADDING_X + 1,
-                bar_origin_y + 1,
-                ROW_FONT,
-                Color::BLACK,
-            );
-            d.draw_text(
-                &msg,
-                x + PADDING_X,
-                bar_origin_y,
-                ROW_FONT,
-                Color::new(210, 215, 230, 255),
-            );
+        let bar_x = x + PADDING_X + LABEL_WIDTH + GAP_X;
+        let bar_width = (width - (PADDING_X * 2 + LABEL_WIDTH + GAP_X)).max(120);
+        let mut cursor_y = y + TITLEBAR_HEIGHT + PADDING_Y;
+        let content_height = height - TITLEBAR_HEIGHT - PADDING_Y * 2;
+        let rows_fit = if content_height <= 0 {
+            1_usize
         } else {
-            let max_count = entries.iter().map(|entry| entry.1).max().unwrap_or(0);
-            let max_count = if max_count == 0 {
-                1.0
-            } else {
-                max_count as f32
-            };
-            for (idx, entry) in entries.iter().enumerate() {
-                let row_top = bar_origin_y + (idx as i32) * ROW_HEIGHT;
-                let label = entry.0.as_str();
-                let count = entry.1;
-                let label_shadow = Color::new(0, 0, 0, 180);
-                let label_color = if idx == 0 {
-                    Color::new(240, 240, 255, 255)
-                } else {
-                    Color::new(220, 225, 240, 255)
-                };
-                d.draw_text(
-                    label,
-                    x + PADDING_X + 1,
-                    row_top + 1,
-                    ROW_FONT,
-                    label_shadow,
-                );
-                d.draw_text(label, x + PADDING_X, row_top, ROW_FONT, label_color);
+            (content_height / ROW_HEIGHT).max(1) as usize
+        };
+        let mut display_count = entries.len().min(rows_fit);
+        let mut remainder = entries.len().saturating_sub(display_count);
+        if remainder > 0 && display_count + 1 > rows_fit {
+            if display_count > 0 {
+                display_count -= 1;
+            }
+            remainder = entries.len().saturating_sub(display_count);
+        }
 
-                let bar_x = x + PADDING_X + LABEL_WIDTH + GAP_X;
-                let bar_height = ROW_HEIGHT - 8;
+        if entries.is_empty() {
+            let msg = "No queued events";
+            let msg_y = cursor_y + (ROW_HEIGHT - ROW_FONT) / 2;
+            d.draw_text(
+                msg,
+                x + PADDING_X,
+                msg_y,
+                ROW_FONT,
+                Color::new(192, 198, 216, 255),
+            );
+            cursor_y += ROW_HEIGHT;
+        } else {
+            let max_count = entries
+                .iter()
+                .take(display_count.max(1))
+                .map(|(_, count)| *count)
+                .max()
+                .unwrap_or(1) as f32;
+            for (idx, (label, count)) in entries.iter().take(display_count).enumerate() {
+                let row_top = cursor_y + (idx as i32) * ROW_HEIGHT;
+                if idx % 2 == 0 {
+                    d.draw_rectangle(
+                        x + PADDING_X - 6,
+                        row_top,
+                        width - (PADDING_X * 2) + 12,
+                        ROW_HEIGHT,
+                        Color::new(26, 30, 44, 120),
+                    );
+                }
+                let label_y = row_top + (ROW_HEIGHT - ROW_FONT) / 2;
+                let label_color = if idx == 0 {
+                    Color::new(238, 244, 255, 255)
+                } else {
+                    Color::new(212, 220, 240, 255)
+                };
+                d.draw_text(label, x + PADDING_X, label_y, ROW_FONT, label_color);
+
+                let bar_height = (ROW_HEIGHT - 10).max(6);
                 let bar_top = row_top + (ROW_HEIGHT - bar_height) / 2;
                 d.draw_rectangle(
                     bar_x,
                     bar_top,
-                    BAR_WIDTH,
+                    bar_width,
                     bar_height,
-                    Color::new(34, 44, 58, 160),
+                    Color::new(30, 38, 54, 210),
                 );
 
-                let ratio = (count as f32) / max_count;
-                let fill = (ratio * BAR_WIDTH as f32).round() as i32;
-                if fill > 0 {
-                    let fill_width = fill.max(2).min(BAR_WIDTH);
+                let ratio = if max_count <= 0.0 {
+                    0.0
+                } else {
+                    (*count as f32) / max_count
+                };
+                let fill_width = (ratio * bar_width as f32).round() as i32;
+                if fill_width > 0 {
+                    let fill = fill_width.max(2).min(bar_width);
                     let fill_color = match idx {
                         0 => Color::new(118, 202, 255, 230),
                         1 => Color::new(96, 186, 250, 220),
                         2 => Color::new(82, 170, 240, 215),
                         _ => Color::new(68, 152, 222, 210),
                     };
-                    d.draw_rectangle(bar_x, bar_top, fill_width, bar_height, fill_color);
+                    d.draw_rectangle(bar_x, bar_top, fill, bar_height, fill_color);
                 }
 
-                let count_text = Self::format_count(count);
+                let count_text = Self::format_count(*count);
                 let count_w = d.measure_text(&count_text, ROW_FONT);
-                let count_x = bar_x + BAR_WIDTH - count_w;
-                let count_y = row_top;
+                let count_y = row_top + (ROW_HEIGHT - ROW_FONT) / 2;
                 d.draw_text(
                     &count_text,
-                    count_x + 1,
-                    count_y + 1,
-                    ROW_FONT,
-                    Color::BLACK,
-                );
-                d.draw_text(
-                    &count_text,
-                    count_x,
+                    bar_x + bar_width - count_w,
                     count_y,
                     ROW_FONT,
-                    Color::new(236, 236, 248, 255),
+                    Color::new(234, 238, 252, 255),
                 );
             }
+            cursor_y += (display_count as i32) * ROW_HEIGHT;
         }
 
         if remainder > 0 {
             let summary = format!("… {} more types", remainder);
-            let summary_y = bar_origin_y + bar_rows * ROW_HEIGHT;
-            d.draw_text(
-                &summary,
-                x + PADDING_X + 1,
-                summary_y + 1,
-                ROW_FONT,
-                Color::BLACK,
-            );
+            let summary_y = cursor_y + (ROW_HEIGHT - ROW_FONT) / 2;
             d.draw_text(
                 &summary,
                 x + PADDING_X,
                 summary_y,
                 ROW_FONT,
-                Color::new(190, 195, 215, 255),
+                Color::new(188, 196, 214, 255),
             );
         }
+
+        // Resize handle cue
+        let handle_x = x + width - handle_size;
+        let handle_y = y + height - handle_size;
+        let handle_bg = Color::new(24, 30, 44, 220);
+        d.draw_rectangle(handle_x, handle_y, handle_size, handle_size, handle_bg);
+        for i in 0..3 {
+            let offset = i * 4;
+            d.draw_line(
+                handle_x + offset,
+                handle_y + handle_size - 2,
+                handle_x + handle_size - 2,
+                handle_y + offset,
+                Color::new(140, 176, 230, 220),
+            );
+        }
+        d.draw_rectangle_lines(
+            handle_x,
+            handle_y,
+            handle_size,
+            handle_size,
+            Color::new(48, 64, 92, 230),
+        );
     }
 
     fn draw_intent_histogram(&mut self, d: &mut RaylibDrawHandle) {
+        const TITLEBAR_HEIGHT: i32 = 34;
+        const PADDING_X: i32 = 18;
+        const PADDING_Y: i32 = 16;
+        const ROW_HEIGHT: i32 = 26;
+        const SECTION_HEADER_HEIGHT: i32 = 24;
+        const SECTION_GAP: i32 = 14;
+        const LABEL_WIDTH_CAUSE: i32 = 230;
+        const LABEL_WIDTH_RADIUS: i32 = 190;
+        const GAP_X: i32 = 12;
+        const MIN_BAR_WIDTH: i32 = 220;
+        const DEFAULT_MIN_HEIGHT: i32 = 240;
+        const TITLE_FONT: i32 = 20;
+        const SUBTITLE_FONT: i32 = 16;
+        const SECTION_FONT: i32 = 18;
+        const ROW_FONT: i32 = 16;
         const MAX_CAUSE_ROWS: usize = 4;
         const MAX_RADIUS_ROWS: usize = 8;
-        const PADDING_X: i32 = 14;
-        const PADDING_Y: i32 = 12;
-        const HEADER_HEIGHT: i32 = 28;
-        const SECTION_HEADER_HEIGHT: i32 = 24;
-        const SECTION_GAP: i32 = 12;
-        const ROW_HEIGHT: i32 = 22;
-        const LABEL_WIDTH: i32 = 210;
-        const BAR_WIDTH: i32 = 220;
-        const GAP_X: i32 = 12;
-        const TITLE_FONT: i32 = 20;
-        const SECTION_FONT: i32 = 18;
-        const ROW_FONT: i32 = 18;
 
         let total = self.debug_stats.intents_size;
         let cause_entries = &self.debug_stats.intents_by_cause;
         let radius_entries = &self.debug_stats.intents_by_radius;
 
-        let cause_display_count = cause_entries.len().min(MAX_CAUSE_ROWS);
-        let cause_remainder = cause_entries.len().saturating_sub(cause_display_count);
-        let cause_rows = cause_display_count.max(1) as i32;
+        let cause_len = cause_entries.len();
+        let radius_len = radius_entries.len();
 
-        let radius_display_count = radius_entries.len().min(MAX_RADIUS_ROWS);
-        let radius_remainder = radius_entries.len().saturating_sub(radius_display_count);
-        let radius_rows = radius_display_count.max(1) as i32;
+        let cause_base_rows = if cause_len == 0 {
+            1
+        } else {
+            cause_len.min(MAX_CAUSE_ROWS)
+        };
+        let cause_base_summary = if cause_len > cause_base_rows { 1 } else { 0 };
+        let radius_base_rows = if radius_len == 0 {
+            1
+        } else {
+            radius_len.min(MAX_RADIUS_ROWS)
+        };
+        let radius_base_summary = if radius_len > radius_base_rows { 1 } else { 0 };
 
-        let mut height = PADDING_Y * 2 + HEADER_HEIGHT;
-        height += SECTION_HEADER_HEIGHT + cause_rows * ROW_HEIGHT;
-        if cause_remainder > 0 {
-            height += ROW_HEIGHT;
+        let mut min_height = TITLEBAR_HEIGHT
+            + PADDING_Y * 2
+            + SECTION_HEADER_HEIGHT * 2
+            + SECTION_GAP
+            + ((cause_base_rows + cause_base_summary + radius_base_rows + radius_base_summary)
+                as i32)
+                * ROW_HEIGHT;
+        min_height = min_height.max(DEFAULT_MIN_HEIGHT);
+
+        let label_max = LABEL_WIDTH_CAUSE.max(LABEL_WIDTH_RADIUS);
+        let min_width = PADDING_X * 2 + label_max + GAP_X + MIN_BAR_WIDTH;
+        self.intent_histogram_min_size = (min_width, min_height);
+
+        let mut width = self
+            .intent_histogram_manual_size
+            .map(|(w, _)| w)
+            .unwrap_or(min_width);
+        let mut height = self
+            .intent_histogram_manual_size
+            .map(|(_, h)| h)
+            .unwrap_or(min_height);
+        width = width.max(min_width);
+        height = height.max(min_height);
+        if self.intent_histogram_manual_size.is_some() {
+            self.intent_histogram_manual_size = Some((width, height));
         }
-        height += SECTION_GAP;
-        height += SECTION_HEADER_HEIGHT + radius_rows * ROW_HEIGHT;
-        if radius_remainder > 0 {
-            height += ROW_HEIGHT;
-        }
-        height += 8;
-
-        let width = PADDING_X * 2 + LABEL_WIDTH + GAP_X + BAR_WIDTH;
 
         let screen_w = d.get_screen_width();
         let screen_h = d.get_screen_height();
@@ -1299,204 +1418,338 @@ impl App {
         self.intent_histogram_pos = Vector2::new(x as f32, y as f32);
         self.intent_histogram_rect = Some((x, y, width, height));
         self.intent_histogram_size = (width, height);
+        self.intent_histogram_titlebar_rect = Some((x, y, width, TITLEBAR_HEIGHT));
+        let handle_size = 18.min(width).min(height);
+        self.intent_histogram_resize_rect = Some((
+            x + width - handle_size,
+            y + height - handle_size,
+            handle_size,
+            handle_size,
+        ));
 
-        let bg_color = Color::new(24, 18, 32, 220);
-        let border_color = Color::new(210, 200, 235, 150);
-        d.draw_rectangle(x, y, width, height, bg_color);
-        d.draw_rectangle_lines(x, y, width, height, border_color);
-
-        let title = format!("Intents Backlog — {} pending", total);
-        d.draw_text(
-            &title,
-            x + PADDING_X + 1,
-            y + PADDING_Y + 1,
-            TITLE_FONT,
-            Color::BLACK,
+        d.draw_rectangle(x + 6, y + 8, width, height, Color::new(10, 6, 18, 150));
+        d.draw_rectangle(x, y, width, height, Color::new(26, 16, 34, 235));
+        let mid = TITLEBAR_HEIGHT / 2;
+        d.draw_rectangle(x, y, width, mid, Color::new(144, 88, 188, 240));
+        d.draw_rectangle(
+            x,
+            y + mid,
+            width,
+            TITLEBAR_HEIGHT - mid,
+            Color::new(114, 68, 160, 235),
         );
+        if height > TITLEBAR_HEIGHT {
+            d.draw_rectangle(
+                x,
+                y + TITLEBAR_HEIGHT,
+                width,
+                height - TITLEBAR_HEIGHT,
+                Color::new(22, 14, 32, 228),
+            );
+        }
+        d.draw_rectangle(x, y, width, 1, Color::new(216, 166, 246, 210));
+        d.draw_rectangle(
+            x,
+            y + TITLEBAR_HEIGHT - 1,
+            width,
+            1,
+            Color::new(38, 22, 54, 255),
+        );
+        d.draw_rectangle_lines(x, y, width, height, Color::new(160, 124, 198, 200));
+        if width > 2 && height > 2 {
+            d.draw_rectangle_lines(
+                x + 1,
+                y + 1,
+                width - 2,
+                height - 2,
+                Color::new(40, 26, 58, 210),
+            );
+        }
+
+        let title_text = "Intents Backlog";
+        let title_y = y + (TITLEBAR_HEIGHT - TITLE_FONT) / 2;
         d.draw_text(
-            &title,
+            title_text,
             x + PADDING_X,
-            y + PADDING_Y,
+            title_y,
             TITLE_FONT,
-            Color::WHITE,
+            Color::new(246, 236, 255, 255),
+        );
+        let subtitle = format!("{} pending", total);
+        let subtitle_w = d.measure_text(&subtitle, SUBTITLE_FONT);
+        let subtitle_y = title_y + TITLE_FONT - SUBTITLE_FONT - 2;
+        d.draw_text(
+            &subtitle,
+            x + width - PADDING_X - subtitle_w,
+            subtitle_y,
+            SUBTITLE_FONT,
+            Color::new(224, 206, 244, 255),
         );
 
-        let mut cursor_y = y + PADDING_Y + HEADER_HEIGHT;
+        let mut extra_rows_budget = if height > min_height {
+            ((height - min_height) / ROW_HEIGHT) as usize
+        } else {
+            0
+        };
+        let mut cause_display_rows = cause_base_rows;
+        let mut radius_display_rows = radius_base_rows;
+        let mut cause_more = cause_len.saturating_sub(cause_display_rows);
+        let mut radius_more = radius_len.saturating_sub(radius_display_rows);
+        while extra_rows_budget > 0 && (cause_more > 0 || radius_more > 0) {
+            if cause_more > 0 {
+                cause_display_rows += 1;
+                cause_more -= 1;
+                extra_rows_budget -= 1;
+                if extra_rows_budget == 0 {
+                    break;
+                }
+            }
+            if radius_more > 0 {
+                radius_display_rows += 1;
+                radius_more -= 1;
+                extra_rows_budget -= 1;
+            }
+        }
+        let cause_remainder = cause_len.saturating_sub(cause_display_rows);
+        let radius_remainder = radius_len.saturating_sub(radius_display_rows);
+
+        let mut cursor_y = y + TITLEBAR_HEIGHT + PADDING_Y;
+        let cause_bar_x = x + PADDING_X + LABEL_WIDTH_CAUSE + GAP_X;
+        let cause_bar_width = (width - (PADDING_X * 2 + LABEL_WIDTH_CAUSE + GAP_X)).max(120);
+        let radius_bar_x = x + PADDING_X + LABEL_WIDTH_RADIUS + GAP_X;
+        let radius_bar_width = (width - (PADDING_X * 2 + LABEL_WIDTH_RADIUS + GAP_X)).max(120);
 
         d.draw_text(
             "By Cause",
             x + PADDING_X,
             cursor_y,
             SECTION_FONT,
-            Color::new(230, 230, 245, 255),
+            Color::new(238, 228, 252, 255),
         );
         cursor_y += SECTION_HEADER_HEIGHT;
 
-        if cause_display_count == 0 {
+        if cause_len == 0 {
             let msg = if total == 0 {
                 "No pending intents"
             } else {
                 "No cause data"
             };
+            let msg_y = cursor_y + (ROW_HEIGHT - ROW_FONT) / 2;
             d.draw_text(
                 msg,
                 x + PADDING_X,
-                cursor_y,
+                msg_y,
                 ROW_FONT,
-                Color::new(210, 215, 230, 255),
+                Color::new(210, 200, 226, 255),
             );
             cursor_y += ROW_HEIGHT;
         } else {
             let max_count = cause_entries
                 .iter()
-                .take(MAX_CAUSE_ROWS)
+                .take(cause_display_rows)
                 .map(|(_, count)| *count)
                 .max()
                 .unwrap_or(1) as f32;
-            for (idx, (label, count)) in cause_entries.iter().take(MAX_CAUSE_ROWS).enumerate() {
+            for (idx, (label, count)) in cause_entries.iter().take(cause_display_rows).enumerate() {
                 let row_top = cursor_y + (idx as i32) * ROW_HEIGHT;
-                let label = label.as_str();
-                let count = *count;
-                let bar_x = x + PADDING_X + LABEL_WIDTH + GAP_X;
-                let bar_height = ROW_HEIGHT - 8;
-                let bar_top = row_top + (ROW_HEIGHT - bar_height) / 2;
+                if idx % 2 == 0 {
+                    d.draw_rectangle(
+                        x + PADDING_X - 6,
+                        row_top,
+                        width - (PADDING_X * 2) + 12,
+                        ROW_HEIGHT,
+                        Color::new(36, 24, 48, 120),
+                    );
+                }
+                let label_y = row_top + (ROW_HEIGHT - ROW_FONT) / 2;
                 d.draw_text(
                     label,
                     x + PADDING_X,
-                    row_top,
+                    label_y,
                     ROW_FONT,
-                    Color::new(220, 225, 240, 255),
+                    Color::new(236, 228, 248, 255),
                 );
+                let bar_height = (ROW_HEIGHT - 10).max(6);
+                let bar_top = row_top + (ROW_HEIGHT - bar_height) / 2;
                 d.draw_rectangle(
-                    bar_x,
+                    cause_bar_x,
                     bar_top,
-                    BAR_WIDTH,
+                    cause_bar_width,
                     bar_height,
-                    Color::new(40, 40, 68, 160),
+                    Color::new(46, 30, 60, 210),
                 );
-                let ratio = (count as f32) / max_count;
-                let fill = (ratio * BAR_WIDTH as f32).round() as i32;
-                if fill > 0 {
-                    let fill_width = fill.max(2).min(BAR_WIDTH);
+                let ratio = if max_count <= 0.0 {
+                    0.0
+                } else {
+                    (*count as f32) / max_count
+                };
+                let fill_width = (ratio * cause_bar_width as f32).round() as i32;
+                if fill_width > 0 {
+                    let fill = fill_width.max(2).min(cause_bar_width);
                     let fill_color = match idx {
-                        0 => Color::new(232, 140, 254, 230),
-                        1 => Color::new(212, 116, 244, 220),
-                        _ => Color::new(196, 96, 232, 210),
+                        0 => Color::new(224, 140, 255, 230),
+                        1 => Color::new(206, 122, 244, 220),
+                        2 => Color::new(188, 108, 232, 215),
+                        _ => Color::new(170, 94, 220, 210),
                     };
-                    d.draw_rectangle(bar_x, bar_top, fill_width, bar_height, fill_color);
+                    d.draw_rectangle(cause_bar_x, bar_top, fill, bar_height, fill_color);
                 }
-                let count_text = Self::format_count(count);
+                let count_text = Self::format_count(*count);
                 let count_w = d.measure_text(&count_text, ROW_FONT);
+                let count_y = row_top + (ROW_HEIGHT - ROW_FONT) / 2;
                 d.draw_text(
                     &count_text,
-                    bar_x + BAR_WIDTH - count_w,
-                    row_top,
+                    cause_bar_x + cause_bar_width - count_w,
+                    count_y,
                     ROW_FONT,
-                    Color::new(240, 240, 255, 255),
+                    Color::new(240, 234, 252, 255),
                 );
             }
-            cursor_y += cause_rows * ROW_HEIGHT;
+            cursor_y += (cause_display_rows as i32) * ROW_HEIGHT;
         }
 
         if cause_remainder > 0 {
             let summary = format!("… {} more causes", cause_remainder);
+            let summary_y = cursor_y + (ROW_HEIGHT - ROW_FONT) / 2;
             d.draw_text(
                 &summary,
                 x + PADDING_X,
-                cursor_y,
+                summary_y,
                 ROW_FONT,
-                Color::new(200, 205, 220, 255),
+                Color::new(206, 196, 224, 255),
             );
             cursor_y += ROW_HEIGHT;
         }
 
         cursor_y += SECTION_GAP;
         d.draw_text(
-            "By Radius (chunks)",
+            "By Radius",
             x + PADDING_X,
             cursor_y,
             SECTION_FONT,
-            Color::new(230, 230, 245, 255),
+            Color::new(238, 228, 252, 255),
         );
         cursor_y += SECTION_HEADER_HEIGHT;
 
-        if radius_display_count == 0 {
+        if radius_len == 0 {
             let msg = if total == 0 {
                 "No pending intents"
             } else {
                 "No radius data"
             };
+            let msg_y = cursor_y + (ROW_HEIGHT - ROW_FONT) / 2;
             d.draw_text(
                 msg,
                 x + PADDING_X,
-                cursor_y,
+                msg_y,
                 ROW_FONT,
-                Color::new(210, 215, 230, 255),
+                Color::new(210, 200, 226, 255),
             );
             cursor_y += ROW_HEIGHT;
         } else {
-            let max_count = radius_entries
+            let max_radius = radius_entries
                 .iter()
-                .take(MAX_RADIUS_ROWS)
+                .take(radius_display_rows)
                 .map(|(_, count)| *count)
                 .max()
                 .unwrap_or(1) as f32;
-            for (idx, (label, count)) in radius_entries.iter().take(MAX_RADIUS_ROWS).enumerate() {
+            for (idx, (label, count)) in radius_entries.iter().take(radius_display_rows).enumerate()
+            {
                 let row_top = cursor_y + (idx as i32) * ROW_HEIGHT;
-                let label = label.as_str();
-                let count = *count;
-                let bar_x = x + PADDING_X + LABEL_WIDTH + GAP_X;
-                let bar_height = ROW_HEIGHT - 8;
-                let bar_top = row_top + (ROW_HEIGHT - bar_height) / 2;
+                if idx % 2 == 0 {
+                    d.draw_rectangle(
+                        x + PADDING_X - 6,
+                        row_top,
+                        width - (PADDING_X * 2) + 12,
+                        ROW_HEIGHT,
+                        Color::new(30, 26, 52, 110),
+                    );
+                }
+                let label_y = row_top + (ROW_HEIGHT - ROW_FONT) / 2;
                 d.draw_text(
                     label,
                     x + PADDING_X,
-                    row_top,
+                    label_y,
                     ROW_FONT,
-                    Color::new(210, 225, 240, 255),
+                    Color::new(232, 226, 248, 255),
                 );
+                let bar_height = (ROW_HEIGHT - 10).max(6);
+                let bar_top = row_top + (ROW_HEIGHT - bar_height) / 2;
                 d.draw_rectangle(
-                    bar_x,
+                    radius_bar_x,
                     bar_top,
-                    BAR_WIDTH,
+                    radius_bar_width,
                     bar_height,
-                    Color::new(32, 52, 72, 150),
+                    Color::new(32, 28, 58, 210),
                 );
-                let ratio = (count as f32) / max_count;
-                let fill = (ratio * BAR_WIDTH as f32).round() as i32;
-                if fill > 0 {
-                    let fill_width = fill.max(2).min(BAR_WIDTH);
+                let ratio = if max_radius <= 0.0 {
+                    0.0
+                } else {
+                    (*count as f32) / max_radius
+                };
+                let fill_width = (ratio * radius_bar_width as f32).round() as i32;
+                if fill_width > 0 {
+                    let fill = fill_width.max(2).min(radius_bar_width);
                     let fill_color = match idx {
-                        0 => Color::new(118, 202, 255, 230),
-                        1 => Color::new(96, 186, 250, 220),
-                        2 => Color::new(82, 170, 240, 215),
-                        _ => Color::new(68, 152, 222, 210),
+                        0 => Color::new(120, 198, 255, 230),
+                        1 => Color::new(104, 184, 248, 220),
+                        2 => Color::new(92, 168, 238, 215),
+                        _ => Color::new(80, 152, 226, 210),
                     };
-                    d.draw_rectangle(bar_x, bar_top, fill_width, bar_height, fill_color);
+                    d.draw_rectangle(radius_bar_x, bar_top, fill, bar_height, fill_color);
                 }
-                let count_text = Self::format_count(count);
+                let count_text = Self::format_count(*count);
                 let count_w = d.measure_text(&count_text, ROW_FONT);
+                let count_y = row_top + (ROW_HEIGHT - ROW_FONT) / 2;
                 d.draw_text(
                     &count_text,
-                    bar_x + BAR_WIDTH - count_w,
-                    row_top,
+                    radius_bar_x + radius_bar_width - count_w,
+                    count_y,
                     ROW_FONT,
-                    Color::new(236, 240, 250, 255),
+                    Color::new(236, 234, 252, 255),
                 );
             }
-            cursor_y += radius_rows * ROW_HEIGHT;
+            cursor_y += (radius_display_rows as i32) * ROW_HEIGHT;
         }
 
         if radius_remainder > 0 {
-            let summary = format!("… {} more radii", radius_remainder);
+            let summary = format!("… {} more rings", radius_remainder);
+            let summary_y = cursor_y + (ROW_HEIGHT - ROW_FONT) / 2;
             d.draw_text(
                 &summary,
                 x + PADDING_X,
-                cursor_y,
+                summary_y,
                 ROW_FONT,
-                Color::new(200, 205, 220, 255),
+                Color::new(204, 198, 224, 255),
             );
         }
+
+        let handle_x = x + width - handle_size;
+        let handle_y = y + height - handle_size;
+        d.draw_rectangle(
+            handle_x,
+            handle_y,
+            handle_size,
+            handle_size,
+            Color::new(36, 28, 52, 220),
+        );
+        for i in 0..3 {
+            let offset = i * 4;
+            d.draw_line(
+                handle_x + offset,
+                handle_y + handle_size - 2,
+                handle_x + handle_size - 2,
+                handle_y + offset,
+                Color::new(206, 170, 238, 220),
+            );
+        }
+        d.draw_rectangle_lines(
+            handle_x,
+            handle_y,
+            handle_size,
+            handle_size,
+            Color::new(74, 52, 96, 230),
+        );
     }
 
     fn draw_terrain_histogram(&mut self, d: &mut RaylibDrawHandle) {
@@ -1504,17 +1757,21 @@ impl App {
             return;
         }
 
-        const PADDING_X: i32 = 14;
-        const PADDING_Y: i32 = 12;
-        const HEADER_HEIGHT: i32 = 28;
-        const SUMMARY_HEIGHT: i32 = 36;
-        const ROW_HEIGHT: i32 = 24;
-        const LABEL_WIDTH: i32 = 160;
-        const BAR_WIDTH: i32 = 220;
-        const GAP_X: i32 = 12;
+        const TITLEBAR_HEIGHT: i32 = 34;
+        const PADDING_X: i32 = 20;
+        const PADDING_Y: i32 = 18;
+        const ROW_HEIGHT: i32 = 26;
+        const LABEL_WIDTH: i32 = 200;
+        const GAP_X: i32 = 14;
+        const MIN_BAR_WIDTH: i32 = 280;
+        const SUMMARY_CARD_HEIGHT: i32 = 78;
+        const SUMMARY_GAP: i32 = 18;
+        const DEFAULT_MIN_WIDTH: i32 = PADDING_X * 2 + LABEL_WIDTH + GAP_X + MIN_BAR_WIDTH;
+        const DEFAULT_MIN_HEIGHT: i32 = 360;
         const TITLE_FONT: i32 = 20;
-        const SUMMARY_FONT: i32 = 16;
-        const ROW_FONT: i32 = 18;
+        const SUBTITLE_FONT: i32 = 16;
+        const CARD_HEADER_FONT: i32 = 18;
+        const ROW_FONT: i32 = 16;
 
         let window = self
             .terrain_stage_us
@@ -1528,8 +1785,6 @@ impl App {
 
         let screen_w = d.get_screen_width();
         let screen_h = d.get_screen_height();
-        let mut x = self.terrain_histogram_pos.x.round() as i32;
-        let mut y = self.terrain_histogram_pos.y.round() as i32;
 
         let last_tile_us = self.terrain_height_tile_us.back().copied().unwrap_or(0);
         let last_tile_text = if self.terrain_height_tile_reused.back().copied().unwrap_or(0) == 1 {
@@ -1594,7 +1849,7 @@ impl App {
             avg_calls: 0.0,
             last_calls: 0,
         }; TERRAIN_STAGE_COUNT];
-        let mut max_avg_ms = 0.0_f32;
+        let mut max_span_ms = 0.0_f32;
         for idx in 0..TERRAIN_STAGE_COUNT {
             let durations = &self.terrain_stage_us[idx];
             if durations.is_empty() {
@@ -1612,9 +1867,10 @@ impl App {
             let (avg_calls, last_calls) = if calls.is_empty() {
                 (0.0, 0)
             } else {
-                let sum_calls: u64 = calls.iter().map(|&v| v as u64).sum();
-                let avg = sum_calls as f32 / calls.len() as f32;
-                (avg, calls.back().copied().unwrap_or(0))
+                let sum: u64 = calls.iter().map(|&v| v as u64).sum();
+                let avg = sum as f32 / calls.len() as f32;
+                let last = calls.back().copied().unwrap_or(0);
+                (avg, last)
             };
             rows[idx] = StageRowData {
                 avg_ms,
@@ -1623,14 +1879,35 @@ impl App {
                 avg_calls,
                 last_calls,
             };
-            if avg_ms > max_avg_ms {
-                max_avg_ms = avg_ms;
-            }
+            max_span_ms = max_span_ms.max(p95_ms.max(avg_ms));
         }
 
         let stage_rows = TERRAIN_STAGE_COUNT as i32;
-        let height = PADDING_Y * 2 + HEADER_HEIGHT + SUMMARY_HEIGHT + stage_rows * ROW_HEIGHT + 8;
-        let width = PADDING_X * 2 + LABEL_WIDTH + GAP_X + BAR_WIDTH;
+        let mut min_height = TITLEBAR_HEIGHT
+            + PADDING_Y * 2
+            + SUMMARY_CARD_HEIGHT
+            + SUMMARY_GAP
+            + stage_rows * ROW_HEIGHT;
+        min_height = min_height.max(DEFAULT_MIN_HEIGHT);
+        let min_width = DEFAULT_MIN_WIDTH;
+        self.terrain_histogram_min_size = (min_width, min_height);
+
+        let mut width = self
+            .terrain_histogram_manual_size
+            .map(|(w, _)| w)
+            .unwrap_or(min_width);
+        let mut height = self
+            .terrain_histogram_manual_size
+            .map(|(_, h)| h)
+            .unwrap_or(min_height);
+        width = width.max(min_width);
+        height = height.max(min_height);
+        if self.terrain_histogram_manual_size.is_some() {
+            self.terrain_histogram_manual_size = Some((width, height));
+        }
+
+        let mut x = self.terrain_histogram_pos.x.round() as i32;
+        let mut y = self.terrain_histogram_pos.y.round() as i32;
         let max_x = (screen_w - width - 10).max(10);
         let max_y = (screen_h - height - 10).max(10);
         x = x.clamp(10, max_x);
@@ -1638,99 +1915,301 @@ impl App {
         self.terrain_histogram_pos = Vector2::new(x as f32, y as f32);
         self.terrain_histogram_rect = Some((x, y, width, height));
         self.terrain_histogram_size = (width, height);
+        self.terrain_histogram_titlebar_rect = Some((x, y, width, TITLEBAR_HEIGHT));
+        let handle_size = 18.min(width).min(height);
+        self.terrain_histogram_resize_rect = Some((
+            x + width - handle_size,
+            y + height - handle_size,
+            handle_size,
+            handle_size,
+        ));
 
-        let bg_color = Color::new(18, 22, 36, 220);
-        let border_color = Color::new(200, 210, 240, 140);
-        d.draw_rectangle(x, y, width, height, bg_color);
-        d.draw_rectangle_lines(x, y, width, height, border_color);
-
-        let title = format!("Terrain Gen — samples {}", window);
-        d.draw_text(
-            &title,
-            x + PADDING_X + 1,
-            y + PADDING_Y + 1,
-            TITLE_FONT,
-            Color::BLACK,
+        d.draw_rectangle(x + 7, y + 9, width, height, Color::new(4, 10, 20, 150));
+        d.draw_rectangle(x, y, width, height, Color::new(16, 24, 34, 236));
+        let mid = TITLEBAR_HEIGHT / 2;
+        d.draw_rectangle(x, y, width, mid, Color::new(64, 110, 156, 240));
+        d.draw_rectangle(
+            x,
+            y + mid,
+            width,
+            TITLEBAR_HEIGHT - mid,
+            Color::new(48, 88, 128, 232),
         );
-        d.draw_text(
-            &title,
-            x + PADDING_X,
-            y + PADDING_Y,
-            TITLE_FONT,
-            Color::WHITE,
-        );
-
-        let summary_y = y + PADDING_Y + HEADER_HEIGHT;
-        let summary_line1 = format!(
-            "Height tile: last {} avg {:.2}ms p95 {:.2}ms reuse {:.0}%",
-            last_tile_text, tile_avg_ms, tile_p95_ms, reuse_ratio
-        );
-        let summary_line2 = format!(
-            "Height cache hit rate: last {:.0}% avg {:.0}% (hits {} / {})",
-            last_cache_rate, avg_cache_rate, total_hits, total_cache
-        );
-        d.draw_text(
-            &summary_line1,
-            x + PADDING_X,
-            summary_y,
-            SUMMARY_FONT,
-            Color::new(215, 220, 240, 255),
-        );
-        d.draw_text(
-            &summary_line2,
-            x + PADDING_X,
-            summary_y + 18,
-            SUMMARY_FONT,
-            Color::new(195, 200, 225, 255),
-        );
-
-        let bar_origin_y = summary_y + SUMMARY_HEIGHT;
-        for (idx, row) in rows.iter().enumerate() {
-            let row_top = bar_origin_y + (idx as i32) * ROW_HEIGHT;
-            let label = TERRAIN_STAGE_LABELS[idx];
-            d.draw_text(
-                label,
-                x + PADDING_X,
-                row_top,
-                ROW_FONT,
-                Color::new(220, 225, 240, 255),
+        if height > TITLEBAR_HEIGHT {
+            d.draw_rectangle(
+                x,
+                y + TITLEBAR_HEIGHT,
+                width,
+                height - TITLEBAR_HEIGHT,
+                Color::new(14, 20, 30, 230),
             );
-            let bar_x = x + PADDING_X + LABEL_WIDTH + GAP_X;
-            let bar_height = ROW_HEIGHT - 8;
+        }
+        d.draw_rectangle(x, y, width, 1, Color::new(160, 196, 236, 210));
+        d.draw_rectangle(
+            x,
+            y + TITLEBAR_HEIGHT - 1,
+            width,
+            1,
+            Color::new(24, 34, 48, 255),
+        );
+        d.draw_rectangle_lines(x, y, width, height, Color::new(86, 108, 142, 200));
+        if width > 2 && height > 2 {
+            d.draw_rectangle_lines(
+                x + 1,
+                y + 1,
+                width - 2,
+                height - 2,
+                Color::new(30, 42, 60, 210),
+            );
+        }
+
+        let title_text = "Terrain Pipeline";
+        let title_y = y + (TITLEBAR_HEIGHT - TITLE_FONT) / 2;
+        d.draw_text(
+            title_text,
+            x + PADDING_X,
+            title_y,
+            TITLE_FONT,
+            Color::new(236, 244, 255, 255),
+        );
+        let subtitle = format!("{} samples", window);
+        let subtitle_w = d.measure_text(&subtitle, SUBTITLE_FONT);
+        let subtitle_y = title_y + TITLE_FONT - SUBTITLE_FONT - 2;
+        d.draw_text(
+            &subtitle,
+            x + width - PADDING_X - subtitle_w,
+            subtitle_y,
+            SUBTITLE_FONT,
+            Color::new(212, 224, 240, 255),
+        );
+
+        let mut cursor_y = y + TITLEBAR_HEIGHT + PADDING_Y;
+        let card_gap = 14;
+        let card_width = ((width - PADDING_X * 2 - card_gap) / 2).max(160);
+        let card_height = SUMMARY_CARD_HEIGHT;
+        let card_bg = Color::new(24, 32, 44, 235);
+        let card_outline = Color::new(52, 68, 84, 200);
+        let accent_tile = Color::new(118, 202, 255, 220);
+        let accent_cache = Color::new(124, 220, 184, 220);
+
+        let card1_x = x + PADDING_X;
+        let card2_x = card1_x + card_width + card_gap;
+
+        d.draw_rectangle(card1_x, cursor_y, card_width, card_height, card_bg);
+        d.draw_rectangle_lines(card1_x, cursor_y, card_width, card_height, card_outline);
+        d.draw_rectangle(card1_x, cursor_y, card_width, 2, accent_tile);
+        let text_x = card1_x + 12;
+        let mut text_y = cursor_y + 10;
+        d.draw_text(
+            "Height Tiles",
+            text_x,
+            text_y,
+            CARD_HEADER_FONT,
+            Color::new(228, 238, 255, 255),
+        );
+        text_y += CARD_HEADER_FONT + 4;
+        d.draw_text(
+            &format!("last: {}", last_tile_text),
+            text_x,
+            text_y,
+            SUBTITLE_FONT,
+            Color::new(210, 220, 238, 255),
+        );
+        text_y += SUBTITLE_FONT + 2;
+        d.draw_text(
+            &format!("avg: {:.2}ms   p95: {:.2}ms", tile_avg_ms, tile_p95_ms),
+            text_x,
+            text_y,
+            SUBTITLE_FONT,
+            Color::new(198, 208, 230, 255),
+        );
+        text_y += SUBTITLE_FONT + 2;
+        d.draw_text(
+            &format!("reuse: {:.0}%", reuse_ratio),
+            text_x,
+            text_y,
+            SUBTITLE_FONT,
+            Color::new(200, 214, 242, 255),
+        );
+        text_y += SUBTITLE_FONT + 4;
+        let reuse_bar_x = text_x;
+        let reuse_bar_width = card_width - 24;
+        let reuse_bar_height = 10;
+        d.draw_rectangle(
+            reuse_bar_x,
+            text_y,
+            reuse_bar_width,
+            reuse_bar_height,
+            Color::new(18, 24, 34, 255),
+        );
+        let reuse_fill =
+            ((reuse_ratio / 100.0).clamp(0.0, 1.0) * reuse_bar_width as f32).round() as i32;
+        if reuse_fill > 0 {
+            d.draw_rectangle(
+                reuse_bar_x,
+                text_y,
+                reuse_fill.max(2),
+                reuse_bar_height,
+                accent_tile,
+            );
+        }
+
+        d.draw_rectangle(card2_x, cursor_y, card_width, card_height, card_bg);
+        d.draw_rectangle_lines(card2_x, cursor_y, card_width, card_height, card_outline);
+        d.draw_rectangle(card2_x, cursor_y, card_width, 2, accent_cache);
+        let text_x2 = card2_x + 12;
+        let mut text_y2 = cursor_y + 10;
+        d.draw_text(
+            "Height Cache",
+            text_x2,
+            text_y2,
+            CARD_HEADER_FONT,
+            Color::new(224, 244, 236, 255),
+        );
+        text_y2 += CARD_HEADER_FONT + 4;
+        d.draw_text(
+            &format!(
+                "avg hit: {:.0}%   last: {:.0}%",
+                avg_cache_rate, last_cache_rate
+            ),
+            text_x2,
+            text_y2,
+            SUBTITLE_FONT,
+            Color::new(204, 220, 214, 255),
+        );
+        text_y2 += SUBTITLE_FONT + 2;
+        d.draw_text(
+            &format!(
+                "hits: {}   total: {}",
+                Self::format_count(total_hits as usize),
+                Self::format_count(total_cache as usize)
+            ),
+            text_x2,
+            text_y2,
+            SUBTITLE_FONT,
+            Color::new(190, 206, 204, 255),
+        );
+        text_y2 += SUBTITLE_FONT + 4;
+        let cache_bar_x = text_x2;
+        let cache_bar_width = card_width - 24;
+        let cache_bar_height = 10;
+        d.draw_rectangle(
+            cache_bar_x,
+            text_y2,
+            cache_bar_width,
+            cache_bar_height,
+            Color::new(18, 26, 34, 255),
+        );
+        let cache_fill =
+            ((last_cache_rate / 100.0).clamp(0.0, 1.0) * cache_bar_width as f32).round() as i32;
+        if cache_fill > 0 {
+            d.draw_rectangle(
+                cache_bar_x,
+                text_y2,
+                cache_fill.max(2),
+                cache_bar_height,
+                accent_cache,
+            );
+        }
+
+        cursor_y += card_height + SUMMARY_GAP;
+
+        let zebra_width = width - PADDING_X * 2;
+        let bar_x = x + PADDING_X + LABEL_WIDTH + GAP_X;
+        let bar_width = (width - (PADDING_X * 2 + LABEL_WIDTH + GAP_X)).max(160);
+        let bar_height = (ROW_HEIGHT - 10).max(8);
+        for (idx, row) in rows.iter().enumerate() {
+            let row_top = cursor_y + (idx as i32) * ROW_HEIGHT;
+            if idx % 2 == 0 {
+                d.draw_rectangle(
+                    x + PADDING_X,
+                    row_top,
+                    zebra_width,
+                    ROW_HEIGHT,
+                    Color::new(24, 32, 46, 110),
+                );
+            }
+            let label_y = row_top + (ROW_HEIGHT - ROW_FONT) / 2;
+            d.draw_text(
+                TERRAIN_STAGE_LABELS[idx],
+                x + PADDING_X,
+                label_y,
+                ROW_FONT,
+                Color::new(220, 230, 244, 255),
+            );
             let bar_top = row_top + (ROW_HEIGHT - bar_height) / 2;
             d.draw_rectangle(
                 bar_x,
                 bar_top,
-                BAR_WIDTH,
+                bar_width,
                 bar_height,
-                Color::new(40, 40, 68, 160),
+                Color::new(26, 34, 48, 210),
             );
-            if row.avg_ms > 0.0 && max_avg_ms > 0.0 {
-                let fill_ratio = (row.avg_ms / max_avg_ms).clamp(0.0, 1.0);
-                let fill_width = (fill_ratio * BAR_WIDTH as f32).round() as i32;
-                if fill_width > 0 {
+            if max_span_ms > 0.0 && row.avg_ms > 0.0 {
+                let ratio = (row.avg_ms / max_span_ms).clamp(0.0, 1.0);
+                let fill = (ratio * bar_width as f32).round() as i32;
+                if fill > 0 {
                     d.draw_rectangle(
                         bar_x,
                         bar_top,
-                        fill_width.max(2),
+                        fill.max(2),
                         bar_height,
-                        Color::new(110, 180, 250, 220),
+                        Color::new(88, 176, 244, 220),
                     );
                 }
             }
-            let stats_font = ROW_FONT - 2;
+            if max_span_ms > 0.0 && row.p95_ms > 0.0 {
+                let ratio = (row.p95_ms / max_span_ms).clamp(0.0, 1.0);
+                let px = bar_x + (ratio * bar_width as f32).round() as i32;
+                d.draw_line(
+                    px,
+                    bar_top,
+                    px,
+                    bar_top + bar_height,
+                    Color::new(252, 212, 134, 230),
+                );
+            }
+            let stats_font = ROW_FONT - 1;
+            let stats_y = bar_top + (bar_height - stats_font) / 2;
             let stats_text = format!(
-                "last {:.2}ms avg {:.2}ms p95 {:.2}ms | calls last {} avg {:.1}",
+                "last {:.2}ms avg {:.2}ms p95 {:.2}ms  |  calls last {} avg {:.1}",
                 row.last_ms, row.avg_ms, row.p95_ms, row.last_calls, row.avg_calls,
             );
             d.draw_text(
                 &stats_text,
-                bar_x + 4,
-                row_top,
+                bar_x + 6,
+                stats_y,
                 stats_font,
-                Color::new(230, 235, 250, 255),
+                Color::new(232, 238, 252, 255),
             );
         }
+
+        let handle_x = x + width - handle_size;
+        let handle_y = y + height - handle_size;
+        d.draw_rectangle(
+            handle_x,
+            handle_y,
+            handle_size,
+            handle_size,
+            Color::new(24, 32, 44, 220),
+        );
+        for i in 0..3 {
+            let offset = i * 4;
+            d.draw_line(
+                handle_x + offset,
+                handle_y + handle_size - 2,
+                handle_x + handle_size - 2,
+                handle_y + offset,
+                Color::new(132, 186, 236, 220),
+            );
+        }
+        d.draw_rectangle_lines(
+            handle_x,
+            handle_y,
+            handle_size,
+            handle_size,
+            Color::new(54, 76, 100, 230),
+        );
     }
     fn format_count(mut value: usize) -> String {
         if value < 1_000 {
