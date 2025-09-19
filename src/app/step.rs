@@ -4,6 +4,7 @@ use geist_render_raylib::conv::vec3_to_rl;
 use geist_runtime::JobOut;
 use geist_world::ChunkCoord;
 use raylib::prelude::*;
+use std::collections::BTreeMap;
 
 use super::App;
 use crate::event::{Event, RebuildCause};
@@ -308,7 +309,86 @@ impl App {
             self.minimap_last_cursor = None;
         }
 
+        let mut event_hist_hovered = false;
+        if !self.gs.show_debug_overlay {
+            self.event_histogram_dragging = false;
+        } else if let Some((hx, hy, hw, hh)) = self.event_histogram_rect {
+            let mouse = rl.get_mouse_position();
+            if mouse.x >= hx as f32
+                && mouse.x <= (hx + hw) as f32
+                && mouse.y >= hy as f32
+                && mouse.y <= (hy + hh) as f32
+            {
+                event_hist_hovered = true;
+                if rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT) {
+                    self.event_histogram_dragging = true;
+                    self.event_histogram_drag_offset =
+                        Vector2::new(mouse.x - hx as f32, mouse.y - hy as f32);
+                }
+            }
+        }
+
+        if self.event_histogram_dragging {
+            if !rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT) {
+                self.event_histogram_dragging = false;
+            } else {
+                let mouse = rl.get_mouse_position();
+                let (win_w, win_h) = self.event_histogram_size;
+                let pad = 10.0_f32;
+                let screen_w = rl.get_screen_width() as f32;
+                let screen_h = rl.get_screen_height() as f32;
+                let mut new_x = mouse.x - self.event_histogram_drag_offset.x;
+                let mut new_y = mouse.y - self.event_histogram_drag_offset.y;
+                let max_x = (screen_w - win_w as f32 - pad).max(pad);
+                let max_y = (screen_h - win_h as f32 - pad).max(pad);
+                new_x = new_x.clamp(pad, max_x);
+                new_y = new_y.clamp(pad, max_y);
+                self.event_histogram_pos = Vector2::new(new_x, new_y);
+            }
+        }
+
+        let mut intent_hist_hovered = false;
+        if !self.gs.show_debug_overlay {
+            self.intent_histogram_dragging = false;
+        } else if let Some((hx, hy, hw, hh)) = self.intent_histogram_rect {
+            let mouse = rl.get_mouse_position();
+            if mouse.x >= hx as f32
+                && mouse.x <= (hx + hw) as f32
+                && mouse.y >= hy as f32
+                && mouse.y <= (hy + hh) as f32
+            {
+                intent_hist_hovered = true;
+                if rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT) {
+                    self.intent_histogram_dragging = true;
+                    self.intent_histogram_drag_offset =
+                        Vector2::new(mouse.x - hx as f32, mouse.y - hy as f32);
+                }
+            }
+        }
+
+        if self.intent_histogram_dragging {
+            if !rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT) {
+                self.intent_histogram_dragging = false;
+            } else {
+                let mouse = rl.get_mouse_position();
+                let (win_w, win_h) = self.intent_histogram_size;
+                let pad = 10.0_f32;
+                let screen_w = rl.get_screen_width() as f32;
+                let screen_h = rl.get_screen_height() as f32;
+                let mut new_x = mouse.x - self.intent_histogram_drag_offset.x;
+                let mut new_y = mouse.y - self.intent_histogram_drag_offset.y;
+                let max_x = (screen_w - win_w as f32 - pad).max(pad);
+                let max_y = (screen_h - win_h as f32 - pad).max(pad);
+                new_x = new_x.clamp(pad, max_x);
+                new_y = new_y.clamp(pad, max_y);
+                self.intent_histogram_pos = Vector2::new(new_x, new_y);
+            }
+        }
+
         let block_minimap_input = minimap_hovered || self.minimap_drag_button.is_some();
+        let block_hist_input = event_hist_hovered || self.event_histogram_dragging;
+        let block_intent_input = intent_hist_hovered || self.intent_histogram_dragging;
+        let block_ui_input = block_minimap_input || block_hist_input || block_intent_input;
 
         // Structure speed controls (horizontal X)
         if rl.is_key_pressed(KeyboardKey::KEY_MINUS) {
@@ -360,7 +440,7 @@ impl App {
         // Lighting mode cycling removed; FullMicro is the only supported mode.
 
         // Mouse edit intents
-        let want_edit = !block_minimap_input
+        let want_edit = !block_ui_input
             && (rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT)
                 || rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_RIGHT));
         if want_edit {
@@ -586,6 +666,48 @@ impl App {
         self.flush_intents();
         // Snapshot current intents backlog for debug overlay
         self.debug_stats.intents_size = self.intents.len();
+        if self.intents.is_empty() {
+            self.debug_stats.intents_by_cause.clear();
+            self.debug_stats.intents_by_radius.clear();
+        } else {
+            let mut cause_counts = [0usize; 4];
+            for entry in self.intents.values() {
+                let idx = entry.cause as usize;
+                if idx < cause_counts.len() {
+                    cause_counts[idx] = cause_counts[idx].saturating_add(1);
+                }
+            }
+            let mut by_cause: Vec<(String, usize)> = Vec::new();
+            for (idx, count) in cause_counts.into_iter().enumerate() {
+                if count == 0 {
+                    continue;
+                }
+                let label = match idx {
+                    0 => "Edit",
+                    1 => "Light",
+                    2 => "StreamLoad",
+                    3 => "HotReload",
+                    _ => "Other",
+                };
+                by_cause.push((label.to_string(), count));
+            }
+            by_cause.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+            self.debug_stats.intents_by_cause = by_cause;
+
+            let center = self.gs.center_chunk;
+            let mut radius_counts: BTreeMap<i32, usize> = BTreeMap::new();
+            for key in self.intents.keys() {
+                let dist_sq = center.distance_sq(*key);
+                let radius = (dist_sq as f64).sqrt().floor() as i32;
+                let entry = radius_counts.entry(radius).or_insert(0);
+                *entry = entry.saturating_add(1);
+            }
+            let mut radius_rows: Vec<(String, usize)> = Vec::with_capacity(radius_counts.len());
+            for (radius, count) in radius_counts {
+                radius_rows.push((format!("r={}", radius), count));
+            }
+            self.debug_stats.intents_by_radius = radius_rows;
+        }
         self.gs.tick = self.gs.tick.wrapping_add(1);
         self.queue.advance_tick();
         // Sanity check: events left in past ticks will never be processed; warn if detected
