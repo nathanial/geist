@@ -347,6 +347,46 @@ impl App {
             }
         }
 
+        let mut height_hist_hovered = false;
+        if !self.gs.show_debug_overlay {
+            self.height_histogram_dragging = false;
+        } else if let Some((hx, hy, hw, hh)) = self.height_histogram_rect {
+            let mouse = rl.get_mouse_position();
+            if mouse.x >= hx as f32
+                && mouse.x <= (hx + hw) as f32
+                && mouse.y >= hy as f32
+                && mouse.y <= (hy + hh) as f32
+            {
+                height_hist_hovered = true;
+                if rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT) {
+                    self.height_histogram_dragging = true;
+                    self.height_histogram_drag_offset =
+                        Vector2::new(mouse.x - hx as f32, mouse.y - hy as f32);
+                }
+            }
+        }
+
+        if self.height_histogram_dragging {
+            if !rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT) {
+                self.height_histogram_dragging = false;
+            } else {
+                let mouse = rl.get_mouse_position();
+                let (win_w, win_h) = self.height_histogram_size;
+                let pad = 10.0_f32;
+                let screen_w = rl.get_screen_width() as f32;
+                let screen_h = rl.get_screen_height() as f32;
+                let mut new_x = mouse.x - self.height_histogram_drag_offset.x;
+                let mut new_y = mouse.y - self.height_histogram_drag_offset.y;
+                let max_x = (screen_w - win_w as f32 - pad).max(pad);
+                let max_y = (screen_h - win_h as f32 - pad).max(pad);
+                new_x = new_x.clamp(pad, max_x);
+                new_y = new_y.clamp(pad, max_y);
+                self.height_histogram_pos = Vector2::new(new_x, new_y);
+            }
+        } else if !height_hist_hovered {
+            self.height_histogram_drag_offset = Vector2::new(0.0, 0.0);
+        }
+
         let mut intent_hist_hovered = false;
         if !self.gs.show_debug_overlay {
             self.intent_histogram_dragging = false;
@@ -388,7 +428,9 @@ impl App {
         let block_minimap_input = minimap_hovered || self.minimap_drag_button.is_some();
         let block_hist_input = event_hist_hovered || self.event_histogram_dragging;
         let block_intent_input = intent_hist_hovered || self.intent_histogram_dragging;
-        let block_ui_input = block_minimap_input || block_hist_input || block_intent_input;
+        let block_height_input = height_hist_hovered || self.height_histogram_dragging;
+        let block_ui_input =
+            block_minimap_input || block_hist_input || block_intent_input || block_height_input;
 
         // Structure speed controls (horizontal X)
         if rl.is_key_pressed(KeyboardKey::KEY_MINUS) {
@@ -497,6 +539,9 @@ impl App {
             }
             if r.t_gen_ms > 0 {
                 Self::perf_push(&mut self.perf_gen_ms, r.t_gen_ms);
+            }
+            if r.height_tile_stats.duration_us > 0 || r.height_tile_stats.reused {
+                Self::perf_push(&mut self.height_tile_us, r.height_tile_stats.duration_us);
             }
             // Perf logging per job
             match r.kind {

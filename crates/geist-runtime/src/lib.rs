@@ -15,7 +15,7 @@ use geist_lighting::{
 use geist_mesh_cpu::{
     ChunkMeshCPU, NeighborsLoaded, build_chunk_wcc_cpu_buf_with_light, build_voxel_body_cpu_buf,
 };
-use geist_world::{ChunkCoord, World};
+use geist_world::{ChunkCoord, HeightTileStats, World};
 use hashbrown::HashMap;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
@@ -51,6 +51,7 @@ pub struct JobOut {
     pub t_apply_ms: u32,
     pub t_light_ms: u32,
     pub t_mesh_ms: u32,
+    pub height_tile_stats: HeightTileStats,
 }
 
 #[derive(Clone, Debug)]
@@ -110,18 +111,30 @@ fn process_build_job(
     let mut t_mesh_ms: u32 = 0;
     let coord = ChunkCoord::new(cx, cy, cz);
 
-    let (mut buf, mut occupancy) = if let Some(prev) = prev_buf {
+    let (mut buf, mut occupancy, height_tile_stats) = if let Some(prev) = prev_buf {
         let occ = if prev.has_non_air() {
             chunkbuf::ChunkOccupancy::Populated
         } else {
             chunkbuf::ChunkOccupancy::Empty
         };
-        (prev, occ)
+        (
+            prev,
+            occ,
+            HeightTileStats {
+                duration_us: 0,
+                columns: 0,
+                reused: true,
+            },
+        )
     } else {
         let t0 = Instant::now();
         let generated = chunkbuf::generate_chunk_buffer(world, coord, &reg);
         t_gen_ms = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
-        (generated.buf, generated.occupancy)
+        (
+            generated.buf,
+            generated.occupancy,
+            generated.height_tile_stats,
+        )
     };
 
     let base_x = cx * buf.sx as i32;
@@ -187,6 +200,7 @@ fn process_build_job(
             t_apply_ms,
             t_light_ms: 0,
             t_mesh_ms,
+            height_tile_stats,
         });
         return;
     }
@@ -216,6 +230,7 @@ fn process_build_job(
                 t_apply_ms,
                 t_light_ms,
                 t_mesh_ms,
+                height_tile_stats,
             });
         }
         Lane::Edit | Lane::Bg => {
@@ -246,6 +261,7 @@ fn process_build_job(
                     t_apply_ms,
                     t_light_ms,
                     t_mesh_ms,
+                    height_tile_stats,
                 });
             }
         }

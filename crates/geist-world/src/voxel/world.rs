@@ -7,7 +7,7 @@ use geist_blocks::types::Block as RtBlock;
 
 use crate::worldgen::WorldGenParams;
 
-use super::{CHUNK_SIZE, GenCtx};
+use super::{CHUNK_SIZE, GenCtx, gen_ctx::HeightTileStats};
 
 pub struct World {
     pub chunk_size_x: usize,
@@ -130,6 +130,8 @@ impl World {
             params,
             temp2d,
             moist2d,
+            height_tile_stats: HeightTileStats::default(),
+            height_tile: None,
         }
     }
 

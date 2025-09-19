@@ -6,5 +6,5 @@ mod generation;
 mod world;
 
 pub use chunk_coord::ChunkCoord;
-pub use gen_ctx::GenCtx;
+pub use gen_ctx::{GenCtx, HeightTileStats};
 pub use world::{World, WorldGenMode};

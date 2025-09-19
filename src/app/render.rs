@@ -1,6 +1,5 @@
 use raylib::prelude::*;
 use std::collections::HashSet;
-use std::sync::Arc;
 
 use super::{App, DebugStats};
 use crate::raycast;
@@ -9,7 +8,7 @@ use geist_chunk::ChunkOccupancy;
 use geist_geom::Vec3;
 use geist_render_raylib::conv::{vec3_from_rl, vec3_to_rl};
 use geist_structures::{StructureId, rotate_yaw_inv};
-use geist_world::{ChunkCoord, voxel::WorldGenMode};
+use geist_world::ChunkCoord;
 
 impl App {
     pub fn render(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread) {
@@ -96,6 +95,7 @@ impl App {
         self.minimap_ui_rect = None;
         self.event_histogram_rect = None;
         self.intent_histogram_rect = None;
+        self.height_histogram_rect = None;
         let mut d = rl.begin_drawing(thread);
         // Skybox: clear background to time-of-day sky color
         d.clear_background(Color::new(
@@ -717,6 +717,7 @@ impl App {
 
             self.draw_event_histogram(&mut d);
             self.draw_intent_histogram(&mut d);
+            self.draw_height_histogram(&mut d);
 
             // Minimap (bottom-right): draw the 3D chunk sphere render texture
             if minimap_side_px > 0 {
@@ -1494,6 +1495,241 @@ impl App {
                 cursor_y,
                 ROW_FONT,
                 Color::new(200, 205, 220, 255),
+            );
+        }
+    }
+
+    fn draw_height_histogram(&mut self, d: &mut RaylibDrawHandle) {
+        if !self.gs.show_debug_overlay {
+            return;
+        }
+
+        const PADDING_X: i32 = 14;
+        const PADDING_Y: i32 = 12;
+        const HEADER_HEIGHT: i32 = 28;
+        const SUMMARY_LINE_HEIGHT: i32 = 18;
+        const ROW_HEIGHT: i32 = 22;
+        const LABEL_WIDTH: i32 = 150;
+        const BAR_WIDTH: i32 = 220;
+        const GAP_X: i32 = 12;
+        const TITLE_FONT: i32 = 20;
+        const SUMMARY_FONT: i32 = 16;
+        const ROW_FONT: i32 = 18;
+        const MAX_BINS: usize = 12;
+
+        let window = self.height_tile_us.len();
+        if window == 0 {
+            return;
+        }
+
+        let reuse_count = self.height_tile_us.iter().filter(|&&v| v == 0).count();
+        let durations_ms: Vec<f32> = self
+            .height_tile_us
+            .iter()
+            .copied()
+            .filter(|&v| v > 0)
+            .map(|v| v as f32 / 1000.0)
+            .collect();
+        let build_count = durations_ms.len();
+
+        let screen_w = d.get_screen_width();
+        let screen_h = d.get_screen_height();
+        let mut x = self.height_histogram_pos.x.round() as i32;
+        let mut y = self.height_histogram_pos.y.round() as i32;
+
+        let title = format!(
+            "Height Tiles — builds: {} reuse: {} (window {})",
+            build_count, reuse_count, window
+        );
+
+        let width = PADDING_X * 2 + LABEL_WIDTH + GAP_X + BAR_WIDTH;
+
+        let format_ms = |ms: f32| -> String {
+            if ms >= 10.0 {
+                format!("{:.0}", ms)
+            } else if ms >= 1.0 {
+                format!("{:.1}", ms)
+            } else {
+                format!("{:.2}", ms)
+            }
+        };
+
+        if build_count == 0 {
+            let height = PADDING_Y * 2 + HEADER_HEIGHT + ROW_HEIGHT + 8;
+            let max_x = (screen_w - width - 10).max(10);
+            let max_y = (screen_h - height - 10).max(10);
+            x = x.clamp(10, max_x);
+            y = y.clamp(10, max_y);
+            self.height_histogram_pos = Vector2::new(x as f32, y as f32);
+            self.height_histogram_rect = Some((x, y, width, height));
+            self.height_histogram_size = (width, height);
+
+            let bg_color = Color::new(20, 22, 36, 220);
+            let border_color = Color::new(200, 210, 240, 140);
+            d.draw_rectangle(x, y, width, height, bg_color);
+            d.draw_rectangle_lines(x, y, width, height, border_color);
+            d.draw_text(
+                &title,
+                x + PADDING_X + 1,
+                y + PADDING_Y + 1,
+                TITLE_FONT,
+                Color::BLACK,
+            );
+            d.draw_text(
+                &title,
+                x + PADDING_X,
+                y + PADDING_Y,
+                TITLE_FONT,
+                Color::WHITE,
+            );
+            let msg = "No tile builds yet";
+            d.draw_text(
+                msg,
+                x + PADDING_X,
+                y + PADDING_Y + HEADER_HEIGHT,
+                ROW_FONT,
+                Color::new(210, 215, 230, 255),
+            );
+            return;
+        }
+
+        let mut sorted = durations_ms.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let avg_ms = sorted.iter().copied().sum::<f32>() / build_count as f32;
+        let p95_idx = ((build_count as f32) * 0.95).ceil().max(1.0) as usize - 1;
+        let p95_ms = sorted[p95_idx.min(build_count - 1)];
+        let max_ms = *sorted.last().unwrap();
+        let last_ms = self
+            .height_tile_us
+            .iter()
+            .rev()
+            .find(|&&v| v > 0)
+            .map(|&v| v as f32 / 1000.0)
+            .unwrap_or(0.0);
+
+        let bin_count = MAX_BINS.min(build_count.max(4));
+        let mut bins = vec![0usize; bin_count];
+        let max_edge = max_ms.max(0.1);
+        let bin_width = (max_edge / bin_count as f32).max(0.1);
+
+        for ms in durations_ms.iter().copied() {
+            let mut idx = (ms / bin_width).floor() as usize;
+            if idx >= bin_count {
+                idx = bin_count - 1;
+            }
+            bins[idx] += 1;
+        }
+
+        let summary_height = SUMMARY_LINE_HEIGHT * 2;
+        let bar_rows = bin_count as i32;
+        let height = PADDING_Y * 2 + HEADER_HEIGHT + summary_height + bar_rows * ROW_HEIGHT + 8;
+        let max_x = (screen_w - width - 10).max(10);
+        let max_y = (screen_h - height - 10).max(10);
+        x = x.clamp(10, max_x);
+        y = y.clamp(10, max_y);
+        self.height_histogram_pos = Vector2::new(x as f32, y as f32);
+        self.height_histogram_rect = Some((x, y, width, height));
+        self.height_histogram_size = (width, height);
+
+        let bg_color = Color::new(20, 22, 36, 220);
+        let border_color = Color::new(200, 210, 240, 140);
+        d.draw_rectangle(x, y, width, height, bg_color);
+        d.draw_rectangle_lines(x, y, width, height, border_color);
+
+        d.draw_text(
+            &title,
+            x + PADDING_X + 1,
+            y + PADDING_Y + 1,
+            TITLE_FONT,
+            Color::BLACK,
+        );
+        d.draw_text(
+            &title,
+            x + PADDING_X,
+            y + PADDING_Y,
+            TITLE_FONT,
+            Color::WHITE,
+        );
+
+        let summary_y = y + PADDING_Y + HEADER_HEIGHT;
+        let summary_text = format!(
+            "Avg {}ms   P95 {}ms   Max {}ms   Last {}ms",
+            format_ms(avg_ms),
+            format_ms(p95_ms),
+            format_ms(max_ms),
+            format_ms(last_ms)
+        );
+        d.draw_text(
+            &summary_text,
+            x + PADDING_X,
+            summary_y,
+            SUMMARY_FONT,
+            Color::new(215, 220, 240, 255),
+        );
+
+        let bin_text = format!("Bins: {}  Width ≈ {}ms", bin_count, format_ms(bin_width));
+        d.draw_text(
+            &bin_text,
+            x + PADDING_X,
+            summary_y + SUMMARY_LINE_HEIGHT,
+            SUMMARY_FONT,
+            Color::new(195, 200, 225, 255),
+        );
+
+        let bar_origin_y = summary_y + summary_height;
+        let max_count = bins.iter().copied().max().unwrap_or(1) as f32;
+        for (idx, count) in bins.iter().enumerate() {
+            let row_top = bar_origin_y + (idx as i32) * ROW_HEIGHT;
+            let start = idx as f32 * bin_width;
+            let end = if idx == bin_count - 1 {
+                max_edge
+            } else {
+                (idx as f32 + 1.0) * bin_width
+            };
+            let label = if idx == bin_count - 1 {
+                format!("≥{}ms", format_ms(start))
+            } else {
+                format!("{}-{}ms", format_ms(start), format_ms(end))
+            };
+            d.draw_text(
+                &label,
+                x + PADDING_X,
+                row_top,
+                ROW_FONT,
+                Color::new(220, 225, 240, 255),
+            );
+            d.draw_rectangle(
+                x + PADDING_X + LABEL_WIDTH + GAP_X,
+                row_top + 3,
+                BAR_WIDTH,
+                ROW_HEIGHT - 6,
+                Color::new(40, 40, 68, 160),
+            );
+            if *count > 0 {
+                let ratio = (*count as f32) / max_count;
+                let fill = (ratio * BAR_WIDTH as f32).round() as i32;
+                let fill_width = fill.max(2).min(BAR_WIDTH);
+                let fill_color = match idx {
+                    0 => Color::new(120, 200, 255, 230),
+                    1 => Color::new(100, 180, 245, 220),
+                    _ => Color::new(80, 160, 235, 210),
+                };
+                d.draw_rectangle(
+                    x + PADDING_X + LABEL_WIDTH + GAP_X,
+                    row_top + 3,
+                    fill_width,
+                    ROW_HEIGHT - 6,
+                    fill_color,
+                );
+            }
+            let count_text = format!("{}", count);
+            let count_w = d.measure_text(&count_text, ROW_FONT);
+            d.draw_text(
+                &count_text,
+                x + PADDING_X + LABEL_WIDTH + GAP_X + BAR_WIDTH - count_w,
+                row_top,
+                ROW_FONT,
+                Color::new(240, 240, 255, 255),
             );
         }
     }

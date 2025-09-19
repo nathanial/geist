@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use fastnoise_lite::FastNoiseLite;
 use geist_blocks::registry::BlockRegistry;
@@ -6,7 +7,21 @@ use geist_blocks::types::Block as RtBlock;
 
 use crate::worldgen::{Fractal, WorldGenParams};
 
+use super::gen_ctx::{HeightTile, HeightTileStats};
 use super::{GenCtx, World, WorldGenMode};
+
+fn remap_noise_to_height(
+    noise: f32,
+    params: &WorldGenParams,
+    world_height: i32,
+    world_height_f: f32,
+) -> i32 {
+    let min_h = (world_height_f * params.min_y_ratio) as i32;
+    let max_h = (world_height_f * params.max_y_ratio) as i32;
+    let span = (max_h - min_h) as f32;
+    let hh = ((noise + 1.0) * 0.5 * span) as i32 + min_h;
+    hh.clamp(1, world_height - 1)
+}
 
 impl World {
     pub fn block_at_runtime(&self, reg: &BlockRegistry, x: i32, y: i32, z: i32) -> RtBlock {
@@ -51,6 +66,61 @@ impl World {
         let id = self.resolve_block_id(reg, base);
         RtBlock { id, state: 0 }
     }
+
+    pub fn prepare_height_tile(
+        &self,
+        ctx: &mut GenCtx,
+        base_x: i32,
+        base_z: i32,
+        size_x: usize,
+        size_z: usize,
+    ) {
+        if matches!(self.mode, WorldGenMode::Flat { .. }) {
+            ctx.height_tile = None;
+            ctx.height_tile_stats = HeightTileStats {
+                duration_us: 0,
+                columns: 0,
+                reused: true,
+            };
+            return;
+        }
+
+        let total_columns = (size_x * size_z) as u32;
+        if let Some(tile) = ctx.height_tile.as_ref() {
+            if tile.matches(base_x, base_z, size_x, size_z) {
+                ctx.height_tile_stats = HeightTileStats {
+                    duration_us: 0,
+                    columns: total_columns,
+                    reused: true,
+                };
+                return;
+            }
+        }
+
+        let params_guard = Arc::clone(&ctx.params);
+        let params = &*params_guard;
+        let world_height = self.world_height_hint() as i32;
+        let world_height_f = world_height as f32;
+        let mut heights = Vec::with_capacity(size_x * size_z);
+        let t0 = Instant::now();
+        for dz in 0..size_z {
+            let wz = base_z + dz as i32;
+            for dx in 0..size_x {
+                let wx = base_x + dx as i32;
+                let noise = ctx.terrain.get_noise_2d(wx as f32, wz as f32);
+                let height = remap_noise_to_height(noise, params, world_height, world_height_f);
+                heights.push(height);
+            }
+        }
+        let elapsed_us = t0.elapsed().as_micros().min(u128::from(u32::MAX)) as u32;
+        ctx.height_tile_stats = HeightTileStats {
+            duration_us: elapsed_us,
+            columns: total_columns,
+            reused: false,
+        };
+
+        ctx.height_tile = Some(HeightTile::new(base_x, base_z, size_x, size_z, heights));
+    }
 }
 
 struct ColumnSampler<'ctx, 'p> {
@@ -81,12 +151,13 @@ impl<'ctx, 'p> ColumnSampler<'ctx, 'p> {
     }
 
     fn height_for(&mut self, wx: i32, wz: i32) -> i32 {
-        // PERF: Each call spins a new noise sample; chunk builders should cache results per column.
-        let h = self.ctx.terrain.get_noise_2d(wx as f32, wz as f32);
-        let min_h = (self.world_height_f * self.params.min_y_ratio) as i32;
-        let max_h = (self.world_height_f * self.params.max_y_ratio) as i32;
-        let hh = ((h + 1.0) * 0.5 * (max_h - min_h) as f32) as i32 + min_h;
-        hh.clamp(1, self.world_height - 1)
+        if let Some(tile) = self.ctx.height_tile.as_ref() {
+            if let Some(height) = tile.height(wx, wz) {
+                return height;
+            }
+        }
+        let noise = self.ctx.terrain.get_noise_2d(wx as f32, wz as f32);
+        remap_noise_to_height(noise, self.params, self.world_height, self.world_height_f)
     }
 
     fn water_level(&self) -> i32 {

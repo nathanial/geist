@@ -4,4 +4,4 @@
 pub mod voxel;
 pub mod worldgen;
 
-pub use voxel::{CHUNK_SIZE, ChunkCoord, GenCtx, World, WorldGenMode};
+pub use voxel::{CHUNK_SIZE, ChunkCoord, GenCtx, HeightTileStats, World, WorldGenMode};
