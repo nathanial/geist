@@ -15,6 +15,7 @@ geist-chunk = { path = "../geist-chunk" }
 geist-lighting = { path = "../geist-lighting" }
 geist-world = { path = "../geist-world" }
 log = "0.4"
+hashbrown = "0.14"
 
 [dev-dependencies]
 proptest = "1"

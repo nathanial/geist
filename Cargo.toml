@@ -26,6 +26,7 @@ geist-runtime = { path = "crates/geist-runtime" }
 geist-structures = { path = "crates/geist-structures" }
 geist-edit = { path = "crates/geist-edit" }
 geist-io = { path = "crates/geist-io" }
+hashbrown = "0.14"
 
 [features]
 default = []

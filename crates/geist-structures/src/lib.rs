@@ -4,6 +4,7 @@
 use geist_blocks::{BlockRegistry, types::Block};
 use geist_geom::Vec3;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 pub type StructureId = u32;
 
@@ -19,7 +20,7 @@ pub struct Structure {
     pub sx: usize,
     pub sy: usize,
     pub sz: usize,
-    pub blocks: Vec<Block>,
+    pub blocks: Arc<[Block]>,
     pub edits: StructureEditStore,
     pub pose: Pose,
     pub last_delta: Vec3,
@@ -69,7 +70,7 @@ impl Structure {
             sx,
             sy,
             sz,
-            blocks,
+            blocks: Arc::from(blocks.into_boxed_slice()),
             edits: StructureEditStore::new(),
             pose,
             last_delta: Vec3::ZERO,

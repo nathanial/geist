@@ -12,3 +12,6 @@ geist-world = { path = "../geist-world" }
 geist-chunk = { path = "../geist-chunk" }
 geist-lighting = { path = "../geist-lighting" }
 geist-mesh-cpu = { path = "../geist-mesh-cpu" }
+crossbeam-channel = "0.5"
+hashbrown = "0.14"
+rayon = "1.10"

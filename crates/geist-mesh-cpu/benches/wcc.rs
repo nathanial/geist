@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 use criterion::{Criterion, black_box, criterion_group, criterion_main};
 use std::time::Duration;
@@ -198,7 +198,7 @@ fn bench_wcc_mesher_s2_mixed(c: &mut Criterion) {
     let slab_state_bottom = reg
         .get(slab)
         .map(|ty| {
-            let mut props = std::collections::HashMap::new();
+            let mut props = HashMap::new();
             props.insert("half".to_string(), "bottom".to_string());
             ty.pack_state(&props)
         })

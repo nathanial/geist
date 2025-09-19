@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use hashbrown::HashMap;
 
 use geist_blocks::BlockRegistry;
 use geist_blocks::types::Block;

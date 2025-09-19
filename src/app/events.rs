@@ -17,6 +17,7 @@ use geist_render_raylib::{update_chunk_light_texture, upload_chunk_mesh};
 use geist_runtime::{BuildJob, StructureBuildJob};
 use geist_structures::{Structure, StructureId, rotate_yaw, rotate_yaw_inv};
 use geist_world::ChunkCoord;
+use hashbrown::HashMap;
 
 fn spherical_chunk_coords(center: ChunkCoord, radius: i32) -> Vec<ChunkCoord> {
     if radius < 0 {
@@ -577,7 +578,12 @@ impl App {
                 let coord = ChunkCoord::new(cx, cy, cz);
                 // Prepare edit snapshots for workers (pure)
                 let chunk_edits = self.gs.edits.snapshot_for_chunk(cx, cy, cz);
-                let region_edits = self.gs.edits.snapshot_for_region(cx, cy, cz, 1, 1);
+                let region_edits = self
+                    .gs
+                    .edits
+                    .snapshot_for_region(cx, cy, cz, 1, 1)
+                    .into_iter()
+                    .collect::<HashMap<_, _>>();
                 // Try to reuse previous buffer if present (and not invalidated)
                 let prev_buf = self
                     .gs
