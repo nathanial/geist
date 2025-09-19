@@ -97,6 +97,7 @@ impl World {
     }
 
     pub fn make_gen_ctx(&self) -> GenCtx {
+        // PERF: Initialises several FastNoiseLite instances; keep one `GenCtx` per worker instead of per voxel.
         let params = {
             let guard = self.gen_params.read().unwrap();
             Arc::clone(&*guard)
