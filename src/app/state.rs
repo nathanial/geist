@@ -8,7 +8,7 @@ use geist_blocks::{Block, BlockRegistry};
 use geist_render_raylib::{ChunkRender, FogShader, LeavesShader, TextureCache, WaterShader};
 use geist_runtime::Runtime;
 use geist_structures::StructureId;
-use geist_world::ChunkCoord;
+use geist_world::{ChunkCoord, TERRAIN_STAGE_COUNT};
 use raylib::prelude::{MouseButton, RenderTexture2D, Vector2, Vector3};
 
 use crate::camera::FlyCamera;
@@ -50,11 +50,11 @@ pub struct App {
     pub intent_histogram_drag_offset: Vector2,
     pub intent_histogram_rect: Option<(i32, i32, i32, i32)>,
     pub intent_histogram_size: (i32, i32),
-    pub height_histogram_pos: Vector2,
-    pub height_histogram_dragging: bool,
-    pub height_histogram_drag_offset: Vector2,
-    pub height_histogram_rect: Option<(i32, i32, i32, i32)>,
-    pub height_histogram_size: (i32, i32),
+    pub terrain_histogram_pos: Vector2,
+    pub terrain_histogram_dragging: bool,
+    pub terrain_histogram_drag_offset: Vector2,
+    pub terrain_histogram_rect: Option<(i32, i32, i32, i32)>,
+    pub terrain_histogram_size: (i32, i32),
     pub reg: Arc<BlockRegistry>,
     pub(crate) evt_processed_total: usize,
     pub(crate) evt_processed_by: HashMap<String, usize>,
@@ -65,7 +65,12 @@ pub struct App {
     pub(crate) perf_total_ms: VecDeque<u32>,
     pub(crate) perf_remove_ms: VecDeque<u32>,
     pub(crate) perf_gen_ms: VecDeque<u32>,
-    pub(crate) height_tile_us: VecDeque<u32>,
+    pub(crate) terrain_stage_us: [VecDeque<u32>; TERRAIN_STAGE_COUNT],
+    pub(crate) terrain_stage_calls: [VecDeque<u32>; TERRAIN_STAGE_COUNT],
+    pub(crate) terrain_height_tile_us: VecDeque<u32>,
+    pub(crate) terrain_height_tile_reused: VecDeque<u32>,
+    pub(crate) terrain_cache_hits: VecDeque<u32>,
+    pub(crate) terrain_cache_misses: VecDeque<u32>,
     pub(crate) tex_event_rx: Receiver<String>,
     pub(crate) worldgen_event_rx: Receiver<()>,
     pub(crate) world_config_path: String,

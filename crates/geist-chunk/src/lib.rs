@@ -3,7 +3,7 @@
 
 use geist_blocks::BlockRegistry;
 use geist_blocks::types::Block;
-use geist_world::{ChunkCoord, HeightTileStats, World};
+use geist_world::{ChunkCoord, TerrainMetrics, World};
 
 #[derive(Clone, Debug)]
 pub struct ChunkBuf {
@@ -104,7 +104,7 @@ impl ChunkOccupancy {
 pub struct ChunkGenerateResult {
     pub buf: ChunkBuf,
     pub occupancy: ChunkOccupancy,
-    pub height_tile_stats: HeightTileStats,
+    pub terrain_metrics: TerrainMetrics,
 }
 
 pub fn generate_chunk_buffer(
@@ -123,7 +123,6 @@ pub fn generate_chunk_buffer(
     // Use reusable worldgen context per chunk to avoid heavy per-voxel allocations
     let mut ctx = world.make_gen_ctx();
     world.prepare_height_tile(&mut ctx, base_x, base_z, sx, sz);
-    let tile_stats = ctx.height_tile_stats;
     let mut has_blocks = false;
     for z in 0..sz {
         for y in 0..sy {
@@ -139,6 +138,7 @@ pub fn generate_chunk_buffer(
             }
         }
     }
+    let metrics = ctx.terrain_profiler.snapshot(ctx.height_tile_stats);
     ChunkGenerateResult {
         buf: ChunkBuf {
             coord,
@@ -152,6 +152,6 @@ pub fn generate_chunk_buffer(
         } else {
             ChunkOccupancy::Empty
         },
-        height_tile_stats: tile_stats,
+        terrain_metrics: metrics,
     }
 }

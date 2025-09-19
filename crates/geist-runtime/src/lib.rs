@@ -15,7 +15,7 @@ use geist_lighting::{
 use geist_mesh_cpu::{
     ChunkMeshCPU, NeighborsLoaded, build_chunk_wcc_cpu_buf_with_light, build_voxel_body_cpu_buf,
 };
-use geist_world::{ChunkCoord, HeightTileStats, World};
+use geist_world::{ChunkCoord, TerrainMetrics, World};
 use hashbrown::HashMap;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
@@ -51,7 +51,7 @@ pub struct JobOut {
     pub t_apply_ms: u32,
     pub t_light_ms: u32,
     pub t_mesh_ms: u32,
-    pub height_tile_stats: HeightTileStats,
+    pub terrain_metrics: TerrainMetrics,
 }
 
 #[derive(Clone, Debug)]
@@ -111,21 +111,13 @@ fn process_build_job(
     let mut t_mesh_ms: u32 = 0;
     let coord = ChunkCoord::new(cx, cy, cz);
 
-    let (mut buf, mut occupancy, height_tile_stats) = if let Some(prev) = prev_buf {
+    let (mut buf, mut occupancy, terrain_metrics) = if let Some(prev) = prev_buf {
         let occ = if prev.has_non_air() {
             chunkbuf::ChunkOccupancy::Populated
         } else {
             chunkbuf::ChunkOccupancy::Empty
         };
-        (
-            prev,
-            occ,
-            HeightTileStats {
-                duration_us: 0,
-                columns: 0,
-                reused: true,
-            },
-        )
+        (prev, occ, TerrainMetrics::default())
     } else {
         let t0 = Instant::now();
         let generated = chunkbuf::generate_chunk_buffer(world, coord, &reg);
@@ -133,7 +125,7 @@ fn process_build_job(
         (
             generated.buf,
             generated.occupancy,
-            generated.height_tile_stats,
+            generated.terrain_metrics,
         )
     };
 
@@ -200,7 +192,7 @@ fn process_build_job(
             t_apply_ms,
             t_light_ms: 0,
             t_mesh_ms,
-            height_tile_stats,
+            terrain_metrics,
         });
         return;
     }
@@ -230,7 +222,7 @@ fn process_build_job(
                 t_apply_ms,
                 t_light_ms,
                 t_mesh_ms,
-                height_tile_stats,
+                terrain_metrics,
             });
         }
         Lane::Edit | Lane::Bg => {
@@ -261,7 +253,7 @@ fn process_build_job(
                     t_apply_ms,
                     t_light_ms,
                     t_mesh_ms,
-                    height_tile_stats,
+                    terrain_metrics,
                 });
             }
         }

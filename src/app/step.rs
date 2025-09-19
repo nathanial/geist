@@ -2,7 +2,7 @@ use geist_blocks::Block;
 use geist_geom::Vec3;
 use geist_render_raylib::conv::vec3_to_rl;
 use geist_runtime::JobOut;
-use geist_world::ChunkCoord;
+use geist_world::{ChunkCoord, TERRAIN_STAGE_COUNT, TerrainMetrics};
 use raylib::prelude::*;
 use std::collections::BTreeMap;
 
@@ -347,44 +347,44 @@ impl App {
             }
         }
 
-        let mut height_hist_hovered = false;
+        let mut terrain_hist_hovered = false;
         if !self.gs.show_debug_overlay {
-            self.height_histogram_dragging = false;
-        } else if let Some((hx, hy, hw, hh)) = self.height_histogram_rect {
+            self.terrain_histogram_dragging = false;
+        } else if let Some((hx, hy, hw, hh)) = self.terrain_histogram_rect {
             let mouse = rl.get_mouse_position();
             if mouse.x >= hx as f32
                 && mouse.x <= (hx + hw) as f32
                 && mouse.y >= hy as f32
                 && mouse.y <= (hy + hh) as f32
             {
-                height_hist_hovered = true;
+                terrain_hist_hovered = true;
                 if rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT) {
-                    self.height_histogram_dragging = true;
-                    self.height_histogram_drag_offset =
+                    self.terrain_histogram_dragging = true;
+                    self.terrain_histogram_drag_offset =
                         Vector2::new(mouse.x - hx as f32, mouse.y - hy as f32);
                 }
             }
         }
 
-        if self.height_histogram_dragging {
+        if self.terrain_histogram_dragging {
             if !rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT) {
-                self.height_histogram_dragging = false;
+                self.terrain_histogram_dragging = false;
             } else {
                 let mouse = rl.get_mouse_position();
-                let (win_w, win_h) = self.height_histogram_size;
+                let (win_w, win_h) = self.terrain_histogram_size;
                 let pad = 10.0_f32;
                 let screen_w = rl.get_screen_width() as f32;
                 let screen_h = rl.get_screen_height() as f32;
-                let mut new_x = mouse.x - self.height_histogram_drag_offset.x;
-                let mut new_y = mouse.y - self.height_histogram_drag_offset.y;
+                let mut new_x = mouse.x - self.terrain_histogram_drag_offset.x;
+                let mut new_y = mouse.y - self.terrain_histogram_drag_offset.y;
                 let max_x = (screen_w - win_w as f32 - pad).max(pad);
                 let max_y = (screen_h - win_h as f32 - pad).max(pad);
                 new_x = new_x.clamp(pad, max_x);
                 new_y = new_y.clamp(pad, max_y);
-                self.height_histogram_pos = Vector2::new(new_x, new_y);
+                self.terrain_histogram_pos = Vector2::new(new_x, new_y);
             }
-        } else if !height_hist_hovered {
-            self.height_histogram_drag_offset = Vector2::new(0.0, 0.0);
+        } else if !terrain_hist_hovered {
+            self.terrain_histogram_drag_offset = Vector2::new(0.0, 0.0);
         }
 
         let mut intent_hist_hovered = false;
@@ -428,9 +428,9 @@ impl App {
         let block_minimap_input = minimap_hovered || self.minimap_drag_button.is_some();
         let block_hist_input = event_hist_hovered || self.event_histogram_dragging;
         let block_intent_input = intent_hist_hovered || self.intent_histogram_dragging;
-        let block_height_input = height_hist_hovered || self.height_histogram_dragging;
+        let block_terrain_input = terrain_hist_hovered || self.terrain_histogram_dragging;
         let block_ui_input =
-            block_minimap_input || block_hist_input || block_intent_input || block_height_input;
+            block_minimap_input || block_hist_input || block_intent_input || block_terrain_input;
 
         // Structure speed controls (horizontal X)
         if rl.is_key_pressed(KeyboardKey::KEY_MINUS) {
@@ -540,9 +540,7 @@ impl App {
             if r.t_gen_ms > 0 {
                 Self::perf_push(&mut self.perf_gen_ms, r.t_gen_ms);
             }
-            if r.height_tile_stats.duration_us > 0 || r.height_tile_stats.reused {
-                Self::perf_push(&mut self.height_tile_us, r.height_tile_stats.duration_us);
-            }
+            self.record_terrain_metrics(&r.terrain_metrics);
             // Perf logging per job
             match r.kind {
                 geist_runtime::JobKind::Light => {
@@ -773,5 +771,25 @@ impl App {
                 details
             );
         }
+    }
+
+    fn record_terrain_metrics(&mut self, metrics: &TerrainMetrics) {
+        Self::perf_push(
+            &mut self.terrain_height_tile_us,
+            metrics.height_tile.duration_us,
+        );
+        Self::perf_push(
+            &mut self.terrain_height_tile_reused,
+            if metrics.height_tile.reused { 1 } else { 0 },
+        );
+        for idx in 0..TERRAIN_STAGE_COUNT {
+            Self::perf_push(&mut self.terrain_stage_us[idx], metrics.stages[idx].time_us);
+            Self::perf_push(
+                &mut self.terrain_stage_calls[idx],
+                metrics.stages[idx].calls,
+            );
+        }
+        Self::perf_push(&mut self.terrain_cache_hits, metrics.height_cache_hits);
+        Self::perf_push(&mut self.terrain_cache_misses, metrics.height_cache_misses);
     }
 }

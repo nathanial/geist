@@ -7,7 +7,7 @@ use geist_blocks::types::Block as RtBlock;
 
 use crate::worldgen::{Fractal, WorldGenParams};
 
-use super::gen_ctx::{HeightTile, HeightTileStats};
+use super::gen_ctx::{HeightTile, HeightTileStats, TerrainProfiler, TerrainStage};
 use super::{GenCtx, World, WorldGenMode};
 
 fn remap_noise_to_height(
@@ -38,18 +38,26 @@ impl World {
         y: i32,
         z: i32,
     ) -> RtBlock {
+        ctx.terrain_profiler.begin_stage(TerrainStage::Block);
+        let block_start = Instant::now();
         let air = self.air_block(reg);
         if y < 0 {
+            ctx.terrain_profiler
+                .record_stage_duration(TerrainStage::Block, block_start.elapsed());
             return air;
         }
 
         if let WorldGenMode::Flat { thickness } = self.mode {
             let name = if y < thickness { "stone" } else { "air" };
             let id = self.resolve_block_id(reg, name);
+            ctx.terrain_profiler
+                .record_stage_duration(TerrainStage::Block, block_start.elapsed());
             return RtBlock { id, state: 0 };
         }
 
-        if let Some(block) = evaluate_tower(self, reg, x, y, z, air) {
+        if let Some(block) = evaluate_tower(self, reg, &mut ctx.terrain_profiler, x, y, z, air) {
+            ctx.terrain_profiler
+                .record_stage_duration(TerrainStage::Block, block_start.elapsed());
             return block;
         }
 
@@ -59,11 +67,13 @@ impl World {
         let height = sampler.height_for(x, z);
         let water_level = sampler.water_level();
         let mut base = select_surface_block(&mut sampler, x, y, z, height);
-        apply_water_fill(&sampler, y, water_level, &mut base);
+        apply_water_fill(&mut sampler, y, water_level, &mut base);
         let _ = apply_caves_and_features(self, &mut sampler, x, y, z, height, &mut base);
         apply_tree_blocks(self, &mut sampler, x, y, z, &mut base);
 
         let id = self.resolve_block_id(reg, base);
+        ctx.terrain_profiler
+            .record_stage_duration(TerrainStage::Block, block_start.elapsed());
         RtBlock { id, state: 0 }
     }
 
@@ -142,6 +152,11 @@ impl<'ctx, 'p> ColumnSampler<'ctx, 'p> {
         }
     }
 
+    #[inline]
+    fn profiler_mut(&mut self) -> &mut TerrainProfiler {
+        &mut self.ctx.terrain_profiler
+    }
+
     fn world_height(&self) -> i32 {
         self.world_height
     }
@@ -151,13 +166,23 @@ impl<'ctx, 'p> ColumnSampler<'ctx, 'p> {
     }
 
     fn height_for(&mut self, wx: i32, wz: i32) -> i32 {
+        self.profiler_mut().begin_stage(TerrainStage::Height);
+        let stage_start = Instant::now();
         if let Some(tile) = self.ctx.height_tile.as_ref() {
             if let Some(height) = tile.height(wx, wz) {
+                self.profiler_mut().record_height_cache(true);
+                self.profiler_mut()
+                    .record_stage_duration(TerrainStage::Height, stage_start.elapsed());
                 return height;
             }
         }
+        self.profiler_mut().record_height_cache(false);
         let noise = self.ctx.terrain.get_noise_2d(wx as f32, wz as f32);
-        remap_noise_to_height(noise, self.params, self.world_height, self.world_height_f)
+        let height =
+            remap_noise_to_height(noise, self.params, self.world_height, self.world_height_f);
+        self.profiler_mut()
+            .record_stage_duration(TerrainStage::Height, stage_start.elapsed());
+        height
     }
 
     fn water_level(&self) -> i32 {
@@ -245,11 +270,15 @@ impl<'ctx, 'p> ColumnSampler<'ctx, 'p> {
 fn evaluate_tower(
     world: &World,
     reg: &BlockRegistry,
+    profiler: &mut TerrainProfiler,
     x: i32,
     y: i32,
     z: i32,
     air: RtBlock,
 ) -> Option<RtBlock> {
+    profiler.begin_stage(TerrainStage::Tower);
+    let stage_start = Instant::now();
+    let mut result = None;
     let tower_center_x = (world.world_size_x() as i32) / 2;
     let tower_center_z = (world.world_size_z() as i32) / 2;
     let dx = x - tower_center_x;
@@ -265,24 +294,31 @@ fn evaluate_tower(
             if dist2 <= inner_sq {
                 if y % 32 == 0 {
                     let id = world.resolve_block_id(reg, "stone");
-                    return Some(RtBlock { id, state: 0 });
+                    result = Some(RtBlock { id, state: 0 });
                 }
-                return Some(air);
+                if result.is_none() {
+                    result = Some(air);
+                }
             }
-            let band = y.rem_euclid(128);
-            let block_name = if band < 6 {
-                "glowstone"
-            } else if band < 24 {
-                "glass"
-            } else {
-                "stone"
-            };
-            let id = world.resolve_block_id(reg, block_name);
-            return Some(RtBlock { id, state: 0 });
+            if result.is_none() {
+                let band = y.rem_euclid(128);
+                let block_name = if band < 6 {
+                    "glowstone"
+                } else if band < 24 {
+                    "glass"
+                } else {
+                    "stone"
+                };
+                let id = world.resolve_block_id(reg, block_name);
+                result = Some(RtBlock { id, state: 0 });
+            }
         }
-        return Some(air);
+        if result.is_none() {
+            result = Some(air);
+        }
     }
-    None
+    profiler.record_stage_duration(TerrainStage::Tower, stage_start.elapsed());
+    result
 }
 
 fn select_surface_block<'p>(
@@ -292,7 +328,9 @@ fn select_surface_block<'p>(
     z: i32,
     height: i32,
 ) -> &'p str {
-    if y >= height {
+    sampler.profiler_mut().begin_stage(TerrainStage::Surface);
+    let stage_start = Instant::now();
+    let block = if y >= height {
         "air"
     } else if y == height - 1 {
         sampler.top_block_for_column(x, z, height)
@@ -300,18 +338,27 @@ fn select_surface_block<'p>(
         sampler.params.sub_near.as_str()
     } else {
         sampler.params.sub_deep.as_str()
-    }
+    };
+    sampler
+        .profiler_mut()
+        .record_stage_duration(TerrainStage::Surface, stage_start.elapsed());
+    block
 }
 
 fn apply_water_fill<'p>(
-    sampler: &ColumnSampler<'_, 'p>,
+    sampler: &mut ColumnSampler<'_, 'p>,
     y: i32,
     water_level: i32,
     base: &mut &'p str,
 ) {
+    sampler.profiler_mut().begin_stage(TerrainStage::Water);
+    let stage_start = Instant::now();
     if *base == "air" && sampler.params.water_enable && y <= water_level {
         *base = "water";
     }
+    sampler
+        .profiler_mut()
+        .record_stage_duration(TerrainStage::Water, stage_start.elapsed());
 }
 
 fn apply_caves_and_features<'p>(
@@ -323,6 +370,8 @@ fn apply_caves_and_features<'p>(
     height: i32,
     base: &mut &'p str,
 ) -> bool {
+    sampler.profiler_mut().begin_stage(TerrainStage::Caves);
+    let stage_start = Instant::now();
     let params = sampler.params;
     let world_height = sampler.world_height();
     let world_height_f = sampler.world_height_f();
@@ -454,7 +503,11 @@ fn apply_caves_and_features<'p>(
         }
     }
 
-    carved_here
+    let carved = carved_here;
+    sampler
+        .profiler_mut()
+        .record_stage_duration(TerrainStage::Caves, stage_start.elapsed());
+    carved
 }
 
 fn compute_near_solid<'p>(
@@ -547,6 +600,8 @@ fn apply_tree_blocks<'p>(
     z: i32,
     base: &mut &'p str,
 ) {
+    sampler.profiler_mut().begin_stage(TerrainStage::Trees);
+    let stage_start = Instant::now();
     let params = sampler.params;
     let tree_prob = sampler.tree_probability(x, z);
     let trunk_min = params.trunk_min;
@@ -628,6 +683,9 @@ fn apply_tree_blocks<'p>(
             }
         }
     }
+    sampler
+        .profiler_mut()
+        .record_stage_duration(TerrainStage::Trees, stage_start.elapsed());
 }
 
 fn hash2_tree(ix: i32, iz: i32, seed: u32) -> u32 {
