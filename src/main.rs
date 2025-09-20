@@ -14,7 +14,8 @@ use geist_world::{
     ChunkCoord, TERRAIN_STAGE_COUNT, TERRAIN_STAGE_LABELS, TerrainMetrics, TerrainTileCacheStats,
     World, WorldGenMode,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -156,6 +157,41 @@ struct SchemReportArgs {
     /// Optional schematic path
     #[arg(value_name = "SCHEM_PATH")]
     path: Option<PathBuf>,
+}
+
+fn resolve_schem_paths(path: Option<PathBuf>) -> Result<Vec<PathBuf>, String> {
+    let target = path.unwrap_or_else(|| PathBuf::from("schematics"));
+    let metadata =
+        fs::metadata(&target).map_err(|e| format!("failed to access {:?}: {}", target, e))?;
+    if metadata.is_dir() {
+        let mut schems = Vec::new();
+        let rd = fs::read_dir(&target)
+            .map_err(|e| format!("failed to read directory {:?}: {}", target, e))?;
+        for entry in rd {
+            let entry =
+                entry.map_err(|e| format!("failed to read entry in {:?}: {}", target, e))?;
+            let path = entry.path();
+            if path.is_file()
+                && path
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .map(|ext| ext.eq_ignore_ascii_case("schem"))
+                    .unwrap_or(false)
+            {
+                schems.push(path);
+            }
+        }
+        schems.sort();
+        if schems.is_empty() {
+            Err(format!("no .schem files found in {:?}", target))
+        } else {
+            Ok(schems)
+        }
+    } else if metadata.is_file() {
+        Ok(vec![target])
+    } else {
+        Err(format!("{:?} is neither a file nor directory", target))
+    }
 }
 
 fn load_block_registry(assets_root: &Path) -> Arc<BlockRegistry> {
@@ -541,42 +577,74 @@ fn main() {
         Command::Schem {
             cmd: SchemCmd::Report(args),
         } => {
-            let schem_path = args
-                .path
-                .clone()
-                .unwrap_or_else(|| PathBuf::from("schematics/anvilstead.schem"));
+            let schem_paths = match resolve_schem_paths(args.path.clone()) {
+                Ok(paths) => paths,
+                Err(err) => {
+                    eprintln!("{}", err);
+                    std::process::exit(2);
+                }
+            };
+
             if args.counts {
-                match geist_io::count_blocks_in_file(std::path::Path::new(&schem_path)) {
-                    Ok(mut entries) => {
-                        entries.sort_by(|a, b| b.1.cmp(&a.1));
-                        println!("Block counts in {:?} (excluding air):", schem_path);
-                        for (id, c) in entries {
-                            println!("{:>8}  {}", c, id);
+                for schem_path in &schem_paths {
+                    match geist_io::count_blocks_in_file(schem_path.as_path()) {
+                        Ok(mut entries) => {
+                            entries.sort_by(|a, b| b.1.cmp(&a.1));
+                            println!("Block counts in {:?} (excluding air):", schem_path);
+                            for (id, count) in entries {
+                                println!("{:>8}  {}", count, id);
+                            }
                         }
-                    }
-                    Err(e) => {
-                        eprintln!("Failed to analyze {:?}: {}", schem_path, e);
-                        std::process::exit(2);
+                        Err(e) => {
+                            eprintln!("Failed to analyze {:?}: {}", schem_path, e);
+                            std::process::exit(2);
+                        }
                     }
                 }
             } else {
-                match geist_io::find_unsupported_blocks_in_file(std::path::Path::new(&schem_path)) {
-                    Ok(list) => {
-                        if list.is_empty() {
-                            println!(
-                                "All blocks in {:?} are supported by current mapper.",
-                                schem_path
-                            );
-                        } else {
-                            println!("Unsupported block types ({}):", list.len());
-                            for id in list {
-                                println!("- {}", id);
+                let mut aggregate_missing: BTreeSet<String> = BTreeSet::new();
+                for schem_path in &schem_paths {
+                    match geist_io::find_unsupported_blocks_in_file(schem_path.as_path()) {
+                        Ok(list) => {
+                            if list.is_empty() {
+                                println!(
+                                    "All blocks in {:?} are supported by current mapper.",
+                                    schem_path
+                                );
+                            } else {
+                                println!(
+                                    "Unsupported block types in {:?} ({}):",
+                                    schem_path,
+                                    list.len()
+                                );
+                                for id in list {
+                                    aggregate_missing.insert(id.clone());
+                                    println!("- {}", id);
+                                }
                             }
                         }
+                        Err(e) => {
+                            eprintln!("Failed to analyze {:?}: {}", schem_path, e);
+                            std::process::exit(2);
+                        }
                     }
-                    Err(e) => {
-                        eprintln!("Failed to analyze {:?}: {}", schem_path, e);
-                        std::process::exit(2);
+                }
+
+                if schem_paths.len() > 1 {
+                    if aggregate_missing.is_empty() {
+                        println!(
+                            "All {} schematics referenced supported blocks only.",
+                            schem_paths.len()
+                        );
+                    } else {
+                        println!(
+                            "Combined unsupported block types across {} schematics ({}):",
+                            schem_paths.len(),
+                            aggregate_missing.len()
+                        );
+                        for id in aggregate_missing {
+                            println!("- {}", id);
+                        }
                     }
                 }
             }
