@@ -26,6 +26,7 @@ geist-runtime = { path = "crates/geist-runtime" }
 geist-structures = { path = "crates/geist-structures" }
 geist-edit = { path = "crates/geist-edit" }
 geist-io = { path = "crates/geist-io" }
+geist-ui = { path = "crates/geist-ui" }
 hashbrown = "0.14"
 
 [features]
@@ -47,6 +48,7 @@ members = [
     "crates/geist-edit",
     "crates/geist-io",
     "crates/geist-render-raylib",
+    "crates/geist-ui",
 ]
 resolver = "2"
 

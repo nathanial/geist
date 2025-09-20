@@ -5,10 +5,9 @@ mod runtime;
 mod state;
 mod step;
 mod watchers;
-mod windows;
 
-pub use state::{App, DebugStats};
-pub(crate) use windows::{
+pub(crate) use geist_ui::{
     HitRegion, IRect, OverlayWindow, OverlayWindowManager, WindowChrome, WindowFrame, WindowId,
     WindowTheme,
 };
+pub use state::{App, DebugStats};
