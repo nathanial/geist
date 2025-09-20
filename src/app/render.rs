@@ -58,6 +58,637 @@ impl ContentLayout {
     }
 }
 
+#[derive(Debug, Clone)]
+struct DisplayLine {
+    text: String,
+    color: Color,
+    font: i32,
+    line_height: i32,
+    indent: i32,
+}
+
+impl DisplayLine {
+    fn new(text: impl Into<String>, font: i32, color: Color) -> Self {
+        let font = font.max(1);
+        Self {
+            text: text.into(),
+            color,
+            font,
+            line_height: font + 4,
+            indent: 0,
+        }
+    }
+
+    fn with_indent(mut self, indent: i32) -> Self {
+        self.indent = indent.max(0);
+        self
+    }
+
+    fn with_line_height(mut self, line_height: i32) -> Self {
+        self.line_height = line_height.max(self.font);
+        self
+    }
+}
+
+fn draw_lines(
+    d: &mut RaylibDrawHandle,
+    lines: &[DisplayLine],
+    frame: &WindowFrame,
+) -> ContentLayout {
+    let content = frame.content;
+    let mut layout = ContentLayout::new(content.h);
+    if content.h <= 0 {
+        return layout;
+    }
+    let mut y = content.y;
+    for (idx, line) in lines.iter().enumerate() {
+        let next_y = y + line.line_height;
+        layout.add_custom(line.line_height);
+        if next_y - content.y > content.h {
+            let remaining = lines.len().saturating_sub(idx);
+            if remaining > 0 {
+                layout.mark_overflow(remaining, remaining);
+            }
+            break;
+        }
+        if !line.text.is_empty() {
+            d.draw_text(
+                &line.text,
+                content.x + line.indent,
+                y,
+                line.font,
+                line.color,
+            );
+        }
+        y = next_y;
+    }
+    layout
+}
+
+struct RenderStatsView {
+    lines: Vec<DisplayLine>,
+    subtitle: Option<String>,
+}
+
+impl RenderStatsView {
+    const MIN_WIDTH: i32 = 340;
+
+    fn new(app: &App, fps: u32) -> Self {
+        let mut lines = Vec::new();
+        lines.push(
+            DisplayLine::new(format!("FPS: {}", fps), 20, Color::new(236, 244, 255, 255))
+                .with_line_height(26),
+        );
+        lines.push(DisplayLine::new(
+            format!("Vertices: {}", format_count(app.debug_stats.total_vertices)),
+            16,
+            Color::new(206, 220, 240, 255),
+        ));
+        lines.push(DisplayLine::new(
+            format!(
+                "Triangles: {}",
+                format_count(app.debug_stats.total_triangles)
+            ),
+            16,
+            Color::new(206, 220, 240, 255),
+        ));
+        lines.push(DisplayLine::new(
+            format!(
+                "Chunks rendered: {} (culled {})",
+                format_count(app.debug_stats.chunks_rendered),
+                format_count(app.debug_stats.chunks_culled)
+            ),
+            16,
+            Color::new(190, 204, 226, 255),
+        ));
+        lines.push(DisplayLine::new(
+            format!(
+                "Structures rendered: {} (culled {})",
+                format_count(app.debug_stats.structures_rendered),
+                format_count(app.debug_stats.structures_culled)
+            ),
+            16,
+            Color::new(190, 204, 226, 255),
+        ));
+        lines.push(DisplayLine::new(
+            format!("Draw calls: {}", format_count(app.debug_stats.draw_calls)),
+            16,
+            Color::new(206, 220, 240, 255),
+        ));
+        let center = app.gs.center_chunk;
+        lines.push(DisplayLine::new(
+            format!(
+                "Center chunk: ({}, {}, {})",
+                center.cx, center.cy, center.cz
+            ),
+            16,
+            Color::new(188, 198, 214, 255),
+        ));
+        if app.gs.show_biome_label {
+            let wx = app.cam.position.x.floor() as i32;
+            let wz = app.cam.position.z.floor() as i32;
+            if let Some(biome) = app.gs.world.biome_at(wx, wz) {
+                lines.push(DisplayLine::new(
+                    format!("Biome: {}", biome.name),
+                    16,
+                    Color::new(188, 198, 214, 255),
+                ));
+            }
+        }
+
+        Self {
+            lines,
+            subtitle: Some(format!("fps {}", fps)),
+        }
+    }
+
+    fn min_size(&self, theme: &WindowTheme) -> (i32, i32) {
+        let height: i32 = self.lines.iter().map(|line| line.line_height).sum();
+        let min_height = theme.titlebar_height + height + theme.padding_y * 2;
+        let h = min_height.max(theme.titlebar_height + theme.padding_y * 2 + 160);
+        let w = theme.padding_x * 2 + Self::MIN_WIDTH;
+        (w, h)
+    }
+
+    fn subtitle(&self) -> Option<&str> {
+        self.subtitle.as_deref()
+    }
+
+    fn draw(&self, d: &mut RaylibDrawHandle, frame: &WindowFrame) -> ContentLayout {
+        draw_lines(d, &self.lines, frame)
+    }
+}
+
+struct RuntimeStatsView {
+    lines: Vec<DisplayLine>,
+    subtitle: Option<String>,
+}
+
+impl RuntimeStatsView {
+    const MIN_WIDTH: i32 = 420;
+
+    fn new(app: &App) -> Self {
+        let mut lines = Vec::new();
+        lines.push(
+            DisplayLine::new(
+                format!(
+                    "Processed events: {}",
+                    format_count(app.evt_processed_total)
+                ),
+                18,
+                Color::new(230, 238, 255, 255),
+            )
+            .with_line_height(24),
+        );
+        lines.push(DisplayLine::new(
+            format!(
+                "Intents queued: {}",
+                format_count(app.debug_stats.intents_size)
+            ),
+            16,
+            Color::new(204, 216, 236, 255),
+        ));
+        lines.push(DisplayLine::new(
+            "Lighting mode: FullMicro".to_string(),
+            15,
+            Color::new(176, 192, 214, 255),
+        ));
+
+        let (q_e, if_e, q_l, if_l, q_b, if_b) = app.runtime.queue_debug_counts();
+        lines.push(
+            DisplayLine::new("Runtime queues", 17, Color::new(214, 226, 246, 255))
+                .with_line_height(22),
+        );
+        lines.push(
+            DisplayLine::new(
+                format!("Edit: queued {} | inflight {}", q_e, if_e),
+                15,
+                Color::new(186, 200, 222, 255),
+            )
+            .with_indent(18),
+        );
+        lines.push(
+            DisplayLine::new(
+                format!("Light: queued {} | inflight {}", q_l, if_l),
+                15,
+                Color::new(186, 200, 222, 255),
+            )
+            .with_indent(18),
+        );
+        lines.push(
+            DisplayLine::new(
+                format!("Background: queued {} | inflight {}", q_b, if_b),
+                15,
+                Color::new(186, 200, 222, 255),
+            )
+            .with_indent(18),
+        );
+
+        lines.push(
+            DisplayLine::new("Chunk residency", 17, Color::new(214, 226, 246, 255))
+                .with_line_height(22),
+        );
+        lines.push(
+            DisplayLine::new(
+                format!(
+                    "Loaded {} | active {} | nonempty {}",
+                    format_count(app.debug_stats.loaded_chunks),
+                    format_count(app.debug_stats.chunk_resident_total),
+                    format_count(app.debug_stats.chunk_resident_nonempty)
+                ),
+                15,
+                Color::new(188, 202, 226, 255),
+            )
+            .with_indent(18),
+        );
+        lines.push(
+            DisplayLine::new(
+                format!(
+                    "Unique axes: x {} y {} z {}",
+                    format_count(app.debug_stats.chunk_unique_cx),
+                    format_count(app.debug_stats.chunk_unique_cy),
+                    format_count(app.debug_stats.chunk_unique_cz)
+                ),
+                15,
+                Color::new(188, 202, 226, 255),
+            )
+            .with_indent(18),
+        );
+        lines.push(
+            DisplayLine::new(
+                format!(
+                    "GPU renders cached: {}",
+                    format_count(app.debug_stats.render_cache_chunks)
+                ),
+                15,
+                Color::new(188, 202, 226, 255),
+            )
+            .with_indent(18),
+        );
+
+        lines.push(
+            DisplayLine::new("Lighting store", 17, Color::new(214, 226, 246, 255))
+                .with_line_height(22),
+        );
+        lines.push(
+            DisplayLine::new(
+                format!(
+                    "Borders {} | Emitters {} | Micro {}",
+                    format_count(app.debug_stats.lighting_border_chunks),
+                    format_count(app.debug_stats.lighting_emitter_chunks),
+                    format_count(app.debug_stats.lighting_micro_chunks)
+                ),
+                15,
+                Color::new(180, 196, 222, 255),
+            )
+            .with_indent(18),
+        );
+
+        lines.push(
+            DisplayLine::new("Edit store", 17, Color::new(214, 226, 246, 255)).with_line_height(22),
+        );
+        lines.push(
+            DisplayLine::new(
+                format!(
+                    "Chunks {} | Blocks {} | Rev {} | Built {}",
+                    format_count(app.debug_stats.edit_chunk_entries),
+                    format_count(app.debug_stats.edit_block_edits),
+                    format_count(app.debug_stats.edit_rev_entries),
+                    format_count(app.debug_stats.edit_built_entries)
+                ),
+                15,
+                Color::new(180, 196, 222, 255),
+            )
+            .with_indent(18),
+        );
+
+        lines.push(
+            DisplayLine::new("Perf (ms)", 17, Color::new(214, 226, 246, 255)).with_line_height(22),
+        );
+        let summary = |q: &VecDeque<u32>| -> (usize, u32, u32) {
+            let n = q.len();
+            if n == 0 {
+                return (0, 0, 0);
+            }
+            let sum: u64 = q.iter().map(|&v| v as u64).sum();
+            let avg = ((sum as f32) / (n as f32)).round() as u32;
+            let mut values: Vec<u32> = q.iter().copied().collect();
+            values.sort_unstable();
+            let idx = ((n as f32) * 0.95).ceil().max(1.0) as usize - 1;
+            let p95 = values[idx.min(n - 1)];
+            (n, avg, p95)
+        };
+        let (n_mesh, avg_mesh, p95_mesh) = summary(&app.perf_mesh_ms);
+        let (n_light, avg_light, p95_light) = summary(&app.perf_light_ms);
+        let (n_total, avg_total, p95_total) = summary(&app.perf_total_ms);
+        let (n_rr, avg_rr, p95_rr) = summary(&app.perf_remove_ms);
+        let (n_gen, avg_gen, p95_gen) = summary(&app.perf_gen_ms);
+        let last_gen = app.perf_gen_ms.back().copied().unwrap_or(0);
+
+        let perf_lines = [
+            (
+                "Mesh",
+                avg_mesh,
+                p95_mesh,
+                n_mesh,
+                Some(app.perf_mesh_ms.back().copied().unwrap_or(0)),
+            ),
+            (
+                "Light",
+                avg_light,
+                p95_light,
+                n_light,
+                Some(app.perf_light_ms.back().copied().unwrap_or(0)),
+            ),
+            ("Total", avg_total, p95_total, n_total, None),
+            ("Remove->Render", avg_rr, p95_rr, n_rr, None),
+            ("Load", avg_gen, p95_gen, n_gen, Some(last_gen)),
+        ];
+
+        for (label, avg, p95, n, last) in perf_lines {
+            let text = if let Some(last_ms) = last {
+                format!(
+                    "{}: last {} | avg {} | p95 {} | n {}",
+                    label, last_ms, avg, p95, n
+                )
+            } else {
+                format!("{}: avg {} | p95 {} | n {}", label, avg, p95, n)
+            };
+            lines.push(DisplayLine::new(text, 15, Color::new(172, 190, 218, 255)).with_indent(18));
+        }
+
+        let total_queue = q_e + q_l + q_b;
+        let subtitle = Some(format!(
+            "queues {} | inflight {}",
+            total_queue,
+            if_e + if_l + if_b
+        ));
+
+        Self { lines, subtitle }
+    }
+
+    fn min_size(&self, theme: &WindowTheme) -> (i32, i32) {
+        let height: i32 = self.lines.iter().map(|line| line.line_height).sum();
+        let min_height = theme.titlebar_height + height + theme.padding_y * 2;
+        let h = min_height.max(theme.titlebar_height + theme.padding_y * 2 + 220);
+        let w = theme.padding_x * 2 + Self::MIN_WIDTH;
+        (w, h)
+    }
+
+    fn subtitle(&self) -> Option<&str> {
+        self.subtitle.as_deref()
+    }
+
+    fn draw(&self, d: &mut RaylibDrawHandle, frame: &WindowFrame) -> ContentLayout {
+        draw_lines(d, &self.lines, frame)
+    }
+}
+
+struct AttachmentDebugView {
+    lines: Vec<DisplayLine>,
+}
+
+impl AttachmentDebugView {
+    const MIN_WIDTH: i32 = 520;
+
+    fn new(app: &App) -> Self {
+        let mut lines = Vec::new();
+        if let Some(att) = app.gs.ground_attach {
+            lines.push(
+                DisplayLine::new(
+                    format!("Attached to structure ID {}", att.id),
+                    16,
+                    Color::GREEN,
+                )
+                .with_line_height(20),
+            );
+            lines.push(
+                DisplayLine::new(
+                    format!("Grace period: {}", att.grace),
+                    15,
+                    Color::new(156, 212, 178, 255),
+                )
+                .with_indent(18),
+            );
+        } else {
+            lines.push(DisplayLine::new("Not attached", 16, Color::ORANGE).with_line_height(20));
+        }
+
+        let pos = app.gs.walker.pos;
+        lines.push(DisplayLine::new(
+            format!("Walker pos: ({:.2}, {:.2}, {:.2})", pos.x, pos.y, pos.z),
+            15,
+            Color::new(210, 220, 238, 255),
+        ));
+        lines.push(DisplayLine::new(
+            format!("On ground: {}", app.gs.walker.on_ground),
+            15,
+            Color::new(210, 220, 238, 255),
+        ));
+
+        if app.gs.structures.is_empty() {
+            lines.push(DisplayLine::new(
+                "No active structures",
+                15,
+                Color::new(160, 172, 190, 255),
+            ));
+        }
+
+        for (id, st) in &app.gs.structures {
+            let on_structure = app.is_feet_on_structure(st, app.gs.walker.pos);
+            let color = if on_structure {
+                Color::GREEN
+            } else {
+                Color::GRAY
+            };
+            lines.push(
+                DisplayLine::new(
+                    format!(
+                        "Structure {}: on={} pos=({:.1},{:.1},{:.1}) delta=({:.3},{:.3},{:.3})",
+                        id,
+                        on_structure,
+                        st.pose.pos.x,
+                        st.pose.pos.y,
+                        st.pose.pos.z,
+                        st.last_delta.x,
+                        st.last_delta.y,
+                        st.last_delta.z
+                    ),
+                    15,
+                    color,
+                )
+                .with_line_height(20),
+            );
+
+            let walker = vec3_from_rl(app.gs.walker.pos);
+            let diff = Vec3 {
+                x: walker.x - st.pose.pos.x,
+                y: walker.y - st.pose.pos.y,
+                z: walker.z - st.pose.pos.z,
+            };
+            let local = rotate_yaw_inv(diff, st.pose.yaw_deg);
+            let test_y = local.y - 0.08;
+            let lx = local.x.floor() as i32;
+            let ly = test_y.floor() as i32;
+            let lz = local.z.floor() as i32;
+            lines.push(
+                DisplayLine::new(
+                    format!(
+                        "Local: ({:.2}, {:.2}, {:.2}) test_y {:.2} -> grid ({}, {}, {})",
+                        local.x, local.y, local.z, test_y, lx, ly, lz
+                    ),
+                    14,
+                    color,
+                )
+                .with_indent(20)
+                .with_line_height(18),
+            );
+
+            let in_bounds = lx >= 0
+                && ly >= 0
+                && lz >= 0
+                && (lx as usize) < st.sx
+                && (ly as usize) < st.sy
+                && (lz as usize) < st.sz;
+
+            let (block_at_pos, block_solid) = if in_bounds {
+                if let Some(b) = st.edits.get(lx, ly, lz) {
+                    (
+                        format!("id:{} state:{} (edit)", b.id, b.state),
+                        app.reg
+                            .get(b.id)
+                            .map(|ty| ty.is_solid(b.state))
+                            .unwrap_or(false),
+                    )
+                } else {
+                    let idx = st.idx(lx as usize, ly as usize, lz as usize);
+                    let b = st.blocks[idx];
+                    (
+                        format!("id:{} state:{}", b.id, b.state),
+                        app.reg
+                            .get(b.id)
+                            .map(|ty| ty.is_solid(b.state))
+                            .unwrap_or(false),
+                    )
+                }
+            } else {
+                ("out of bounds".to_string(), false)
+            };
+
+            lines.push(
+                DisplayLine::new(
+                    format!(
+                        "Bounds: 0..{} x 0..{} x 0..{} | in bounds {}",
+                        st.sx, st.sy, st.sz, in_bounds
+                    ),
+                    14,
+                    color,
+                )
+                .with_indent(20)
+                .with_line_height(18),
+            );
+            lines.push(
+                DisplayLine::new(
+                    format!(
+                        "Block at ({},{},{}): {} | solid {}",
+                        lx, ly, lz, block_at_pos, block_solid
+                    ),
+                    14,
+                    color,
+                )
+                .with_indent(20)
+                .with_line_height(18),
+            );
+
+            if ly > 0 {
+                let by = ly - 1;
+                let (block_below, solid_below) = if lx >= 0
+                    && by >= 0
+                    && lz >= 0
+                    && (lx as usize) < st.sx
+                    && (by as usize) < st.sy
+                    && (lz as usize) < st.sz
+                {
+                    if let Some(b) = st.edits.get(lx, by, lz) {
+                        (
+                            format!("id:{} state:{} (edit)", b.id, b.state),
+                            app.reg
+                                .get(b.id)
+                                .map(|ty| ty.is_solid(b.state))
+                                .unwrap_or(false),
+                        )
+                    } else {
+                        let idx = st.idx(lx as usize, by as usize, lz as usize);
+                        let b = st.blocks[idx];
+                        (
+                            format!("id:{} state:{}", b.id, b.state),
+                            app.reg
+                                .get(b.id)
+                                .map(|ty| ty.is_solid(b.state))
+                                .unwrap_or(false),
+                        )
+                    }
+                } else {
+                    ("out of bounds".to_string(), false)
+                };
+                lines.push(
+                    DisplayLine::new(
+                        format!(
+                            "Block below ({},{},{}): {} | solid {}",
+                            lx, by, lz, block_below, solid_below
+                        ),
+                        14,
+                        color,
+                    )
+                    .with_indent(20)
+                    .with_line_height(18),
+                );
+            }
+
+            let deck_y = (st.sy as f32 * 0.33) as i32;
+            lines.push(
+                DisplayLine::new(
+                    format!("Deck Y level: {} (expect solid blocks)", deck_y),
+                    14,
+                    Color::BLUE,
+                )
+                .with_indent(20)
+                .with_line_height(18),
+            );
+
+            if lx >= 0 && lz >= 0 && (lx as usize) < st.sx && (lz as usize) < st.sz {
+                if deck_y >= 0 && (deck_y as usize) < st.sy {
+                    let deck_idx = st.idx(lx as usize, deck_y as usize, lz as usize);
+                    let deck_block = st.blocks[deck_idx];
+                    lines.push(
+                        DisplayLine::new(
+                            format!("Block at deck ({},{},{}): {:?}", lx, deck_y, lz, deck_block),
+                            14,
+                            Color::MAGENTA,
+                        )
+                        .with_indent(20)
+                        .with_line_height(18),
+                    );
+                }
+            }
+        }
+
+        Self { lines }
+    }
+
+    fn min_size(&self, theme: &WindowTheme) -> (i32, i32) {
+        let height: i32 = self.lines.iter().map(|line| line.line_height).sum();
+        let min_height = theme.titlebar_height + height + theme.padding_y * 2;
+        let h = min_height.max(theme.titlebar_height + theme.padding_y * 2 + 240);
+        let w = theme.padding_x * 2 + Self::MIN_WIDTH;
+        (w, h)
+    }
+
+    fn draw(&self, d: &mut RaylibDrawHandle, frame: &WindowFrame) -> ContentLayout {
+        draw_lines(d, &self.lines, frame)
+    }
+}
+
 struct EventHistogramView<'a> {
     total: usize,
     entries: &'a [(String, usize)],
@@ -1468,177 +2099,74 @@ impl App {
         }
 
         if self.gs.show_debug_overlay {
-            // Debug overlay (lower left)
             let fps = d.get_fps();
-            let mut debug_text = format!(
-                "FPS: {}\nVertices: {}\nTriangles: {}\nChunks: {} (culled: {})\nStructures: {} (culled: {})\nDraw Calls: {}",
-                fps,
-                self.debug_stats.total_vertices,
-                self.debug_stats.total_triangles,
-                self.debug_stats.chunks_rendered,
-                self.debug_stats.chunks_culled,
-                self.debug_stats.structures_rendered,
-                self.debug_stats.structures_culled,
-                self.debug_stats.draw_calls
-            );
-            let mut text_lines = 6; // Base number of lines in debug text
-            let center_chunk = self.gs.center_chunk;
-            debug_text.push_str(&format!(
-                "\nCenter chunk: ({}, {}, {})",
-                center_chunk.cx, center_chunk.cy, center_chunk.cz
-            ));
-            text_lines += 1;
-            if self.gs.show_biome_label {
-                let wx = self.cam.position.x.floor() as i32;
-                let wz = self.cam.position.z.floor() as i32;
-                if let Some(biome) = self.gs.world.biome_at(wx, wz) {
-                    debug_text.push_str(&format!("\nBiome: {}", biome.name));
-                    text_lines += 1;
+
+            if self.overlay_windows.get(WindowId::RenderStats).is_some() {
+                let view = RenderStatsView::new(self, fps);
+                if let Some(window) = self.overlay_windows.get_mut(WindowId::RenderStats) {
+                    window.set_min_size(view.min_size(&overlay_theme));
+                    let frame = window.layout(screen_dims, &overlay_theme);
+                    let hover = self
+                        .overlay_hover
+                        .and_then(|(id, region)| (id == WindowId::RenderStats).then_some(region));
+                    WindowChrome::draw(
+                        &mut d,
+                        &overlay_theme,
+                        &frame,
+                        "Frame Stats",
+                        view.subtitle(),
+                        hover,
+                    );
+                    let layout = view.draw(&mut d, &frame);
+                    self.draw_overflow_hint(&mut d, &frame, layout);
                 }
             }
-            // (moved event stats to right-side overlay)
-            let screen_height = d.get_screen_height();
-            let line_height = 22; // Approximate height per line with font size 20
-            let y_pos = screen_height - (text_lines * line_height) - 10; // 10px margin from bottom
-            d.draw_text(&debug_text, 10, y_pos, 20, Color::WHITE);
-            d.draw_text(&debug_text, 11, y_pos + 1, 20, Color::BLACK); // Shadow for readability
 
-            // Right-side overlay (reduced to avoid jitter):
-            // - No queued events line or subtype lists
-            // - Keep processed total, intents, runtime queues, and perf summary
-            let mut right_text = String::new();
-            right_text.push_str(&format!(
-                "Processed Events (session): {}",
-                self.evt_processed_total
-            ));
-            right_text.push_str(&format!("\nIntents: {}", self.debug_stats.intents_size));
-            // Show lighting mode (fixed)
-            right_text.push_str("\nLighting: FullMicro");
-            // Runtime queue debug (vertical layout)
-            let (q_e, if_e, q_l, if_l, q_b, if_b) = self.runtime.queue_debug_counts();
-            right_text.push_str("\nRuntime Queues:");
-            right_text.push_str(&format!("\n  Edit  - q={} inflight={}", q_e, if_e));
-            right_text.push_str(&format!("\n  Light - q={} inflight={}", q_l, if_l));
-            right_text.push_str(&format!("\n  BG    - q={} inflight={}", q_b, if_b));
-
-            right_text.push_str("\nChunks:");
-            right_text.push_str(&format!(
-                "\n  Loaded={} active={} nonempty={}",
-                self.debug_stats.loaded_chunks,
-                self.debug_stats.chunk_resident_total,
-                self.debug_stats.chunk_resident_nonempty
-            ));
-            right_text.push_str(&format!(
-                "\n  Axes  x={} y={} z={}",
-                self.debug_stats.chunk_unique_cx,
-                self.debug_stats.chunk_unique_cy,
-                self.debug_stats.chunk_unique_cz
-            ));
-            right_text.push_str(&format!(
-                "\n  GPU renders={}",
-                self.debug_stats.render_cache_chunks
-            ));
-
-            right_text.push_str("\nLighting Store:");
-            right_text.push_str(&format!(
-                "\n  Borders={} Emitters={} Micro={}",
-                self.debug_stats.lighting_border_chunks,
-                self.debug_stats.lighting_emitter_chunks,
-                self.debug_stats.lighting_micro_chunks
-            ));
-
-            right_text.push_str("\nEdit Store:");
-            right_text.push_str(&format!(
-                "\n  Chunks={} Blocks={} Rev={} Built={}",
-                self.debug_stats.edit_chunk_entries,
-                self.debug_stats.edit_block_edits,
-                self.debug_stats.edit_rev_entries,
-                self.debug_stats.edit_built_entries
-            ));
-
-            // Perf summary (rolling window average and p95)
-            let stats = |q: &std::collections::VecDeque<u32>| -> (usize, u32, u32) {
-                let n = q.len();
-                if n == 0 {
-                    return (0, 0, 0);
-                }
-                let sum: u64 = q.iter().map(|&v| v as u64).sum();
-                let avg = ((sum as f32) / (n as f32)).round() as u32;
-                let mut v: Vec<u32> = q.iter().copied().collect();
-                v.sort_unstable();
-                let idx = ((n as f32) * 0.95).ceil().max(1.0) as usize - 1;
-                let p95 = v[idx.min(n - 1)];
-                (n, avg, p95)
-            };
-            let (n_mesh, avg_mesh, p95_mesh) = stats(&self.perf_mesh_ms);
-            let (n_light, avg_light, p95_light) = stats(&self.perf_light_ms);
-            let (n_total, avg_total, p95_total) = stats(&self.perf_total_ms);
-            let (n_rr, avg_rr, p95_rr) = stats(&self.perf_remove_ms);
-            let (n_gen, avg_gen, p95_gen) = stats(&self.perf_gen_ms);
-            let last_gen = self.perf_gen_ms.back().copied().unwrap_or(0);
-            right_text.push_str("\nPerf (ms):");
-            right_text.push_str(&format!(
-                "\n  Mesh   avg={} p95={} n={}",
-                avg_mesh, p95_mesh, n_mesh
-            ));
-            right_text.push_str(&format!(
-                "\n  Light  avg={} p95={} n={}",
-                avg_light, p95_light, n_light
-            ));
-            right_text.push_str(&format!(
-                "\n  Total  avg={} p95={} n={}",
-                avg_total, p95_total, n_total
-            ));
-            right_text.push_str(&format!(
-                "\n  Remove->Render avg={} p95={} n={}",
-                avg_rr, p95_rr, n_rr
-            ));
-            right_text.push_str(&format!(
-                "\n  Load  last={} avg={} p95={} n={}",
-                last_gen, avg_gen, p95_gen, n_gen
-            ));
-
-            let screen_width = d.get_screen_width();
-            let font_size = 20;
-            // Fixed panel width template samples
-            let panel_templates = [
-                "Processed Events (session): 1,000,000",
-                "Intents: 1,000,000",
-                "Lighting: FullMicro",
-                "Runtime Queues:",
-                "  Edit  - q=1,000,000 inflight=1,000,000",
-                "  Light - q=1,000,000 inflight=1,000,000",
-                "  BG    - q=1,000,000 inflight=1,000,000",
-                "Chunks:",
-                "  Loaded=1,000,000 active=1,000,000 nonempty=1,000,000",
-                "  Axes  x=1,000,000 y=1,000,000 z=1,000,000",
-                "  GPU renders=1,000,000",
-                "Lighting Store:",
-                "  Borders=1,000,000 Emitters=1,000,000 Micro=1,000,000",
-                "Edit Store:",
-                "  Chunks=1,000,000 Blocks=1,000,000 Rev=1,000,000 Built=1,000,000",
-                "Perf (ms):",
-                "  Mesh   avg=9,999 p95=9,999 n=9,999",
-                "  Light  avg=9,999 p95=9,999 n=9,999",
-                "  Total  avg=9,999 p95=9,999 n=9,999",
-                "  Remove->Render avg=9,999 p95=9,999 n=9,999",
-            ];
-            let mut panel_w = 0;
-            for t in panel_templates.iter() {
-                let w = d.measure_text(t, font_size);
-                if w > panel_w {
-                    panel_w = w;
+            if self.overlay_windows.get(WindowId::RuntimeStats).is_some() {
+                let view = RuntimeStatsView::new(self);
+                if let Some(window) = self.overlay_windows.get_mut(WindowId::RuntimeStats) {
+                    window.set_min_size(view.min_size(&overlay_theme));
+                    let frame = window.layout(screen_dims, &overlay_theme);
+                    let hover = self
+                        .overlay_hover
+                        .and_then(|(id, region)| (id == WindowId::RuntimeStats).then_some(region));
+                    WindowChrome::draw(
+                        &mut d,
+                        &overlay_theme,
+                        &frame,
+                        "Runtime Stats",
+                        view.subtitle(),
+                        hover,
+                    );
+                    let layout = view.draw(&mut d, &frame);
+                    self.draw_overflow_hint(&mut d, &frame, layout);
                 }
             }
-            // Small padding so text doesn't hug the edge
-            panel_w += 8;
-            let margin = 10;
-            let rx = screen_width - panel_w - margin;
-            // Align bottom similar to left overlay
-            let lines = right_text.split('\n').count();
-            let ry = screen_height - (lines as i32 * line_height) - 10;
-            d.draw_text(&right_text, rx, ry, font_size, Color::WHITE);
-            d.draw_text(&right_text, rx + 1, ry + 1, font_size, Color::BLACK);
+
+            if self
+                .overlay_windows
+                .get(WindowId::AttachmentDebug)
+                .is_some()
+            {
+                let view = AttachmentDebugView::new(self);
+                if let Some(window) = self.overlay_windows.get_mut(WindowId::AttachmentDebug) {
+                    window.set_min_size(view.min_size(&overlay_theme));
+                    let frame = window.layout(screen_dims, &overlay_theme);
+                    let hover = self.overlay_hover.and_then(|(id, region)| {
+                        (id == WindowId::AttachmentDebug).then_some(region)
+                    });
+                    WindowChrome::draw(
+                        &mut d,
+                        &overlay_theme,
+                        &frame,
+                        "Attachment Debug",
+                        None,
+                        hover,
+                    );
+                    let layout = view.draw(&mut d, &frame);
+                    self.draw_overflow_hint(&mut d, &frame, layout);
+                }
+            }
 
             if let Some(window) = self.overlay_windows.get_mut(WindowId::EventHistogram) {
                 let view = EventHistogramView::new(&self.debug_stats);
@@ -1858,260 +2386,10 @@ impl App {
             self.gs.structure_elev_speed,
         );
         d.draw_text(&hud, 12, 12, 18, Color::DARKGRAY);
-        if self.gs.show_debug_overlay {
-            d.draw_fps(12, 36);
-        }
 
         // Biome label moved to debug overlay above
         if !self.gs.show_debug_overlay {
             return;
-        }
-
-        // Debug overlay for attachment status
-        let mut debug_y = 60;
-        d.draw_text("=== ATTACHMENT DEBUG ===", 12, debug_y, 16, Color::RED);
-        debug_y += 20;
-
-        // Show attachment status
-        if let Some(att) = self.gs.ground_attach {
-            d.draw_text(
-                &format!("ATTACHED to structure ID: {}", att.id),
-                12,
-                debug_y,
-                16,
-                Color::GREEN,
-            );
-            debug_y += 18;
-            d.draw_text(
-                &format!("  Grace period: {}", att.grace),
-                12,
-                debug_y,
-                16,
-                Color::GREEN,
-            );
-            debug_y += 18;
-            d.draw_text(
-                &format!(
-                    "  Local offset: ({:.2}, {:.2}, {:.2})",
-                    att.local_offset.x, att.local_offset.y, att.local_offset.z
-                ),
-                12,
-                debug_y,
-                16,
-                Color::GREEN,
-            );
-            debug_y += 18;
-        } else {
-            d.draw_text("NOT ATTACHED", 12, debug_y, 16, Color::ORANGE);
-            debug_y += 18;
-        }
-
-        // Show walker position
-        d.draw_text(
-            &format!(
-                "Walker pos: ({:.2}, {:.2}, {:.2})",
-                self.gs.walker.pos.x, self.gs.walker.pos.y, self.gs.walker.pos.z
-            ),
-            12,
-            debug_y,
-            16,
-            Color::DARKGRAY,
-        );
-        debug_y += 18;
-
-        // Show on_ground status
-        d.draw_text(
-            &format!("On ground: {}", self.gs.walker.on_ground),
-            12,
-            debug_y,
-            16,
-            Color::DARKGRAY,
-        );
-        debug_y += 18;
-
-        // Check each structure and show detection status
-        for (id, st) in &self.gs.structures {
-            let on_structure = self.is_feet_on_structure(st, self.gs.walker.pos);
-            let color = if on_structure {
-                Color::GREEN
-            } else {
-                Color::GRAY
-            };
-            d.draw_text(
-                &format!(
-                    "Structure {}: on={} pos=({:.1},{:.1},{:.1}) delta=({:.3},{:.3},{:.3})",
-                    id,
-                    on_structure,
-                    st.pose.pos.x,
-                    st.pose.pos.y,
-                    st.pose.pos.z,
-                    st.last_delta.x,
-                    st.last_delta.y,
-                    st.last_delta.z
-                ),
-                12,
-                debug_y,
-                16,
-                color,
-            );
-            debug_y += 18;
-
-            // Show detailed detection info
-            let p = vec3_from_rl(self.gs.walker.pos);
-            let diff = Vec3 {
-                x: p.x - st.pose.pos.x,
-                y: p.y - st.pose.pos.y,
-                z: p.z - st.pose.pos.z,
-            };
-            let local = rotate_yaw_inv(diff, st.pose.yaw_deg);
-            let test_y = local.y - 0.08;
-            let lx = local.x.floor() as i32;
-            let ly = test_y.floor() as i32;
-            let lz = local.z.floor() as i32;
-
-            d.draw_text(
-                &format!(
-                    "  Local: ({:.2}, {:.2}, {:.2}) Test Y: {:.2} -> Grid: ({}, {}, {})",
-                    local.x, local.y, local.z, test_y, lx, ly, lz
-                ),
-                12,
-                debug_y,
-                14,
-                color,
-            );
-            debug_y += 16;
-
-            // Check if we're in bounds
-            let in_bounds = lx >= 0
-                && ly >= 0
-                && lz >= 0
-                && (lx as usize) < st.sx
-                && (ly as usize) < st.sy
-                && (lz as usize) < st.sz;
-
-            // Get the actual block at this position (direct sample)
-            let (block_at_pos, block_solid) = if in_bounds {
-                // Check edits first
-                if let Some(b) = st.edits.get(lx, ly, lz) {
-                    (
-                        format!("id:{} state:{} (edit)", b.id, b.state),
-                        self.reg
-                            .get(b.id)
-                            .map(|ty| ty.is_solid(b.state))
-                            .unwrap_or(false),
-                    )
-                } else {
-                    // Check base blocks
-                    let idx = st.idx(lx as usize, ly as usize, lz as usize);
-                    let b = st.blocks[idx];
-                    (
-                        format!("id:{} state:{}", b.id, b.state),
-                        self.reg
-                            .get(b.id)
-                            .map(|ty| ty.is_solid(b.state))
-                            .unwrap_or(false),
-                    )
-                }
-            } else {
-                ("out of bounds".to_string(), false)
-            };
-
-            d.draw_text(
-                &format!(
-                    "  Bounds: 0..{} x 0..{} x 0..{} | In bounds: {}",
-                    st.sx, st.sy, st.sz, in_bounds
-                ),
-                12,
-                debug_y,
-                14,
-                color,
-            );
-            debug_y += 16;
-
-            d.draw_text(
-                &format!(
-                    "  Block at ({},{},{}): {} | Solid: {}",
-                    lx, ly, lz, block_at_pos, block_solid
-                ),
-                12,
-                debug_y,
-                14,
-                color,
-            );
-            debug_y += 16;
-
-            // Also show the block one cell below the sample (helps diagnose edge cases)
-            if ly > 0 {
-                let by = ly - 1;
-                let (block_below, solid_below) = if lx >= 0
-                    && by >= 0
-                    && lz >= 0
-                    && (lx as usize) < st.sx
-                    && (by as usize) < st.sy
-                    && (lz as usize) < st.sz
-                {
-                    if let Some(b) = st.edits.get(lx, by, lz) {
-                        (
-                            format!("id:{} state:{} (edit)", b.id, b.state),
-                            self.reg
-                                .get(b.id)
-                                .map(|ty| ty.is_solid(b.state))
-                                .unwrap_or(false),
-                        )
-                    } else {
-                        let idx = st.idx(lx as usize, by as usize, lz as usize);
-                        let b = st.blocks[idx];
-                        (
-                            format!("id:{} state:{}", b.id, b.state),
-                            self.reg
-                                .get(b.id)
-                                .map(|ty| ty.is_solid(b.state))
-                                .unwrap_or(false),
-                        )
-                    }
-                } else {
-                    ("out of bounds".to_string(), false)
-                };
-                d.draw_text(
-                    &format!(
-                        "  Block at below ({},{},{}): {} | Solid: {}",
-                        lx, by, lz, block_below, solid_below
-                    ),
-                    12,
-                    debug_y,
-                    14,
-                    color,
-                );
-                debug_y += 16;
-            }
-
-            // Show deck info and check what's at deck level
-            let deck_y = (st.sy as f32 * 0.33) as i32;
-            d.draw_text(
-                &format!("  Deck Y level: {} (expecting solid blocks here)", deck_y),
-                12,
-                debug_y,
-                14,
-                Color::BLUE,
-            );
-            debug_y += 16;
-
-            // Debug: Check what's actually at the deck level at player's X,Z
-            if lx >= 0 && lz >= 0 && (lx as usize) < st.sx && (lz as usize) < st.sz {
-                let deck_idx = st.idx(lx as usize, deck_y as usize, lz as usize);
-                let deck_block = st.blocks[deck_idx];
-                d.draw_text(
-                    &format!(
-                        "  Block at deck level ({},{},{}): {:?}",
-                        lx, deck_y, lz, deck_block
-                    ),
-                    12,
-                    debug_y,
-                    14,
-                    Color::MAGENTA,
-                );
-                debug_y += 16;
-            }
         }
     }
 

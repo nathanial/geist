@@ -389,6 +389,24 @@ impl App {
             (534, 360),
             (534, 360),
         ));
+        overlay_windows.insert(OverlayWindow::new(
+            WindowId::RenderStats,
+            Vector2::new(40.0, 360.0),
+            (380, 240),
+            (340, 200),
+        ));
+        overlay_windows.insert(OverlayWindow::new(
+            WindowId::RuntimeStats,
+            Vector2::new(440.0, 360.0),
+            (420, 320),
+            (380, 260),
+        ));
+        overlay_windows.insert(OverlayWindow::new(
+            WindowId::AttachmentDebug,
+            Vector2::new(40.0, 640.0),
+            (560, 320),
+            (420, 260),
+        ));
         let minimap_side =
             App::minimap_side_px(gs.view_radius_chunks).max(MINIMAP_MIN_CONTENT_SIDE);
         let minimap_size = (

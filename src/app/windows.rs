@@ -8,6 +8,9 @@ pub enum WindowId {
     IntentHistogram,
     TerrainHistogram,
     Minimap,
+    RenderStats,
+    RuntimeStats,
+    AttachmentDebug,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
