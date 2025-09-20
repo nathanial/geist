@@ -1,6 +1,7 @@
 //! Chunk buffer and world generation helpers.
 #![forbid(unsafe_code)]
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -157,6 +158,42 @@ pub fn generate_chunk_buffer_with_ctx(
     let chunk_min_y = base_y;
     let chunk_max_y = base_y + sy as i32;
 
+    let mut tree_plans = Vec::new();
+    let mut seen_trees = HashSet::new();
+    for column in &column_plan.columns {
+        if let Some(tree) = &column.tree {
+            if seen_trees.insert((tree.base_x, tree.base_z)) {
+                tree_plans.push(tree.clone());
+            }
+        }
+    }
+
+    let leaf_radius = column_plan.materials.leaf_radius;
+    if leaf_radius > 0 && !world.is_flat() {
+        let radius = leaf_radius as usize;
+        if radius > 0 {
+            let extra_base_x = base_x - leaf_radius;
+            let extra_base_z = base_z - leaf_radius;
+            let extra_sx = sx + radius * 2;
+            let extra_sz = sz + radius * 2;
+            let extra_plan = build_chunk_column_plan(world, ctx, reg, extra_base_x, extra_base_z, extra_sx, extra_sz);
+            for column in &extra_plan.columns {
+                if column.wx >= base_x
+                    && column.wx < base_x + sx as i32
+                    && column.wz >= base_z
+                    && column.wz < base_z + sz as i32
+                {
+                    continue;
+                }
+                if let Some(tree) = &column.tree {
+                    if seen_trees.insert((tree.base_x, tree.base_z)) {
+                        tree_plans.push(tree.clone());
+                    }
+                }
+            }
+        }
+    }
+
     let mut block_lookup = BlockLookup::default();
     let fill_start = Instant::now();
 
@@ -255,72 +292,68 @@ pub fn generate_chunk_buffer_with_ctx(
 
     {
         let materials = &column_plan.materials;
-        for column in &column_plan.columns {
-            if let Some(tree) = &column.tree {
-                let trunk_x = tree.base_x - base_x;
-                let trunk_z = tree.base_z - base_z;
-                if trunk_x < 0 || trunk_z < 0 || trunk_x >= sx as i32 || trunk_z >= sz as i32 {
+        for tree in &tree_plans {
+            let trunk_x = tree.base_x - base_x;
+            let trunk_z = tree.base_z - base_z;
+            if trunk_x < 0 || trunk_z < 0 || trunk_x >= sx as i32 || trunk_z >= sz as i32 {
+                continue;
+            }
+            let lx = trunk_x as usize;
+            let lz = trunk_z as usize;
+            let trunk_start = tree.surface_y + 1;
+            let trunk_end = tree.surface_y + tree.trunk_height;
+            for wy in trunk_start..=trunk_end {
+                if wy < chunk_min_y || wy >= chunk_max_y {
                     continue;
                 }
-                let lx = trunk_x as usize;
-                let lz = trunk_z as usize;
-                let trunk_start = tree.surface_y + 1;
-                let trunk_end = tree.surface_y + tree.trunk_height;
-                for wy in trunk_start..=trunk_end {
-                    if wy < chunk_min_y || wy >= chunk_max_y {
-                        continue;
-                    }
-                    let ly = (wy - chunk_min_y) as usize;
-                    let idx = (ly * sz + lz) * sx + lx;
-                    blocks[idx] = tree.trunk_block;
-                }
+                let ly = (wy - chunk_min_y) as usize;
+                let idx = (ly * sz + lz) * sx + lx;
+                blocks[idx] = tree.trunk_block;
             }
         }
 
         let leaf_radius = materials.leaf_radius;
         if leaf_radius > 0 {
-            for column in &column_plan.columns {
-                if let Some(tree) = &column.tree {
-                    let top_y = tree.surface_y + tree.trunk_height;
-                    for dy in -2..=2 {
-                        let wy = top_y + dy;
-                        if wy < chunk_min_y || wy >= chunk_max_y {
-                            continue;
-                        }
-                        let radius = if dy <= -2 || dy >= 2 {
-                            leaf_radius - 1
-                        } else {
-                            leaf_radius
-                        };
-                        if radius < 0 {
-                            continue;
-                        }
-                        for dx in -leaf_radius..=leaf_radius {
-                            for dz in -leaf_radius..=leaf_radius {
-                                let man = dx.abs() + dz.abs();
-                                let extra = if dy >= 1 { 0 } else { 1 };
-                                if man > radius + extra {
-                                    continue;
-                                }
-                                if dx == 0 && dz == 0 && dy >= 0 {
-                                    continue;
-                                }
-                                let wx = tree.base_x + dx;
-                                let wz = tree.base_z + dz;
-                                if wx < base_x
-                                    || wz < base_z
-                                    || wx >= base_x + sx as i32
-                                    || wz >= base_z + sz as i32
-                                {
-                                    continue;
-                                }
-                                let lx = (wx - base_x) as usize;
-                                let lz = (wz - base_z) as usize;
-                                let ly = (wy - chunk_min_y) as usize;
-                                let idx = (ly * sz + lz) * sx + lx;
-                                if blocks[idx] == materials.air_block {
-                                    blocks[idx] = tree.leaves_block;
-                                }
+            for tree in &tree_plans {
+                let top_y = tree.surface_y + tree.trunk_height;
+                for dy in -2..=2 {
+                    let wy = top_y + dy;
+                    if wy < chunk_min_y || wy >= chunk_max_y {
+                        continue;
+                    }
+                    let radius = if dy <= -2 || dy >= 2 {
+                        leaf_radius - 1
+                    } else {
+                        leaf_radius
+                    };
+                    if radius < 0 {
+                        continue;
+                    }
+                    for dx in -leaf_radius..=leaf_radius {
+                        for dz in -leaf_radius..=leaf_radius {
+                            let man = dx.abs() + dz.abs();
+                            let extra = if dy >= 1 { 0 } else { 1 };
+                            if man > radius + extra {
+                                continue;
+                            }
+                            if dx == 0 && dz == 0 && dy >= 0 {
+                                continue;
+                            }
+                            let wx = tree.base_x + dx;
+                            let wz = tree.base_z + dz;
+                            if wx < base_x
+                                || wz < base_z
+                                || wx >= base_x + sx as i32
+                                || wz >= base_z + sz as i32
+                            {
+                                continue;
+                            }
+                            let lx = (wx - base_x) as usize;
+                            let lz = (wz - base_z) as usize;
+                            let ly = (wy - chunk_min_y) as usize;
+                            let idx = (ly * sz + lz) * sx + lx;
+                            if blocks[idx] == materials.air_block {
+                                blocks[idx] = tree.leaves_block;
                             }
                         }
                     }

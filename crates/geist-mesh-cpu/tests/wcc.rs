@@ -98,7 +98,11 @@ fn expected_surface_area_voxels(
                     count_face(x as i32, y as i32, z as i32, (-1, 0, 0));
                 }
                 // +X
-                if x + 1 < sx && !solid(x + 1, y, z) {
+                if x + 1 < sx {
+                    if !solid(x + 1, y, z) {
+                        count_face((x + 1) as i32, y as i32, z as i32, (1, 0, 0));
+                    }
+                } else if !solid_world(wx + 1, wy, wz) {
                     count_face((x + 1) as i32, y as i32, z as i32, (1, 0, 0));
                 }
                 // -Y
@@ -124,7 +128,11 @@ fn expected_surface_area_voxels(
                     count_face(x as i32, y as i32, z as i32, (0, 0, -1));
                 }
                 // +Z
-                if z + 1 < sz && !solid(x, y, z + 1) {
+                if z + 1 < sz {
+                    if !solid(x, y, z + 1) {
+                        count_face(x as i32, y as i32, (z + 1) as i32, (0, 0, 1));
+                    }
+                } else if !solid_world(wx, wy, wz + 1) {
                     count_face(x as i32, y as i32, (z + 1) as i32, (0, 0, 1));
                 }
             }
@@ -219,7 +227,14 @@ fn seam_stitch_no_faces_on_shared_plane_s1() {
         let id = if (r & 1) == 0 { stone } else { air };
         blocks_a.push(Block { id, state: 0 });
     }
-    let blocks_b = blocks_a.clone();
+    let mut blocks_b = blocks_a.clone();
+    for y in 0..sy {
+        for z in 0..sz {
+            let idx_a = (y * sz + z) * sx + (sx - 1);
+            let idx_b = (y * sz + z) * sx;
+            blocks_b[idx_b] = blocks_a[idx_a];
+        }
+    }
 
     let buf_a = make_buf(0, 0, sx, sy, sz, blocks_a);
     let buf_b = make_buf(1, 0, sx, sy, sz, blocks_b);
@@ -234,11 +249,59 @@ fn seam_stitch_no_faces_on_shared_plane_s1() {
     let base_wb_x = buf_b.coord.cx * buf_b.sx as i32;
     let base_wb_y = buf_b.coord.cy * buf_b.sy as i32;
     let base_wb_z = buf_b.coord.cz * buf_b.sz as i32;
+    let mut edits_a: HashMap<(i32, i32, i32), Block> = HashMap::new();
+    for y in 0..sy {
+        for z in 0..sz {
+            for x in 0..sx {
+                let block = buf_b.get_local(x, y, z);
+                if block.id == air {
+                    continue;
+                }
+                let wx = base_wb_x + x as i32;
+                let wy = base_wb_y + y as i32;
+                let wz = base_wb_z + z as i32;
+                edits_a.insert((wx, wy, wz), block);
+            }
+        }
+    }
+    assert!(
+        edits_a.contains_key(&(base_wb_x, base_wb_y, base_wb_z)),
+        "expected neighbor seam column to be present in edits"
+    );
+    let mut edits_b: HashMap<(i32, i32, i32), Block> = HashMap::new();
+    for y in 0..sy {
+        for z in 0..sz {
+            for x in 0..sx {
+                let block = buf_a.get_local(x, y, z);
+                if block.id == air {
+                    continue;
+                }
+                let wx = base_wa_x + x as i32;
+                let wy = base_wa_y + y as i32;
+                let wz = base_wa_z + z as i32;
+                edits_b.insert((wx, wy, wz), block);
+            }
+        }
+    }
     let mut wa = ParityMesher::new(
-        &buf_a, &reg, 1, base_wa_x, base_wa_y, base_wa_z, &world, None,
+        &buf_a,
+        &reg,
+        1,
+        base_wa_x,
+        base_wa_y,
+        base_wa_z,
+        &world,
+        Some(&edits_a),
     );
     let mut wb = ParityMesher::new(
-        &buf_b, &reg, 1, base_wb_x, base_wb_y, base_wb_z, &world, None,
+        &buf_b,
+        &reg,
+        1,
+        base_wb_x,
+        base_wb_y,
+        base_wb_z,
+        &world,
+        Some(&edits_b),
     );
     wa.build_occupancy();
     wb.build_occupancy();
@@ -472,6 +535,62 @@ fn seam_vertical_no_faces_on_shared_plane_s1() {
 }
 
 #[test]
+fn boundary_pos_x_faces_exist_when_neighbor_air_s1() {
+    let sx = 4;
+    let sy = 4;
+    let sz = 4;
+    let reg = load_registry();
+    let stone = reg.id_by_name("stone").unwrap_or(1);
+    let air = reg.id_by_name("air").unwrap_or(0);
+
+    let mut blocks = vec![Block { id: air, state: 0 }; sx * sy * sz];
+    for y in 0..sy {
+        for z in 0..sz {
+            let idx = (y * sz + z) * sx + (sx - 1);
+            blocks[idx] = Block {
+                id: stone,
+                state: 0,
+            };
+        }
+    }
+
+    let buf = make_buf(0, 0, sx, sy, sz, blocks);
+    let store = LightingStore::new(sx, sy, sz);
+    let light = LightGrid::compute_with_borders_buf(&buf, &store, &reg);
+    let world = World::new(1, 1, 1, 0, WorldGenMode::Flat { thickness: 0 });
+
+    let (mesh, _) = build_chunk_wcc_cpu_buf_with_light(&buf, &light, &world, None, buf.coord, &reg)
+        .expect("chunk mesh");
+    let seam_x = sx as f32;
+    let eps = 1e-6f32;
+    let mut seam_tris = 0usize;
+    for part in mesh.parts.values() {
+        let idx = if !part.idx.is_empty() {
+            part.idx.iter().map(|&i| i as usize).collect::<Vec<_>>()
+        } else {
+            (0..(part.pos.len() / 3)).collect::<Vec<_>>()
+        };
+        let pos = &part.pos;
+        for t in (0..idx.len()).step_by(3) {
+            let a = idx[t] * 3;
+            let b = idx[t + 1] * 3;
+            let c = idx[t + 2] * 3;
+            if (pos[a] - seam_x).abs() < eps
+                && (pos[b] - seam_x).abs() < eps
+                && (pos[c] - seam_x).abs() < eps
+            {
+                seam_tris += 1;
+            }
+        }
+    }
+
+    assert!(
+        seam_tris > 0,
+        "expected exposed +X faces when neighbor is air, found none"
+    );
+}
+
+#[test]
 fn per_face_quads_triangle_count_on_slab() {
     let sx = 12;
     let sy = 6;
@@ -482,8 +601,8 @@ fn per_face_quads_triangle_count_on_slab() {
     // Thick slab: y in [2,4)
     let mut blocks: Vec<Block> = Vec::with_capacity(sx * sy * sz);
     for y in 0..sy {
-        for z in 0..sz {
-            for x in 0..sx {
+        for _z in 0..sz {
+            for _x in 0..sx {
                 let id = if y >= 2 && y < 4 { stone } else { air };
                 blocks.push(Block { id, state: 0 });
             }

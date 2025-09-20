@@ -230,7 +230,7 @@ impl GameState {
         Self {
             tick: 0,
             center_chunk: ChunkCoord::new(i32::MIN, i32::MIN, i32::MIN),
-            view_radius_chunks: 12,
+            view_radius_chunks: 10,
             chunks: ChunkInventory::default(),
             mesh_counts: HashMap::new(),
             light_counts: HashMap::new(),

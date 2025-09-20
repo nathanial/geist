@@ -82,7 +82,12 @@ pub(crate) fn emit_face_rect_for_clipped(
     let mut out = None;
     match face {
         Face::PosX | Face::NegX => {
-            if origin.x >= bx0 && origin.x < bx1 {
+            let upper_ok = if matches!(face, Face::PosX) {
+                origin.x <= bx1
+            } else {
+                origin.x < bx1
+            };
+            if origin.x >= bx0 && upper_ok {
                 if let Some((z, u)) = clip_span(origin.z, u1, bz0, bz1) {
                     if let Some((y, v)) = clip_span(origin.y, v1, by0, by1) {
                         let mut o = origin;
@@ -94,7 +99,12 @@ pub(crate) fn emit_face_rect_for_clipped(
             }
         }
         Face::PosZ | Face::NegZ => {
-            if origin.z >= bz0 && origin.z < bz1 {
+            let upper_ok = if matches!(face, Face::PosZ) {
+                origin.z <= bz1
+            } else {
+                origin.z < bz1
+            };
+            if origin.z >= bz0 && upper_ok {
                 if let Some((x, u)) = clip_span(origin.x, u1, bx0, bx1) {
                     if let Some((y, v)) = clip_span(origin.y, v1, by0, by1) {
                         let mut o = origin;
