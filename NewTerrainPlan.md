@@ -305,16 +305,21 @@ pub struct ChunkColumnCache {
 **Goals**: Establish performance baseline and eliminate context creation overhead.
 
 **Tasks**:
-- [ ] Add detailed timing instrumentation to `generate_chunk_buffer`
+- [x] Add detailed timing instrumentation to `generate_chunk_buffer`
   - Per-phase timers (height sampling, voxel fill, feature placement)
   - Histogram of chunk generation times
   - Export metrics to debug overlay
-- [ ] Implement `GenCtxPool` in `geist-runtime`
-  - Lock-free pool using crossbeam::queue::SegQueue
+- [x] Implement `GenCtxPool` in `geist-runtime`
+  - Lock-free pool backed by a bounded crossbeam channel
   - Pool size = worker_threads × 2
   - Benchmark: expect 3-5ms reduction per chunk
-- [ ] Verify no regressions in lighting/edit rebuild paths
-- [ ] Document baseline metrics (chunks/sec, p50/p99 latencies)
+- [x] Verify no regressions in lighting/edit rebuild paths
+
+**Phase 1 Baseline Checklist (2025-09-20)**
+- Launch viewer via `cargo run -- run --world flat --seed 42` and allow two full stream radii to populate. Capture 60s of samples with the Diagnostics → Terrain Pipeline overlay focused.
+- Export rolling stats from the overlay: `Chunk Build` (total, fill, features) plus per-stage averages. Record p50/p95 from the overlay’s hover tooltips.
+- While the viewer runs, tail the perf logger (`RUST_LOG=perf=info`) and compute chunks/sec from `BuildChunkJobCompleted` lines (count / sampling interval).
+- Populate a new table in this document once metrics are gathered on hardware (hiDPI MBP, Release build) so future phases can compare against a known baseline.
 
 **Success Metrics**:
 - 10-15% reduction in chunk generation time

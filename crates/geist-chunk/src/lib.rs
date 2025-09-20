@@ -1,9 +1,11 @@
 //! Chunk buffer and world generation helpers.
 #![forbid(unsafe_code)]
 
+use std::time::{Duration, Instant};
+
 use geist_blocks::BlockRegistry;
 use geist_blocks::types::Block;
-use geist_world::{ChunkCoord, TerrainMetrics, World};
+use geist_world::{ChunkCoord, ChunkTiming, GenCtx, TerrainMetrics, TerrainStage, World};
 
 #[derive(Clone, Debug)]
 pub struct ChunkBuf {
@@ -107,11 +109,29 @@ pub struct ChunkGenerateResult {
     pub terrain_metrics: TerrainMetrics,
 }
 
+#[inline]
+fn duration_to_us(duration: Duration) -> u32 {
+    duration.as_micros().min(u128::from(u32::MAX)) as u32
+}
+
 pub fn generate_chunk_buffer(
     world: &World,
     coord: ChunkCoord,
     reg: &BlockRegistry,
 ) -> ChunkGenerateResult {
+    let mut ctx = world.make_gen_ctx();
+    generate_chunk_buffer_with_ctx(world, coord, reg, &mut ctx)
+}
+
+pub fn generate_chunk_buffer_with_ctx(
+    world: &World,
+    coord: ChunkCoord,
+    reg: &BlockRegistry,
+    ctx: &mut GenCtx,
+) -> ChunkGenerateResult {
+    ctx.terrain_profiler.reset();
+
+    let total_start = Instant::now();
     let sx = world.chunk_size_x;
     let sy = world.chunk_size_y;
     let sz = world.chunk_size_z;
@@ -120,17 +140,20 @@ pub fn generate_chunk_buffer(
     let base_x = coord.cx * sx as i32;
     let base_y = coord.cy * sy as i32;
     let base_z = coord.cz * sz as i32;
-    // Use reusable worldgen context per chunk to avoid heavy per-voxel allocations
-    let mut ctx = world.make_gen_ctx();
-    world.prepare_height_tile(&mut ctx, base_x, base_z, sx, sz);
+
+    let tile_start = Instant::now();
+    world.prepare_height_tile(ctx, base_x, base_z, sx, sz);
+    let height_tile_us = duration_to_us(tile_start.elapsed());
+
     let mut has_blocks = false;
+    let fill_start = Instant::now();
     for z in 0..sz {
         for y in 0..sy {
             for x in 0..sx {
                 let wx = base_x + x as i32;
                 let wy = base_y + y as i32;
                 let wz = base_z + z as i32;
-                let block = world.block_at_runtime_with(reg, &mut ctx, wx, wy, wz);
+                let block = world.block_at_runtime_with(reg, ctx, wx, wy, wz);
                 if block != Block::AIR {
                     has_blocks = true;
                 }
@@ -138,7 +161,22 @@ pub fn generate_chunk_buffer(
             }
         }
     }
-    let metrics = ctx.terrain_profiler.snapshot(ctx.height_tile_stats);
+    let voxel_fill_us = duration_to_us(fill_start.elapsed());
+
+    let mut chunk_timing = ChunkTiming {
+        total_us: duration_to_us(total_start.elapsed()),
+        height_tile_us,
+        voxel_fill_us,
+        feature_us: 0,
+    };
+
+    let mut metrics = ctx.terrain_profiler.snapshot(ctx.height_tile_stats);
+    let feature_us = metrics.stages[TerrainStage::Caves as usize]
+        .time_us
+        .saturating_add(metrics.stages[TerrainStage::Trees as usize].time_us);
+    chunk_timing.feature_us = feature_us;
+    metrics.chunk_timing = chunk_timing;
+
     ChunkGenerateResult {
         buf: ChunkBuf {
             coord,

@@ -782,6 +782,9 @@ struct TerrainHistogramView<'a> {
     height_tile_reused: &'a VecDeque<u32>,
     cache_hits: &'a VecDeque<u32>,
     cache_misses: &'a VecDeque<u32>,
+    chunk_total_us: &'a VecDeque<u32>,
+    chunk_fill_us: &'a VecDeque<u32>,
+    chunk_feature_us: &'a VecDeque<u32>,
 }
 
 impl<'a> TerrainHistogramView<'a> {
@@ -803,6 +806,9 @@ impl<'a> TerrainHistogramView<'a> {
         height_tile_reused: &'a VecDeque<u32>,
         cache_hits: &'a VecDeque<u32>,
         cache_misses: &'a VecDeque<u32>,
+        chunk_total_us: &'a VecDeque<u32>,
+        chunk_fill_us: &'a VecDeque<u32>,
+        chunk_feature_us: &'a VecDeque<u32>,
     ) -> Self {
         Self {
             stage_us,
@@ -811,6 +817,9 @@ impl<'a> TerrainHistogramView<'a> {
             height_tile_reused,
             cache_hits,
             cache_misses,
+            chunk_total_us,
+            chunk_fill_us,
+            chunk_feature_us,
         }
     }
 
@@ -820,6 +829,7 @@ impl<'a> TerrainHistogramView<'a> {
             .map(|q| q.len())
             .unwrap_or_default()
             .max(self.height_tile_us.len())
+            .max(self.chunk_total_us.len())
     }
 
     fn min_size(&self, theme: &WindowTheme) -> (i32, i32) {
@@ -856,6 +866,20 @@ impl<'a> TerrainHistogramView<'a> {
 
         let content = frame.content;
         let pad_x = theme.padding_x;
+
+        fn avg_p95(values: &[u32]) -> (f32, f32) {
+            if values.is_empty() {
+                return (0.0, 0.0);
+            }
+            let mut sorted = values.to_vec();
+            sorted.sort_unstable();
+            let sum: u64 = values.iter().map(|&v| v as u64).sum();
+            let avg = (sum as f32 / values.len() as f32) / 1000.0;
+            let p95_idx =
+                ((values.len() as f32 * 0.95).ceil().max(1.0) as usize - 1).min(values.len() - 1);
+            let p95 = sorted[p95_idx] as f32 / 1000.0;
+            (avg, p95)
+        }
 
         let last_tile_us = self.height_tile_us.back().copied().unwrap_or(0);
         let last_tile_text = if self.height_tile_reused.back().copied().unwrap_or(0) == 1 {
@@ -907,6 +931,64 @@ impl<'a> TerrainHistogramView<'a> {
             (last_hits as f32 / last_cache as f32) * 100.0
         };
 
+        let chunk_total_samples: Vec<u32> = self
+            .chunk_total_us
+            .iter()
+            .copied()
+            .filter(|&v| v > 0)
+            .collect();
+        let chunk_fill_samples: Vec<u32> = self
+            .chunk_fill_us
+            .iter()
+            .copied()
+            .filter(|&v| v > 0)
+            .collect();
+        let chunk_feature_samples: Vec<u32> = self
+            .chunk_feature_us
+            .iter()
+            .copied()
+            .filter(|&v| v > 0)
+            .collect();
+        let (chunk_avg_ms, chunk_p95_ms) = avg_p95(&chunk_total_samples);
+        let (fill_avg_ms, fill_p95_ms) = avg_p95(&chunk_fill_samples);
+        let (feature_avg_ms, feature_p95_ms) = avg_p95(&chunk_feature_samples);
+        let last_chunk_us = self.chunk_total_us.back().copied().unwrap_or(0);
+        let last_fill_us = self.chunk_fill_us.back().copied().unwrap_or(0);
+        let last_feature_us = self.chunk_feature_us.back().copied().unwrap_or(0);
+        let chunk_last_label = if last_chunk_us == 0 {
+            "last: cached".to_string()
+        } else {
+            format!(
+                "last: {:.2}ms (fill {:.2}ms)",
+                last_chunk_us as f32 / 1000.0,
+                last_fill_us as f32 / 1000.0,
+            )
+        };
+        let feature_share_last = if last_chunk_us == 0 {
+            0.0
+        } else {
+            (last_feature_us as f32 / last_chunk_us as f32 * 100.0).clamp(0.0, 100.0)
+        };
+        let mut feature_share_sum = 0.0_f32;
+        let mut feature_share_count = 0.0_f32;
+        for (&total, &feature) in self.chunk_total_us.iter().zip(self.chunk_feature_us.iter()) {
+            if total == 0 {
+                continue;
+            }
+            feature_share_sum += feature as f32 / total as f32;
+            feature_share_count += 1.0;
+        }
+        let feature_share_avg = if feature_share_count > 0.0 {
+            (feature_share_sum / feature_share_count * 100.0).clamp(0.0, 100.0)
+        } else {
+            0.0
+        };
+        let chunk_avg_label = if chunk_avg_ms == 0.0 && chunk_p95_ms == 0.0 {
+            "avg: --   p95: --".to_string()
+        } else {
+            format!("avg: {:.2}ms   p95: {:.2}ms", chunk_avg_ms, chunk_p95_ms)
+        };
+
         #[derive(Clone, Copy)]
         struct StageRowData {
             avg_ms: f32,
@@ -956,19 +1038,63 @@ impl<'a> TerrainHistogramView<'a> {
             max_span_ms = max_span_ms.max(p95_ms.max(avg_ms));
         }
 
+        max_span_ms = max_span_ms
+            .max(chunk_p95_ms.max(chunk_avg_ms))
+            .max(fill_p95_ms.max(fill_avg_ms))
+            .max(feature_p95_ms.max(feature_avg_ms));
+
+        let mut table_rows: Vec<(&str, StageRowData)> = Vec::with_capacity(TERRAIN_STAGE_COUNT + 3);
+        table_rows.push((
+            "Chunk Total",
+            StageRowData {
+                avg_ms: chunk_avg_ms,
+                p95_ms: chunk_p95_ms,
+                last_ms: last_chunk_us as f32 / 1000.0,
+                avg_calls: 0.0,
+                last_calls: 0,
+            },
+        ));
+        table_rows.push((
+            "Voxel Fill",
+            StageRowData {
+                avg_ms: fill_avg_ms,
+                p95_ms: fill_p95_ms,
+                last_ms: last_fill_us as f32 / 1000.0,
+                avg_calls: 0.0,
+                last_calls: 0,
+            },
+        ));
+        table_rows.push((
+            "Features",
+            StageRowData {
+                avg_ms: feature_avg_ms,
+                p95_ms: feature_p95_ms,
+                last_ms: last_feature_us as f32 / 1000.0,
+                avg_calls: 0.0,
+                last_calls: 0,
+            },
+        ));
+        for idx in 0..TERRAIN_STAGE_COUNT {
+            table_rows.push((TERRAIN_STAGE_LABELS[idx], rows[idx]));
+        }
+
         let mut layout = ContentLayout::new(content.h);
         let mut cursor_y = content.y;
 
         let card_gap = 14;
-        let card_width = ((frame.outer.w - pad_x * 2 - card_gap) / 2).max(160);
+        let card_count = 3;
+        let card_width =
+            ((frame.outer.w - pad_x * 2 - card_gap * (card_count - 1)) / card_count).max(160);
         let card_height = Self::SUMMARY_CARD_HEIGHT;
         let card_bg = Color::new(24, 32, 44, 235);
         let card_outline = Color::new(52, 68, 84, 200);
         let accent_tile = Color::new(118, 202, 255, 220);
         let accent_cache = Color::new(124, 220, 184, 220);
+        let accent_chunk = Color::new(248, 192, 132, 220);
 
         let card1_x = content.x;
         let card2_x = card1_x + card_width + card_gap;
+        let card3_x = card2_x + card_width + card_gap;
 
         d.draw_rectangle(card1_x, cursor_y, card_width, card_height, card_bg);
         d.draw_rectangle_lines(card1_x, cursor_y, card_width, card_height, card_outline);
@@ -1087,6 +1213,68 @@ impl<'a> TerrainHistogramView<'a> {
             );
         }
 
+        d.draw_rectangle(card3_x, cursor_y, card_width, card_height, card_bg);
+        d.draw_rectangle_lines(card3_x, cursor_y, card_width, card_height, card_outline);
+        d.draw_rectangle(card3_x, cursor_y, card_width, 2, accent_chunk);
+        let text_x3 = card3_x + 12;
+        let mut text_y3 = cursor_y + 10;
+        d.draw_text(
+            "Chunk Build",
+            text_x3,
+            text_y3,
+            Self::CARD_HEADER_FONT,
+            Color::new(250, 236, 220, 255),
+        );
+        text_y3 += Self::CARD_HEADER_FONT + 4;
+        d.draw_text(
+            &chunk_last_label,
+            text_x3,
+            text_y3,
+            Self::SUBTITLE_FONT,
+            Color::new(246, 230, 210, 255),
+        );
+        text_y3 += Self::SUBTITLE_FONT + 2;
+        d.draw_text(
+            &chunk_avg_label,
+            text_x3,
+            text_y3,
+            Self::SUBTITLE_FONT,
+            Color::new(236, 222, 206, 255),
+        );
+        text_y3 += Self::SUBTITLE_FONT + 2;
+        d.draw_text(
+            &format!(
+                "features: last {:.0}%   avg {:.0}%",
+                feature_share_last, feature_share_avg
+            ),
+            text_x3,
+            text_y3,
+            Self::SUBTITLE_FONT,
+            Color::new(234, 214, 194, 255),
+        );
+        text_y3 += Self::SUBTITLE_FONT + 4;
+        let chunk_bar_x = text_x3;
+        let chunk_bar_width = card_width - 24;
+        let chunk_bar_height = 10;
+        d.draw_rectangle(
+            chunk_bar_x,
+            text_y3,
+            chunk_bar_width,
+            chunk_bar_height,
+            Color::new(28, 26, 20, 255),
+        );
+        let chunk_fill =
+            ((feature_share_last / 100.0).clamp(0.0, 1.0) * chunk_bar_width as f32).round() as i32;
+        if chunk_fill > 0 {
+            d.draw_rectangle(
+                chunk_bar_x,
+                text_y3,
+                chunk_fill.max(2),
+                chunk_bar_height,
+                accent_chunk,
+            );
+        }
+
         cursor_y += card_height + Self::SUMMARY_GAP;
         layout.add_custom(card_height + Self::SUMMARY_GAP);
 
@@ -1094,7 +1282,7 @@ impl<'a> TerrainHistogramView<'a> {
         let bar_x = content.x + Self::LABEL_WIDTH + Self::GAP_X;
         let bar_width = (frame.outer.w - (pad_x * 2 + Self::LABEL_WIDTH + Self::GAP_X)).max(160);
         let bar_height = (Self::ROW_HEIGHT - 10).max(8);
-        for (idx, row) in rows.iter().enumerate() {
+        for (idx, (label, row)) in table_rows.iter().enumerate() {
             let row_top = cursor_y + (idx as i32) * Self::ROW_HEIGHT;
             if idx % 2 == 0 {
                 d.draw_rectangle(
@@ -1105,7 +1293,6 @@ impl<'a> TerrainHistogramView<'a> {
                     Color::new(24, 32, 46, 110),
                 );
             }
-            let label = TERRAIN_STAGE_LABELS[idx];
             let label_y = row_top + (Self::ROW_HEIGHT - Self::ROW_FONT) / 2;
             d.draw_text(
                 label,
@@ -1139,7 +1326,12 @@ impl<'a> TerrainHistogramView<'a> {
                 );
             }
 
-            let avg_call_text = format!("avg {:.1} | last {}", row.avg_calls, row.last_calls);
+            let avg_call_text = match *label {
+                "Chunk Total" => format!("samples {}", self.chunk_total_us.len()),
+                "Voxel Fill" => format!("samples {}", self.chunk_fill_us.len()),
+                "Features" => format!("samples {}", self.chunk_feature_us.len()),
+                _ => format!("avg {:.1} | last {}", row.avg_calls, row.last_calls),
+            };
             let latency_text = format!(
                 "avg {:.2}ms  p95 {:.2}ms  last {:.2}ms",
                 row.avg_ms, row.p95_ms, row.last_ms
@@ -1162,7 +1354,7 @@ impl<'a> TerrainHistogramView<'a> {
             );
         }
 
-        layout.add_rows(TERRAIN_STAGE_COUNT, Self::ROW_HEIGHT);
+        layout.add_rows(table_rows.len(), Self::ROW_HEIGHT);
         Some(layout)
     }
 }
@@ -2287,6 +2479,9 @@ impl App {
                                 &self.terrain_height_tile_reused,
                                 &self.terrain_cache_hits,
                                 &self.terrain_cache_misses,
+                                &self.terrain_chunk_total_us,
+                                &self.terrain_chunk_fill_us,
+                                &self.terrain_chunk_feature_us,
                             );
 
                             let event_min = event_view.min_size(&overlay_theme);

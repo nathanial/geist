@@ -1,6 +1,8 @@
 //! Runtime job queues and worker orchestration (slim, engine-only).
 #![forbid(unsafe_code)]
 
+mod gen_ctx_pool;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::thread;
@@ -18,6 +20,8 @@ use geist_mesh_cpu::{
 use geist_world::{ChunkCoord, TerrainMetrics, World};
 use hashbrown::HashMap;
 use rayon::{ThreadPool, ThreadPoolBuilder};
+
+use crate::gen_ctx_pool::GenCtxPool;
 
 #[derive(Clone, Debug)]
 pub struct BuildJob {
@@ -91,6 +95,7 @@ fn process_build_job(
     lane: Lane,
     world: &World,
     lighting: &LightingStore,
+    ctx_pool: &GenCtxPool,
     tx: &Sender<JobOut>,
 ) {
     let BuildJob {
@@ -120,7 +125,9 @@ fn process_build_job(
         (prev, occ, TerrainMetrics::default())
     } else {
         let t0 = Instant::now();
-        let generated = chunkbuf::generate_chunk_buffer(world, coord, &reg);
+        let mut pooled_ctx = ctx_pool.acquire(world);
+        let generated =
+            chunkbuf::generate_chunk_buffer_with_ctx(world, coord, &reg, &mut pooled_ctx);
         t_gen_ms = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
         (
             generated.buf,
@@ -279,6 +286,7 @@ pub struct Runtime {
     pub w_edit: usize,
     pub w_light: usize,
     pub w_bg: usize,
+    _ctx_pool: Arc<GenCtxPool>,
 }
 
 impl Runtime {
@@ -297,6 +305,8 @@ impl Runtime {
         let remaining = worker_count.saturating_sub(w_edit);
         let w_light = if remaining >= 2 { 1 } else { 0 };
         let w_bg = remaining.saturating_sub(w_light);
+        let total_workers = w_edit + w_light + w_bg;
+        let ctx_pool = GenCtxPool::with_capacity_from_workers(total_workers);
 
         let q_edit_ctr = Arc::new(AtomicUsize::new(0));
         let q_light_ctr = Arc::new(AtomicUsize::new(0));
@@ -320,11 +330,19 @@ impl Runtime {
                 let lighting = lighting.clone();
                 let q_edit = q_edit_ctr.clone();
                 let inflight_edit = inflight_edit_ctr.clone();
+                let ctx_pool = ctx_pool.clone();
                 pool.spawn(move || {
                     while let Ok(job) = rx.recv() {
                         q_edit.fetch_sub(1, Ordering::Relaxed);
                         inflight_edit.fetch_add(1, Ordering::Relaxed);
-                        process_build_job(job, Lane::Edit, world.as_ref(), lighting.as_ref(), &tx);
+                        process_build_job(
+                            job,
+                            Lane::Edit,
+                            world.as_ref(),
+                            lighting.as_ref(),
+                            ctx_pool.as_ref(),
+                            &tx,
+                        );
                         inflight_edit.fetch_sub(1, Ordering::Relaxed);
                     }
                 });
@@ -349,11 +367,19 @@ impl Runtime {
                 let lighting = lighting.clone();
                 let q_light = q_light_ctr.clone();
                 let inflight_light = inflight_light_ctr.clone();
+                let ctx_pool = ctx_pool.clone();
                 pool.spawn(move || {
                     while let Ok(job) = rx.recv() {
                         q_light.fetch_sub(1, Ordering::Relaxed);
                         inflight_light.fetch_add(1, Ordering::Relaxed);
-                        process_build_job(job, Lane::Light, world.as_ref(), lighting.as_ref(), &tx);
+                        process_build_job(
+                            job,
+                            Lane::Light,
+                            world.as_ref(),
+                            lighting.as_ref(),
+                            ctx_pool.as_ref(),
+                            &tx,
+                        );
                         inflight_light.fetch_sub(1, Ordering::Relaxed);
                     }
                 });
@@ -381,13 +407,21 @@ impl Runtime {
                 let inflight_bg = inflight_bg_ctr.clone();
                 let q_light = q_light_ctr.clone();
                 let inflight_light = inflight_light_ctr.clone();
+                let ctx_pool = ctx_pool.clone();
                 pool.spawn(move || {
                     loop {
                         match bg_rx.try_recv() {
                             Ok(job) => {
                                 q_bg.fetch_sub(1, Ordering::Relaxed);
                                 inflight_bg.fetch_add(1, Ordering::Relaxed);
-                                process_build_job(job, Lane::Bg, world.as_ref(), lighting.as_ref(), &tx);
+                                process_build_job(
+                                    job,
+                                    Lane::Bg,
+                                    world.as_ref(),
+                                    lighting.as_ref(),
+                                    ctx_pool.as_ref(),
+                                    &tx,
+                                );
                                 inflight_bg.fetch_sub(1, Ordering::Relaxed);
                                 continue;
                             }
@@ -395,7 +429,14 @@ impl Runtime {
                                 while let Ok(job) = light_rx.try_recv() {
                                     q_light.fetch_sub(1, Ordering::Relaxed);
                                     inflight_light.fetch_add(1, Ordering::Relaxed);
-                                    process_build_job(job, Lane::Light, world.as_ref(), lighting.as_ref(), &tx);
+                                    process_build_job(
+                                        job,
+                                        Lane::Light,
+                                        world.as_ref(),
+                                        lighting.as_ref(),
+                                        ctx_pool.as_ref(),
+                                        &tx,
+                                    );
                                     inflight_light.fetch_sub(1, Ordering::Relaxed);
                                 }
                                 break;
@@ -407,22 +448,34 @@ impl Runtime {
                             Ok(job) => {
                                 q_light.fetch_sub(1, Ordering::Relaxed);
                                 inflight_light.fetch_add(1, Ordering::Relaxed);
-                                process_build_job(job, Lane::Light, world.as_ref(), lighting.as_ref(), &tx);
+                                process_build_job(
+                                    job,
+                                    Lane::Light,
+                                    world.as_ref(),
+                                    lighting.as_ref(),
+                                    ctx_pool.as_ref(),
+                                    &tx,
+                                );
                                 inflight_light.fetch_sub(1, Ordering::Relaxed);
                                 continue;
                             }
-                            Err(TryRecvError::Disconnected) => {
-                                match bg_rx.recv() {
-                                    Ok(job) => {
-                                        q_bg.fetch_sub(1, Ordering::Relaxed);
-                                        inflight_bg.fetch_add(1, Ordering::Relaxed);
-                                        process_build_job(job, Lane::Bg, world.as_ref(), lighting.as_ref(), &tx);
-                                        inflight_bg.fetch_sub(1, Ordering::Relaxed);
-                                        continue;
-                                    }
-                                    Err(_) => break,
+                            Err(TryRecvError::Disconnected) => match bg_rx.recv() {
+                                Ok(job) => {
+                                    q_bg.fetch_sub(1, Ordering::Relaxed);
+                                    inflight_bg.fetch_add(1, Ordering::Relaxed);
+                                    process_build_job(
+                                        job,
+                                        Lane::Bg,
+                                        world.as_ref(),
+                                        lighting.as_ref(),
+                                        ctx_pool.as_ref(),
+                                        &tx,
+                                    );
+                                    inflight_bg.fetch_sub(1, Ordering::Relaxed);
+                                    continue;
                                 }
-                            }
+                                Err(_) => break,
+                            },
                             Err(TryRecvError::Empty) => {}
                         }
 
@@ -431,14 +484,28 @@ impl Runtime {
                                 Ok(job) => {
                                     q_bg.fetch_sub(1, Ordering::Relaxed);
                                     inflight_bg.fetch_add(1, Ordering::Relaxed);
-                                    process_build_job(job, Lane::Bg, world.as_ref(), lighting.as_ref(), &tx);
+                                    process_build_job(
+                                        job,
+                                        Lane::Bg,
+                                        world.as_ref(),
+                                        lighting.as_ref(),
+                                        ctx_pool.as_ref(),
+                                        &tx,
+                                    );
                                     inflight_bg.fetch_sub(1, Ordering::Relaxed);
                                 }
                                 Err(_) => {
                                     while let Ok(job) = light_rx.recv() {
                                         q_light.fetch_sub(1, Ordering::Relaxed);
                                         inflight_light.fetch_add(1, Ordering::Relaxed);
-                                        process_build_job(job, Lane::Light, world.as_ref(), lighting.as_ref(), &tx);
+                                        process_build_job(
+                                            job,
+                                            Lane::Light,
+                                            world.as_ref(),
+                                            lighting.as_ref(),
+                                            ctx_pool.as_ref(),
+                                            &tx,
+                                        );
                                         inflight_light.fetch_sub(1, Ordering::Relaxed);
                                     }
                                     break;
@@ -448,7 +515,14 @@ impl Runtime {
                                 Ok(job) => {
                                     q_light.fetch_sub(1, Ordering::Relaxed);
                                     inflight_light.fetch_add(1, Ordering::Relaxed);
-                                    process_build_job(job, Lane::Light, world.as_ref(), lighting.as_ref(), &tx);
+                                    process_build_job(
+                                        job,
+                                        Lane::Light,
+                                        world.as_ref(),
+                                        lighting.as_ref(),
+                                        ctx_pool.as_ref(),
+                                        &tx,
+                                    );
                                     inflight_light.fetch_sub(1, Ordering::Relaxed);
                                 }
                                 Err(_) => {}
@@ -512,6 +586,7 @@ impl Runtime {
             w_edit,
             w_light,
             w_bg,
+            _ctx_pool: ctx_pool,
         }
     }
 

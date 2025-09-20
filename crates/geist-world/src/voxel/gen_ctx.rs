@@ -29,12 +29,21 @@ pub struct TerrainStageSample {
     pub calls: u32,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ChunkTiming {
+    pub total_us: u32,
+    pub height_tile_us: u32,
+    pub voxel_fill_us: u32,
+    pub feature_us: u32,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct TerrainMetrics {
     pub height_tile: HeightTileStats,
     pub stages: [TerrainStageSample; TERRAIN_STAGE_COUNT],
     pub height_cache_hits: u32,
     pub height_cache_misses: u32,
+    pub chunk_timing: ChunkTiming,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -169,6 +178,7 @@ impl TerrainProfiler {
             stages,
             height_cache_hits: self.height_cache_hits,
             height_cache_misses: self.height_cache_misses,
+            chunk_timing: ChunkTiming::default(),
         };
         self.reset();
         metrics

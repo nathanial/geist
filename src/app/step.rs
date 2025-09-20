@@ -793,5 +793,17 @@ impl App {
         }
         Self::perf_push(&mut self.terrain_cache_hits, metrics.height_cache_hits);
         Self::perf_push(&mut self.terrain_cache_misses, metrics.height_cache_misses);
+        Self::perf_push(
+            &mut self.terrain_chunk_total_us,
+            metrics.chunk_timing.total_us,
+        );
+        Self::perf_push(
+            &mut self.terrain_chunk_fill_us,
+            metrics.chunk_timing.voxel_fill_us,
+        );
+        Self::perf_push(
+            &mut self.terrain_chunk_feature_us,
+            metrics.chunk_timing.feature_us,
+        );
     }
 }

@@ -7,7 +7,7 @@ mod world;
 
 pub use chunk_coord::ChunkCoord;
 pub use gen_ctx::{
-    GenCtx, HeightTileStats, TERRAIN_STAGE_COUNT, TERRAIN_STAGE_LABELS, TerrainMetrics,
-    TerrainProfiler, TerrainStage, TerrainStageSample,
+    ChunkTiming, GenCtx, HeightTileStats, TERRAIN_STAGE_COUNT, TERRAIN_STAGE_LABELS,
+    TerrainMetrics, TerrainProfiler, TerrainStage, TerrainStageSample,
 };
 pub use world::{World, WorldGenMode};
