@@ -1,4 +1,5 @@
 mod caves;
+mod column_plan;
 mod column_sampler;
 mod surface;
 mod tower;
@@ -18,7 +19,12 @@ use super::tile_cache::{TerrainTile, TileKey};
 use super::{GenCtx, World, WorldGenMode};
 
 use self::caves::apply_caves_and_features;
-use self::column_sampler::{ColumnSampler, remap_noise_to_height};
+pub use self::caves::{BlockLookup, apply_caves_and_features_blocks};
+pub use self::column_plan::{
+    ChunkColumnPlan, ColumnInfo, ColumnMaterials, build_chunk_column_plan,
+};
+pub use self::column_sampler::ColumnSampler;
+use self::column_sampler::remap_noise_to_height;
 use self::surface::select_surface_block;
 use self::tower::evaluate_tower;
 use self::trees::apply_tree_blocks;
@@ -99,11 +105,9 @@ impl World {
 
         let total_columns = (size_x * size_z) as u32;
         let key = TileKey::new(base_x, base_z, size_x, size_z);
-        if ctx
-            .height_tile
-            .as_ref()
-            .is_some_and(|tile| tile.matches(&key) && tile.worldgen_rev == self.current_worldgen_rev())
-        {
+        if ctx.height_tile.as_ref().is_some_and(|tile| {
+            tile.matches(&key) && tile.worldgen_rev == self.current_worldgen_rev()
+        }) {
             ctx.height_tile_stats = HeightTileStats {
                 duration_us: 0,
                 columns: total_columns,

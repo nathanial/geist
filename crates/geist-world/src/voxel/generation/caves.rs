@@ -1,12 +1,36 @@
+use std::collections::HashMap;
 use std::time::Instant;
 
 use fastnoise_lite::FastNoiseLite;
+use geist_blocks::registry::BlockRegistry;
+use geist_blocks::types::Block;
 
 use crate::worldgen::{Fractal, WorldGenParams};
 
 use super::super::World;
 use super::super::gen_ctx::TerrainStage;
 use super::column_sampler::ColumnSampler;
+
+#[derive(Default)]
+pub struct BlockLookup {
+    cache: HashMap<String, Block>,
+}
+
+impl BlockLookup {
+    #[inline]
+    pub fn resolve(&mut self, world: &World, reg: &BlockRegistry, name: &str) -> Block {
+        if let Some(block) = self.cache.get(name) {
+            *block
+        } else {
+            let block = Block {
+                id: world.resolve_block_id(reg, name),
+                state: 0,
+            };
+            self.cache.insert(name.to_string(), block);
+            block
+        }
+    }
+}
 
 pub(super) fn apply_caves_and_features<'p>(
     world: &World,
@@ -157,6 +181,162 @@ pub(super) fn apply_caves_and_features<'p>(
     carved
 }
 
+pub fn apply_caves_and_features_blocks<'p>(
+    world: &World,
+    sampler: &mut ColumnSampler<'_, 'p>,
+    reg: &BlockRegistry,
+    lookup: &mut BlockLookup,
+    x: i32,
+    y: i32,
+    z: i32,
+    height: i32,
+    base: &mut Block,
+) -> bool {
+    sampler.profiler_mut().begin_stage(TerrainStage::Caves);
+    let stage_start = Instant::now();
+    let params = sampler.params;
+    let world_height = sampler.world_height();
+    let world_height_f = sampler.world_height_f();
+    let mut carved_here = false;
+    let mut base_block = *base;
+
+    if is_carvable_block(reg, base_block) {
+        let y_scale = params.y_scale;
+        let eps_base = params.eps_base;
+        let eps_add = params.eps_add;
+        let warp_xy = params.warp_xy;
+        let warp_y = params.warp_y;
+        let room_cell = params.room_cell;
+        let room_thr_base = params.room_thr_base;
+        let room_thr_add = params.room_thr_add;
+        let soil_min = params.soil_min;
+        let min_y = params.min_y;
+
+        let h = height as f32;
+        let wy = y as f32;
+        let soil = h - wy;
+        if params.carvers_enable && soil > soil_min && wy > min_y {
+            let wx = x as f32;
+            let wyf = y as f32;
+            let wz = z as f32;
+            let wxw = fractal3(&sampler.ctx.warp, wx, wyf, wz, &params.warp);
+            let wyw = fractal3(
+                &sampler.ctx.warp,
+                wx + 133.7,
+                wyf + 71.3,
+                wz - 19.1,
+                &params.warp,
+            );
+            let wzw = fractal3(
+                &sampler.ctx.warp,
+                wx - 54.2,
+                wyf + 29.7,
+                wz + 88.8,
+                &params.warp,
+            );
+            let xp = wx + wxw * warp_xy;
+            let yp = wyf + wyw * warp_y;
+            let zp = wz + wzw * warp_xy;
+            let tn = fractal3(&sampler.ctx.tunnel, xp, yp * y_scale, zp, &params.tunnel);
+            let depth01 = (soil / world_height_f).clamp(0.0, 1.0);
+            let eps = eps_base + eps_add * depth01;
+            let wn = worley3_f1_norm(world.seed as u32, xp, yp, zp, room_cell);
+            let room_thr = room_thr_base + room_thr_add * depth01;
+            let carved_air = (tn.abs() < eps) || (wn < room_thr);
+            if carved_air {
+                base_block = lookup.resolve(world, reg, "air");
+                carved_here = true;
+            }
+
+            let mut near_solid_cache: Option<bool> = None;
+            let features = &params.features;
+            if !features.is_empty() {
+                for (ri, rule) in features.iter().enumerate() {
+                    let w = &rule.when;
+                    let current_name = block_name(reg, base_block);
+                    if !w.base_in.is_empty()
+                        && !w.base_in.iter().any(|s| s.as_str() == current_name)
+                    {
+                        continue;
+                    }
+                    if !w.base_not_in.is_empty()
+                        && w.base_not_in.iter().any(|s| s.as_str() == current_name)
+                    {
+                        continue;
+                    }
+                    if let Some(ymin) = w.y_min {
+                        if y < ymin {
+                            continue;
+                        }
+                    }
+                    if let Some(ymax) = w.y_max {
+                        if y > ymax {
+                            continue;
+                        }
+                    }
+                    if let Some(off) = w.below_height_offset {
+                        if y >= height - off {
+                            continue;
+                        }
+                    }
+                    if let Some(req) = w.in_carved {
+                        if req != carved_here {
+                            continue;
+                        }
+                    }
+                    if let Some(req) = w.near_solid {
+                        if req
+                            != compute_near_solid(
+                                sampler,
+                                &mut near_solid_cache,
+                                world.seed as u32,
+                                x,
+                                y,
+                                z,
+                                params,
+                                world_height,
+                                world_height_f,
+                                y_scale,
+                                warp_xy,
+                                warp_y,
+                                eps_base,
+                                eps_add,
+                                room_cell,
+                                room_thr_base,
+                                room_thr_add,
+                                soil_min,
+                                min_y,
+                            )
+                        {
+                            continue;
+                        }
+                    }
+                    if let Some(p) = w.chance {
+                        if p < 1.0 {
+                            let salt = ((world.seed as u32).wrapping_add(0xC0FF_EE15))
+                                .wrapping_add(ri as u32 * 0x9E37_79B9);
+                            let h = hash3_feature(x, y, z, salt) & 0x00FF_FFFF;
+                            let r = (h as f32) / 16_777_216.0;
+                            if r >= p {
+                                continue;
+                            }
+                        }
+                    }
+                    base_block = lookup.resolve(world, reg, rule.place.block.as_str());
+                    break;
+                }
+            }
+        }
+    }
+
+    let carved = carved_here;
+    sampler
+        .profiler_mut()
+        .record_stage_duration(TerrainStage::Caves, stage_start.elapsed());
+    *base = base_block;
+    carved
+}
+
 fn compute_near_solid<'p>(
     sampler: &mut ColumnSampler<'_, 'p>,
     cache: &mut Option<bool>,
@@ -237,6 +417,21 @@ fn compute_near_solid<'p>(
     }
     *cache = Some(near_solid);
     near_solid
+}
+
+#[inline]
+fn block_name<'a>(reg: &'a BlockRegistry, block: Block) -> &'a str {
+    reg.get(block.id)
+        .map(|ty| ty.name.as_str())
+        .unwrap_or("unknown")
+}
+
+#[inline]
+fn is_carvable_block(reg: &BlockRegistry, block: Block) -> bool {
+    matches!(
+        block_name(reg, block),
+        "stone" | "dirt" | "sand" | "snow" | "glowstone"
+    )
 }
 
 fn fractal3(noise: &FastNoiseLite, x: f32, y: f32, z: f32, fractal: &Fractal) -> f32 {

@@ -950,16 +950,8 @@ impl<'a> TerrainHistogramView<'a> {
         } else {
             (tile_cache_hits_last as f32 / tile_cache_total_last as f32) * 100.0
         };
-        let tile_cache_evictions_last = self
-            .tile_cache_evictions
-            .back()
-            .copied()
-            .unwrap_or(0);
-        let tile_cache_entries_last = self
-            .tile_cache_entries
-            .back()
-            .copied()
-            .unwrap_or(0);
+        let tile_cache_evictions_last = self.tile_cache_evictions.back().copied().unwrap_or(0);
+        let tile_cache_entries_last = self.tile_cache_entries.back().copied().unwrap_or(0);
 
         let chunk_total_samples: Vec<u32> = self
             .chunk_total_us

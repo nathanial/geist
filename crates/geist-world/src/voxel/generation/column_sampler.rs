@@ -18,7 +18,7 @@ pub(super) fn remap_noise_to_height(
     hh.clamp(1, world_height - 1)
 }
 
-pub(super) struct ColumnSampler<'ctx, 'p> {
+pub struct ColumnSampler<'ctx, 'p> {
     pub(super) ctx: &'ctx mut GenCtx,
     pub(super) params: &'p WorldGenParams,
     world_height: i32,
@@ -26,7 +26,7 @@ pub(super) struct ColumnSampler<'ctx, 'p> {
 }
 
 impl<'ctx, 'p> ColumnSampler<'ctx, 'p> {
-    pub(super) fn new(world: &World, ctx: &'ctx mut GenCtx, params: &'p WorldGenParams) -> Self {
+    pub fn new(world: &World, ctx: &'ctx mut GenCtx, params: &'p WorldGenParams) -> Self {
         let world_height = world.world_height_hint() as i32;
         let world_height_f = world_height as f32;
         Self {

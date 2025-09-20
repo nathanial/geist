@@ -2,7 +2,7 @@ pub const CHUNK_SIZE: usize = 64;
 
 mod chunk_coord;
 mod gen_ctx;
-mod generation;
+pub mod generation;
 mod tile_cache;
 mod world;
 

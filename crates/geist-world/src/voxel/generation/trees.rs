@@ -1,8 +1,102 @@
 use std::time::Instant;
 
+use geist_blocks::registry::BlockRegistry;
+use geist_blocks::types::Block;
+
 use super::super::World;
 use super::super::gen_ctx::TerrainStage;
 use super::column_sampler::ColumnSampler;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TreeSpecies {
+    Oak,
+    Birch,
+    Spruce,
+    Jungle,
+    Acacia,
+    DarkOak,
+}
+
+impl TreeSpecies {
+    #[inline]
+    fn trunk_block_name(self) -> &'static str {
+        match self {
+            TreeSpecies::Oak => "oak_log",
+            TreeSpecies::Birch => "birch_log",
+            TreeSpecies::Spruce => "spruce_log",
+            TreeSpecies::Jungle => "jungle_log",
+            TreeSpecies::Acacia => "acacia_log",
+            TreeSpecies::DarkOak => "dark_oak_log",
+        }
+    }
+
+    #[inline]
+    fn leaves_block_name(self) -> &'static str {
+        match self {
+            TreeSpecies::Oak => "oak_leaves",
+            TreeSpecies::Birch => "birch_leaves",
+            TreeSpecies::Spruce => "spruce_leaves",
+            TreeSpecies::Jungle => "jungle_leaves",
+            TreeSpecies::Acacia => "acacia_leaves",
+            TreeSpecies::DarkOak => "oak_leaves",
+        }
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct TreePlan {
+    pub base_x: i32,
+    pub base_z: i32,
+    pub surface_y: i32,
+    pub trunk_height: i32,
+    pub species: TreeSpecies,
+    pub trunk_block: Block,
+    pub leaves_block: Block,
+}
+
+pub(super) fn plan_tree_for_column<'p>(
+    world: &World,
+    sampler: &mut ColumnSampler<'_, 'p>,
+    reg: &BlockRegistry,
+    x: i32,
+    z: i32,
+    column_height: i32,
+) -> Option<TreePlan> {
+    let params = sampler.params;
+    let tree_prob = sampler.tree_probability(x, z);
+    let world_height = sampler.world_height();
+    let seed = world.seed as u32;
+    let (surface_y, trunk_height, species) = trunk_info(
+        sampler,
+        x,
+        z,
+        tree_prob,
+        params.trunk_min,
+        params.trunk_max,
+        world_height,
+        seed,
+        Some(column_height),
+    )?;
+
+    let trunk_block = Block {
+        id: world.resolve_block_id(reg, species.trunk_block_name()),
+        state: 0,
+    };
+    let leaves_block = Block {
+        id: world.resolve_block_id(reg, species.leaves_block_name()),
+        state: 0,
+    };
+
+    Some(TreePlan {
+        base_x: x,
+        base_z: z,
+        surface_y,
+        trunk_height,
+        species,
+        trunk_block,
+        leaves_block,
+    })
+}
 
 pub(super) fn apply_tree_blocks<'p>(
     world: &World,
@@ -31,16 +125,16 @@ pub(super) fn apply_tree_blocks<'p>(
         trunk_max,
         world_height,
         seed,
+        None,
     ) {
         if y > surf && y <= surf + th {
             *base = match sp {
-                "oak" => "oak_log",
-                "birch" => "birch_log",
-                "spruce" => "spruce_log",
-                "jungle" => "jungle_log",
-                "acacia" => "acacia_log",
-                "dark_oak" => "dark_oak_log",
-                _ => "oak_log",
+                TreeSpecies::Oak => "oak_log",
+                TreeSpecies::Birch => "birch_log",
+                TreeSpecies::Spruce => "spruce_log",
+                TreeSpecies::Jungle => "jungle_log",
+                TreeSpecies::Acacia => "acacia_log",
+                TreeSpecies::DarkOak => "dark_oak_log",
             };
         }
     }
@@ -58,6 +152,7 @@ pub(super) fn apply_tree_blocks<'p>(
                     trunk_max,
                     world_height,
                     seed,
+                    None,
                 ) {
                     let top_y = surf + th;
                     let dy = y - top_y;
@@ -78,13 +173,12 @@ pub(super) fn apply_tree_blocks<'p>(
                     let extra = if dy >= 1 { 0 } else { 1 };
                     if man <= rad + extra {
                         *base = match sp {
-                            "oak" => "oak_leaves",
-                            "birch" => "birch_leaves",
-                            "spruce" => "spruce_leaves",
-                            "jungle" => "jungle_leaves",
-                            "acacia" => "acacia_leaves",
-                            "dark_oak" => "oak_leaves",
-                            _ => "oak_leaves",
+                            TreeSpecies::Oak => "oak_leaves",
+                            TreeSpecies::Birch => "birch_leaves",
+                            TreeSpecies::Spruce => "spruce_leaves",
+                            TreeSpecies::Jungle => "jungle_leaves",
+                            TreeSpecies::Acacia => "acacia_leaves",
+                            TreeSpecies::DarkOak => "oak_leaves",
                         };
                         break;
                     }
@@ -122,7 +216,7 @@ fn pick_species_for_column<'p>(
     tx: i32,
     tz: i32,
     seed: u32,
-) -> &'static str {
+) -> TreeSpecies {
     // PERF: Species selection can bounce through biome tables and random generators per column.
     if let Some(def) = sampler.biome_for(tx, tz) {
         if !def.species_weights.is_empty() {
@@ -137,13 +231,13 @@ fn pick_species_for_column<'p>(
                     acc += *weight;
                     if r <= acc {
                         return match key.as_str() {
-                            "oak" => "oak",
-                            "birch" => "birch",
-                            "spruce" => "spruce",
-                            "jungle" => "jungle",
-                            "acacia" => "acacia",
-                            "dark_oak" => "dark_oak",
-                            _ => "oak",
+                            "oak" => TreeSpecies::Oak,
+                            "birch" => TreeSpecies::Birch,
+                            "spruce" => TreeSpecies::Spruce,
+                            "jungle" => TreeSpecies::Jungle,
+                            "acacia" => TreeSpecies::Acacia,
+                            "dark_oak" => TreeSpecies::DarkOak,
+                            _ => TreeSpecies::Oak,
                         };
                     }
                 }
@@ -153,21 +247,21 @@ fn pick_species_for_column<'p>(
     let t = rand01_tree(seed, tx, tz, 0xBEEF01);
     let m = rand01_tree(seed, tx, tz, 0xC0FFEE);
     if t < 0.22 && m > 0.65 {
-        return "spruce";
+        return TreeSpecies::Spruce;
     }
     if t > 0.78 && m > 0.45 {
-        return "jungle";
+        return TreeSpecies::Jungle;
     }
     if t > 0.75 && m < 0.32 {
-        return "acacia";
+        return TreeSpecies::Acacia;
     }
     if t > 0.65 && m < 0.25 {
-        return "dark_oak";
+        return TreeSpecies::DarkOak;
     }
     if ((hash2_tree(tx, tz, 0xDEAD_BEEF) >> 20) & 1) == 1 {
-        "birch"
+        TreeSpecies::Birch
     } else {
-        "oak"
+        TreeSpecies::Oak
     }
 }
 
@@ -180,9 +274,11 @@ fn trunk_info<'p>(
     trunk_max: i32,
     world_height: i32,
     seed: u32,
-) -> Option<(i32, i32, &'static str)> {
-    let surf = sampler.height_for(tx, tz) - 1;
-    let surf_block = sampler.top_block_for_column(tx, tz, surf + 1);
+    height_override: Option<i32>,
+) -> Option<(i32, i32, TreeSpecies)> {
+    let height = height_override.unwrap_or_else(|| sampler.height_for(tx, tz));
+    let surf = height - 1;
+    let surf_block = sampler.top_block_for_column(tx, tz, height);
     if surf_block != "grass" {
         return None;
     }
