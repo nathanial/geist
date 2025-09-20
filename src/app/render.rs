@@ -782,6 +782,10 @@ struct TerrainHistogramView<'a> {
     height_tile_reused: &'a VecDeque<u32>,
     cache_hits: &'a VecDeque<u32>,
     cache_misses: &'a VecDeque<u32>,
+    tile_cache_hits: &'a VecDeque<u32>,
+    tile_cache_misses: &'a VecDeque<u32>,
+    tile_cache_evictions: &'a VecDeque<u32>,
+    tile_cache_entries: &'a VecDeque<u32>,
     chunk_total_us: &'a VecDeque<u32>,
     chunk_fill_us: &'a VecDeque<u32>,
     chunk_feature_us: &'a VecDeque<u32>,
@@ -806,6 +810,10 @@ impl<'a> TerrainHistogramView<'a> {
         height_tile_reused: &'a VecDeque<u32>,
         cache_hits: &'a VecDeque<u32>,
         cache_misses: &'a VecDeque<u32>,
+        tile_cache_hits: &'a VecDeque<u32>,
+        tile_cache_misses: &'a VecDeque<u32>,
+        tile_cache_evictions: &'a VecDeque<u32>,
+        tile_cache_entries: &'a VecDeque<u32>,
         chunk_total_us: &'a VecDeque<u32>,
         chunk_fill_us: &'a VecDeque<u32>,
         chunk_feature_us: &'a VecDeque<u32>,
@@ -817,6 +825,10 @@ impl<'a> TerrainHistogramView<'a> {
             height_tile_reused,
             cache_hits,
             cache_misses,
+            tile_cache_hits,
+            tile_cache_misses,
+            tile_cache_evictions,
+            tile_cache_entries,
             chunk_total_us,
             chunk_fill_us,
             chunk_feature_us,
@@ -930,6 +942,24 @@ impl<'a> TerrainHistogramView<'a> {
         } else {
             (last_hits as f32 / last_cache as f32) * 100.0
         };
+        let tile_cache_hits_last = self.tile_cache_hits.back().copied().unwrap_or(0);
+        let tile_cache_misses_last = self.tile_cache_misses.back().copied().unwrap_or(0);
+        let tile_cache_total_last = tile_cache_hits_last.saturating_add(tile_cache_misses_last);
+        let tile_cache_rate_last = if tile_cache_total_last == 0 {
+            0.0
+        } else {
+            (tile_cache_hits_last as f32 / tile_cache_total_last as f32) * 100.0
+        };
+        let tile_cache_evictions_last = self
+            .tile_cache_evictions
+            .back()
+            .copied()
+            .unwrap_or(0);
+        let tile_cache_entries_last = self
+            .tile_cache_entries
+            .back()
+            .copied()
+            .unwrap_or(0);
 
         let chunk_total_samples: Vec<u32> = self
             .chunk_total_us
@@ -1189,6 +1219,31 @@ impl<'a> TerrainHistogramView<'a> {
             text_y2,
             Self::SUBTITLE_FONT,
             Color::new(190, 206, 204, 255),
+        );
+        text_y2 += Self::SUBTITLE_FONT + 2;
+        d.draw_text(
+            &format!(
+                "tile hit: {:.0}%   entries: {}",
+                tile_cache_rate_last,
+                format_count(tile_cache_entries_last as usize)
+            ),
+            text_x2,
+            text_y2,
+            Self::SUBTITLE_FONT,
+            Color::new(186, 206, 198, 255),
+        );
+        text_y2 += Self::SUBTITLE_FONT + 2;
+        d.draw_text(
+            &format!(
+                "tile totals: {} hits  {} miss  {} evict",
+                format_count(tile_cache_hits_last as usize),
+                format_count(tile_cache_misses_last as usize),
+                format_count(tile_cache_evictions_last as usize)
+            ),
+            text_x2,
+            text_y2,
+            Self::SUBTITLE_FONT,
+            Color::new(176, 196, 186, 255),
         );
         text_y2 += Self::SUBTITLE_FONT + 4;
         let cache_bar_x = text_x2;
@@ -2479,6 +2534,10 @@ impl App {
                                 &self.terrain_height_tile_reused,
                                 &self.terrain_cache_hits,
                                 &self.terrain_cache_misses,
+                                &self.terrain_tile_cache_hits,
+                                &self.terrain_tile_cache_misses,
+                                &self.terrain_tile_cache_evictions,
+                                &self.terrain_tile_cache_entries,
                                 &self.terrain_chunk_total_us,
                                 &self.terrain_chunk_fill_us,
                                 &self.terrain_chunk_feature_us,

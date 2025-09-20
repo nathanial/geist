@@ -13,7 +13,8 @@ use geist_blocks::types::Block as RtBlock;
 
 use crate::worldgen::WorldGenParams;
 
-use super::gen_ctx::{HeightTile, HeightTileStats, TerrainStage};
+use super::gen_ctx::{HeightTileStats, TerrainStage};
+use super::tile_cache::{TerrainTile, TileKey};
 use super::{GenCtx, World, WorldGenMode};
 
 use self::caves::apply_caves_and_features;
@@ -92,19 +93,36 @@ impl World {
                 columns: 0,
                 reused: true,
             };
+            ctx.tile_cache_stats = self.terrain_tile_cache_stats();
             return;
         }
 
         let total_columns = (size_x * size_z) as u32;
-        if let Some(tile) = ctx.height_tile.as_ref() {
-            if tile.matches(base_x, base_z, size_x, size_z) {
-                ctx.height_tile_stats = HeightTileStats {
-                    duration_us: 0,
-                    columns: total_columns,
-                    reused: true,
-                };
-                return;
-            }
+        let key = TileKey::new(base_x, base_z, size_x, size_z);
+        if ctx
+            .height_tile
+            .as_ref()
+            .is_some_and(|tile| tile.matches(&key) && tile.worldgen_rev == self.current_worldgen_rev())
+        {
+            ctx.height_tile_stats = HeightTileStats {
+                duration_us: 0,
+                columns: total_columns,
+                reused: true,
+            };
+            ctx.tile_cache_stats = self.terrain_tile_cache_stats();
+            return;
+        }
+
+        let rev = self.current_worldgen_rev();
+        if let Some(tile) = self.tile_cache().get(&key, rev) {
+            ctx.height_tile = Some(tile);
+            ctx.height_tile_stats = HeightTileStats {
+                duration_us: 0,
+                columns: total_columns,
+                reused: true,
+            };
+            ctx.tile_cache_stats = self.terrain_tile_cache_stats();
+            return;
         }
 
         let params_guard = Arc::clone(&ctx.params);
@@ -128,7 +146,9 @@ impl World {
             columns: total_columns,
             reused: false,
         };
-
-        ctx.height_tile = Some(HeightTile::new(base_x, base_z, size_x, size_z, heights));
+        let tile = TerrainTile::new(key, rev, heights, elapsed_us, total_columns);
+        self.tile_cache().insert(tile.clone());
+        ctx.height_tile = Some(tile);
+        ctx.tile_cache_stats = self.terrain_tile_cache_stats();
     }
 }

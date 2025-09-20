@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crossbeam_channel::{Receiver, Sender, bounded};
-use geist_world::{GenCtx, HeightTileStats, World};
+use geist_world::{GenCtx, HeightTileStats, TerrainTileCacheStats, World};
 
 /// Lock-free pool for reusing costly `GenCtx` instances across worker jobs.
 pub struct GenCtxPool {
@@ -66,6 +66,7 @@ impl GenCtxPool {
     fn prepare(ctx: &mut GenCtx) {
         ctx.terrain_profiler.reset();
         ctx.height_tile_stats = HeightTileStats::default();
+        ctx.tile_cache_stats = TerrainTileCacheStats::default();
     }
 
     fn release(&self, ctx: GenCtx) {

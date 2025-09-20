@@ -5,7 +5,10 @@ use std::time::{Duration, Instant};
 
 use geist_blocks::BlockRegistry;
 use geist_blocks::types::Block;
-use geist_world::{ChunkCoord, ChunkTiming, GenCtx, TerrainMetrics, TerrainStage, World};
+use geist_world::{
+    ChunkCoord, ChunkTiming, GenCtx, HeightTileStats, TerrainMetrics, TerrainStage,
+    TerrainTileCacheStats, World,
+};
 
 #[derive(Clone, Debug)]
 pub struct ChunkBuf {
@@ -170,7 +173,11 @@ pub fn generate_chunk_buffer_with_ctx(
         feature_us: 0,
     };
 
-    let mut metrics = ctx.terrain_profiler.snapshot(ctx.height_tile_stats);
+    let mut metrics = ctx
+        .terrain_profiler
+        .snapshot(ctx.height_tile_stats, ctx.tile_cache_stats);
+    ctx.height_tile_stats = HeightTileStats::default();
+    ctx.tile_cache_stats = TerrainTileCacheStats::default();
     let feature_us = metrics.stages[TerrainStage::Caves as usize]
         .time_us
         .saturating_add(metrics.stages[TerrainStage::Trees as usize].time_us);

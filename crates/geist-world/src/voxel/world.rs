@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, RwLock};
 
 use fastnoise_lite::{FastNoiseLite, NoiseType};
@@ -10,6 +11,7 @@ use crate::worldgen::WorldGenParams;
 use super::{
     CHUNK_SIZE, GenCtx,
     gen_ctx::{HeightTileStats, TerrainProfiler},
+    tile_cache::{TerrainTileCache, TerrainTileCacheStats},
 };
 
 pub struct World {
@@ -23,6 +25,8 @@ pub struct World {
     pub mode: WorldGenMode,
     pub gen_params: Arc<RwLock<Arc<WorldGenParams>>>,
     block_id_cache: RwLock<HashMap<String, u16>>,
+    tile_cache: Arc<TerrainTileCache>,
+    worldgen_rev: AtomicU32,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -50,6 +54,10 @@ impl World {
             mode,
             gen_params: Arc::new(RwLock::new(Arc::new(WorldGenParams::default()))),
             block_id_cache: RwLock::new(HashMap::new()),
+            tile_cache: Arc::new(TerrainTileCache::new(
+                (chunks_x.max(4) * chunks_z.max(4) * 4).max(64),
+            )),
+            worldgen_rev: AtomicU32::new(1),
         }
     }
 
@@ -135,6 +143,7 @@ impl World {
             moist2d,
             height_tile_stats: HeightTileStats::default(),
             height_tile: None,
+            tile_cache_stats: TerrainTileCacheStats::default(),
             terrain_profiler: TerrainProfiler::default(),
         }
     }
@@ -146,11 +155,28 @@ impl World {
         if let Ok(mut ids) = self.block_id_cache.write() {
             ids.clear();
         }
+        self.worldgen_rev.fetch_add(1, Ordering::AcqRel);
+        self.tile_cache.invalidate_all();
     }
 
     #[inline]
     pub fn is_flat(&self) -> bool {
         matches!(self.mode, WorldGenMode::Flat { .. })
+    }
+
+    #[inline]
+    pub fn terrain_tile_cache_stats(&self) -> TerrainTileCacheStats {
+        self.tile_cache.snapshot()
+    }
+
+    #[inline]
+    pub fn current_worldgen_rev(&self) -> u32 {
+        self.worldgen_rev.load(Ordering::Acquire)
+    }
+
+    #[inline]
+    pub(crate) fn tile_cache(&self) -> &TerrainTileCache {
+        &self.tile_cache
     }
 
     pub fn biome_at(&self, wx: i32, wz: i32) -> Option<crate::worldgen::BiomeDefParam> {

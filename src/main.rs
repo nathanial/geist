@@ -11,7 +11,8 @@ mod stairs_tests;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use geist_blocks::BlockRegistry;
 use geist_world::{
-    ChunkCoord, TERRAIN_STAGE_COUNT, TERRAIN_STAGE_LABELS, TerrainMetrics, World, WorldGenMode,
+    ChunkCoord, TERRAIN_STAGE_COUNT, TERRAIN_STAGE_LABELS, TerrainMetrics, TerrainTileCacheStats,
+    World, WorldGenMode,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -378,6 +379,7 @@ fn print_terrain_metrics_summary(
     let mut stage_call_sum = [0u64; TERRAIN_STAGE_COUNT];
     let mut height_cache_hits_sum = 0u64;
     let mut height_cache_misses_sum = 0u64;
+    let mut latest_tile_cache = TerrainTileCacheStats::default();
 
     for report in reports {
         let metrics = &report.metrics;
@@ -406,6 +408,8 @@ fn print_terrain_metrics_summary(
 
         height_cache_hits_sum += u64::from(metrics.height_cache_hits);
         height_cache_misses_sum += u64::from(metrics.height_cache_misses);
+
+        latest_tile_cache = metrics.tile_cache;
 
         for idx in 0..TERRAIN_STAGE_COUNT {
             stage_time_sum[idx] += u64::from(metrics.stages[idx].time_us);
@@ -455,6 +459,21 @@ fn print_terrain_metrics_summary(
     println!(
         "Height cache: {} hits, {} misses (hit rate {:.1}%)",
         height_cache_hits_sum, height_cache_misses_sum, cache_hit_rate
+    );
+
+    let tile_total = latest_tile_cache.hits + latest_tile_cache.misses;
+    let tile_hit_rate = if tile_total == 0 {
+        0.0
+    } else {
+        latest_tile_cache.hits as f64 / tile_total as f64 * 100.0
+    };
+    println!(
+        "Tile cache: {} hits, {} misses, {} evictions, {} entries (hit rate {:.1}%)",
+        latest_tile_cache.hits,
+        latest_tile_cache.misses,
+        latest_tile_cache.evictions,
+        latest_tile_cache.entries,
+        tile_hit_rate
     );
 
     println!("Stage timings (avg per chunk):");

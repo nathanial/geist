@@ -23,6 +23,12 @@ impl App {
         }
     }
 
+    #[inline]
+    pub(super) fn perf_push_u64(q: &mut VecDeque<u32>, v: u64) {
+        let clamped = v.min(u64::from(u32::MAX)) as u32;
+        Self::perf_push(q, clamped);
+    }
+
     pub(super) fn validate_chunk_light_atlas(&self, coord: ChunkCoord, atlas: &LightAtlas) {
         let cx = coord.cx;
         let cy = coord.cy;

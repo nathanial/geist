@@ -793,6 +793,19 @@ impl App {
         }
         Self::perf_push(&mut self.terrain_cache_hits, metrics.height_cache_hits);
         Self::perf_push(&mut self.terrain_cache_misses, metrics.height_cache_misses);
+        Self::perf_push_u64(&mut self.terrain_tile_cache_hits, metrics.tile_cache.hits);
+        Self::perf_push_u64(
+            &mut self.terrain_tile_cache_misses,
+            metrics.tile_cache.misses,
+        );
+        Self::perf_push_u64(
+            &mut self.terrain_tile_cache_evictions,
+            metrics.tile_cache.evictions,
+        );
+        Self::perf_push(
+            &mut self.terrain_tile_cache_entries,
+            metrics.tile_cache.entries.min(u32::MAX as usize) as u32,
+        );
         Self::perf_push(
             &mut self.terrain_chunk_total_us,
             metrics.chunk_timing.total_us,
