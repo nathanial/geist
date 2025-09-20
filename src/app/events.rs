@@ -858,22 +858,34 @@ impl App {
                 }
 
                 // Update light borders in main thread; if changed, emit a dedicated event
+                let mut notify_mask = geist_lighting::BorderChangeMask::default();
                 if let Some(lb) = light_borders {
                     let (changed, mask) = self.gs.lighting.update_borders_mask(coord, lb);
-                    // Only notify neighbors when borders actually change to avoid cascades
                     if changed {
-                        self.queue.emit_now(Event::LightBordersUpdated {
-                            cx,
-                            cy,
-                            cz,
-                            xn_changed: mask.xn,
-                            xp_changed: mask.xp,
-                            yn_changed: mask.yn,
-                            yp_changed: mask.yp,
-                            zn_changed: mask.zn,
-                            zp_changed: mask.zp,
-                        });
+                        notify_mask = mask;
                     }
+                }
+                if let Some(ref lg) = light_grid {
+                    if lg.micro_change.any() {
+                        if !notify_mask.any() {
+                            notify_mask = lg.micro_change;
+                        } else {
+                            notify_mask.or_with(&lg.micro_change);
+                        }
+                    }
+                }
+                if notify_mask.any() {
+                    self.queue.emit_now(Event::LightBordersUpdated {
+                        cx,
+                        cy,
+                        cz,
+                        xn_changed: notify_mask.xn,
+                        xp_changed: notify_mask.xp,
+                        yn_changed: notify_mask.yn,
+                        yp_changed: notify_mask.yp,
+                        zn_changed: notify_mask.zn,
+                        zp_changed: notify_mask.zp,
+                    });
                 }
                 // If both owners are ready and finalize not yet requested, schedule finalize now
                 if let Some(st) = self.gs.finalize.get(&coord).copied() {

@@ -50,6 +50,23 @@ pub struct BorderChangeMask {
     pub yp: bool,
 }
 
+impl BorderChangeMask {
+    #[inline]
+    pub fn any(&self) -> bool {
+        self.xn || self.xp || self.zn || self.zp || self.yn || self.yp
+    }
+
+    #[inline]
+    pub fn or_with(&mut self, other: &Self) {
+        self.xn |= other.xn;
+        self.xp |= other.xp;
+        self.zn |= other.zn;
+        self.zp |= other.zp;
+        self.yn |= other.yn;
+        self.yp |= other.yp;
+    }
+}
+
 pub struct NeighborMicroBorders {
     pub xm_sk_neg: Option<Arc<[u8]>>,
     pub xm_sk_pos: Option<Arc<[u8]>>,
@@ -207,6 +224,7 @@ pub struct LightGrid {
     pub(crate) nb_xp_bcn_dir: Option<Arc<[u8]>>,
     pub(crate) nb_zn_bcn_dir: Option<Arc<[u8]>>,
     pub(crate) nb_zp_bcn_dir: Option<Arc<[u8]>>,
+    pub micro_change: BorderChangeMask,
 }
 
 impl LightGrid {
@@ -257,6 +275,7 @@ impl LightGrid {
             nb_xp_bcn_dir: None,
             nb_zn_bcn_dir: None,
             nb_zp_bcn_dir: None,
+            micro_change: BorderChangeMask::default(),
         }
     }
 
@@ -1721,11 +1740,46 @@ impl LightingStore {
             .map(|entry| entry.emitters.clone())
             .unwrap_or_default()
     }
-    pub fn update_micro_borders(&self, coord: ChunkCoord, mb: MicroBorders) {
+    pub fn update_micro_borders(&self, coord: ChunkCoord, mb: MicroBorders) -> BorderChangeMask {
+        #[inline]
+        fn plane_changed(prev: Option<&Arc<[u8]>>, new_plane: &Arc<[u8]>) -> bool {
+            match prev {
+                Some(old) => {
+                    if Arc::ptr_eq(old, new_plane) {
+                        false
+                    } else {
+                        old.as_ref() != new_plane.as_ref()
+                    }
+                }
+                None => new_plane.iter().any(|&v| v != 0),
+            }
+        }
         let mut map = self.chunks.lock().unwrap();
-        map.entry(coord)
-            .or_insert_with(LightingChunkEntry::default)
-            .micro_borders = Some(mb);
+        let entry = map.entry(coord).or_insert_with(LightingChunkEntry::default);
+        let mut mask = BorderChangeMask::default();
+        if let Some(prev) = entry.micro_borders.as_ref() {
+            mask.xn |= plane_changed(Some(&prev.xm_sk_neg), &mb.xm_sk_neg);
+            mask.xn |= plane_changed(Some(&prev.xm_bl_neg), &mb.xm_bl_neg);
+            mask.xp |= plane_changed(Some(&prev.xm_sk_pos), &mb.xm_sk_pos);
+            mask.xp |= plane_changed(Some(&prev.xm_bl_pos), &mb.xm_bl_pos);
+            mask.zn |= plane_changed(Some(&prev.zm_sk_neg), &mb.zm_sk_neg);
+            mask.zn |= plane_changed(Some(&prev.zm_bl_neg), &mb.zm_bl_neg);
+            mask.zp |= plane_changed(Some(&prev.zm_sk_pos), &mb.zm_sk_pos);
+            mask.zp |= plane_changed(Some(&prev.zm_bl_pos), &mb.zm_bl_pos);
+            mask.yn |= plane_changed(Some(&prev.ym_sk_neg), &mb.ym_sk_neg);
+            mask.yn |= plane_changed(Some(&prev.ym_bl_neg), &mb.ym_bl_neg);
+            mask.yp |= plane_changed(Some(&prev.ym_sk_pos), &mb.ym_sk_pos);
+            mask.yp |= plane_changed(Some(&prev.ym_bl_pos), &mb.ym_bl_pos);
+        } else {
+            mask.xn = mb.xm_sk_neg.iter().any(|&v| v != 0) || mb.xm_bl_neg.iter().any(|&v| v != 0);
+            mask.xp = mb.xm_sk_pos.iter().any(|&v| v != 0) || mb.xm_bl_pos.iter().any(|&v| v != 0);
+            mask.zn = mb.zm_sk_neg.iter().any(|&v| v != 0) || mb.zm_bl_neg.iter().any(|&v| v != 0);
+            mask.zp = mb.zm_sk_pos.iter().any(|&v| v != 0) || mb.zm_bl_pos.iter().any(|&v| v != 0);
+            mask.yn = mb.ym_sk_neg.iter().any(|&v| v != 0) || mb.ym_bl_neg.iter().any(|&v| v != 0);
+            mask.yp = mb.ym_sk_pos.iter().any(|&v| v != 0) || mb.ym_bl_pos.iter().any(|&v| v != 0);
+        }
+        entry.micro_borders = Some(mb);
+        mask
     }
     pub fn get_neighbor_micro_borders(&self, coord: ChunkCoord) -> NeighborMicroBorders {
         let xm = self.sx * 2;

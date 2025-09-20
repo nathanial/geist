@@ -176,7 +176,15 @@ pub fn generate_chunk_buffer_with_ctx(
             let extra_base_z = base_z - leaf_radius;
             let extra_sx = sx + radius * 2;
             let extra_sz = sz + radius * 2;
-            let extra_plan = build_chunk_column_plan(world, ctx, reg, extra_base_x, extra_base_z, extra_sx, extra_sz);
+            let extra_plan = build_chunk_column_plan(
+                world,
+                ctx,
+                reg,
+                extra_base_x,
+                extra_base_z,
+                extra_sx,
+                extra_sz,
+            );
             for column in &extra_plan.columns {
                 if column.wx >= base_x
                     && column.wx < base_x + sx as i32

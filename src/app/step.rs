@@ -614,22 +614,33 @@ impl App {
             } else if let Some(lg) = r.light_grid {
                 // If macro light borders were computed on the light-only lane, update them here
                 // and notify neighbors on changes so they can refresh their seam rings.
+                let coord = ChunkCoord::new(r.cx, r.cy, r.cz);
+                let mut notify_mask = geist_lighting::BorderChangeMask::default();
                 if let Some(lb) = r.light_borders {
-                    let coord = ChunkCoord::new(r.cx, r.cy, r.cz);
                     let (changed, mask) = self.gs.lighting.update_borders_mask(coord, lb);
                     if changed {
-                        self.queue.emit_now(Event::LightBordersUpdated {
-                            cx: r.cx,
-                            cy: r.cy,
-                            cz: r.cz,
-                            xn_changed: mask.xn,
-                            xp_changed: mask.xp,
-                            yn_changed: mask.yn,
-                            yp_changed: mask.yp,
-                            zn_changed: mask.zn,
-                            zp_changed: mask.zp,
-                        });
+                        notify_mask = mask;
                     }
+                }
+                if lg.micro_change.any() {
+                    if !notify_mask.any() {
+                        notify_mask = lg.micro_change;
+                    } else {
+                        notify_mask.or_with(&lg.micro_change);
+                    }
+                }
+                if notify_mask.any() {
+                    self.queue.emit_now(Event::LightBordersUpdated {
+                        cx: r.cx,
+                        cy: r.cy,
+                        cz: r.cz,
+                        xn_changed: notify_mask.xn,
+                        xp_changed: notify_mask.xp,
+                        yn_changed: notify_mask.yn,
+                        yp_changed: notify_mask.yp,
+                        zn_changed: notify_mask.zn,
+                        zp_changed: notify_mask.zp,
+                    });
                 }
                 self.queue.emit_now(Event::ChunkLightingRecomputed {
                     cx: r.cx,

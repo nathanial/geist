@@ -1527,7 +1527,7 @@ pub fn compute_light_with_borders_buf_micro(
             ym_bl_pos[idx] = micro_blk[midx(mx, mys - 1, mz, mxs, mzs)];
         }
     }
-    store.update_micro_borders(
+    let micro_mask = store.update_micro_borders(
         buf.coord,
         MicroBorders {
             xm_sk_neg: xm_sk_neg.into(),
@@ -1563,6 +1563,7 @@ pub fn compute_light_with_borders_buf_micro(
     lg.mnb_zp_blk = nbm.zm_bl_pos;
     lg.mnb_yn_blk = nbm.ym_bl_neg;
     lg.mnb_yp_blk = nbm.ym_bl_pos;
+    lg.micro_change = micro_mask;
     // Coarse planes are still derived by LightBorders::from_grid upstream.
     lg
 }

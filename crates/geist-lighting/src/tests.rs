@@ -308,24 +308,24 @@ fn lightingstore_borders_and_micro_neighbors() {
         ym: 2,
         zm: 4,
     };
-    store.update_micro_borders(ChunkCoord::new(-1, 0, 0), mb.clone());
+    let _ = store.update_micro_borders(ChunkCoord::new(-1, 0, 0), mb.clone());
     let nbm = store.get_neighbor_micro_borders(ChunkCoord::new(0, 0, 0));
     // -X neighbor provides xm_*_neg/pos to our neg
     assert_eq!(nbm.xm_sk_neg.as_ref().unwrap(), &mb.xm_sk_pos);
     assert_eq!(nbm.xm_bl_neg.as_ref().unwrap(), &mb.xm_bl_pos);
     // +X neighbor mapping
     let mut mb2 = mb.clone();
-    store.update_micro_borders(ChunkCoord::new(1, 0, 0), mb2.clone());
+    let _ = store.update_micro_borders(ChunkCoord::new(1, 0, 0), mb2.clone());
     let nbm2 = store.get_neighbor_micro_borders(ChunkCoord::new(0, 0, 0));
     assert_eq!(nbm2.xm_sk_pos.as_ref().unwrap(), &mb2.xm_sk_neg);
     assert_eq!(nbm2.xm_bl_pos.as_ref().unwrap(), &mb2.xm_bl_neg);
     // -Z neighbor mapping
-    store.update_micro_borders(ChunkCoord::new(0, 0, -1), mb.clone());
+    let _ = store.update_micro_borders(ChunkCoord::new(0, 0, -1), mb.clone());
     let nbm3 = store.get_neighbor_micro_borders(ChunkCoord::new(0, 0, 0));
     assert_eq!(nbm3.zm_sk_neg.as_ref().unwrap(), &mb.zm_sk_pos);
     assert_eq!(nbm3.zm_bl_neg.as_ref().unwrap(), &mb.zm_bl_pos);
     // +Z neighbor mapping
-    store.update_micro_borders(ChunkCoord::new(0, 0, 1), mb2.clone());
+    let _ = store.update_micro_borders(ChunkCoord::new(0, 0, 1), mb2.clone());
     let nbm4 = store.get_neighbor_micro_borders(ChunkCoord::new(0, 0, 0));
     assert_eq!(nbm4.zm_sk_pos.as_ref().unwrap(), &mb2.zm_sk_neg);
     assert_eq!(nbm4.zm_bl_pos.as_ref().unwrap(), &mb2.zm_bl_neg);
@@ -445,7 +445,7 @@ fn compute_with_borders_buf_micro_neighbors_take_precedence() {
         zm: mzs,
     };
     // Publish neighbor micro borders for (-1,0)
-    store.update_micro_borders(ChunkCoord::new(-1, 0, 0), mb.clone());
+    let _ = store.update_micro_borders(ChunkCoord::new(-1, 0, 0), mb.clone());
 
     let lg = super::compute_light_with_borders_buf(&buf, &store, &reg, &world);
     // With MICRO_BLOCK_ATTENUATION=16, expect 200-16=184 on x=0 edge
@@ -560,7 +560,7 @@ fn vertical_neighbor_planes_map_to_lower_chunk() {
         ym: mys,
         zm: mzs,
     };
-    store.update_micro_borders(top_coord, micro);
+    let _ = store.update_micro_borders(top_coord, micro);
     let nbm = store.get_neighbor_micro_borders(bottom_coord);
     assert_eq!(
         nbm.ym_sk_pos.as_ref().unwrap().as_ref(),
@@ -658,7 +658,7 @@ fn skylight_neighbors_coarse_and_micro_precedence() {
     let mut coarse = LightBorders::new(sx, sy, sz);
     coarse.sk_xp = vec![200; sy * sz].into();
     store2.update_borders(ChunkCoord::new(-1, 0, 0), coarse);
-    store2.update_micro_borders(ChunkCoord::new(-1, 0, 0), mb.clone());
+    let _ = store2.update_micro_borders(ChunkCoord::new(-1, 0, 0), mb.clone());
     let lg2 = super::compute_light_with_borders_buf(&buf, &store2, &reg, &world);
     for z in 0..sz {
         assert_eq!(lg2.skylight[lg2.idx(0, 0, z)], 184); // 200-16 using micro seam
@@ -718,7 +718,7 @@ fn lightingstore_clear_chunk_and_all_borders() {
         ym: 4,
         zm: 4,
     };
-    store.update_micro_borders(ChunkCoord::new(-1, 0, 0), mb);
+    let _ = store.update_micro_borders(ChunkCoord::new(-1, 0, 0), mb);
     // Add an emitter in chunk (-1,0)
     store.add_emitter_world(-1, 0, 0, 100);
     // Verify present
@@ -1224,7 +1224,7 @@ fn seam_symmetry_block_and_sky_z_plus_minus_with_micro_override() {
         ym: mys,
         zm: mzs,
     };
-    store2.update_micro_borders(ChunkCoord::new(0, 0, 1), mb);
+    let _ = store2.update_micro_borders(ChunkCoord::new(0, 0, 1), mb);
     let lg2 = super::compute_light_with_borders_buf(&buf, &store2, &reg, &world);
     for x in 0..sx {
         assert_eq!(lg2.block_light[lg2.idx(x, 0, sz - 1)], 184);
@@ -1285,7 +1285,7 @@ fn seam_symmetry_block_and_sky_x_plus_with_micro_override() {
         ym: mys,
         zm: mzs,
     };
-    store2.update_micro_borders(ChunkCoord::new(-1, 0, 0), mb);
+    let _ = store2.update_micro_borders(ChunkCoord::new(-1, 0, 0), mb);
     let lg2 = super::compute_light_with_borders_buf(&buf, &store2, &reg, &world);
     for z in 0..sz {
         assert_eq!(lg2.block_light[lg2.idx(0, 0, z)], 184);
@@ -1306,7 +1306,10 @@ fn coarse_x_seam_uses_world_space_y() {
     for _y in 0..sy {
         for _z in 0..sz {
             for _x in 0..sx {
-                blocks.push(Block { id: air_id, state: 0 });
+                blocks.push(Block {
+                    id: air_id,
+                    state: 0,
+                });
             }
         }
     }
@@ -1322,6 +1325,44 @@ fn coarse_x_seam_uses_world_space_y() {
             assert_eq!(lg.block_light[lg.idx(sx - 1, y, z)], 168);
         }
     }
+}
+
+#[test]
+fn update_micro_borders_reports_face_changes() {
+    let sx = 1usize;
+    let sy = 1usize;
+    let sz = 1usize;
+    let store = LightingStore::new(sx, sy, sz);
+    let coord = ChunkCoord::new(3, 0, 0);
+    let zeros = MicroBorders {
+        xm_sk_neg: vec![0; sy * sz * 4].into(),
+        xm_sk_pos: vec![0; sy * sz * 4].into(),
+        ym_sk_neg: vec![0; sz * sx * 4].into(),
+        ym_sk_pos: vec![0; sz * sx * 4].into(),
+        zm_sk_neg: vec![0; sy * sx * 4].into(),
+        zm_sk_pos: vec![0; sy * sx * 4].into(),
+        xm_bl_neg: vec![0; sy * sz * 4].into(),
+        xm_bl_pos: vec![0; sy * sz * 4].into(),
+        ym_bl_neg: vec![0; sz * sx * 4].into(),
+        ym_bl_pos: vec![0; sz * sx * 4].into(),
+        zm_bl_neg: vec![0; sy * sx * 4].into(),
+        zm_bl_pos: vec![0; sy * sx * 4].into(),
+        xm: sx * 2,
+        ym: sy * 2,
+        zm: sz * 2,
+    };
+    let first = store.update_micro_borders(coord, zeros.clone());
+    assert!(!first.any(), "initial zero planes should not trigger mask");
+
+    let mut changed = zeros;
+    let mut xp = Vec::from(changed.xm_sk_pos.as_ref());
+    xp[0] = 200;
+    changed.xm_sk_pos = xp.into();
+    let mask = store.update_micro_borders(coord, changed);
+    assert!(mask.xp);
+    assert!(!mask.xn);
+    assert!(!mask.zn && !mask.zp);
+    assert!(!mask.yn && !mask.yp);
 }
 
 #[test]
@@ -1466,7 +1507,7 @@ fn clear_all_borders_does_not_clear_micro_planes() {
         ym: 2,
         zm: 4,
     };
-    store.update_micro_borders(ChunkCoord::new(-1, 0, 0), mb);
+    let _ = store.update_micro_borders(ChunkCoord::new(-1, 0, 0), mb);
     assert!(
         store
             .get_neighbor_micro_borders(ChunkCoord::new(0, 0, 0))
