@@ -10,4 +10,4 @@ pub(crate) use geist_ui::{
     HitRegion, IRect, OverlayWindow, OverlayWindowManager, TabDefinition, TabStrip, WindowChrome,
     WindowFrame, WindowId, WindowTheme,
 };
-pub use state::{App, DebugOverlayTab, DebugStats};
+pub use state::{App, DebugOverlayTab, DebugStats, DiagnosticsTab};

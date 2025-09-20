@@ -5,10 +5,8 @@ use raylib::prelude::{Color, RaylibDraw, RaylibDrawHandle, Vector2};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum WindowId {
     DebugTabs,
+    DiagnosticsTabs,
     Minimap,
-    RenderStats,
-    RuntimeStats,
-    AttachmentDebug,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]

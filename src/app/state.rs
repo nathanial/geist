@@ -45,6 +45,7 @@ pub struct App {
     pub overlay_windows: OverlayWindowManager,
     pub overlay_hover: Option<(WindowId, HitRegion)>,
     pub overlay_debug_tab: DebugOverlayTab,
+    pub overlay_diagnostics_tab: DiagnosticsTab,
     pub reg: Arc<BlockRegistry>,
     pub(crate) evt_processed_total: usize,
     pub(crate) evt_processed_by: HashMap<String, usize>,
@@ -105,6 +106,43 @@ impl DebugOverlayTab {
 impl Default for DebugOverlayTab {
     fn default() -> Self {
         Self::EventQueue
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DiagnosticsTab {
+    FrameStats,
+    RuntimeStats,
+    AttachmentDebug,
+}
+
+impl DiagnosticsTab {
+    pub const ALL: [Self; 3] = [Self::FrameStats, Self::RuntimeStats, Self::AttachmentDebug];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::FrameStats => "Frame Stats",
+            Self::RuntimeStats => "Runtime Stats",
+            Self::AttachmentDebug => "Attachment Debug",
+        }
+    }
+
+    pub fn as_index(self) -> usize {
+        match self {
+            Self::FrameStats => 0,
+            Self::RuntimeStats => 1,
+            Self::AttachmentDebug => 2,
+        }
+    }
+
+    pub fn from_index(index: usize) -> Self {
+        Self::ALL.get(index).copied().unwrap_or(Self::FrameStats)
+    }
+}
+
+impl Default for DiagnosticsTab {
+    fn default() -> Self {
+        Self::FrameStats
     }
 }
 

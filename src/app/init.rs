@@ -4,8 +4,8 @@ use raylib::prelude::*;
 use serde::Deserialize;
 
 use super::{
-    App, DebugOverlayTab, DebugStats, OverlayWindow, OverlayWindowManager, WindowId, WindowTheme,
-    render::MINIMAP_MIN_CONTENT_SIDE,
+    App, DebugOverlayTab, DebugStats, DiagnosticsTab, OverlayWindow, OverlayWindowManager,
+    WindowId, WindowTheme, render::MINIMAP_MIN_CONTENT_SIDE,
 };
 use crate::event::{Event, EventQueue};
 use crate::gamestate::GameState;
@@ -378,20 +378,8 @@ impl App {
             (540, 260),
         ));
         overlay_windows.insert(OverlayWindow::new(
-            WindowId::RenderStats,
+            WindowId::DiagnosticsTabs,
             Vector2::new(40.0, 360.0),
-            (380, 240),
-            (340, 200),
-        ));
-        overlay_windows.insert(OverlayWindow::new(
-            WindowId::RuntimeStats,
-            Vector2::new(440.0, 360.0),
-            (420, 320),
-            (380, 260),
-        ));
-        overlay_windows.insert(OverlayWindow::new(
-            WindowId::AttachmentDebug,
-            Vector2::new(40.0, 640.0),
             (560, 320),
             (420, 260),
         ));
@@ -449,6 +437,7 @@ impl App {
             overlay_windows,
             overlay_hover: None,
             overlay_debug_tab: DebugOverlayTab::default(),
+            overlay_diagnostics_tab: DiagnosticsTab::default(),
             reg: reg.clone(),
             evt_processed_total: 0,
             evt_processed_by: HashMap::new(),

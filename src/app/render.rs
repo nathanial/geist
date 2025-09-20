@@ -2,8 +2,8 @@ use raylib::prelude::*;
 use std::collections::{HashSet, VecDeque};
 
 use super::{
-    App, DebugOverlayTab, DebugStats, HitRegion, IRect, TabDefinition, TabStrip, WindowChrome,
-    WindowFrame, WindowId, WindowTheme,
+    App, DebugOverlayTab, DebugStats, DiagnosticsTab, HitRegion, IRect, TabDefinition, TabStrip,
+    WindowChrome, WindowFrame, WindowId, WindowTheme,
 };
 
 pub(super) const MINIMAP_MIN_CONTENT_SIDE: i32 = 200;
@@ -2111,55 +2111,94 @@ impl App {
                     .and_then(|(hid, region)| (*hid == id).then_some(*region));
 
                 match id {
-                    WindowId::RenderStats => {
-                        let view = RenderStatsView::new(self, fps);
+                    WindowId::DiagnosticsTabs => {
+                        let frame_view = RenderStatsView::new(self, fps);
+                        let runtime_view = RuntimeStatsView::new(self);
+                        let attachment_view = AttachmentDebugView::new(self);
+
                         if let Some(window) = self.overlay_windows.get_mut(id) {
-                            window.set_min_size(view.min_size(&overlay_theme));
+                            let frame_min = frame_view.min_size(&overlay_theme);
+                            let runtime_min = runtime_view.min_size(&overlay_theme);
+                            let attachment_min = attachment_view.min_size(&overlay_theme);
+                            let min_width = frame_min.0.max(runtime_min.0).max(attachment_min.0);
+                            let tab_extra =
+                                overlay_theme.tab_height + overlay_theme.tab_content_spacing;
+                            let min_height =
+                                frame_min.1.max(runtime_min.1).max(attachment_min.1) + tab_extra;
+                            window.set_min_size((min_width, min_height));
                             let frame = window.layout(screen_dims, &overlay_theme);
+
+                            let tab_definitions = [
+                                TabDefinition::new(DiagnosticsTab::FrameStats.title()),
+                                TabDefinition::new(DiagnosticsTab::RuntimeStats.title()),
+                                TabDefinition::new(DiagnosticsTab::AttachmentDebug.title()),
+                            ];
+                            let tab_layout =
+                                TabStrip::layout(&d, &overlay_theme, &frame, &tab_definitions);
+                            let hovered_tab = tab_layout.hovered(cursor_position);
+                            if mouse_left_pressed
+                                && hovered_tab.is_some()
+                                && matches!(hover, Some(HitRegion::Content))
+                                && !window.is_dragging()
+                                && !window.is_resizing()
+                            {
+                                if let Some(index) = hovered_tab {
+                                    let next_tab = DiagnosticsTab::from_index(index);
+                                    if next_tab != self.overlay_diagnostics_tab {
+                                        self.overlay_diagnostics_tab = next_tab;
+                                    }
+                                }
+                            }
+
+                            let selected_tab = self.overlay_diagnostics_tab;
+                            let selected_index = selected_tab.as_index();
+
+                            let frame_subtitle = frame_view.subtitle();
+                            let runtime_subtitle = runtime_view.subtitle();
+                            let attachment_subtitle: Option<&str> = None;
+                            let subtitle = match selected_tab {
+                                DiagnosticsTab::FrameStats => frame_subtitle,
+                                DiagnosticsTab::RuntimeStats => runtime_subtitle,
+                                DiagnosticsTab::AttachmentDebug => attachment_subtitle,
+                            };
+
                             WindowChrome::draw(
                                 &mut d,
                                 &overlay_theme,
                                 &frame,
-                                "Frame Stats",
-                                view.subtitle(),
+                                "Diagnostics",
+                                subtitle,
                                 hover,
                             );
-                            let layout = view.draw(&mut d, &frame);
-                            self.draw_overflow_hint(&mut d, &frame, layout);
-                        }
-                    }
-                    WindowId::RuntimeStats => {
-                        let view = RuntimeStatsView::new(self);
-                        if let Some(window) = self.overlay_windows.get_mut(id) {
-                            window.set_min_size(view.min_size(&overlay_theme));
-                            let frame = window.layout(screen_dims, &overlay_theme);
-                            WindowChrome::draw(
+
+                            TabStrip::draw(
                                 &mut d,
                                 &overlay_theme,
-                                &frame,
-                                "Runtime Stats",
-                                view.subtitle(),
-                                hover,
+                                &tab_layout,
+                                selected_index,
+                                hovered_tab,
                             );
-                            let layout = view.draw(&mut d, &frame);
-                            self.draw_overflow_hint(&mut d, &frame, layout);
-                        }
-                    }
-                    WindowId::AttachmentDebug => {
-                        let view = AttachmentDebugView::new(self);
-                        if let Some(window) = self.overlay_windows.get_mut(id) {
-                            window.set_min_size(view.min_size(&overlay_theme));
-                            let frame = window.layout(screen_dims, &overlay_theme);
-                            WindowChrome::draw(
-                                &mut d,
-                                &overlay_theme,
-                                &frame,
-                                "Attachment Debug",
-                                None,
-                                hover,
-                            );
-                            let layout = view.draw(&mut d, &frame);
-                            self.draw_overflow_hint(&mut d, &frame, layout);
+
+                            let tab_content_frame = WindowFrame {
+                                outer: frame.outer,
+                                titlebar: frame.titlebar,
+                                content: tab_layout.content_rect(),
+                                resize: frame.resize,
+                            };
+
+                            let layout = match selected_tab {
+                                DiagnosticsTab::FrameStats => {
+                                    frame_view.draw(&mut d, &tab_content_frame)
+                                }
+                                DiagnosticsTab::RuntimeStats => {
+                                    runtime_view.draw(&mut d, &tab_content_frame)
+                                }
+                                DiagnosticsTab::AttachmentDebug => {
+                                    attachment_view.draw(&mut d, &tab_content_frame)
+                                }
+                            };
+
+                            self.draw_overflow_hint(&mut d, &tab_content_frame, layout);
                         }
                     }
 
