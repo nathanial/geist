@@ -10,8 +10,11 @@ mod stairs_tests;
 
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use geist_blocks::BlockRegistry;
-use geist_world::voxel::{World, WorldGenMode};
-use std::path::PathBuf;
+use geist_world::{
+    ChunkCoord, TERRAIN_STAGE_COUNT, TERRAIN_STAGE_LABELS, TerrainMetrics, World, WorldGenMode,
+};
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 #[derive(Parser, Debug)]
@@ -94,6 +97,10 @@ struct RunArgs {
     /// Disable frustum culling (render all loaded chunks)
     #[arg(long, default_value_t = false)]
     no_frustum_culling: bool,
+
+    /// Generate chunks up to radius 1 and print terrain metrics instead of launching the viewer
+    #[arg(long, default_value_t = false)]
+    terrain_metrics: bool,
 }
 
 impl Default for RunArgs {
@@ -110,6 +117,7 @@ impl Default for RunArgs {
             watch_worldgen: true,
             rebuild_on_worldgen_change: true,
             no_frustum_culling: false,
+            terrain_metrics: false,
         }
     }
 }
@@ -137,6 +145,350 @@ struct SchemReportArgs {
     /// Optional schematic path
     #[arg(value_name = "SCHEM_PATH")]
     path: Option<PathBuf>,
+}
+
+fn load_block_registry(assets_root: &Path) -> Arc<BlockRegistry> {
+    let mats_path = crate::assets::materials_path(assets_root);
+    let blocks_path = crate::assets::blocks_path(assets_root);
+    let mut reg = BlockRegistry::load_from_paths(&mats_path, &blocks_path).unwrap_or_else(|e| {
+        log::warn!(
+            "Failed to load runtime voxel registry from {:?} / {:?}: {}",
+            mats_path,
+            blocks_path,
+            e
+        );
+        BlockRegistry::new()
+    });
+    for material in &mut reg.materials.materials {
+        for tex_path in &mut material.texture_candidates {
+            if tex_path.is_relative() {
+                *tex_path = assets_root.join(&*tex_path);
+            }
+        }
+    }
+    Arc::new(reg)
+}
+
+fn load_worldgen_params(world: &World, assets_root: &Path, config_path: &str) {
+    let cfg_path = Path::new(config_path);
+    let cfg_path_abs = if cfg_path.exists() {
+        cfg_path.to_path_buf()
+    } else {
+        assets_root.join(cfg_path)
+    };
+
+    if cfg_path_abs.exists() {
+        match geist_world::worldgen::load_params_from_path(&cfg_path_abs) {
+            Ok(params) => {
+                world.update_worldgen_params(params);
+                log::info!("Loaded worldgen config from {:?}", cfg_path_abs);
+            }
+            Err(e) => {
+                log::warn!(
+                    "worldgen config load failed (path={:?}): {}",
+                    cfg_path_abs,
+                    e
+                );
+            }
+        }
+    } else {
+        log::info!(
+            "worldgen config not found at {}; using defaults",
+            config_path
+        );
+    }
+}
+
+#[derive(Clone)]
+struct ChunkReport {
+    coord: ChunkCoord,
+    metrics: TerrainMetrics,
+}
+
+fn chunk_coords_within_radius(
+    center: ChunkCoord,
+    radius: i32,
+    vertical_limit: i32,
+) -> Vec<ChunkCoord> {
+    if radius < 0 {
+        return Vec::new();
+    }
+    let v_limit = vertical_limit.max(0).min(radius);
+    let mut coords = Vec::new();
+    let r_sq = i64::from(radius) * i64::from(radius);
+    for dy in -v_limit..=v_limit {
+        for dz in -radius..=radius {
+            for dx in -radius..=radius {
+                let dx64 = i64::from(dx);
+                let dy64 = i64::from(dy);
+                let dz64 = i64::from(dz);
+                let dist_sq = dx64 * dx64 + dy64 * dy64 + dz64 * dz64;
+                if dist_sq <= r_sq {
+                    coords.push(center.offset(dx, dy, dz));
+                }
+            }
+        }
+    }
+    coords
+}
+
+fn run_terrain_metrics(run: &RunArgs, assets_root: &Path) {
+    println!("== Terrain Metrics Probe (radius 1) ==");
+
+    let reg = load_block_registry(assets_root);
+    println!(
+        "Loaded voxel registry: {} materials, {} blocks",
+        reg.materials.materials.len(),
+        reg.blocks.len()
+    );
+
+    let mut chunks_y_hint = run.chunks_y_hint;
+    if chunks_y_hint == 0 {
+        log::warn!("--chunks-y-hint must be at least 1; using 1 instead");
+        chunks_y_hint = 1;
+    }
+
+    let world_mode = match run.world {
+        WorldKind::SchemOnly => WorldGenMode::Flat { thickness: 0 },
+        WorldKind::Flat => WorldGenMode::Flat {
+            thickness: run.flat_thickness.unwrap_or(1),
+        },
+        WorldKind::Normal => WorldGenMode::Normal,
+    };
+
+    let world = World::new(
+        run.chunks_x,
+        chunks_y_hint,
+        run.chunks_z,
+        run.seed,
+        world_mode,
+    );
+
+    load_worldgen_params(&world, assets_root, &run.world_config);
+
+    let vertical_limit = if chunks_y_hint > 1 { 1 } else { 0 };
+    let center = ChunkCoord::new(0, 0, 0);
+    let coords = chunk_coords_within_radius(center, 1, vertical_limit);
+    let mut columns: BTreeMap<(i32, i32), Vec<ChunkCoord>> = BTreeMap::new();
+    for coord in coords {
+        columns.entry((coord.cx, coord.cz)).or_default().push(coord);
+    }
+    for column in columns.values_mut() {
+        column.sort_by_key(|c| c.cy);
+    }
+
+    let mut reports: Vec<ChunkReport> = Vec::new();
+    for (_, column_coords) in columns.into_iter() {
+        let mut ctx = world.make_gen_ctx();
+        for coord in column_coords {
+            let chunk_result =
+                geist_chunk::generate_chunk_buffer_with_ctx(&world, coord, &reg, &mut ctx);
+            let geist_chunk::ChunkGenerateResult {
+                buf: _,
+                occupancy: _,
+                terrain_metrics,
+            } = chunk_result;
+            reports.push(ChunkReport {
+                coord,
+                metrics: terrain_metrics,
+            });
+        }
+    }
+
+    reports.sort_by(|a, b| {
+        center
+            .distance_sq(a.coord)
+            .cmp(&center.distance_sq(b.coord))
+            .then(a.coord.cy.cmp(&b.coord.cy))
+            .then(a.coord.cz.cmp(&b.coord.cz))
+            .then(a.coord.cx.cmp(&b.coord.cx))
+    });
+
+    print_terrain_metrics_summary(run, &world, &reports, vertical_limit);
+}
+
+fn print_terrain_metrics_summary(
+    run: &RunArgs,
+    world: &World,
+    reports: &[ChunkReport],
+    vertical_limit: i32,
+) {
+    if reports.is_empty() {
+        println!("No chunk metrics captured.");
+        return;
+    }
+
+    let world_kind = match run.world {
+        WorldKind::Normal => "Normal",
+        WorldKind::Flat => "Flat",
+        WorldKind::SchemOnly => "SchemOnly",
+    };
+
+    println!(
+        "Seed: {} | World: {} | Chunk size: {}³",
+        run.seed, world_kind, world.chunk_size_x
+    );
+    println!(
+        "Density hints: chunks_x={} chunks_y_hint={} chunks_z={}",
+        run.chunks_x, run.chunks_y_hint, run.chunks_z
+    );
+
+    println!(
+        "Generated {} chunk(s) within radius 1 (vertical limit {}):",
+        reports.len(),
+        vertical_limit
+    );
+
+    let chunk_count = reports.len() as f64;
+    let mut total_us_sum = 0u64;
+    let mut total_us_min = u32::MAX;
+    let mut total_us_max = 0u32;
+    let mut fill_us_sum = 0u64;
+    let mut feature_us_sum = 0u64;
+    let mut height_tile_total_us_sum = 0u64;
+    let mut height_tile_unique_us_sum = 0u64;
+    let mut unique_height_tiles = 0u64;
+    let mut reused_height_tiles = 0u64;
+    let mut height_tile_columns_unique = 0u64;
+    let mut height_tile_columns_total = 0u64;
+    let mut stage_time_sum = [0u64; TERRAIN_STAGE_COUNT];
+    let mut stage_call_sum = [0u64; TERRAIN_STAGE_COUNT];
+    let mut height_cache_hits_sum = 0u64;
+    let mut height_cache_misses_sum = 0u64;
+
+    for report in reports {
+        let metrics = &report.metrics;
+        let timing = &metrics.chunk_timing;
+
+        total_us_sum += u64::from(timing.total_us);
+        fill_us_sum += u64::from(timing.voxel_fill_us);
+        feature_us_sum += u64::from(timing.feature_us);
+        height_tile_total_us_sum += u64::from(timing.height_tile_us);
+        height_tile_columns_total += u64::from(metrics.height_tile.columns);
+
+        if timing.total_us < total_us_min {
+            total_us_min = timing.total_us;
+        }
+        if timing.total_us > total_us_max {
+            total_us_max = timing.total_us;
+        }
+
+        if metrics.height_tile.reused {
+            reused_height_tiles = reused_height_tiles.saturating_add(1);
+        } else {
+            unique_height_tiles = unique_height_tiles.saturating_add(1);
+            height_tile_unique_us_sum += u64::from(metrics.height_tile.duration_us);
+            height_tile_columns_unique += u64::from(metrics.height_tile.columns);
+        }
+
+        height_cache_hits_sum += u64::from(metrics.height_cache_hits);
+        height_cache_misses_sum += u64::from(metrics.height_cache_misses);
+
+        for idx in 0..TERRAIN_STAGE_COUNT {
+            stage_time_sum[idx] += u64::from(metrics.stages[idx].time_us);
+            stage_call_sum[idx] += u64::from(metrics.stages[idx].calls);
+        }
+    }
+
+    let avg_total_ms = total_us_sum as f64 / chunk_count / 1000.0;
+    let avg_fill_ms = fill_us_sum as f64 / chunk_count / 1000.0;
+    let avg_feature_ms = feature_us_sum as f64 / chunk_count / 1000.0;
+    let avg_height_tile_ms = height_tile_total_us_sum as f64 / chunk_count / 1000.0;
+    let min_total_ms = total_us_min as f64 / 1000.0;
+    let max_total_ms = total_us_max as f64 / 1000.0;
+
+    println!(
+        "Chunk timing: avg {:.3} ms (min {:.3}, max {:.3}) | fill avg {:.3} ms | feature avg {:.3} ms | height tile avg {:.3} ms",
+        avg_total_ms, min_total_ms, max_total_ms, avg_fill_ms, avg_feature_ms, avg_height_tile_ms
+    );
+
+    let reuse_ratio = if reports.is_empty() {
+        0.0
+    } else {
+        reused_height_tiles as f64 / reports.len() as f64 * 100.0
+    };
+    let avg_unique_tile_ms = if unique_height_tiles > 0 {
+        height_tile_unique_us_sum as f64 / unique_height_tiles as f64 / 1000.0
+    } else {
+        0.0
+    };
+
+    println!(
+        "Height tiles: {} unique (avg recompute {:.3} ms) | reused {} chunk(s) ({:.1}% reuse)",
+        unique_height_tiles, avg_unique_tile_ms, reused_height_tiles, reuse_ratio
+    );
+
+    println!(
+        "Height columns processed: total {} (unique {})",
+        height_tile_columns_total, height_tile_columns_unique
+    );
+
+    let cache_total = height_cache_hits_sum + height_cache_misses_sum;
+    let cache_hit_rate = if cache_total == 0 {
+        0.0
+    } else {
+        height_cache_hits_sum as f64 / cache_total as f64 * 100.0
+    };
+    println!(
+        "Height cache: {} hits, {} misses (hit rate {:.1}%)",
+        height_cache_hits_sum, height_cache_misses_sum, cache_hit_rate
+    );
+
+    println!("Stage timings (avg per chunk):");
+    for idx in 0..TERRAIN_STAGE_COUNT {
+        let avg_stage_ms = stage_time_sum[idx] as f64 / chunk_count / 1000.0;
+        let avg_calls = stage_call_sum[idx] as f64 / chunk_count;
+        println!(
+            "  - {:<7}: {:>6.3} ms (avg calls {:>5.2})",
+            TERRAIN_STAGE_LABELS[idx], avg_stage_ms, avg_calls
+        );
+    }
+
+    println!("\nPer-chunk metrics:");
+    for report in reports {
+        let coord = report.coord;
+        let dist_sq = coord.distance_sq(ChunkCoord::new(0, 0, 0));
+        let metrics = &report.metrics;
+        let timing = &metrics.chunk_timing;
+        let total_ms = timing.total_us as f64 / 1000.0;
+        let fill_ms = timing.voxel_fill_us as f64 / 1000.0;
+        let feature_ms = timing.feature_us as f64 / 1000.0;
+        let tile_ms = timing.height_tile_us as f64 / 1000.0;
+        let tile_flag = if metrics.height_tile.reused {
+            "reused"
+        } else {
+            "fresh"
+        };
+
+        println!(
+            "({:>2},{:>2},{:>2}) r²={:<2} | total {:>6.3} ms | fill {:>6.3} ms | feature {:>6.3} ms | tile {:>5.3} ms ({})",
+            coord.cx,
+            coord.cy,
+            coord.cz,
+            dist_sq,
+            total_ms,
+            fill_ms,
+            feature_ms,
+            tile_ms,
+            tile_flag
+        );
+
+        let stage_lines: Vec<String> = (0..TERRAIN_STAGE_COUNT)
+            .map(|idx| {
+                format!(
+                    "{}={:>5}µs/{}",
+                    TERRAIN_STAGE_LABELS[idx],
+                    metrics.stages[idx].time_us,
+                    metrics.stages[idx].calls
+                )
+            })
+            .collect();
+        println!("    stages: {}", stage_lines.join(", "));
+        println!(
+            "    height cache: {} hits, {} misses",
+            metrics.height_cache_hits, metrics.height_cache_misses
+        );
+    }
 }
 
 fn main() {
@@ -229,7 +581,13 @@ fn main() {
                 }
             }
         }
-        Command::Run(run) => run_app(run, assets_root),
+        Command::Run(run) => {
+            if run.terrain_metrics {
+                run_terrain_metrics(&run, assets_root.as_path());
+            } else {
+                run_app(run, assets_root);
+            }
+        }
     }
 }
 
@@ -255,30 +613,7 @@ fn run_app(run: RunArgs, assets_root: std::path::PathBuf) {
     rl.set_target_fps(60);
 
     // Load runtime voxel registry (materials + block types)
-    let mats_path = crate::assets::materials_path(&assets_root);
-    let blocks_path = crate::assets::blocks_path(&assets_root);
-    let mut reg0 = BlockRegistry::load_from_paths(&mats_path, &blocks_path).unwrap_or_else(|e| {
-        log::warn!(
-            "Failed to load runtime voxel registry from {:?} / {:?}: {}",
-            mats_path,
-            blocks_path,
-            e
-        );
-        BlockRegistry::new()
-    });
-    // Normalize material texture paths to absolute so they load regardless of CWD
-    {
-        use std::path::PathBuf;
-        for m in &mut reg0.materials.materials {
-            for p in &mut m.texture_candidates {
-                if p.is_relative() {
-                    let joined: PathBuf = assets_root.join(&p);
-                    *p = joined;
-                }
-            }
-        }
-    }
-    let reg = std::sync::Arc::new(reg0);
+    let reg = load_block_registry(&assets_root);
     log::info!(
         "Loaded voxel registry: {} materials, {} blocks",
         reg.materials.materials.len(),
@@ -309,36 +644,7 @@ fn run_app(run: RunArgs, assets_root: std::path::PathBuf) {
         world_mode,
     ));
     // Initial worldgen params load (optional)
-    {
-        use std::path::Path;
-        let cfg_path = Path::new(&run.world_config);
-        let cfg_path_abs = if cfg_path.exists() {
-            cfg_path.to_path_buf()
-        } else {
-            let alt = assets_root.join(cfg_path);
-            alt
-        };
-        if cfg_path_abs.exists() {
-            match geist_world::worldgen::load_params_from_path(&cfg_path_abs) {
-                Ok(params) => {
-                    world.update_worldgen_params(params);
-                    log::info!("Loaded worldgen config from {:?}", cfg_path_abs);
-                }
-                Err(e) => {
-                    log::warn!(
-                        "worldgen config load failed (path={:?}): {}",
-                        cfg_path_abs,
-                        e
-                    );
-                }
-            }
-        } else {
-            log::info!(
-                "worldgen config not found at {}; using defaults",
-                run.world_config
-            );
-        }
-    }
+    load_worldgen_params(world.as_ref(), &assets_root, &run.world_config);
     let lighting_store = Arc::new(geist_lighting::LightingStore::new(
         world.chunk_size_x,
         world.chunk_size_y,
