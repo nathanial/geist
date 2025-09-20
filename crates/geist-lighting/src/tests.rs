@@ -1294,6 +1294,37 @@ fn seam_symmetry_block_and_sky_x_plus_with_micro_override() {
 }
 
 #[test]
+fn coarse_x_seam_uses_world_space_y() {
+    let reg = make_test_registry();
+    let sx = 2usize;
+    let sy = 2usize;
+    let sz = 2usize;
+    let world = geist_world::World::new(2, 2, 1, 21, WorldGenMode::Flat { thickness: 2 });
+    let air_id = reg.id_by_name("air").unwrap();
+    let coord = ChunkCoord::new(0, 1, 0);
+    let mut blocks = Vec::with_capacity(sx * sy * sz);
+    for _y in 0..sy {
+        for _z in 0..sz {
+            for _x in 0..sx {
+                blocks.push(Block { id: air_id, state: 0 });
+            }
+        }
+    }
+    let buf = ChunkBuf::from_blocks_local(coord, sx, sy, sz, blocks);
+    let store = LightingStore::new(sx, sy, sz);
+    let mut neighbor = LightBorders::new(sx, sy, sz);
+    neighbor.xn = vec![200; sy * sz].into();
+    store.update_borders(ChunkCoord::new(1, 1, 0), neighbor);
+
+    let lg = super::compute_light_with_borders_buf(&buf, &store, &reg, &world);
+    for y in 0..sy {
+        for z in 0..sz {
+            assert_eq!(lg.block_light[lg.idx(sx - 1, y, z)], 168);
+        }
+    }
+}
+
+#[test]
 fn beacons_are_ignored_in_micro_path() {
     let reg = make_test_registry();
     let sx = 1;

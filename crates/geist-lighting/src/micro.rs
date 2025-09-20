@@ -409,14 +409,14 @@ pub fn compute_light_with_borders_buf_micro(
                         reg,
                         &mut reuse_ctx,
                         base_x - 1,
-                        ly as i32,
+                        base_y + ly as i32,
                         base_z + lz as i32,
                     ),
                     world.block_at_runtime_with(
                         reg,
                         &mut reuse_ctx,
                         base_x + buf.sx as i32,
-                        ly as i32,
+                        base_y + ly as i32,
                         base_z + lz as i32,
                     ),
                 )
@@ -661,14 +661,14 @@ pub fn compute_light_with_borders_buf_micro(
                         reg,
                         &mut reuse_ctx,
                         base_x + lx as i32,
-                        ly as i32,
+                        base_y + ly as i32,
                         base_z - 1,
                     ),
                     world.block_at_runtime_with(
                         reg,
                         &mut reuse_ctx,
                         base_x + lx as i32,
-                        ly as i32,
+                        base_y + ly as i32,
                         base_z + buf.sz as i32,
                     ),
                 )
