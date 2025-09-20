@@ -400,6 +400,12 @@ impl App {
             (560, 320),
             (420, 260),
         ));
+        overlay_windows.insert(OverlayWindow::new(
+            WindowId::ChunkVoxels,
+            Vector2::new(840.0, 40.0),
+            (520, 360),
+            (360, 240),
+        ));
         let minimap_side =
             App::minimap_side_px(gs.view_radius_chunks).max(MINIMAP_MIN_CONTENT_SIDE);
         let minimap_size = (

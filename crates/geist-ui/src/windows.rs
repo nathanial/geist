@@ -31,6 +31,7 @@ pub enum WindowId {
     DebugTabs,
     DiagnosticsTabs,
     Minimap,
+    ChunkVoxels,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
