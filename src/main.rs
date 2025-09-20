@@ -14,10 +14,12 @@ use geist_world::{
     ChunkCoord, TERRAIN_STAGE_COUNT, TERRAIN_STAGE_LABELS, TerrainMetrics, TerrainTileCacheStats,
     World, WorldGenMode,
 };
-use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
+use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use toml::Value;
 
 #[derive(Parser, Debug)]
 #[command(
@@ -146,6 +148,9 @@ enum WorldKind {
 enum SchemCmd {
     /// Report unsupported blocks or counts from a schematic
     Report(SchemReportArgs),
+
+    /// Generate stub asset definitions for missing schematic blocks
+    Autofill(SchemAutofillArgs),
 }
 
 #[derive(Args, Debug)]
@@ -155,6 +160,13 @@ struct SchemReportArgs {
     counts: bool,
 
     /// Optional schematic path
+    #[arg(value_name = "SCHEM_PATH")]
+    path: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+struct SchemAutofillArgs {
+    /// Optional schematic path (file or directory)
     #[arg(value_name = "SCHEM_PATH")]
     path: Option<PathBuf>,
 }
@@ -192,6 +204,280 @@ fn resolve_schem_paths(path: Option<PathBuf>) -> Result<Vec<PathBuf>, String> {
     } else {
         Err(format!("{:?} is neither a file nor directory", target))
     }
+}
+
+fn sanitize_voxel_name(full_id: &str) -> String {
+    full_id
+        .split(':')
+        .last()
+        .unwrap_or(full_id)
+        .chars()
+        .map(|c| match c {
+            'A'..='Z' => c.to_ascii_lowercase(),
+            'a'..='z' | '0'..='9' | '_' => c,
+            _ => '_',
+        })
+        .collect()
+}
+
+fn read_material_keys(path: &Path) -> Result<HashSet<String>, String> {
+    let src = fs::read_to_string(path)
+        .map_err(|e| format!("failed to read materials at {:?}: {}", path, e))?;
+    let parsed: Value = src
+        .parse::<Value>()
+        .map_err(|e| format!("parse materials toml {:?}: {}", path, e))?;
+    let table = parsed
+        .get("materials")
+        .and_then(Value::as_table)
+        .ok_or_else(|| "materials table missing".to_string())?;
+    Ok(table.keys().cloned().collect())
+}
+
+fn read_block_names(path: &Path) -> Result<HashSet<String>, String> {
+    let src = fs::read_to_string(path)
+        .map_err(|e| format!("failed to read blocks at {:?}: {}", path, e))?;
+    let parsed: Value = src
+        .parse::<Value>()
+        .map_err(|e| format!("parse blocks toml {:?}: {}", path, e))?;
+    let mut names = HashSet::new();
+    if let Some(arr) = parsed.get("blocks").and_then(Value::as_array) {
+        for entry in arr {
+            if let Some(name) = entry.get("name").and_then(Value::as_str) {
+                names.insert(name.to_string());
+            }
+        }
+    }
+    Ok(names)
+}
+
+fn read_palette_sources(path: &Path) -> Result<HashSet<String>, String> {
+    let src = fs::read_to_string(path)
+        .map_err(|e| format!("failed to read palette map at {:?}: {}", path, e))?;
+    let parsed: Value = src
+        .parse::<Value>()
+        .map_err(|e| format!("parse palette map toml {:?}: {}", path, e))?;
+    let mut srcs = HashSet::new();
+    if let Some(arr) = parsed.get("rules").and_then(Value::as_array) {
+        for rule in arr {
+            if let Some(from) = rule.get("from").and_then(Value::as_str) {
+                srcs.insert(from.to_string());
+            }
+        }
+    }
+    Ok(srcs)
+}
+
+fn run_schem_autofill(args: &SchemAutofillArgs, assets_root: &Path) -> Result<(), String> {
+    let schem_paths = resolve_schem_paths(args.path.clone())?;
+    if schem_paths.is_empty() {
+        return Err("no schematics to process".to_string());
+    }
+
+    println!(
+        "Scanning {} schematic(s) for unsupported blocks...",
+        schem_paths.len()
+    );
+
+    let mut all_missing: BTreeSet<String> = BTreeSet::new();
+    for schem_path in &schem_paths {
+        match geist_io::find_unsupported_blocks_in_file(schem_path.as_path()) {
+            Ok(list) => {
+                if list.is_empty() {
+                    println!(
+                        "All blocks in {:?} are supported by current mapper.",
+                        schem_path
+                    );
+                } else {
+                    println!(
+                        "Unsupported block types in {:?} ({}):",
+                        schem_path,
+                        list.len()
+                    );
+                    for id in &list {
+                        println!("- {}", id);
+                        all_missing.insert(id.clone());
+                    }
+                    // list consumed later for aggregated stubs via all_missing
+                }
+            }
+            Err(e) => {
+                return Err(format!("failed to analyze {:?}: {}", schem_path, e));
+            }
+        }
+    }
+
+    if all_missing.is_empty() {
+        println!("No unsupported blocks detected; nothing to autofill.");
+        return Ok(());
+    }
+
+    println!(
+        "Total unsupported block types across {} schematics: {}",
+        schem_paths.len(),
+        all_missing.len()
+    );
+
+    let materials_path = crate::assets::materials_path(assets_root);
+    let blocks_path = crate::assets::blocks_path(assets_root);
+    let palette_map_path = assets_root.join("assets/voxels/palette_map.toml");
+    let textures_dir = crate::assets::textures_dir(assets_root);
+    let unknown_texture = textures_dir.join("unknown.png");
+    if !unknown_texture.exists() {
+        return Err(format!(
+            "placeholder texture not found at {:?}; cannot create stubs",
+            unknown_texture
+        ));
+    }
+
+    let existing_materials = read_material_keys(&materials_path)?;
+    let existing_blocks = read_block_names(&blocks_path)?;
+    let existing_rules = read_palette_sources(&palette_map_path)?;
+
+    #[derive(Clone)]
+    struct MissingVoxel {
+        full_id: String,
+        block_name: String,
+    }
+
+    let mut voxels: Vec<MissingVoxel> = Vec::new();
+    for id in &all_missing {
+        let block_name = sanitize_voxel_name(id);
+        if block_name.is_empty() {
+            continue;
+        }
+        voxels.push(MissingVoxel {
+            full_id: id.clone(),
+            block_name,
+        });
+    }
+
+    if voxels.is_empty() {
+        println!("Unsupported ids sanitized to empty names; skipping autofill.");
+        return Ok(());
+    }
+
+    let mut new_material_names: Vec<String> = Vec::new();
+    let mut seen_new_materials: HashSet<String> = HashSet::new();
+    for voxel in &voxels {
+        if existing_materials.contains(&voxel.block_name) {
+            continue;
+        }
+        if seen_new_materials.insert(voxel.block_name.clone()) {
+            new_material_names.push(voxel.block_name.clone());
+        }
+    }
+    new_material_names.sort();
+
+    let mut new_block_names: Vec<String> = Vec::new();
+    let mut seen_new_blocks: HashSet<String> = HashSet::new();
+    for voxel in &voxels {
+        if existing_blocks.contains(&voxel.block_name) {
+            continue;
+        }
+        if seen_new_blocks.insert(voxel.block_name.clone()) {
+            new_block_names.push(voxel.block_name.clone());
+        }
+    }
+    new_block_names.sort();
+
+    let mut new_palette_rules: Vec<MissingVoxel> = Vec::new();
+    for voxel in &voxels {
+        if existing_rules.contains(&voxel.full_id) {
+            continue;
+        }
+        new_palette_rules.push(voxel.clone());
+    }
+
+    if new_material_names.is_empty() && new_block_names.is_empty() && new_palette_rules.is_empty() {
+        println!("All unsupported ids already have stub assets; nothing to update.");
+        return Ok(());
+    }
+
+    if !new_material_names.is_empty() {
+        let mut materials_file = OpenOptions::new()
+            .append(true)
+            .open(&materials_path)
+            .map_err(|e| format!("open materials {:?} for append: {}", materials_path, e))?;
+        writeln!(
+            materials_file,
+            "\n# Auto-generated stub materials (schem autofill)"
+        )
+        .map_err(|e| format!("write materials header {:?}: {}", materials_path, e))?;
+        for name in &new_material_names {
+            let texture_rel = format!("assets/blocks/{}.png", name);
+            writeln!(materials_file, "{} = [\"{}\"]", name, texture_rel)
+                .map_err(|e| format!("write materials entry {:?}: {}", materials_path, e))?;
+        }
+    }
+
+    if !new_block_names.is_empty() {
+        let mut blocks_file = OpenOptions::new()
+            .append(true)
+            .open(&blocks_path)
+            .map_err(|e| format!("open blocks {:?} for append: {}", blocks_path, e))?;
+        writeln!(
+            blocks_file,
+            "\n# Auto-generated stub blocks (schem autofill)"
+        )
+        .map_err(|e| format!("write blocks header {:?}: {}", blocks_path, e))?;
+        for name in &new_block_names {
+            writeln!(blocks_file, "[[blocks]]")
+                .map_err(|e| format!("write block start {:?}: {}", blocks_path, e))?;
+            writeln!(blocks_file, "name = \"{}\"", name)
+                .map_err(|e| format!("write block name {:?}: {}", blocks_path, e))?;
+            writeln!(blocks_file, "solid = true")
+                .map_err(|e| format!("write block solid {:?}: {}", blocks_path, e))?;
+            writeln!(blocks_file, "blocks_skylight = true")
+                .map_err(|e| format!("write block skylight {:?}: {}", blocks_path, e))?;
+            writeln!(blocks_file, "emission = 0")
+                .map_err(|e| format!("write block emission {:?}: {}", blocks_path, e))?;
+            writeln!(blocks_file, "shape = \"cube\"")
+                .map_err(|e| format!("write block shape {:?}: {}", blocks_path, e))?;
+            writeln!(blocks_file, "materials = {{ all = \"{}\" }}", name)
+                .map_err(|e| format!("write block materials {:?}: {}", blocks_path, e))?;
+        }
+    }
+
+    if !new_palette_rules.is_empty() {
+        let mut palette_file = OpenOptions::new()
+            .append(true)
+            .open(&palette_map_path)
+            .map_err(|e| format!("open palette {:?} for append: {}", palette_map_path, e))?;
+        writeln!(
+            palette_file,
+            "\n# Auto-generated palette rules (schem autofill)"
+        )
+        .map_err(|e| format!("write palette header {:?}: {}", palette_map_path, e))?;
+        for voxel in &new_palette_rules {
+            writeln!(palette_file, "[[rules]]")
+                .map_err(|e| format!("write palette rule start {:?}: {}", palette_map_path, e))?;
+            writeln!(palette_file, "from = \"{}\"", voxel.full_id)
+                .map_err(|e| format!("write palette rule from {:?}: {}", palette_map_path, e))?;
+            writeln!(palette_file, "to = {{ name = \"{}\" }}", voxel.block_name)
+                .map_err(|e| format!("write palette rule to {:?}: {}", palette_map_path, e))?;
+        }
+    }
+
+    let mut textures_created = 0usize;
+    for name in &new_material_names {
+        let dest = textures_dir.join(format!("{}.png", name));
+        if dest.exists() {
+            continue;
+        }
+        fs::copy(&unknown_texture, &dest)
+            .map_err(|e| format!("copy placeholder texture to {:?}: {}", dest, e))?;
+        textures_created += 1;
+    }
+
+    println!(
+        "Autofill complete: added {} material(s), {} block(s), {} palette rule(s), created {} placeholder texture(s).",
+        new_material_names.len(),
+        new_block_names.len(),
+        new_palette_rules.len(),
+        textures_created
+    );
+
+    Ok(())
 }
 
 fn load_block_registry(assets_root: &Path) -> Arc<BlockRegistry> {
@@ -574,81 +860,87 @@ fn main() {
     let command = cli.command.unwrap_or(Command::Run(RunArgs::default()));
 
     match command {
-        Command::Schem {
-            cmd: SchemCmd::Report(args),
-        } => {
-            let schem_paths = match resolve_schem_paths(args.path.clone()) {
-                Ok(paths) => paths,
-                Err(err) => {
-                    eprintln!("{}", err);
-                    std::process::exit(2);
-                }
-            };
-
-            if args.counts {
-                for schem_path in &schem_paths {
-                    match geist_io::count_blocks_in_file(schem_path.as_path()) {
-                        Ok(mut entries) => {
-                            entries.sort_by(|a, b| b.1.cmp(&a.1));
-                            println!("Block counts in {:?} (excluding air):", schem_path);
-                            for (id, count) in entries {
-                                println!("{:>8}  {}", count, id);
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to analyze {:?}: {}", schem_path, e);
-                            std::process::exit(2);
-                        }
+        Command::Schem { cmd } => match cmd {
+            SchemCmd::Report(args) => {
+                let schem_paths = match resolve_schem_paths(args.path.clone()) {
+                    Ok(paths) => paths,
+                    Err(err) => {
+                        eprintln!("{}", err);
+                        std::process::exit(2);
                     }
-                }
-            } else {
-                let mut aggregate_missing: BTreeSet<String> = BTreeSet::new();
-                for schem_path in &schem_paths {
-                    match geist_io::find_unsupported_blocks_in_file(schem_path.as_path()) {
-                        Ok(list) => {
-                            if list.is_empty() {
-                                println!(
-                                    "All blocks in {:?} are supported by current mapper.",
-                                    schem_path
-                                );
-                            } else {
-                                println!(
-                                    "Unsupported block types in {:?} ({}):",
-                                    schem_path,
-                                    list.len()
-                                );
-                                for id in list {
-                                    aggregate_missing.insert(id.clone());
-                                    println!("- {}", id);
+                };
+
+                if args.counts {
+                    for schem_path in &schem_paths {
+                        match geist_io::count_blocks_in_file(schem_path.as_path()) {
+                            Ok(mut entries) => {
+                                entries.sort_by(|a, b| b.1.cmp(&a.1));
+                                println!("Block counts in {:?} (excluding air):", schem_path);
+                                for (id, count) in entries {
+                                    println!("{:>8}  {}", count, id);
                                 }
                             }
-                        }
-                        Err(e) => {
-                            eprintln!("Failed to analyze {:?}: {}", schem_path, e);
-                            std::process::exit(2);
+                            Err(e) => {
+                                eprintln!("Failed to analyze {:?}: {}", schem_path, e);
+                                std::process::exit(2);
+                            }
                         }
                     }
-                }
+                } else {
+                    let mut aggregate_missing: BTreeSet<String> = BTreeSet::new();
+                    for schem_path in &schem_paths {
+                        match geist_io::find_unsupported_blocks_in_file(schem_path.as_path()) {
+                            Ok(list) => {
+                                if list.is_empty() {
+                                    println!(
+                                        "All blocks in {:?} are supported by current mapper.",
+                                        schem_path
+                                    );
+                                } else {
+                                    println!(
+                                        "Unsupported block types in {:?} ({}):",
+                                        schem_path,
+                                        list.len()
+                                    );
+                                    for id in list {
+                                        aggregate_missing.insert(id.clone());
+                                        println!("- {}", id);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to analyze {:?}: {}", schem_path, e);
+                                std::process::exit(2);
+                            }
+                        }
+                    }
 
-                if schem_paths.len() > 1 {
-                    if aggregate_missing.is_empty() {
-                        println!(
-                            "All {} schematics referenced supported blocks only.",
-                            schem_paths.len()
-                        );
-                    } else {
-                        println!(
-                            "Combined unsupported block types across {} schematics ({}):",
-                            schem_paths.len(),
-                            aggregate_missing.len()
-                        );
-                        for id in aggregate_missing {
-                            println!("- {}", id);
+                    if schem_paths.len() > 1 {
+                        if aggregate_missing.is_empty() {
+                            println!(
+                                "All {} schematics referenced supported blocks only.",
+                                schem_paths.len()
+                            );
+                        } else {
+                            println!(
+                                "Combined unsupported block types across {} schematics ({}):",
+                                schem_paths.len(),
+                                aggregate_missing.len()
+                            );
+                            for id in aggregate_missing {
+                                println!("- {}", id);
+                            }
                         }
                     }
                 }
             }
-        }
+            SchemCmd::Autofill(args) => {
+                if let Err(err) = run_schem_autofill(&args, assets_root.as_path()) {
+                    eprintln!("Autofill failed: {}", err);
+                    std::process::exit(2);
+                }
+            }
+        },
         Command::Run(run) => {
             if run.terrain_metrics {
                 run_terrain_metrics(&run, assets_root.as_path());
