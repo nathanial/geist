@@ -4,7 +4,7 @@ use raylib::prelude::*;
 use serde::Deserialize;
 
 use super::{
-    App, DebugStats, OverlayWindow, OverlayWindowManager, WindowId, WindowTheme,
+    App, DebugOverlayTab, DebugStats, OverlayWindow, OverlayWindowManager, WindowId, WindowTheme,
     render::MINIMAP_MIN_CONTENT_SIDE,
 };
 use crate::event::{Event, EventQueue};
@@ -372,22 +372,10 @@ impl App {
         let window_theme = WindowTheme::default();
         let mut overlay_windows = OverlayWindowManager::new(window_theme);
         overlay_windows.insert(OverlayWindow::new(
-            WindowId::EventHistogram,
+            WindowId::DebugTabs,
             Vector2::new(40.0, 40.0),
-            (488, 220),
-            (488, 220),
-        ));
-        overlay_windows.insert(OverlayWindow::new(
-            WindowId::IntentHistogram,
-            Vector2::new(420.0, 40.0),
-            (498, 240),
-            (498, 240),
-        ));
-        overlay_windows.insert(OverlayWindow::new(
-            WindowId::TerrainHistogram,
-            Vector2::new(800.0, 40.0),
-            (534, 360),
-            (534, 360),
+            (720, 360),
+            (540, 260),
         ));
         overlay_windows.insert(OverlayWindow::new(
             WindowId::RenderStats,
@@ -460,6 +448,7 @@ impl App {
             minimap_last_cursor: None,
             overlay_windows,
             overlay_hover: None,
+            overlay_debug_tab: DebugOverlayTab::default(),
             reg: reg.clone(),
             evt_processed_total: 0,
             evt_processed_by: HashMap::new(),

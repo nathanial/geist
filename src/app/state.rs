@@ -44,6 +44,7 @@ pub struct App {
     pub minimap_last_cursor: Option<Vector2>,
     pub overlay_windows: OverlayWindowManager,
     pub overlay_hover: Option<(WindowId, HitRegion)>,
+    pub overlay_debug_tab: DebugOverlayTab,
     pub reg: Arc<BlockRegistry>,
     pub(crate) evt_processed_total: usize,
     pub(crate) evt_processed_by: HashMap<String, usize>,
@@ -68,6 +69,43 @@ pub struct App {
     pub assets_root: PathBuf,
     pub(crate) reg_event_rx: Receiver<()>,
     pub(crate) shader_event_rx: Receiver<()>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DebugOverlayTab {
+    EventQueue,
+    IntentQueue,
+    TerrainPipeline,
+}
+
+impl DebugOverlayTab {
+    pub const ALL: [Self; 3] = [Self::EventQueue, Self::IntentQueue, Self::TerrainPipeline];
+
+    pub fn title(self) -> &'static str {
+        match self {
+            Self::EventQueue => "Event Queue",
+            Self::IntentQueue => "Intent Queue",
+            Self::TerrainPipeline => "Terrain Pipeline",
+        }
+    }
+
+    pub fn as_index(self) -> usize {
+        match self {
+            Self::EventQueue => 0,
+            Self::IntentQueue => 1,
+            Self::TerrainPipeline => 2,
+        }
+    }
+
+    pub fn from_index(index: usize) -> Self {
+        Self::ALL.get(index).copied().unwrap_or(Self::EventQueue)
+    }
+}
+
+impl Default for DebugOverlayTab {
+    fn default() -> Self {
+        Self::EventQueue
+    }
 }
 
 #[derive(Default)]

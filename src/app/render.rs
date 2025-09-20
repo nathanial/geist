@@ -1,7 +1,10 @@
 use raylib::prelude::*;
 use std::collections::{HashSet, VecDeque};
 
-use super::{App, DebugStats, IRect, WindowChrome, WindowFrame, WindowId, WindowTheme};
+use super::{
+    App, DebugOverlayTab, DebugStats, HitRegion, IRect, TabDefinition, TabStrip, WindowChrome,
+    WindowFrame, WindowId, WindowTheme,
+};
 
 pub(super) const MINIMAP_MIN_CONTENT_SIDE: i32 = 200;
 pub(super) const MINIMAP_MAX_CONTENT_SIDE: i32 = 420;
@@ -1647,6 +1650,9 @@ impl App {
             self.render_minimap_to_texture(rl, thread, 0);
         }
 
+        let cursor_position = rl.get_mouse_position();
+        let mouse_left_pressed = rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT);
+
         let mut d = rl.begin_drawing(thread);
         // Skybox: clear background to time-of-day sky color
         d.clear_background(Color::new(
@@ -2156,45 +2162,12 @@ impl App {
                             self.draw_overflow_hint(&mut d, &frame, layout);
                         }
                     }
-                    WindowId::EventHistogram => {
+
+                    WindowId::DebugTabs => {
                         if let Some(window) = self.overlay_windows.get_mut(id) {
-                            let view = EventHistogramView::new(&self.debug_stats);
-                            window.set_min_size(view.min_size(&overlay_theme));
-                            let frame = window.layout(screen_dims, &overlay_theme);
-                            let subtitle = view.subtitle();
-                            WindowChrome::draw(
-                                &mut d,
-                                &overlay_theme,
-                                &frame,
-                                "Event Queue",
-                                subtitle.as_deref(),
-                                hover,
-                            );
-                            let layout = view.draw(&mut d, &frame, &overlay_theme);
-                            self.draw_overflow_hint(&mut d, &frame, layout);
-                        }
-                    }
-                    WindowId::IntentHistogram => {
-                        if let Some(window) = self.overlay_windows.get_mut(id) {
-                            let view = IntentHistogramView::new(&self.debug_stats);
-                            window.set_min_size(view.min_size(&overlay_theme));
-                            let frame = window.layout(screen_dims, &overlay_theme);
-                            let subtitle = view.subtitle();
-                            WindowChrome::draw(
-                                &mut d,
-                                &overlay_theme,
-                                &frame,
-                                "Intent Queue",
-                                subtitle.as_deref(),
-                                hover,
-                            );
-                            let layout = view.draw(&mut d, &frame, &overlay_theme);
-                            self.draw_overflow_hint(&mut d, &frame, layout);
-                        }
-                    }
-                    WindowId::TerrainHistogram => {
-                        if let Some(window) = self.overlay_windows.get_mut(id) {
-                            let view = TerrainHistogramView::new(
+                            let event_view = EventHistogramView::new(&self.debug_stats);
+                            let intent_view = IntentHistogramView::new(&self.debug_stats);
+                            let terrain_view = TerrainHistogramView::new(
                                 &self.terrain_stage_us,
                                 &self.terrain_stage_calls,
                                 &self.terrain_height_tile_us,
@@ -2202,19 +2175,97 @@ impl App {
                                 &self.terrain_cache_hits,
                                 &self.terrain_cache_misses,
                             );
-                            window.set_min_size(view.min_size(&overlay_theme));
+
+                            let event_min = event_view.min_size(&overlay_theme);
+                            let intent_min = intent_view.min_size(&overlay_theme);
+                            let terrain_min = terrain_view.min_size(&overlay_theme);
+                            let min_width = event_min.0.max(intent_min.0).max(terrain_min.0);
+                            let tab_extra =
+                                overlay_theme.tab_height + overlay_theme.tab_content_spacing;
+                            let min_height =
+                                event_min.1.max(intent_min.1).max(terrain_min.1) + tab_extra;
+                            window.set_min_size((min_width, min_height));
                             let frame = window.layout(screen_dims, &overlay_theme);
-                            let subtitle = view.subtitle();
+
+                            let tab_definitions = [
+                                TabDefinition::new(DebugOverlayTab::EventQueue.title()),
+                                TabDefinition::new(DebugOverlayTab::IntentQueue.title()),
+                                TabDefinition::new(DebugOverlayTab::TerrainPipeline.title()),
+                            ];
+                            let tab_layout =
+                                TabStrip::layout(&d, &overlay_theme, &frame, &tab_definitions);
+                            let hovered_tab = tab_layout.hovered(cursor_position);
+                            if mouse_left_pressed
+                                && hovered_tab.is_some()
+                                && matches!(hover, Some(HitRegion::Content))
+                                && !window.is_dragging()
+                                && !window.is_resizing()
+                            {
+                                if let Some(index) = hovered_tab {
+                                    let next_tab = DebugOverlayTab::from_index(index);
+                                    if next_tab != self.overlay_debug_tab {
+                                        self.overlay_debug_tab = next_tab;
+                                    }
+                                }
+                            }
+
+                            let selected_tab = self.overlay_debug_tab;
+                            let selected_index = selected_tab.as_index();
+
+                            let event_subtitle = event_view.subtitle();
+                            let intent_subtitle = intent_view.subtitle();
+                            let terrain_subtitle = terrain_view.subtitle();
+                            let subtitle = match selected_tab {
+                                DebugOverlayTab::EventQueue => event_subtitle.as_deref(),
+                                DebugOverlayTab::IntentQueue => intent_subtitle.as_deref(),
+                                DebugOverlayTab::TerrainPipeline => terrain_subtitle.as_deref(),
+                            };
+
                             WindowChrome::draw(
                                 &mut d,
                                 &overlay_theme,
                                 &frame,
-                                "Terrain Pipeline",
-                                subtitle.as_deref(),
+                                "Queues & Pipelines",
+                                subtitle,
                                 hover,
                             );
-                            if let Some(layout) = view.draw(&mut d, &frame, &overlay_theme) {
-                                self.draw_overflow_hint(&mut d, &frame, layout);
+
+                            TabStrip::draw(
+                                &mut d,
+                                &overlay_theme,
+                                &tab_layout,
+                                selected_index,
+                                hovered_tab,
+                            );
+
+                            let tab_content_frame = WindowFrame {
+                                outer: frame.outer,
+                                titlebar: frame.titlebar,
+                                content: tab_layout.content_rect(),
+                                resize: frame.resize,
+                            };
+
+                            let maybe_layout = match selected_tab {
+                                DebugOverlayTab::EventQueue => {
+                                    let layout =
+                                        event_view.draw(&mut d, &tab_content_frame, &overlay_theme);
+                                    Some(layout)
+                                }
+                                DebugOverlayTab::IntentQueue => {
+                                    let layout = intent_view.draw(
+                                        &mut d,
+                                        &tab_content_frame,
+                                        &overlay_theme,
+                                    );
+                                    Some(layout)
+                                }
+                                DebugOverlayTab::TerrainPipeline => {
+                                    terrain_view.draw(&mut d, &tab_content_frame, &overlay_theme)
+                                }
+                            };
+
+                            if let Some(layout) = maybe_layout {
+                                self.draw_overflow_hint(&mut d, &tab_content_frame, layout);
                             }
                         }
                     }
