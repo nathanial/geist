@@ -26,7 +26,10 @@ pub use self::column_plan::{
 pub use self::column_sampler::ColumnSampler;
 use self::column_sampler::remap_noise_to_height;
 use self::surface::select_surface_block;
-use self::tower::evaluate_tower;
+pub use self::tower::{
+    TOWER_INNER_RADIUS, TOWER_OUTER_RADIUS, TOWER_TOP, TowerMaterial, evaluate_tower,
+    tower_material,
+};
 use self::trees::apply_tree_blocks;
 use self::water::apply_water_fill;
 

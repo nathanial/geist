@@ -10,8 +10,8 @@ use geist_world::{
     ChunkCoord, ChunkTiming, GenCtx, HeightTileStats, TerrainMetrics, TerrainStage,
     TerrainTileCacheStats, World,
     voxel::generation::{
-        BlockLookup, ColumnMaterials, ColumnSampler, apply_caves_and_features_blocks,
-        build_chunk_column_plan,
+        BlockLookup, ColumnMaterials, ColumnSampler, TOWER_OUTER_RADIUS, TowerMaterial,
+        apply_caves_and_features_blocks, build_chunk_column_plan, tower_material,
     },
 };
 
@@ -326,6 +326,74 @@ pub fn generate_chunk_buffer_with_ctx(
                     }
                 }
             }
+        }
+    }
+
+    {
+        let tower_center_x = (world.world_size_x() as i32) / 2;
+        let tower_center_z = (world.world_size_z() as i32) / 2;
+        let chunk_min_x = base_x;
+        let chunk_max_x = base_x + sx as i32;
+        let chunk_min_z = base_z;
+        let chunk_max_z = base_z + sz as i32;
+        let tower_min_x = tower_center_x - TOWER_OUTER_RADIUS;
+        let tower_max_x = tower_center_x + TOWER_OUTER_RADIUS;
+        let tower_min_z = tower_center_z - TOWER_OUTER_RADIUS;
+        let tower_max_z = tower_center_z + TOWER_OUTER_RADIUS;
+
+        if chunk_max_x > tower_min_x
+            && chunk_min_x < tower_max_x
+            && chunk_max_z > tower_min_z
+            && chunk_min_z < tower_max_z
+        {
+            ctx.terrain_profiler.begin_stage(TerrainStage::Tower);
+            let tower_stage_start = Instant::now();
+
+            let materials = &column_plan.materials;
+            let air_block = materials.air_block;
+            let air_id = air_block.id;
+            let lookup_block = |name: &str| Block {
+                id: reg.id_by_name(name).unwrap_or(air_id),
+                state: 0,
+            };
+            let stone_block = lookup_block("stone");
+            let glass_block = lookup_block("glass");
+            let glowstone_block = lookup_block("glowstone");
+            let outer_sq = (TOWER_OUTER_RADIUS as i64).pow(2);
+
+            for lz in 0..sz {
+                let wz = base_z + lz as i32;
+                let dz = (wz - tower_center_z) as i64;
+                for lx in 0..sx {
+                    let wx = base_x + lx as i32;
+                    let dx = (wx - tower_center_x) as i64;
+                    let dist2 = dx * dx + dz * dz;
+                    if dist2 > outer_sq {
+                        continue;
+                    }
+                    for wy in chunk_min_y..chunk_max_y {
+                        let material = tower_material(dist2, wy);
+                        if material == TowerMaterial::None {
+                            continue;
+                        }
+                        let new_block = match material {
+                            TowerMaterial::None => continue,
+                            TowerMaterial::Air => air_block,
+                            TowerMaterial::Stone => stone_block,
+                            TowerMaterial::Glass => glass_block,
+                            TowerMaterial::Glowstone => glowstone_block,
+                        };
+                        let ly = (wy - chunk_min_y) as usize;
+                        let idx = (ly * sz + lz) * sx + lx;
+                        if blocks[idx] != new_block {
+                            blocks[idx] = new_block;
+                        }
+                    }
+                }
+            }
+
+            ctx.terrain_profiler
+                .record_stage_duration(TerrainStage::Tower, tower_stage_start.elapsed());
         }
     }
 
