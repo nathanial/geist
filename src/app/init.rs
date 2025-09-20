@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use raylib::prelude::*;
 use serde::Deserialize;
 
-use super::{App, DebugStats, OverlayWindow, OverlayWindowManager, WindowId, WindowTheme};
+use super::{
+    App, DebugStats, OverlayWindow, OverlayWindowManager, WindowId, WindowTheme,
+    render::MINIMAP_MIN_CONTENT_SIDE,
+};
 use crate::event::{Event, EventQueue};
 use crate::gamestate::GameState;
 use geist_blocks::{Block, BlockRegistry};
@@ -366,7 +369,8 @@ impl App {
             }
         }
 
-        let mut overlay_windows = OverlayWindowManager::new(WindowTheme::default());
+        let window_theme = WindowTheme::default();
+        let mut overlay_windows = OverlayWindowManager::new(window_theme);
         overlay_windows.insert(OverlayWindow::new(
             WindowId::EventHistogram,
             Vector2::new(40.0, 40.0),
@@ -384,6 +388,22 @@ impl App {
             Vector2::new(800.0, 40.0),
             (534, 360),
             (534, 360),
+        ));
+        let minimap_side =
+            App::minimap_side_px(gs.view_radius_chunks).max(MINIMAP_MIN_CONTENT_SIDE);
+        let minimap_size = (
+            window_theme.padding_x * 2 + minimap_side,
+            window_theme.titlebar_height + window_theme.padding_y * 2 + minimap_side,
+        );
+        let minimap_min = (
+            window_theme.padding_x * 2 + MINIMAP_MIN_CONTENT_SIDE,
+            window_theme.titlebar_height + window_theme.padding_y * 2 + MINIMAP_MIN_CONTENT_SIDE,
+        );
+        overlay_windows.insert(OverlayWindow::new(
+            WindowId::Minimap,
+            Vector2::new(840.0, 360.0),
+            minimap_size,
+            minimap_min,
         ));
         overlay_windows.clamp_all((rl.get_screen_width(), rl.get_screen_height()));
 

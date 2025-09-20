@@ -9,6 +9,6 @@ mod windows;
 
 pub use state::{App, DebugStats};
 pub(crate) use windows::{
-    HitRegion, OverlayWindow, OverlayWindowManager, WindowChrome, WindowFrame, WindowId,
+    HitRegion, IRect, OverlayWindow, OverlayWindowManager, WindowChrome, WindowFrame, WindowId,
     WindowTheme,
 };

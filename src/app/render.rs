@@ -1,7 +1,11 @@
 use raylib::prelude::*;
 use std::collections::{HashSet, VecDeque};
 
-use super::{App, DebugStats, WindowChrome, WindowFrame, WindowId, WindowTheme};
+use super::{App, DebugStats, IRect, WindowChrome, WindowFrame, WindowId, WindowTheme};
+
+pub(super) const MINIMAP_MIN_CONTENT_SIDE: i32 = 200;
+pub(super) const MINIMAP_MAX_CONTENT_SIDE: i32 = 420;
+pub(super) const MINIMAP_BORDER_PX: i32 = 10;
 use crate::raycast;
 use geist_blocks::Block;
 use geist_chunk::ChunkOccupancy;
@@ -986,9 +990,37 @@ impl App {
         ];
 
         let camera3d = self.cam.to_camera3d();
-        let minimap_side_px = App::minimap_side_px(self.gs.view_radius_chunks);
-        self.render_minimap_to_texture(rl, thread, minimap_side_px);
         self.minimap_ui_rect = None;
+
+        let screen_dims = (screen_width as i32, screen_height as i32);
+        let overlay_theme = *self.overlay_windows.theme();
+        let minimap_min_size = (
+            overlay_theme.padding_x * 2 + MINIMAP_MIN_CONTENT_SIDE,
+            overlay_theme.titlebar_height + overlay_theme.padding_y * 2 + MINIMAP_MIN_CONTENT_SIDE,
+        );
+        let mut minimap_plan: Option<(WindowFrame, i32, i32)> = None;
+        if self.gs.show_debug_overlay {
+            if let Some(window) = self.overlay_windows.get_mut(WindowId::Minimap) {
+                window.set_min_size(minimap_min_size);
+                let frame = window.layout(screen_dims, &overlay_theme);
+                let content = frame.content;
+                let available_side = content.w.min(content.h).max(0);
+                let outer_side =
+                    available_side.min(MINIMAP_MAX_CONTENT_SIDE + MINIMAP_BORDER_PX * 2);
+                let map_side = (outer_side - MINIMAP_BORDER_PX * 2).max(0);
+                minimap_plan = Some((frame, outer_side, map_side));
+                if map_side > 0 {
+                    self.render_minimap_to_texture(rl, thread, map_side);
+                } else {
+                    self.render_minimap_to_texture(rl, thread, 0);
+                }
+            } else {
+                self.render_minimap_to_texture(rl, thread, 0);
+            }
+        } else {
+            self.render_minimap_to_texture(rl, thread, 0);
+        }
+
         let mut d = rl.begin_drawing(thread);
         // Skybox: clear background to time-of-day sky color
         d.clear_background(Color::new(
@@ -1608,9 +1640,6 @@ impl App {
             d.draw_text(&right_text, rx, ry, font_size, Color::WHITE);
             d.draw_text(&right_text, rx + 1, ry + 1, font_size, Color::BLACK);
 
-            let overlay_theme = *self.overlay_windows.theme();
-            let screen_dims = (screen_width as i32, screen_height as i32);
-
             if let Some(window) = self.overlay_windows.get_mut(WindowId::EventHistogram) {
                 let view = EventHistogramView::new(&self.debug_stats);
                 window.set_min_size(view.min_size(&overlay_theme));
@@ -1679,75 +1708,136 @@ impl App {
                 }
             }
 
-            // Minimap (bottom-right): draw the 3D chunk sphere render texture
-            if minimap_side_px > 0 {
-                if let Some(ref minimap_rt) = self.minimap_rt {
-                    let pad: i32 = 8;
-                    let map_side = minimap_side_px;
-                    let map_w = map_side + pad * 2;
-                    let map_h = map_side + pad * 2;
-                    let margin: i32 = 10;
-                    let scr_w: i32 = screen_width as i32;
-                    let scr_h: i32 = screen_height as i32;
-                    let mx = scr_w - map_w - margin;
-                    let mut my = ry - map_h - 8; // 8px spacing above the right panel
-                    if my < margin {
-                        my = scr_h - map_h - margin;
-                    }
-                    d.draw_rectangle(mx, my, map_w, map_h, Color::new(0, 0, 0, 150));
-                    d.draw_rectangle_lines(mx, my, map_w, map_h, Color::new(255, 255, 255, 40));
-                    self.minimap_ui_rect = Some((mx, my, map_w, map_h));
-                    let tex = minimap_rt.texture().clone();
-                    let src = Rectangle::new(0.0, 0.0, tex.width() as f32, -(tex.height() as f32));
-                    let dest = Rectangle::new(
-                        (mx + pad) as f32,
-                        (my + pad) as f32,
-                        map_side as f32,
-                        map_side as f32,
-                    );
-                    d.draw_texture_pro(tex, src, dest, Vector2::new(0.0, 0.0), 0.0, Color::WHITE);
-                    let label = format!(
-                        "Sphere r {} | Loaded {}",
-                        self.gs.view_radius_chunks,
-                        self.gs.chunks.ready_len()
-                    );
-                    let label_fs = 18;
-                    let label_w = d.measure_text(&label, label_fs);
-                    let mut label_x = mx + map_w - label_w - pad;
-                    if label_x < mx + pad {
-                        label_x = mx + pad;
-                    }
-                    let mut label_y = my - label_fs - 4;
-                    if label_y < margin {
-                        label_y = (my + map_h + 4).min(scr_h - label_fs - margin);
-                    }
-                    d.draw_text(&label, label_x + 1, label_y + 1, label_fs, Color::BLACK);
-                    d.draw_text(&label, label_x, label_y, label_fs, Color::WHITE);
+            if let Some((frame, outer_side, map_side)) = minimap_plan {
+                let hover = self
+                    .overlay_hover
+                    .and_then(|(id, region)| (id == WindowId::Minimap).then_some(region));
+                let subtitle = Some(format!(
+                    "radius {} chunks",
+                    self.gs.view_radius_chunks.max(0)
+                ));
 
-                    let legend = ["Scroll: zoom", "LMB drag: orbit", "Shift+Drag/RMB: pan"];
-                    let legend_fs = 14;
-                    let legend_h = (legend.len() as i32) * (legend_fs + 2);
-                    let mut legend_y = my + map_h - pad - legend_h;
-                    if legend_y < my + pad {
-                        legend_y = my + pad;
-                    }
-                    for line in legend.iter() {
-                        d.draw_text(
-                            line,
-                            mx + pad + 1,
-                            legend_y + 1,
-                            legend_fs,
-                            Color::new(0, 0, 0, 200),
+                WindowChrome::draw(
+                    &mut d,
+                    &overlay_theme,
+                    &frame,
+                    "Minimap",
+                    subtitle.as_deref(),
+                    hover,
+                );
+
+                let content = frame.content;
+                if map_side > 0 {
+                    let frame_x = content.x + (content.w - outer_side) / 2;
+                    let frame_y = content.y + (content.h - outer_side) / 2;
+                    let frame_rect = IRect::new(frame_x, frame_y, outer_side, outer_side);
+                    let map_rect = IRect::new(
+                        frame_rect.x + MINIMAP_BORDER_PX,
+                        frame_rect.y + MINIMAP_BORDER_PX,
+                        map_side,
+                        map_side,
+                    );
+
+                    d.draw_rectangle(
+                        frame_rect.x,
+                        frame_rect.y,
+                        frame_rect.w,
+                        frame_rect.h,
+                        Color::new(12, 18, 28, 210),
+                    );
+                    d.draw_rectangle_lines(
+                        frame_rect.x,
+                        frame_rect.y,
+                        frame_rect.w,
+                        frame_rect.h,
+                        Color::new(86, 108, 152, 210),
+                    );
+
+                    if let Some(ref minimap_rt) = self.minimap_rt {
+                        let tex = minimap_rt.texture().clone();
+                        let src =
+                            Rectangle::new(0.0, 0.0, tex.width() as f32, -(tex.height() as f32));
+                        let dest = Rectangle::new(
+                            map_rect.x as f32,
+                            map_rect.y as f32,
+                            map_rect.w as f32,
+                            map_rect.h as f32,
                         );
-                        d.draw_text(
-                            line,
-                            mx + pad,
-                            legend_y,
-                            legend_fs,
-                            Color::new(220, 220, 240, 240),
+                        d.draw_texture_pro(
+                            tex,
+                            src,
+                            dest,
+                            Vector2::new(0.0, 0.0),
+                            0.0,
+                            Color::WHITE,
                         );
-                        legend_y += legend_fs + 2;
+                        self.minimap_ui_rect =
+                            Some((frame_rect.x, frame_rect.y, frame_rect.w, frame_rect.h));
+
+                        let label = format!("Loaded {} chunks", self.gs.chunks.ready_len());
+                        let label_fs = 18;
+                        let label_x = map_rect.x + 14;
+                        let label_y = map_rect.y + 14;
+                        d.draw_text(
+                            &label,
+                            label_x + 1,
+                            label_y + 1,
+                            label_fs,
+                            Color::new(0, 0, 0, 220),
+                        );
+                        d.draw_text(&label, label_x, label_y, label_fs, Color::WHITE);
+
+                        let legend = ["Scroll: zoom", "LMB drag: orbit", "Shift+Drag/RMB: pan"];
+                        let legend_fs = 14;
+                        let legend_total_h = (legend.len() as i32) * (legend_fs + 2);
+                        let mut legend_y = map_rect.y + map_rect.h - legend_total_h - 12;
+                        let legend_min_y = map_rect.y + 14;
+                        if legend_y < legend_min_y {
+                            legend_y = legend_min_y;
+                        }
+                        for line in legend.iter() {
+                            d.draw_text(
+                                line,
+                                map_rect.x + 14 + 1,
+                                legend_y + 1,
+                                legend_fs,
+                                Color::new(0, 0, 0, 200),
+                            );
+                            d.draw_text(
+                                line,
+                                map_rect.x + 14,
+                                legend_y,
+                                legend_fs,
+                                Color::new(220, 220, 240, 240),
+                            );
+                            legend_y += legend_fs + 2;
+                        }
+                    } else {
+                        self.minimap_ui_rect = None;
+                        d.draw_rectangle(
+                            map_rect.x,
+                            map_rect.y,
+                            map_rect.w,
+                            map_rect.h,
+                            Color::new(18, 24, 34, 220),
+                        );
+                        let msg = "Minimap unavailable";
+                        let msg_fs = 18;
+                        let msg_w = d.measure_text(msg, msg_fs);
+                        let msg_x = map_rect.x + (map_rect.w - msg_w) / 2;
+                        let msg_y = map_rect.y + (map_rect.h - msg_fs) / 2;
+                        d.draw_text(msg, msg_x + 1, msg_y + 1, msg_fs, Color::new(0, 0, 0, 220));
+                        d.draw_text(msg, msg_x, msg_y, msg_fs, Color::new(220, 220, 240, 240));
                     }
+                } else {
+                    self.minimap_ui_rect = None;
+                    let msg = "Expand the window to view the minimap";
+                    let msg_fs = 16;
+                    let msg_w = d.measure_text(msg, msg_fs);
+                    let msg_x = content.x + (content.w - msg_w) / 2;
+                    let msg_y = content.y + (content.h - msg_fs) / 2;
+                    d.draw_text(msg, msg_x + 1, msg_y + 1, msg_fs, Color::new(0, 0, 0, 180));
+                    d.draw_text(msg, msg_x, msg_y, msg_fs, Color::new(218, 228, 248, 230));
                 }
             }
         } // end debug overlay
@@ -2063,13 +2153,15 @@ impl App {
 }
 
 impl App {
-    fn minimap_side_px(view_radius_chunks: i32) -> i32 {
+    pub(super) fn minimap_side_px(view_radius_chunks: i32) -> i32 {
         if view_radius_chunks < 0 {
             return 0;
         }
         let radius = view_radius_chunks as f32;
         let side = 220.0 + radius * 16.0;
-        side.clamp(180.0, 420.0) as i32
+        let min_side = MINIMAP_MIN_CONTENT_SIDE as f32;
+        let max_side = MINIMAP_MAX_CONTENT_SIDE as f32;
+        side.clamp(min_side, max_side) as i32
     }
 
     fn render_minimap_to_texture(

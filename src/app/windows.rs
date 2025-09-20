@@ -7,6 +7,7 @@ pub enum WindowId {
     EventHistogram,
     IntentHistogram,
     TerrainHistogram,
+    Minimap,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
