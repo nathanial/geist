@@ -580,3 +580,941 @@ to = { name = "fence_gate", state = { material = "planks_acacia" } }
 [[rules]]
 from = "minecraft:dark_oak_fence_gate"
 to = { name = "fence_gate", state = { material = "planks_dark_oak" } }
+
+# Auto-generated palette rules (schem autofill)
+[[rules]]
+from = "minecraft:acacia_door"
+to = { name = "acacia_door" }
+[[rules]]
+from = "minecraft:acacia_trapdoor"
+to = { name = "acacia_trapdoor" }
+[[rules]]
+from = "minecraft:allium"
+to = { name = "allium" }
+[[rules]]
+from = "minecraft:amethyst_block"
+to = { name = "amethyst_block" }
+[[rules]]
+from = "minecraft:amethyst_cluster"
+to = { name = "amethyst_cluster" }
+[[rules]]
+from = "minecraft:andesite_stairs"
+to = { name = "andesite_stairs" }
+[[rules]]
+from = "minecraft:andesite_wall"
+to = { name = "andesite_wall" }
+[[rules]]
+from = "minecraft:anvil"
+to = { name = "anvil" }
+[[rules]]
+from = "minecraft:azalea"
+to = { name = "azalea" }
+[[rules]]
+from = "minecraft:azalea_leaves"
+to = { name = "azalea_leaves" }
+[[rules]]
+from = "minecraft:azure_bluet"
+to = { name = "azure_bluet" }
+[[rules]]
+from = "minecraft:bamboo_mosaic_slab"
+to = { name = "bamboo_mosaic_slab" }
+[[rules]]
+from = "minecraft:bamboo_stairs"
+to = { name = "bamboo_stairs" }
+[[rules]]
+from = "minecraft:bamboo_trapdoor"
+to = { name = "bamboo_trapdoor" }
+[[rules]]
+from = "minecraft:bamboo_wall_hanging_sign"
+to = { name = "bamboo_wall_hanging_sign" }
+[[rules]]
+from = "minecraft:barrel"
+to = { name = "barrel" }
+[[rules]]
+from = "minecraft:basalt"
+to = { name = "basalt" }
+[[rules]]
+from = "minecraft:bee_nest"
+to = { name = "bee_nest" }
+[[rules]]
+from = "minecraft:beehive"
+to = { name = "beehive" }
+[[rules]]
+from = "minecraft:bell"
+to = { name = "bell" }
+[[rules]]
+from = "minecraft:big_dripleaf"
+to = { name = "big_dripleaf" }
+[[rules]]
+from = "minecraft:birch_button"
+to = { name = "birch_button" }
+[[rules]]
+from = "minecraft:birch_trapdoor"
+to = { name = "birch_trapdoor" }
+[[rules]]
+from = "minecraft:birch_wall_sign"
+to = { name = "birch_wall_sign" }
+[[rules]]
+from = "minecraft:black_candle"
+to = { name = "black_candle" }
+[[rules]]
+from = "minecraft:black_concrete_powder"
+to = { name = "black_concrete_powder" }
+[[rules]]
+from = "minecraft:blast_furnace"
+to = { name = "blast_furnace" }
+[[rules]]
+from = "minecraft:blue_bed"
+to = { name = "blue_bed" }
+[[rules]]
+from = "minecraft:blue_orchid"
+to = { name = "blue_orchid" }
+[[rules]]
+from = "minecraft:blue_stained_glass"
+to = { name = "blue_stained_glass" }
+[[rules]]
+from = "minecraft:blue_stained_glass_pane"
+to = { name = "blue_stained_glass_pane" }
+[[rules]]
+from = "minecraft:blue_wall_banner"
+to = { name = "blue_wall_banner" }
+[[rules]]
+from = "minecraft:bone_block"
+to = { name = "bone_block" }
+[[rules]]
+from = "minecraft:brewing_stand"
+to = { name = "brewing_stand" }
+[[rules]]
+from = "minecraft:brick_slab"
+to = { name = "brick_slab" }
+[[rules]]
+from = "minecraft:brick_stairs"
+to = { name = "brick_stairs" }
+[[rules]]
+from = "minecraft:brick_wall"
+to = { name = "brick_wall" }
+[[rules]]
+from = "minecraft:brown_candle"
+to = { name = "brown_candle" }
+[[rules]]
+from = "minecraft:brown_concrete"
+to = { name = "brown_concrete" }
+[[rules]]
+from = "minecraft:brown_mushroom"
+to = { name = "brown_mushroom" }
+[[rules]]
+from = "minecraft:brown_mushroom_block"
+to = { name = "brown_mushroom_block" }
+[[rules]]
+from = "minecraft:brown_terracotta"
+to = { name = "brown_terracotta" }
+[[rules]]
+from = "minecraft:brown_wool"
+to = { name = "brown_wool" }
+[[rules]]
+from = "minecraft:cake"
+to = { name = "cake" }
+[[rules]]
+from = "minecraft:calcite"
+to = { name = "calcite" }
+[[rules]]
+from = "minecraft:campfire"
+to = { name = "campfire" }
+[[rules]]
+from = "minecraft:candle"
+to = { name = "candle" }
+[[rules]]
+from = "minecraft:carrots"
+to = { name = "carrots" }
+[[rules]]
+from = "minecraft:cartography_table"
+to = { name = "cartography_table" }
+[[rules]]
+from = "minecraft:cauldron"
+to = { name = "cauldron" }
+[[rules]]
+from = "minecraft:cave_vines"
+to = { name = "cave_vines" }
+[[rules]]
+from = "minecraft:cave_vines_plant"
+to = { name = "cave_vines_plant" }
+[[rules]]
+from = "minecraft:chain"
+to = { name = "chain" }
+[[rules]]
+from = "minecraft:cherry_wood"
+to = { name = "cherry_wood" }
+[[rules]]
+from = "minecraft:chest"
+to = { name = "chest" }
+[[rules]]
+from = "minecraft:chipped_anvil"
+to = { name = "chipped_anvil" }
+[[rules]]
+from = "minecraft:chiseled_tuff"
+to = { name = "chiseled_tuff" }
+[[rules]]
+from = "minecraft:chiseled_tuff_bricks"
+to = { name = "chiseled_tuff_bricks" }
+[[rules]]
+from = "minecraft:clay"
+to = { name = "clay" }
+[[rules]]
+from = "minecraft:cobbled_deepslate"
+to = { name = "cobbled_deepslate" }
+[[rules]]
+from = "minecraft:cobbled_deepslate_slab"
+to = { name = "cobbled_deepslate_slab" }
+[[rules]]
+from = "minecraft:cobbled_deepslate_stairs"
+to = { name = "cobbled_deepslate_stairs" }
+[[rules]]
+from = "minecraft:cobbled_deepslate_wall"
+to = { name = "cobbled_deepslate_wall" }
+[[rules]]
+from = "minecraft:cobblestone_wall"
+to = { name = "cobblestone_wall" }
+[[rules]]
+from = "minecraft:cobweb"
+to = { name = "cobweb" }
+[[rules]]
+from = "minecraft:comparator"
+to = { name = "comparator" }
+[[rules]]
+from = "minecraft:composter"
+to = { name = "composter" }
+[[rules]]
+from = "minecraft:cornflower"
+to = { name = "cornflower" }
+[[rules]]
+from = "minecraft:cracked_deepslate_bricks"
+to = { name = "cracked_deepslate_bricks" }
+[[rules]]
+from = "minecraft:cracked_deepslate_tiles"
+to = { name = "cracked_deepslate_tiles" }
+[[rules]]
+from = "minecraft:cracked_nether_bricks"
+to = { name = "cracked_nether_bricks" }
+[[rules]]
+from = "minecraft:cracked_stone_bricks"
+to = { name = "cracked_stone_bricks" }
+[[rules]]
+from = "minecraft:crafting_table"
+to = { name = "crafting_table" }
+[[rules]]
+from = "minecraft:crimson_planks"
+to = { name = "crimson_planks" }
+[[rules]]
+from = "minecraft:crimson_slab"
+to = { name = "crimson_slab" }
+[[rules]]
+from = "minecraft:crimson_trapdoor"
+to = { name = "crimson_trapdoor" }
+[[rules]]
+from = "minecraft:cyan_concrete_powder"
+to = { name = "cyan_concrete_powder" }
+[[rules]]
+from = "minecraft:cyan_stained_glass"
+to = { name = "cyan_stained_glass" }
+[[rules]]
+from = "minecraft:cyan_stained_glass_pane"
+to = { name = "cyan_stained_glass_pane" }
+[[rules]]
+from = "minecraft:cyan_terracotta"
+to = { name = "cyan_terracotta" }
+[[rules]]
+from = "minecraft:cyan_wool"
+to = { name = "cyan_wool" }
+[[rules]]
+from = "minecraft:dandelion"
+to = { name = "dandelion" }
+[[rules]]
+from = "minecraft:dark_oak_button"
+to = { name = "dark_oak_button" }
+[[rules]]
+from = "minecraft:dark_oak_door"
+to = { name = "dark_oak_door" }
+[[rules]]
+from = "minecraft:dark_oak_trapdoor"
+to = { name = "dark_oak_trapdoor" }
+[[rules]]
+from = "minecraft:dark_oak_wall_sign"
+to = { name = "dark_oak_wall_sign" }
+[[rules]]
+from = "minecraft:dark_prismarine_slab"
+to = { name = "dark_prismarine_slab" }
+[[rules]]
+from = "minecraft:daylight_detector"
+to = { name = "daylight_detector" }
+[[rules]]
+from = "minecraft:dead_bush"
+to = { name = "dead_bush" }
+[[rules]]
+from = "minecraft:dead_fire_coral"
+to = { name = "dead_fire_coral" }
+[[rules]]
+from = "minecraft:dead_fire_coral_fan"
+to = { name = "dead_fire_coral_fan" }
+[[rules]]
+from = "minecraft:dead_horn_coral_fan"
+to = { name = "dead_horn_coral_fan" }
+[[rules]]
+from = "minecraft:dead_tube_coral_block"
+to = { name = "dead_tube_coral_block" }
+[[rules]]
+from = "minecraft:dead_tube_coral_fan"
+to = { name = "dead_tube_coral_fan" }
+[[rules]]
+from = "minecraft:decorated_pot"
+to = { name = "decorated_pot" }
+[[rules]]
+from = "minecraft:deepslate"
+to = { name = "deepslate" }
+[[rules]]
+from = "minecraft:deepslate_brick_slab"
+to = { name = "deepslate_brick_slab" }
+[[rules]]
+from = "minecraft:deepslate_brick_stairs"
+to = { name = "deepslate_brick_stairs" }
+[[rules]]
+from = "minecraft:deepslate_brick_wall"
+to = { name = "deepslate_brick_wall" }
+[[rules]]
+from = "minecraft:deepslate_bricks"
+to = { name = "deepslate_bricks" }
+[[rules]]
+from = "minecraft:deepslate_coal_ore"
+to = { name = "deepslate_coal_ore" }
+[[rules]]
+from = "minecraft:deepslate_copper_ore"
+to = { name = "deepslate_copper_ore" }
+[[rules]]
+from = "minecraft:deepslate_tile_wall"
+to = { name = "deepslate_tile_wall" }
+[[rules]]
+from = "minecraft:deepslate_tiles"
+to = { name = "deepslate_tiles" }
+[[rules]]
+from = "minecraft:diamond_block"
+to = { name = "diamond_block" }
+[[rules]]
+from = "minecraft:diorite_stairs"
+to = { name = "diorite_stairs" }
+[[rules]]
+from = "minecraft:dirt_path"
+to = { name = "dirt_path" }
+[[rules]]
+from = "minecraft:dripstone_block"
+to = { name = "dripstone_block" }
+[[rules]]
+from = "minecraft:dropper"
+to = { name = "dropper" }
+[[rules]]
+from = "minecraft:enchanting_table"
+to = { name = "enchanting_table" }
+[[rules]]
+from = "minecraft:end_rod"
+to = { name = "end_rod" }
+[[rules]]
+from = "minecraft:end_stone_brick_stairs"
+to = { name = "end_stone_brick_stairs" }
+[[rules]]
+from = "minecraft:ender_chest"
+to = { name = "ender_chest" }
+[[rules]]
+from = "minecraft:farmland"
+to = { name = "farmland" }
+[[rules]]
+from = "minecraft:fern"
+to = { name = "fern" }
+[[rules]]
+from = "minecraft:fletching_table"
+to = { name = "fletching_table" }
+[[rules]]
+from = "minecraft:flower_pot"
+to = { name = "flower_pot" }
+[[rules]]
+from = "minecraft:flowering_azalea"
+to = { name = "flowering_azalea" }
+[[rules]]
+from = "minecraft:flowering_azalea_leaves"
+to = { name = "flowering_azalea_leaves" }
+[[rules]]
+from = "minecraft:furnace"
+to = { name = "furnace" }
+[[rules]]
+from = "minecraft:gilded_blackstone"
+to = { name = "gilded_blackstone" }
+[[rules]]
+from = "minecraft:glow_lichen"
+to = { name = "glow_lichen" }
+[[rules]]
+from = "minecraft:gold_block"
+to = { name = "gold_block" }
+[[rules]]
+from = "minecraft:granite_stairs"
+to = { name = "granite_stairs" }
+[[rules]]
+from = "minecraft:granite_wall"
+to = { name = "granite_wall" }
+[[rules]]
+from = "minecraft:gray_concrete"
+to = { name = "gray_concrete" }
+[[rules]]
+from = "minecraft:gray_concrete_powder"
+to = { name = "gray_concrete_powder" }
+[[rules]]
+from = "minecraft:green_candle"
+to = { name = "green_candle" }
+[[rules]]
+from = "minecraft:green_stained_glass_pane"
+to = { name = "green_stained_glass_pane" }
+[[rules]]
+from = "minecraft:green_wool"
+to = { name = "green_wool" }
+[[rules]]
+from = "minecraft:grindstone"
+to = { name = "grindstone" }
+[[rules]]
+from = "minecraft:hay_block"
+to = { name = "hay_block" }
+[[rules]]
+from = "minecraft:heavy_weighted_pressure_plate"
+to = { name = "heavy_weighted_pressure_plate" }
+[[rules]]
+from = "minecraft:hopper"
+to = { name = "hopper" }
+[[rules]]
+from = "minecraft:iron_bars"
+to = { name = "iron_bars" }
+[[rules]]
+from = "minecraft:jack_o_lantern"
+to = { name = "jack_o_lantern" }
+[[rules]]
+from = "minecraft:jukebox"
+to = { name = "jukebox" }
+[[rules]]
+from = "minecraft:jungle_trapdoor"
+to = { name = "jungle_trapdoor" }
+[[rules]]
+from = "minecraft:ladder"
+to = { name = "ladder" }
+[[rules]]
+from = "minecraft:large_amethyst_bud"
+to = { name = "large_amethyst_bud" }
+[[rules]]
+from = "minecraft:large_fern"
+to = { name = "large_fern" }
+[[rules]]
+from = "minecraft:lectern"
+to = { name = "lectern" }
+[[rules]]
+from = "minecraft:lever"
+to = { name = "lever" }
+[[rules]]
+from = "minecraft:light_blue_candle"
+to = { name = "light_blue_candle" }
+[[rules]]
+from = "minecraft:light_blue_glazed_terracotta"
+to = { name = "light_blue_glazed_terracotta" }
+[[rules]]
+from = "minecraft:light_blue_stained_glass"
+to = { name = "light_blue_stained_glass" }
+[[rules]]
+from = "minecraft:light_blue_stained_glass_pane"
+to = { name = "light_blue_stained_glass_pane" }
+[[rules]]
+from = "minecraft:light_blue_wall_banner"
+to = { name = "light_blue_wall_banner" }
+[[rules]]
+from = "minecraft:light_blue_wool"
+to = { name = "light_blue_wool" }
+[[rules]]
+from = "minecraft:light_gray_concrete"
+to = { name = "light_gray_concrete" }
+[[rules]]
+from = "minecraft:light_gray_concrete_powder"
+to = { name = "light_gray_concrete_powder" }
+[[rules]]
+from = "minecraft:light_gray_wool"
+to = { name = "light_gray_wool" }
+[[rules]]
+from = "minecraft:light_weighted_pressure_plate"
+to = { name = "light_weighted_pressure_plate" }
+[[rules]]
+from = "minecraft:lightning_rod"
+to = { name = "lightning_rod" }
+[[rules]]
+from = "minecraft:lilac"
+to = { name = "lilac" }
+[[rules]]
+from = "minecraft:lily_of_the_valley"
+to = { name = "lily_of_the_valley" }
+[[rules]]
+from = "minecraft:lily_pad"
+to = { name = "lily_pad" }
+[[rules]]
+from = "minecraft:lime_glazed_terracotta"
+to = { name = "lime_glazed_terracotta" }
+[[rules]]
+from = "minecraft:lodestone"
+to = { name = "lodestone" }
+[[rules]]
+from = "minecraft:loom"
+to = { name = "loom" }
+[[rules]]
+from = "minecraft:magenta_candle"
+to = { name = "magenta_candle" }
+[[rules]]
+from = "minecraft:magenta_concrete"
+to = { name = "magenta_concrete" }
+[[rules]]
+from = "minecraft:magenta_terracotta"
+to = { name = "magenta_terracotta" }
+[[rules]]
+from = "minecraft:magenta_wool"
+to = { name = "magenta_wool" }
+[[rules]]
+from = "minecraft:magma_block"
+to = { name = "magma_block" }
+[[rules]]
+from = "minecraft:mangrove_door"
+to = { name = "mangrove_door" }
+[[rules]]
+from = "minecraft:mangrove_leaves"
+to = { name = "mangrove_leaves" }
+[[rules]]
+from = "minecraft:mangrove_log"
+to = { name = "mangrove_log" }
+[[rules]]
+from = "minecraft:mangrove_planks"
+to = { name = "mangrove_planks" }
+[[rules]]
+from = "minecraft:mangrove_pressure_plate"
+to = { name = "mangrove_pressure_plate" }
+[[rules]]
+from = "minecraft:mangrove_slab"
+to = { name = "mangrove_slab" }
+[[rules]]
+from = "minecraft:mangrove_stairs"
+to = { name = "mangrove_stairs" }
+[[rules]]
+from = "minecraft:mangrove_trapdoor"
+to = { name = "mangrove_trapdoor" }
+[[rules]]
+from = "minecraft:mangrove_wall_sign"
+to = { name = "mangrove_wall_sign" }
+[[rules]]
+from = "minecraft:medium_amethyst_bud"
+to = { name = "medium_amethyst_bud" }
+[[rules]]
+from = "minecraft:moss_block"
+to = { name = "moss_block" }
+[[rules]]
+from = "minecraft:moss_carpet"
+to = { name = "moss_carpet" }
+[[rules]]
+from = "minecraft:mossy_cobblestone_wall"
+to = { name = "mossy_cobblestone_wall" }
+[[rules]]
+from = "minecraft:mossy_stone_brick_wall"
+to = { name = "mossy_stone_brick_wall" }
+[[rules]]
+from = "minecraft:mud"
+to = { name = "mud" }
+[[rules]]
+from = "minecraft:mud_brick_slab"
+to = { name = "mud_brick_slab" }
+[[rules]]
+from = "minecraft:mud_brick_stairs"
+to = { name = "mud_brick_stairs" }
+[[rules]]
+from = "minecraft:mud_brick_wall"
+to = { name = "mud_brick_wall" }
+[[rules]]
+from = "minecraft:mud_bricks"
+to = { name = "mud_bricks" }
+[[rules]]
+from = "minecraft:mushroom_stem"
+to = { name = "mushroom_stem" }
+[[rules]]
+from = "minecraft:nether_brick_fence"
+to = { name = "nether_brick_fence" }
+[[rules]]
+from = "minecraft:nether_brick_wall"
+to = { name = "nether_brick_wall" }
+[[rules]]
+from = "minecraft:note_block"
+to = { name = "note_block" }
+[[rules]]
+from = "minecraft:oak_button"
+to = { name = "oak_button" }
+[[rules]]
+from = "minecraft:oak_door"
+to = { name = "oak_door" }
+[[rules]]
+from = "minecraft:oak_trapdoor"
+to = { name = "oak_trapdoor" }
+[[rules]]
+from = "minecraft:oak_wall_sign"
+to = { name = "oak_wall_sign" }
+[[rules]]
+from = "minecraft:orange_concrete"
+to = { name = "orange_concrete" }
+[[rules]]
+from = "minecraft:orange_glazed_terracotta"
+to = { name = "orange_glazed_terracotta" }
+[[rules]]
+from = "minecraft:orange_stained_glass"
+to = { name = "orange_stained_glass" }
+[[rules]]
+from = "minecraft:orange_stained_glass_pane"
+to = { name = "orange_stained_glass_pane" }
+[[rules]]
+from = "minecraft:orange_wool"
+to = { name = "orange_wool" }
+[[rules]]
+from = "minecraft:oxeye_daisy"
+to = { name = "oxeye_daisy" }
+[[rules]]
+from = "minecraft:packed_mud"
+to = { name = "packed_mud" }
+[[rules]]
+from = "minecraft:pale_oak_planks"
+to = { name = "pale_oak_planks" }
+[[rules]]
+from = "minecraft:pale_oak_stairs"
+to = { name = "pale_oak_stairs" }
+[[rules]]
+from = "minecraft:pearlescent_froglight"
+to = { name = "pearlescent_froglight" }
+[[rules]]
+from = "minecraft:peony"
+to = { name = "peony" }
+[[rules]]
+from = "minecraft:pink_concrete_powder"
+to = { name = "pink_concrete_powder" }
+[[rules]]
+from = "minecraft:pink_terracotta"
+to = { name = "pink_terracotta" }
+[[rules]]
+from = "minecraft:pink_tulip"
+to = { name = "pink_tulip" }
+[[rules]]
+from = "minecraft:pink_wool"
+to = { name = "pink_wool" }
+[[rules]]
+from = "minecraft:piston"
+to = { name = "piston" }
+[[rules]]
+from = "minecraft:polished_andesite_stairs"
+to = { name = "polished_andesite_stairs" }
+[[rules]]
+from = "minecraft:polished_basalt"
+to = { name = "polished_basalt" }
+[[rules]]
+from = "minecraft:polished_blackstone"
+to = { name = "polished_blackstone" }
+[[rules]]
+from = "minecraft:polished_blackstone_button"
+to = { name = "polished_blackstone_button" }
+[[rules]]
+from = "minecraft:polished_deepslate"
+to = { name = "polished_deepslate" }
+[[rules]]
+from = "minecraft:polished_deepslate_slab"
+to = { name = "polished_deepslate_slab" }
+[[rules]]
+from = "minecraft:polished_deepslate_stairs"
+to = { name = "polished_deepslate_stairs" }
+[[rules]]
+from = "minecraft:polished_deepslate_wall"
+to = { name = "polished_deepslate_wall" }
+[[rules]]
+from = "minecraft:polished_granite_stairs"
+to = { name = "polished_granite_stairs" }
+[[rules]]
+from = "minecraft:polished_tuff_slab"
+to = { name = "polished_tuff_slab" }
+[[rules]]
+from = "minecraft:poppy"
+to = { name = "poppy" }
+[[rules]]
+from = "minecraft:potted_allium"
+to = { name = "potted_allium" }
+[[rules]]
+from = "minecraft:potted_azalea_bush"
+to = { name = "potted_azalea_bush" }
+[[rules]]
+from = "minecraft:potted_blue_orchid"
+to = { name = "potted_blue_orchid" }
+[[rules]]
+from = "minecraft:potted_cherry_sapling"
+to = { name = "potted_cherry_sapling" }
+[[rules]]
+from = "minecraft:potted_cornflower"
+to = { name = "potted_cornflower" }
+[[rules]]
+from = "minecraft:potted_crimson_fungus"
+to = { name = "potted_crimson_fungus" }
+[[rules]]
+from = "minecraft:potted_dead_bush"
+to = { name = "potted_dead_bush" }
+[[rules]]
+from = "minecraft:potted_fern"
+to = { name = "potted_fern" }
+[[rules]]
+from = "minecraft:potted_flowering_azalea_bush"
+to = { name = "potted_flowering_azalea_bush" }
+[[rules]]
+from = "minecraft:potted_lily_of_the_valley"
+to = { name = "potted_lily_of_the_valley" }
+[[rules]]
+from = "minecraft:potted_mangrove_propagule"
+to = { name = "potted_mangrove_propagule" }
+[[rules]]
+from = "minecraft:potted_oak_sapling"
+to = { name = "potted_oak_sapling" }
+[[rules]]
+from = "minecraft:potted_orange_tulip"
+to = { name = "potted_orange_tulip" }
+[[rules]]
+from = "minecraft:potted_poppy"
+to = { name = "potted_poppy" }
+[[rules]]
+from = "minecraft:potted_red_tulip"
+to = { name = "potted_red_tulip" }
+[[rules]]
+from = "minecraft:potted_torchflower"
+to = { name = "potted_torchflower" }
+[[rules]]
+from = "minecraft:potted_warped_roots"
+to = { name = "potted_warped_roots" }
+[[rules]]
+from = "minecraft:potted_white_tulip"
+to = { name = "potted_white_tulip" }
+[[rules]]
+from = "minecraft:prismarine_brick_stairs"
+to = { name = "prismarine_brick_stairs" }
+[[rules]]
+from = "minecraft:prismarine_slab"
+to = { name = "prismarine_slab" }
+[[rules]]
+from = "minecraft:rail"
+to = { name = "rail" }
+[[rules]]
+from = "minecraft:raw_copper_block"
+to = { name = "raw_copper_block" }
+[[rules]]
+from = "minecraft:raw_iron_block"
+to = { name = "raw_iron_block" }
+[[rules]]
+from = "minecraft:red_bed"
+to = { name = "red_bed" }
+[[rules]]
+from = "minecraft:red_nether_brick_slab"
+to = { name = "red_nether_brick_slab" }
+[[rules]]
+from = "minecraft:red_nether_bricks"
+to = { name = "red_nether_bricks" }
+[[rules]]
+from = "minecraft:red_sandstone_wall"
+to = { name = "red_sandstone_wall" }
+[[rules]]
+from = "minecraft:red_wall_banner"
+to = { name = "red_wall_banner" }
+[[rules]]
+from = "minecraft:red_wool"
+to = { name = "red_wool" }
+[[rules]]
+from = "minecraft:rose_bush"
+to = { name = "rose_bush" }
+[[rules]]
+from = "minecraft:sandstone_wall"
+to = { name = "sandstone_wall" }
+[[rules]]
+from = "minecraft:scaffolding"
+to = { name = "scaffolding" }
+[[rules]]
+from = "minecraft:sculk_sensor"
+to = { name = "sculk_sensor" }
+[[rules]]
+from = "minecraft:sea_lantern"
+to = { name = "sea_lantern" }
+[[rules]]
+from = "minecraft:sea_pickle"
+to = { name = "sea_pickle" }
+[[rules]]
+from = "minecraft:seagrass"
+to = { name = "seagrass" }
+[[rules]]
+from = "minecraft:short_grass"
+to = { name = "short_grass" }
+[[rules]]
+from = "minecraft:shroomlight"
+to = { name = "shroomlight" }
+[[rules]]
+from = "minecraft:skeleton_skull"
+to = { name = "skeleton_skull" }
+[[rules]]
+from = "minecraft:small_dripleaf"
+to = { name = "small_dripleaf" }
+[[rules]]
+from = "minecraft:smithing_table"
+to = { name = "smithing_table" }
+[[rules]]
+from = "minecraft:smoker"
+to = { name = "smoker" }
+[[rules]]
+from = "minecraft:sniffer_egg"
+to = { name = "sniffer_egg" }
+[[rules]]
+from = "minecraft:snow"
+to = { name = "snow" }
+[[rules]]
+from = "minecraft:soul_soil"
+to = { name = "soul_soil" }
+[[rules]]
+from = "minecraft:spruce_button"
+to = { name = "spruce_button" }
+[[rules]]
+from = "minecraft:spruce_door"
+to = { name = "spruce_door" }
+[[rules]]
+from = "minecraft:spruce_trapdoor"
+to = { name = "spruce_trapdoor" }
+[[rules]]
+from = "minecraft:spruce_wall_sign"
+to = { name = "spruce_wall_sign" }
+[[rules]]
+from = "minecraft:stone_brick_wall"
+to = { name = "stone_brick_wall" }
+[[rules]]
+from = "minecraft:stone_button"
+to = { name = "stone_button" }
+[[rules]]
+from = "minecraft:stone_pressure_plate"
+to = { name = "stone_pressure_plate" }
+[[rules]]
+from = "minecraft:stonecutter"
+to = { name = "stonecutter" }
+[[rules]]
+from = "minecraft:stripped_acacia_wood"
+to = { name = "stripped_acacia_wood" }
+[[rules]]
+from = "minecraft:stripped_birch_log"
+to = { name = "stripped_birch_log" }
+[[rules]]
+from = "minecraft:stripped_birch_wood"
+to = { name = "stripped_birch_wood" }
+[[rules]]
+from = "minecraft:stripped_crimson_hyphae"
+to = { name = "stripped_crimson_hyphae" }
+[[rules]]
+from = "minecraft:stripped_dark_oak_log"
+to = { name = "stripped_dark_oak_log" }
+[[rules]]
+from = "minecraft:stripped_dark_oak_wood"
+to = { name = "stripped_dark_oak_wood" }
+[[rules]]
+from = "minecraft:stripped_jungle_log"
+to = { name = "stripped_jungle_log" }
+[[rules]]
+from = "minecraft:stripped_jungle_wood"
+to = { name = "stripped_jungle_wood" }
+[[rules]]
+from = "minecraft:stripped_oak_log"
+to = { name = "stripped_oak_log" }
+[[rules]]
+from = "minecraft:stripped_oak_wood"
+to = { name = "stripped_oak_wood" }
+[[rules]]
+from = "minecraft:stripped_pale_oak_log"
+to = { name = "stripped_pale_oak_log" }
+[[rules]]
+from = "minecraft:stripped_pale_oak_wood"
+to = { name = "stripped_pale_oak_wood" }
+[[rules]]
+from = "minecraft:stripped_spruce_log"
+to = { name = "stripped_spruce_log" }
+[[rules]]
+from = "minecraft:stripped_spruce_wood"
+to = { name = "stripped_spruce_wood" }
+[[rules]]
+from = "minecraft:sweet_berry_bush"
+to = { name = "sweet_berry_bush" }
+[[rules]]
+from = "minecraft:tall_grass"
+to = { name = "tall_grass" }
+[[rules]]
+from = "minecraft:tall_seagrass"
+to = { name = "tall_seagrass" }
+[[rules]]
+from = "minecraft:target"
+to = { name = "target" }
+[[rules]]
+from = "minecraft:terracotta"
+to = { name = "terracotta" }
+[[rules]]
+from = "minecraft:tripwire_hook"
+to = { name = "tripwire_hook" }
+[[rules]]
+from = "minecraft:tuff"
+to = { name = "tuff" }
+[[rules]]
+from = "minecraft:tuff_bricks"
+to = { name = "tuff_bricks" }
+[[rules]]
+from = "minecraft:tuff_slab"
+to = { name = "tuff_slab" }
+[[rules]]
+from = "minecraft:tuff_stairs"
+to = { name = "tuff_stairs" }
+[[rules]]
+from = "minecraft:turtle_egg"
+to = { name = "turtle_egg" }
+[[rules]]
+from = "minecraft:wall_torch"
+to = { name = "wall_torch" }
+[[rules]]
+from = "minecraft:warped_pressure_plate"
+to = { name = "warped_pressure_plate" }
+[[rules]]
+from = "minecraft:warped_slab"
+to = { name = "warped_slab" }
+[[rules]]
+from = "minecraft:warped_stairs"
+to = { name = "warped_stairs" }
+[[rules]]
+from = "minecraft:warped_trapdoor"
+to = { name = "warped_trapdoor" }
+[[rules]]
+from = "minecraft:water_cauldron"
+to = { name = "water_cauldron" }
+[[rules]]
+from = "minecraft:wheat"
+to = { name = "wheat" }
+[[rules]]
+from = "minecraft:white_candle"
+to = { name = "white_candle" }
+[[rules]]
+from = "minecraft:white_concrete_powder"
+to = { name = "white_concrete_powder" }
+[[rules]]
+from = "minecraft:white_glazed_terracotta"
+to = { name = "white_glazed_terracotta" }
+[[rules]]
+from = "minecraft:white_tulip"
+to = { name = "white_tulip" }
+[[rules]]
+from = "minecraft:white_wool"
+to = { name = "white_wool" }
+[[rules]]
+from = "minecraft:wither_skeleton_skull"
+to = { name = "wither_skeleton_skull" }
+[[rules]]
+from = "minecraft:yellow_glazed_terracotta"
+to = { name = "yellow_glazed_terracotta" }
+[[rules]]
+from = "minecraft:yellow_terracotta"
+to = { name = "yellow_terracotta" }

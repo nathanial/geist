@@ -646,3 +646,2182 @@ purple = "wool_colored_purple"
 magenta = "wool_colored_magenta"
 pink = "wool_colored_pink"
 brown = "wool_colored_brown"
+
+# Auto-generated stub blocks (schem autofill)
+[[blocks]]
+name = "acacia_door"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "acacia_door" }
+[[blocks]]
+name = "acacia_trapdoor"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "acacia_trapdoor" }
+[[blocks]]
+name = "allium"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "allium" }
+[[blocks]]
+name = "amethyst_block"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "amethyst_block" }
+[[blocks]]
+name = "amethyst_cluster"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "amethyst_cluster" }
+[[blocks]]
+name = "andesite_stairs"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "andesite_stairs" }
+[[blocks]]
+name = "andesite_wall"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "andesite_wall" }
+[[blocks]]
+name = "anvil"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "anvil" }
+[[blocks]]
+name = "azalea"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "azalea" }
+[[blocks]]
+name = "azalea_leaves"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "azalea_leaves" }
+[[blocks]]
+name = "azure_bluet"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "azure_bluet" }
+[[blocks]]
+name = "bamboo_mosaic_slab"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "bamboo_mosaic_slab" }
+[[blocks]]
+name = "bamboo_stairs"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "bamboo_stairs" }
+[[blocks]]
+name = "bamboo_trapdoor"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "bamboo_trapdoor" }
+[[blocks]]
+name = "bamboo_wall_hanging_sign"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "bamboo_wall_hanging_sign" }
+[[blocks]]
+name = "barrel"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "barrel" }
+[[blocks]]
+name = "basalt"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "basalt" }
+[[blocks]]
+name = "bee_nest"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "bee_nest" }
+[[blocks]]
+name = "beehive"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "beehive" }
+[[blocks]]
+name = "bell"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "bell" }
+[[blocks]]
+name = "big_dripleaf"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "big_dripleaf" }
+[[blocks]]
+name = "birch_button"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "birch_button" }
+[[blocks]]
+name = "birch_trapdoor"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "birch_trapdoor" }
+[[blocks]]
+name = "birch_wall_sign"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "birch_wall_sign" }
+[[blocks]]
+name = "black_candle"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "black_candle" }
+[[blocks]]
+name = "black_concrete_powder"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "black_concrete_powder" }
+[[blocks]]
+name = "blast_furnace"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "blast_furnace" }
+[[blocks]]
+name = "blue_bed"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "blue_bed" }
+[[blocks]]
+name = "blue_orchid"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "blue_orchid" }
+[[blocks]]
+name = "blue_stained_glass"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "blue_stained_glass" }
+[[blocks]]
+name = "blue_stained_glass_pane"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "blue_stained_glass_pane" }
+[[blocks]]
+name = "blue_wall_banner"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "blue_wall_banner" }
+[[blocks]]
+name = "bone_block"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "bone_block" }
+[[blocks]]
+name = "brewing_stand"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "brewing_stand" }
+[[blocks]]
+name = "brick_slab"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "brick_slab" }
+[[blocks]]
+name = "brick_stairs"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "brick_stairs" }
+[[blocks]]
+name = "brick_wall"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "brick_wall" }
+[[blocks]]
+name = "brown_candle"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "brown_candle" }
+[[blocks]]
+name = "brown_concrete"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "brown_concrete" }
+[[blocks]]
+name = "brown_mushroom"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "brown_mushroom" }
+[[blocks]]
+name = "brown_mushroom_block"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "brown_mushroom_block" }
+[[blocks]]
+name = "brown_terracotta"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "brown_terracotta" }
+[[blocks]]
+name = "brown_wool"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "brown_wool" }
+[[blocks]]
+name = "cake"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "cake" }
+[[blocks]]
+name = "calcite"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "calcite" }
+[[blocks]]
+name = "campfire"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "campfire" }
+[[blocks]]
+name = "candle"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "candle" }
+[[blocks]]
+name = "carrots"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "carrots" }
+[[blocks]]
+name = "cartography_table"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "cartography_table" }
+[[blocks]]
+name = "cauldron"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "cauldron" }
+[[blocks]]
+name = "cave_vines"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "cave_vines" }
+[[blocks]]
+name = "cave_vines_plant"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "cave_vines_plant" }
+[[blocks]]
+name = "chain"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "chain" }
+[[blocks]]
+name = "cherry_wood"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "cherry_wood" }
+[[blocks]]
+name = "chest"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "chest" }
+[[blocks]]
+name = "chipped_anvil"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "chipped_anvil" }
+[[blocks]]
+name = "chiseled_tuff"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "chiseled_tuff" }
+[[blocks]]
+name = "chiseled_tuff_bricks"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "chiseled_tuff_bricks" }
+[[blocks]]
+name = "clay"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "clay" }
+[[blocks]]
+name = "cobbled_deepslate"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "cobbled_deepslate" }
+[[blocks]]
+name = "cobbled_deepslate_slab"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "cobbled_deepslate_slab" }
+[[blocks]]
+name = "cobbled_deepslate_stairs"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "cobbled_deepslate_stairs" }
+[[blocks]]
+name = "cobbled_deepslate_wall"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "cobbled_deepslate_wall" }
+[[blocks]]
+name = "cobblestone_wall"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "cobblestone_wall" }
+[[blocks]]
+name = "cobweb"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "cobweb" }
+[[blocks]]
+name = "comparator"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "comparator" }
+[[blocks]]
+name = "composter"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "composter" }
+[[blocks]]
+name = "cornflower"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "cornflower" }
+[[blocks]]
+name = "cracked_deepslate_bricks"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "cracked_deepslate_bricks" }
+[[blocks]]
+name = "cracked_deepslate_tiles"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "cracked_deepslate_tiles" }
+[[blocks]]
+name = "cracked_nether_bricks"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "cracked_nether_bricks" }
+[[blocks]]
+name = "cracked_stone_bricks"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "cracked_stone_bricks" }
+[[blocks]]
+name = "crafting_table"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "crafting_table" }
+[[blocks]]
+name = "crimson_planks"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "crimson_planks" }
+[[blocks]]
+name = "crimson_slab"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "crimson_slab" }
+[[blocks]]
+name = "crimson_trapdoor"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "crimson_trapdoor" }
+[[blocks]]
+name = "cyan_concrete_powder"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "cyan_concrete_powder" }
+[[blocks]]
+name = "cyan_stained_glass"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "cyan_stained_glass" }
+[[blocks]]
+name = "cyan_stained_glass_pane"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "cyan_stained_glass_pane" }
+[[blocks]]
+name = "cyan_terracotta"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "cyan_terracotta" }
+[[blocks]]
+name = "cyan_wool"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "cyan_wool" }
+[[blocks]]
+name = "dandelion"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "dandelion" }
+[[blocks]]
+name = "dark_oak_button"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "dark_oak_button" }
+[[blocks]]
+name = "dark_oak_door"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "dark_oak_door" }
+[[blocks]]
+name = "dark_oak_trapdoor"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "dark_oak_trapdoor" }
+[[blocks]]
+name = "dark_oak_wall_sign"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "dark_oak_wall_sign" }
+[[blocks]]
+name = "dark_prismarine_slab"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "dark_prismarine_slab" }
+[[blocks]]
+name = "daylight_detector"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "daylight_detector" }
+[[blocks]]
+name = "dead_bush"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "dead_bush" }
+[[blocks]]
+name = "dead_fire_coral"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "dead_fire_coral" }
+[[blocks]]
+name = "dead_fire_coral_fan"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "dead_fire_coral_fan" }
+[[blocks]]
+name = "dead_horn_coral_fan"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "dead_horn_coral_fan" }
+[[blocks]]
+name = "dead_tube_coral_block"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "dead_tube_coral_block" }
+[[blocks]]
+name = "dead_tube_coral_fan"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "dead_tube_coral_fan" }
+[[blocks]]
+name = "decorated_pot"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "decorated_pot" }
+[[blocks]]
+name = "deepslate"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "deepslate" }
+[[blocks]]
+name = "deepslate_brick_slab"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "deepslate_brick_slab" }
+[[blocks]]
+name = "deepslate_brick_stairs"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "deepslate_brick_stairs" }
+[[blocks]]
+name = "deepslate_brick_wall"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "deepslate_brick_wall" }
+[[blocks]]
+name = "deepslate_bricks"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "deepslate_bricks" }
+[[blocks]]
+name = "deepslate_coal_ore"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "deepslate_coal_ore" }
+[[blocks]]
+name = "deepslate_copper_ore"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "deepslate_copper_ore" }
+[[blocks]]
+name = "deepslate_tile_wall"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "deepslate_tile_wall" }
+[[blocks]]
+name = "deepslate_tiles"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "deepslate_tiles" }
+[[blocks]]
+name = "diamond_block"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "diamond_block" }
+[[blocks]]
+name = "diorite_stairs"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "diorite_stairs" }
+[[blocks]]
+name = "dirt_path"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "dirt_path" }
+[[blocks]]
+name = "dripstone_block"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "dripstone_block" }
+[[blocks]]
+name = "dropper"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "dropper" }
+[[blocks]]
+name = "enchanting_table"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "enchanting_table" }
+[[blocks]]
+name = "end_rod"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "end_rod" }
+[[blocks]]
+name = "end_stone_brick_stairs"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "end_stone_brick_stairs" }
+[[blocks]]
+name = "ender_chest"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "ender_chest" }
+[[blocks]]
+name = "farmland"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "farmland" }
+[[blocks]]
+name = "fern"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "fern" }
+[[blocks]]
+name = "fletching_table"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "fletching_table" }
+[[blocks]]
+name = "flower_pot"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "flower_pot" }
+[[blocks]]
+name = "flowering_azalea"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "flowering_azalea" }
+[[blocks]]
+name = "flowering_azalea_leaves"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "flowering_azalea_leaves" }
+[[blocks]]
+name = "furnace"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "furnace" }
+[[blocks]]
+name = "gilded_blackstone"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "gilded_blackstone" }
+[[blocks]]
+name = "glow_lichen"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "glow_lichen" }
+[[blocks]]
+name = "gold_block"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "gold_block" }
+[[blocks]]
+name = "granite_stairs"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "granite_stairs" }
+[[blocks]]
+name = "granite_wall"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "granite_wall" }
+[[blocks]]
+name = "gray_concrete"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "gray_concrete" }
+[[blocks]]
+name = "gray_concrete_powder"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "gray_concrete_powder" }
+[[blocks]]
+name = "green_candle"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "green_candle" }
+[[blocks]]
+name = "green_stained_glass_pane"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "green_stained_glass_pane" }
+[[blocks]]
+name = "green_wool"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "green_wool" }
+[[blocks]]
+name = "grindstone"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "grindstone" }
+[[blocks]]
+name = "hay_block"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "hay_block" }
+[[blocks]]
+name = "heavy_weighted_pressure_plate"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "heavy_weighted_pressure_plate" }
+[[blocks]]
+name = "hopper"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "hopper" }
+[[blocks]]
+name = "iron_bars"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "iron_bars" }
+[[blocks]]
+name = "jack_o_lantern"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "jack_o_lantern" }
+[[blocks]]
+name = "jukebox"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "jukebox" }
+[[blocks]]
+name = "jungle_trapdoor"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "jungle_trapdoor" }
+[[blocks]]
+name = "ladder"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "ladder" }
+[[blocks]]
+name = "large_amethyst_bud"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "large_amethyst_bud" }
+[[blocks]]
+name = "large_fern"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "large_fern" }
+[[blocks]]
+name = "lectern"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "lectern" }
+[[blocks]]
+name = "lever"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "lever" }
+[[blocks]]
+name = "light_blue_candle"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "light_blue_candle" }
+[[blocks]]
+name = "light_blue_glazed_terracotta"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "light_blue_glazed_terracotta" }
+[[blocks]]
+name = "light_blue_stained_glass"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "light_blue_stained_glass" }
+[[blocks]]
+name = "light_blue_stained_glass_pane"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "light_blue_stained_glass_pane" }
+[[blocks]]
+name = "light_blue_wall_banner"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "light_blue_wall_banner" }
+[[blocks]]
+name = "light_blue_wool"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "light_blue_wool" }
+[[blocks]]
+name = "light_gray_concrete"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "light_gray_concrete" }
+[[blocks]]
+name = "light_gray_concrete_powder"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "light_gray_concrete_powder" }
+[[blocks]]
+name = "light_gray_wool"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "light_gray_wool" }
+[[blocks]]
+name = "light_weighted_pressure_plate"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "light_weighted_pressure_plate" }
+[[blocks]]
+name = "lightning_rod"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "lightning_rod" }
+[[blocks]]
+name = "lilac"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "lilac" }
+[[blocks]]
+name = "lily_of_the_valley"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "lily_of_the_valley" }
+[[blocks]]
+name = "lily_pad"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "lily_pad" }
+[[blocks]]
+name = "lime_glazed_terracotta"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "lime_glazed_terracotta" }
+[[blocks]]
+name = "lodestone"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "lodestone" }
+[[blocks]]
+name = "loom"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "loom" }
+[[blocks]]
+name = "magenta_candle"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "magenta_candle" }
+[[blocks]]
+name = "magenta_concrete"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "magenta_concrete" }
+[[blocks]]
+name = "magenta_terracotta"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "magenta_terracotta" }
+[[blocks]]
+name = "magenta_wool"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "magenta_wool" }
+[[blocks]]
+name = "magma_block"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "magma_block" }
+[[blocks]]
+name = "mangrove_door"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "mangrove_door" }
+[[blocks]]
+name = "mangrove_leaves"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "mangrove_leaves" }
+[[blocks]]
+name = "mangrove_log"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "mangrove_log" }
+[[blocks]]
+name = "mangrove_planks"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "mangrove_planks" }
+[[blocks]]
+name = "mangrove_pressure_plate"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "mangrove_pressure_plate" }
+[[blocks]]
+name = "mangrove_slab"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "mangrove_slab" }
+[[blocks]]
+name = "mangrove_stairs"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "mangrove_stairs" }
+[[blocks]]
+name = "mangrove_trapdoor"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "mangrove_trapdoor" }
+[[blocks]]
+name = "mangrove_wall_sign"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "mangrove_wall_sign" }
+[[blocks]]
+name = "medium_amethyst_bud"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "medium_amethyst_bud" }
+[[blocks]]
+name = "moss_block"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "moss_block" }
+[[blocks]]
+name = "moss_carpet"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "moss_carpet" }
+[[blocks]]
+name = "mossy_cobblestone_wall"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "mossy_cobblestone_wall" }
+[[blocks]]
+name = "mossy_stone_brick_wall"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "mossy_stone_brick_wall" }
+[[blocks]]
+name = "mud"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "mud" }
+[[blocks]]
+name = "mud_brick_slab"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "mud_brick_slab" }
+[[blocks]]
+name = "mud_brick_stairs"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "mud_brick_stairs" }
+[[blocks]]
+name = "mud_brick_wall"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "mud_brick_wall" }
+[[blocks]]
+name = "mud_bricks"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "mud_bricks" }
+[[blocks]]
+name = "mushroom_stem"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "mushroom_stem" }
+[[blocks]]
+name = "nether_brick_fence"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "nether_brick_fence" }
+[[blocks]]
+name = "nether_brick_wall"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "nether_brick_wall" }
+[[blocks]]
+name = "note_block"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "note_block" }
+[[blocks]]
+name = "oak_button"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "oak_button" }
+[[blocks]]
+name = "oak_door"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "oak_door" }
+[[blocks]]
+name = "oak_trapdoor"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "oak_trapdoor" }
+[[blocks]]
+name = "oak_wall_sign"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "oak_wall_sign" }
+[[blocks]]
+name = "orange_concrete"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "orange_concrete" }
+[[blocks]]
+name = "orange_glazed_terracotta"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "orange_glazed_terracotta" }
+[[blocks]]
+name = "orange_stained_glass"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "orange_stained_glass" }
+[[blocks]]
+name = "orange_stained_glass_pane"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "orange_stained_glass_pane" }
+[[blocks]]
+name = "orange_wool"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "orange_wool" }
+[[blocks]]
+name = "oxeye_daisy"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "oxeye_daisy" }
+[[blocks]]
+name = "packed_mud"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "packed_mud" }
+[[blocks]]
+name = "pale_oak_planks"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "pale_oak_planks" }
+[[blocks]]
+name = "pale_oak_stairs"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "pale_oak_stairs" }
+[[blocks]]
+name = "pearlescent_froglight"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "pearlescent_froglight" }
+[[blocks]]
+name = "peony"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "peony" }
+[[blocks]]
+name = "pink_concrete_powder"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "pink_concrete_powder" }
+[[blocks]]
+name = "pink_terracotta"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "pink_terracotta" }
+[[blocks]]
+name = "pink_tulip"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "pink_tulip" }
+[[blocks]]
+name = "pink_wool"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "pink_wool" }
+[[blocks]]
+name = "piston"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "piston" }
+[[blocks]]
+name = "polished_andesite_stairs"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "polished_andesite_stairs" }
+[[blocks]]
+name = "polished_basalt"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "polished_basalt" }
+[[blocks]]
+name = "polished_blackstone"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "polished_blackstone" }
+[[blocks]]
+name = "polished_blackstone_button"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "polished_blackstone_button" }
+[[blocks]]
+name = "polished_deepslate"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "polished_deepslate" }
+[[blocks]]
+name = "polished_deepslate_slab"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "polished_deepslate_slab" }
+[[blocks]]
+name = "polished_deepslate_stairs"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "polished_deepslate_stairs" }
+[[blocks]]
+name = "polished_deepslate_wall"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "polished_deepslate_wall" }
+[[blocks]]
+name = "polished_granite_stairs"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "polished_granite_stairs" }
+[[blocks]]
+name = "polished_tuff_slab"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "polished_tuff_slab" }
+[[blocks]]
+name = "poppy"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "poppy" }
+[[blocks]]
+name = "potted_allium"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "potted_allium" }
+[[blocks]]
+name = "potted_azalea_bush"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "potted_azalea_bush" }
+[[blocks]]
+name = "potted_blue_orchid"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "potted_blue_orchid" }
+[[blocks]]
+name = "potted_cherry_sapling"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "potted_cherry_sapling" }
+[[blocks]]
+name = "potted_cornflower"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "potted_cornflower" }
+[[blocks]]
+name = "potted_crimson_fungus"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "potted_crimson_fungus" }
+[[blocks]]
+name = "potted_dead_bush"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "potted_dead_bush" }
+[[blocks]]
+name = "potted_fern"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "potted_fern" }
+[[blocks]]
+name = "potted_flowering_azalea_bush"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "potted_flowering_azalea_bush" }
+[[blocks]]
+name = "potted_lily_of_the_valley"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "potted_lily_of_the_valley" }
+[[blocks]]
+name = "potted_mangrove_propagule"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "potted_mangrove_propagule" }
+[[blocks]]
+name = "potted_oak_sapling"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "potted_oak_sapling" }
+[[blocks]]
+name = "potted_orange_tulip"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "potted_orange_tulip" }
+[[blocks]]
+name = "potted_poppy"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "potted_poppy" }
+[[blocks]]
+name = "potted_red_tulip"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "potted_red_tulip" }
+[[blocks]]
+name = "potted_torchflower"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "potted_torchflower" }
+[[blocks]]
+name = "potted_warped_roots"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "potted_warped_roots" }
+[[blocks]]
+name = "potted_white_tulip"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "potted_white_tulip" }
+[[blocks]]
+name = "prismarine_brick_stairs"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "prismarine_brick_stairs" }
+[[blocks]]
+name = "prismarine_slab"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "prismarine_slab" }
+[[blocks]]
+name = "rail"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "rail" }
+[[blocks]]
+name = "raw_copper_block"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "raw_copper_block" }
+[[blocks]]
+name = "raw_iron_block"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "raw_iron_block" }
+[[blocks]]
+name = "red_bed"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "red_bed" }
+[[blocks]]
+name = "red_nether_brick_slab"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "red_nether_brick_slab" }
+[[blocks]]
+name = "red_nether_bricks"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "red_nether_bricks" }
+[[blocks]]
+name = "red_sandstone_wall"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "red_sandstone_wall" }
+[[blocks]]
+name = "red_wall_banner"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "red_wall_banner" }
+[[blocks]]
+name = "red_wool"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "red_wool" }
+[[blocks]]
+name = "rose_bush"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "rose_bush" }
+[[blocks]]
+name = "sandstone_wall"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "sandstone_wall" }
+[[blocks]]
+name = "scaffolding"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "scaffolding" }
+[[blocks]]
+name = "sculk_sensor"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "sculk_sensor" }
+[[blocks]]
+name = "sea_lantern"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "sea_lantern" }
+[[blocks]]
+name = "sea_pickle"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "sea_pickle" }
+[[blocks]]
+name = "seagrass"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "seagrass" }
+[[blocks]]
+name = "short_grass"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "short_grass" }
+[[blocks]]
+name = "shroomlight"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "shroomlight" }
+[[blocks]]
+name = "skeleton_skull"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "skeleton_skull" }
+[[blocks]]
+name = "small_dripleaf"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "small_dripleaf" }
+[[blocks]]
+name = "smithing_table"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "smithing_table" }
+[[blocks]]
+name = "smoker"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "smoker" }
+[[blocks]]
+name = "sniffer_egg"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "sniffer_egg" }
+[[blocks]]
+name = "soul_soil"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "soul_soil" }
+[[blocks]]
+name = "spruce_button"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "spruce_button" }
+[[blocks]]
+name = "spruce_door"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "spruce_door" }
+[[blocks]]
+name = "spruce_trapdoor"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "spruce_trapdoor" }
+[[blocks]]
+name = "spruce_wall_sign"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "spruce_wall_sign" }
+[[blocks]]
+name = "stone_brick_wall"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "stone_brick_wall" }
+[[blocks]]
+name = "stone_button"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "stone_button" }
+[[blocks]]
+name = "stone_pressure_plate"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "stone_pressure_plate" }
+[[blocks]]
+name = "stonecutter"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "stonecutter" }
+[[blocks]]
+name = "stripped_acacia_wood"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "stripped_acacia_wood" }
+[[blocks]]
+name = "stripped_birch_log"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "stripped_birch_log" }
+[[blocks]]
+name = "stripped_birch_wood"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "stripped_birch_wood" }
+[[blocks]]
+name = "stripped_crimson_hyphae"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "stripped_crimson_hyphae" }
+[[blocks]]
+name = "stripped_dark_oak_log"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "stripped_dark_oak_log" }
+[[blocks]]
+name = "stripped_dark_oak_wood"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "stripped_dark_oak_wood" }
+[[blocks]]
+name = "stripped_jungle_log"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "stripped_jungle_log" }
+[[blocks]]
+name = "stripped_jungle_wood"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "stripped_jungle_wood" }
+[[blocks]]
+name = "stripped_oak_log"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "stripped_oak_log" }
+[[blocks]]
+name = "stripped_oak_wood"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "stripped_oak_wood" }
+[[blocks]]
+name = "stripped_pale_oak_log"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "stripped_pale_oak_log" }
+[[blocks]]
+name = "stripped_pale_oak_wood"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "stripped_pale_oak_wood" }
+[[blocks]]
+name = "stripped_spruce_log"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "stripped_spruce_log" }
+[[blocks]]
+name = "stripped_spruce_wood"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "stripped_spruce_wood" }
+[[blocks]]
+name = "sweet_berry_bush"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "sweet_berry_bush" }
+[[blocks]]
+name = "tall_grass"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "tall_grass" }
+[[blocks]]
+name = "tall_seagrass"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "tall_seagrass" }
+[[blocks]]
+name = "target"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "target" }
+[[blocks]]
+name = "terracotta"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "terracotta" }
+[[blocks]]
+name = "tripwire_hook"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "tripwire_hook" }
+[[blocks]]
+name = "tuff"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "tuff" }
+[[blocks]]
+name = "tuff_bricks"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "tuff_bricks" }
+[[blocks]]
+name = "tuff_slab"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "tuff_slab" }
+[[blocks]]
+name = "tuff_stairs"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "tuff_stairs" }
+[[blocks]]
+name = "turtle_egg"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "turtle_egg" }
+[[blocks]]
+name = "wall_torch"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "wall_torch" }
+[[blocks]]
+name = "warped_pressure_plate"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "warped_pressure_plate" }
+[[blocks]]
+name = "warped_slab"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "warped_slab" }
+[[blocks]]
+name = "warped_stairs"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "warped_stairs" }
+[[blocks]]
+name = "warped_trapdoor"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "warped_trapdoor" }
+[[blocks]]
+name = "water_cauldron"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "water_cauldron" }
+[[blocks]]
+name = "wheat"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "wheat" }
+[[blocks]]
+name = "white_candle"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "white_candle" }
+[[blocks]]
+name = "white_concrete_powder"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "white_concrete_powder" }
+[[blocks]]
+name = "white_glazed_terracotta"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "white_glazed_terracotta" }
+[[blocks]]
+name = "white_tulip"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "white_tulip" }
+[[blocks]]
+name = "white_wool"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "white_wool" }
+[[blocks]]
+name = "wither_skeleton_skull"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "wither_skeleton_skull" }
+[[blocks]]
+name = "yellow_glazed_terracotta"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "yellow_glazed_terracotta" }
+[[blocks]]
+name = "yellow_terracotta"
+solid = true
+blocks_skylight = true
+emission = 0
+shape = "cube"
+materials = { all = "yellow_terracotta" }
