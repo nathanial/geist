@@ -15,6 +15,8 @@ use crate::camera::FlyCamera;
 use crate::event::EventQueue;
 use crate::gamestate::GameState;
 
+use super::{HitRegion, OverlayWindowManager, WindowId};
+
 pub(crate) const STREAM_LOAD_SHELLS: i32 = 1;
 pub(crate) const STREAM_EVICT_SHELLS: i32 = 2;
 
@@ -40,42 +42,8 @@ pub struct App {
     pub minimap_drag_button: Option<MouseButton>,
     pub minimap_drag_pan: bool,
     pub minimap_last_cursor: Option<Vector2>,
-    pub event_histogram_pos: Vector2,
-    pub event_histogram_dragging: bool,
-    pub event_histogram_drag_offset: Vector2,
-    pub event_histogram_rect: Option<(i32, i32, i32, i32)>,
-    pub event_histogram_titlebar_rect: Option<(i32, i32, i32, i32)>,
-    pub event_histogram_resize_rect: Option<(i32, i32, i32, i32)>,
-    pub event_histogram_resizing: bool,
-    pub event_histogram_resize_origin: Vector2,
-    pub event_histogram_resize_start: (i32, i32),
-    pub event_histogram_manual_size: Option<(i32, i32)>,
-    pub event_histogram_min_size: (i32, i32),
-    pub event_histogram_size: (i32, i32),
-    pub intent_histogram_pos: Vector2,
-    pub intent_histogram_dragging: bool,
-    pub intent_histogram_drag_offset: Vector2,
-    pub intent_histogram_rect: Option<(i32, i32, i32, i32)>,
-    pub intent_histogram_titlebar_rect: Option<(i32, i32, i32, i32)>,
-    pub intent_histogram_resize_rect: Option<(i32, i32, i32, i32)>,
-    pub intent_histogram_resizing: bool,
-    pub intent_histogram_resize_origin: Vector2,
-    pub intent_histogram_resize_start: (i32, i32),
-    pub intent_histogram_manual_size: Option<(i32, i32)>,
-    pub intent_histogram_min_size: (i32, i32),
-    pub intent_histogram_size: (i32, i32),
-    pub terrain_histogram_pos: Vector2,
-    pub terrain_histogram_dragging: bool,
-    pub terrain_histogram_drag_offset: Vector2,
-    pub terrain_histogram_rect: Option<(i32, i32, i32, i32)>,
-    pub terrain_histogram_titlebar_rect: Option<(i32, i32, i32, i32)>,
-    pub terrain_histogram_resize_rect: Option<(i32, i32, i32, i32)>,
-    pub terrain_histogram_resizing: bool,
-    pub terrain_histogram_resize_origin: Vector2,
-    pub terrain_histogram_resize_start: (i32, i32),
-    pub terrain_histogram_manual_size: Option<(i32, i32)>,
-    pub terrain_histogram_min_size: (i32, i32),
-    pub terrain_histogram_size: (i32, i32),
+    pub overlay_windows: OverlayWindowManager,
+    pub overlay_hover: Option<(WindowId, HitRegion)>,
     pub reg: Arc<BlockRegistry>,
     pub(crate) evt_processed_total: usize,
     pub(crate) evt_processed_by: HashMap<String, usize>,

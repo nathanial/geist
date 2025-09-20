@@ -6,7 +6,7 @@ use geist_world::{ChunkCoord, TERRAIN_STAGE_COUNT, TerrainMetrics};
 use raylib::prelude::*;
 use std::collections::BTreeMap;
 
-use super::App;
+use super::{App, HitRegion};
 use crate::event::{Event, RebuildCause};
 
 impl App {
@@ -309,282 +309,86 @@ impl App {
             self.minimap_last_cursor = None;
         }
 
-        let mut event_hist_hovered = false;
+        let screen_size = (rl.get_screen_width(), rl.get_screen_height());
+        let theme = *self.overlay_windows.theme();
+        let mut overlay_block_input = false;
+
         if !self.gs.show_debug_overlay {
-            self.event_histogram_dragging = false;
-            self.event_histogram_resizing = false;
-        } else if let Some((hx, hy, hw, hh)) = self.event_histogram_rect {
-            let mouse = rl.get_mouse_position();
-            if mouse.x >= hx as f32
-                && mouse.x <= (hx + hw) as f32
-                && mouse.y >= hy as f32
-                && mouse.y <= (hy + hh) as f32
-            {
-                event_hist_hovered = true;
-                if rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT) {
-                    let mut started_resize = false;
-                    if let Some((rx, ry, rw, rh)) = self.event_histogram_resize_rect {
-                        if mouse.x >= rx as f32
-                            && mouse.x <= (rx + rw) as f32
-                            && mouse.y >= ry as f32
-                            && mouse.y <= (ry + rh) as f32
-                        {
-                            self.event_histogram_resizing = true;
-                            self.event_histogram_resize_origin = mouse;
-                            self.event_histogram_resize_start = self.event_histogram_size;
-                            started_resize = true;
-                        }
+            for id in self.overlay_windows.ordered_ids() {
+                if let Some(window) = self.overlay_windows.get_mut(id) {
+                    if window.is_dragging() {
+                        window.end_drag();
                     }
-                    if !started_resize {
-                        if let Some((tx, ty, tw, th)) = self.event_histogram_titlebar_rect {
-                            if mouse.x >= tx as f32
-                                && mouse.x <= (tx + tw) as f32
-                                && mouse.y >= ty as f32
-                                && mouse.y <= (ty + th) as f32
-                            {
-                                self.event_histogram_dragging = true;
-                                self.event_histogram_drag_offset =
-                                    Vector2::new(mouse.x - tx as f32, mouse.y - ty as f32);
+                    if window.is_resizing() {
+                        window.end_resize();
+                    }
+                    window.reset_hover();
+                }
+            }
+            self.overlay_hover = None;
+        } else {
+            let cursor = rl.get_mouse_position();
+            let hovered_id = self.overlay_windows.handle_hover(cursor);
+            let hovered_region = hovered_id
+                .and_then(|id| self.overlay_windows.get(id).map(|w| (id, w.hover_region())));
+            if let Some((_, region)) = hovered_region {
+                if !matches!(region, HitRegion::None) {
+                    overlay_block_input = true;
+                }
+            }
+            self.overlay_hover = hovered_region;
+
+            if rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT) {
+                if let Some((id, region)) = hovered_region {
+                    self.overlay_windows.bring_to_front(id);
+                    if let Some(window) = self.overlay_windows.get_mut(id) {
+                        match region {
+                            HitRegion::Resize => {
+                                window.begin_resize(cursor);
+                                overlay_block_input = true;
                             }
+                            HitRegion::TitleBar => {
+                                window.begin_drag(cursor);
+                                overlay_block_input = true;
+                            }
+                            HitRegion::Content => {
+                                overlay_block_input = true;
+                            }
+                            HitRegion::None => {}
                         }
                     }
                 }
             }
-        }
 
-        if self.event_histogram_dragging {
-            if !rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT) {
-                self.event_histogram_dragging = false;
-            } else {
-                let mouse = rl.get_mouse_position();
-                let (win_w, win_h) = self.event_histogram_size;
-                let pad = 10.0_f32;
-                let screen_w = rl.get_screen_width() as f32;
-                let screen_h = rl.get_screen_height() as f32;
-                let mut new_x = mouse.x - self.event_histogram_drag_offset.x;
-                let mut new_y = mouse.y - self.event_histogram_drag_offset.y;
-                let max_x = (screen_w - win_w as f32 - pad).max(pad);
-                let max_y = (screen_h - win_h as f32 - pad).max(pad);
-                new_x = new_x.clamp(pad, max_x);
-                new_y = new_y.clamp(pad, max_y);
-                self.event_histogram_pos = Vector2::new(new_x, new_y);
-            }
-        }
-
-        if self.event_histogram_resizing {
-            if !rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT) {
-                self.event_histogram_resizing = false;
-            } else {
-                let mouse = rl.get_mouse_position();
-                let delta_x = mouse.x - self.event_histogram_resize_origin.x;
-                let delta_y = mouse.y - self.event_histogram_resize_origin.y;
-                let mut new_w =
-                    (self.event_histogram_resize_start.0 as f32 + delta_x).round() as i32;
-                let mut new_h =
-                    (self.event_histogram_resize_start.1 as f32 + delta_y).round() as i32;
-                let (min_w, min_h) = self.event_histogram_min_size;
-                new_w = new_w.max(min_w);
-                new_h = new_h.max(min_h);
-                let pad = 10.0_f32;
-                let screen_w = rl.get_screen_width() as f32;
-                let screen_h = rl.get_screen_height() as f32;
-                let max_w = (screen_w - pad - self.event_histogram_pos.x).max(min_w as f32);
-                let max_h = (screen_h - pad - self.event_histogram_pos.y).max(min_h as f32);
-                new_w = new_w.min(max_w as i32);
-                new_h = new_h.min(max_h as i32);
-                self.event_histogram_manual_size = Some((new_w, new_h));
-                self.event_histogram_size = (new_w, new_h);
-            }
-        }
-
-        let mut terrain_hist_hovered = false;
-        if !self.gs.show_debug_overlay {
-            self.terrain_histogram_dragging = false;
-            self.terrain_histogram_resizing = false;
-        } else if let Some((hx, hy, hw, hh)) = self.terrain_histogram_rect {
-            let mouse = rl.get_mouse_position();
-            if mouse.x >= hx as f32
-                && mouse.x <= (hx + hw) as f32
-                && mouse.y >= hy as f32
-                && mouse.y <= (hy + hh) as f32
-            {
-                terrain_hist_hovered = true;
-                if rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT) {
-                    let mut started_resize = false;
-                    if let Some((rx, ry, rw, rh)) = self.terrain_histogram_resize_rect {
-                        if mouse.x >= rx as f32
-                            && mouse.x <= (rx + rw) as f32
-                            && mouse.y >= ry as f32
-                            && mouse.y <= (ry + rh) as f32
-                        {
-                            self.terrain_histogram_resizing = true;
-                            self.terrain_histogram_resize_origin = mouse;
-                            self.terrain_histogram_resize_start = self.terrain_histogram_size;
-                            started_resize = true;
+            if rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT) {
+                for id in self.overlay_windows.ordered_ids() {
+                    if let Some(window) = self.overlay_windows.get_mut(id) {
+                        if window.is_dragging() {
+                            overlay_block_input = true;
+                            window.update_drag(cursor, screen_size, &theme);
                         }
-                    }
-                    if !started_resize {
-                        if let Some((tx, ty, tw, th)) = self.terrain_histogram_titlebar_rect {
-                            if mouse.x >= tx as f32
-                                && mouse.x <= (tx + tw) as f32
-                                && mouse.y >= ty as f32
-                                && mouse.y <= (ty + th) as f32
-                            {
-                                self.terrain_histogram_dragging = true;
-                                self.terrain_histogram_drag_offset =
-                                    Vector2::new(mouse.x - tx as f32, mouse.y - ty as f32);
-                            }
+                        if window.is_resizing() {
+                            overlay_block_input = true;
+                            window.update_resize(cursor, screen_size, &theme);
                         }
                     }
                 }
-            }
-        }
-
-        if self.terrain_histogram_dragging {
-            if !rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT) {
-                self.terrain_histogram_dragging = false;
             } else {
-                let mouse = rl.get_mouse_position();
-                let (win_w, win_h) = self.terrain_histogram_size;
-                let pad = 10.0_f32;
-                let screen_w = rl.get_screen_width() as f32;
-                let screen_h = rl.get_screen_height() as f32;
-                let mut new_x = mouse.x - self.terrain_histogram_drag_offset.x;
-                let mut new_y = mouse.y - self.terrain_histogram_drag_offset.y;
-                let max_x = (screen_w - win_w as f32 - pad).max(pad);
-                let max_y = (screen_h - win_h as f32 - pad).max(pad);
-                new_x = new_x.clamp(pad, max_x);
-                new_y = new_y.clamp(pad, max_y);
-                self.terrain_histogram_pos = Vector2::new(new_x, new_y);
-            }
-        } else if !terrain_hist_hovered {
-            self.terrain_histogram_drag_offset = Vector2::new(0.0, 0.0);
-        }
-
-        if self.terrain_histogram_resizing {
-            if !rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT) {
-                self.terrain_histogram_resizing = false;
-            } else {
-                let mouse = rl.get_mouse_position();
-                let delta_x = mouse.x - self.terrain_histogram_resize_origin.x;
-                let delta_y = mouse.y - self.terrain_histogram_resize_origin.y;
-                let mut new_w =
-                    (self.terrain_histogram_resize_start.0 as f32 + delta_x).round() as i32;
-                let mut new_h =
-                    (self.terrain_histogram_resize_start.1 as f32 + delta_y).round() as i32;
-                let (min_w, min_h) = self.terrain_histogram_min_size;
-                new_w = new_w.max(min_w);
-                new_h = new_h.max(min_h);
-                let pad = 10.0_f32;
-                let screen_w = rl.get_screen_width() as f32;
-                let screen_h = rl.get_screen_height() as f32;
-                let max_w = (screen_w - pad - self.terrain_histogram_pos.x).max(min_w as f32);
-                let max_h = (screen_h - pad - self.terrain_histogram_pos.y).max(min_h as f32);
-                new_w = new_w.min(max_w as i32);
-                new_h = new_h.min(max_h as i32);
-                self.terrain_histogram_manual_size = Some((new_w, new_h));
-                self.terrain_histogram_size = (new_w, new_h);
-            }
-        }
-
-        let mut intent_hist_hovered = false;
-        if !self.gs.show_debug_overlay {
-            self.intent_histogram_dragging = false;
-            self.intent_histogram_resizing = false;
-        } else if let Some((hx, hy, hw, hh)) = self.intent_histogram_rect {
-            let mouse = rl.get_mouse_position();
-            if mouse.x >= hx as f32
-                && mouse.x <= (hx + hw) as f32
-                && mouse.y >= hy as f32
-                && mouse.y <= (hy + hh) as f32
-            {
-                intent_hist_hovered = true;
-                if rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT) {
-                    let mut started_resize = false;
-                    if let Some((rx, ry, rw, rh)) = self.intent_histogram_resize_rect {
-                        if mouse.x >= rx as f32
-                            && mouse.x <= (rx + rw) as f32
-                            && mouse.y >= ry as f32
-                            && mouse.y <= (ry + rh) as f32
-                        {
-                            self.intent_histogram_resizing = true;
-                            self.intent_histogram_resize_origin = mouse;
-                            self.intent_histogram_resize_start = self.intent_histogram_size;
-                            started_resize = true;
+                for id in self.overlay_windows.ordered_ids() {
+                    if let Some(window) = self.overlay_windows.get_mut(id) {
+                        if window.is_dragging() {
+                            window.end_drag();
                         }
-                    }
-                    if !started_resize {
-                        if let Some((tx, ty, tw, th)) = self.intent_histogram_titlebar_rect {
-                            if mouse.x >= tx as f32
-                                && mouse.x <= (tx + tw) as f32
-                                && mouse.y >= ty as f32
-                                && mouse.y <= (ty + th) as f32
-                            {
-                                self.intent_histogram_dragging = true;
-                                self.intent_histogram_drag_offset =
-                                    Vector2::new(mouse.x - tx as f32, mouse.y - ty as f32);
-                            }
+                        if window.is_resizing() {
+                            window.end_resize();
                         }
                     }
                 }
-            }
-        }
-
-        if self.intent_histogram_dragging {
-            if !rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT) {
-                self.intent_histogram_dragging = false;
-            } else {
-                let mouse = rl.get_mouse_position();
-                let (win_w, win_h) = self.intent_histogram_size;
-                let pad = 10.0_f32;
-                let screen_w = rl.get_screen_width() as f32;
-                let screen_h = rl.get_screen_height() as f32;
-                let mut new_x = mouse.x - self.intent_histogram_drag_offset.x;
-                let mut new_y = mouse.y - self.intent_histogram_drag_offset.y;
-                let max_x = (screen_w - win_w as f32 - pad).max(pad);
-                let max_y = (screen_h - win_h as f32 - pad).max(pad);
-                new_x = new_x.clamp(pad, max_x);
-                new_y = new_y.clamp(pad, max_y);
-                self.intent_histogram_pos = Vector2::new(new_x, new_y);
-            }
-        }
-
-        if self.intent_histogram_resizing {
-            if !rl.is_mouse_button_down(MouseButton::MOUSE_BUTTON_LEFT) {
-                self.intent_histogram_resizing = false;
-            } else {
-                let mouse = rl.get_mouse_position();
-                let delta_x = mouse.x - self.intent_histogram_resize_origin.x;
-                let delta_y = mouse.y - self.intent_histogram_resize_origin.y;
-                let mut new_w =
-                    (self.intent_histogram_resize_start.0 as f32 + delta_x).round() as i32;
-                let mut new_h =
-                    (self.intent_histogram_resize_start.1 as f32 + delta_y).round() as i32;
-                let (min_w, min_h) = self.intent_histogram_min_size;
-                new_w = new_w.max(min_w);
-                new_h = new_h.max(min_h);
-                let pad = 10.0_f32;
-                let screen_w = rl.get_screen_width() as f32;
-                let screen_h = rl.get_screen_height() as f32;
-                let max_w = (screen_w - pad - self.intent_histogram_pos.x).max(min_w as f32);
-                let max_h = (screen_h - pad - self.intent_histogram_pos.y).max(min_h as f32);
-                new_w = new_w.min(max_w as i32);
-                new_h = new_h.min(max_h as i32);
-                self.intent_histogram_manual_size = Some((new_w, new_h));
-                self.intent_histogram_size = (new_w, new_h);
             }
         }
 
         let block_minimap_input = minimap_hovered || self.minimap_drag_button.is_some();
-        let block_hist_input =
-            event_hist_hovered || self.event_histogram_dragging || self.event_histogram_resizing;
-        let block_intent_input =
-            intent_hist_hovered || self.intent_histogram_dragging || self.intent_histogram_resizing;
-        let block_terrain_input = terrain_hist_hovered
-            || self.terrain_histogram_dragging
-            || self.terrain_histogram_resizing;
-        let block_ui_input =
-            block_minimap_input || block_hist_input || block_intent_input || block_terrain_input;
+        let block_ui_input = block_minimap_input || overlay_block_input;
 
         // Structure speed controls (horizontal X)
         if rl.is_key_pressed(KeyboardKey::KEY_MINUS) {

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use raylib::prelude::*;
 use serde::Deserialize;
 
-use super::{App, DebugStats};
+use super::{App, DebugStats, OverlayWindow, OverlayWindowManager, WindowId, WindowTheme};
 use crate::event::{Event, EventQueue};
 use crate::gamestate::GameState;
 use geist_blocks::{Block, BlockRegistry};
@@ -366,6 +366,27 @@ impl App {
             }
         }
 
+        let mut overlay_windows = OverlayWindowManager::new(WindowTheme::default());
+        overlay_windows.insert(OverlayWindow::new(
+            WindowId::EventHistogram,
+            Vector2::new(40.0, 40.0),
+            (488, 220),
+            (488, 220),
+        ));
+        overlay_windows.insert(OverlayWindow::new(
+            WindowId::IntentHistogram,
+            Vector2::new(420.0, 40.0),
+            (498, 240),
+            (498, 240),
+        ));
+        overlay_windows.insert(OverlayWindow::new(
+            WindowId::TerrainHistogram,
+            Vector2::new(800.0, 40.0),
+            (534, 360),
+            (534, 360),
+        ));
+        overlay_windows.clamp_all((rl.get_screen_width(), rl.get_screen_height()));
+
         // Bootstrap initial streaming based on camera (after edits are applied)
         let ccx = (cam.position.x / world.chunk_size_x as f32).floor() as i32;
         let ccy = (cam.position.y / world.chunk_size_y as f32).floor() as i32;
@@ -399,42 +420,8 @@ impl App {
             minimap_drag_button: None,
             minimap_drag_pan: false,
             minimap_last_cursor: None,
-            event_histogram_pos: Vector2::new(40.0, 40.0),
-            event_histogram_dragging: false,
-            event_histogram_drag_offset: Vector2::new(0.0, 0.0),
-            event_histogram_rect: None,
-            event_histogram_titlebar_rect: None,
-            event_histogram_resize_rect: None,
-            event_histogram_resizing: false,
-            event_histogram_resize_origin: Vector2::new(0.0, 0.0),
-            event_histogram_resize_start: (520, 260),
-            event_histogram_manual_size: None,
-            event_histogram_min_size: (488, 220),
-            event_histogram_size: (520, 260),
-            intent_histogram_pos: Vector2::new(420.0, 40.0),
-            intent_histogram_dragging: false,
-            intent_histogram_drag_offset: Vector2::new(0.0, 0.0),
-            intent_histogram_rect: None,
-            intent_histogram_titlebar_rect: None,
-            intent_histogram_resize_rect: None,
-            intent_histogram_resizing: false,
-            intent_histogram_resize_origin: Vector2::new(0.0, 0.0),
-            intent_histogram_resize_start: (540, 300),
-            intent_histogram_manual_size: None,
-            intent_histogram_min_size: (498, 240),
-            intent_histogram_size: (540, 300),
-            terrain_histogram_pos: Vector2::new(800.0, 40.0),
-            terrain_histogram_dragging: false,
-            terrain_histogram_drag_offset: Vector2::new(0.0, 0.0),
-            terrain_histogram_rect: None,
-            terrain_histogram_titlebar_rect: None,
-            terrain_histogram_resize_rect: None,
-            terrain_histogram_resizing: false,
-            terrain_histogram_resize_origin: Vector2::new(0.0, 0.0),
-            terrain_histogram_resize_start: (600, 420),
-            terrain_histogram_manual_size: None,
-            terrain_histogram_min_size: (534, 360),
-            terrain_histogram_size: (600, 420),
+            overlay_windows,
+            overlay_hover: None,
             reg: reg.clone(),
             evt_processed_total: 0,
             evt_processed_by: HashMap::new(),
