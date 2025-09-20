@@ -106,7 +106,12 @@ pub(crate) fn emit_face_rect_for_clipped(
             }
         }
         Face::PosY | Face::NegY => {
-            if origin.y >= by0 && origin.y < by1 {
+            let upper_ok = if matches!(face, Face::PosY) {
+                origin.y <= by1
+            } else {
+                origin.y < by1
+            };
+            if origin.y >= by0 && upper_ok {
                 if let Some((x, u)) = clip_span(origin.x, u1, bx0, bx1) {
                     if let Some((z, v)) = clip_span(origin.z, v1, bz0, bz1) {
                         let mut o = origin;

@@ -102,13 +102,15 @@ impl FaceGrids {
     }
 }
 
-// Dense micro occupancy for Nx*Ny*Nz and seam layers for -X and -Z
+// Dense micro occupancy for Nx*Ny*Nz and seam layers for -X, -Z, -Y, +Y
 struct OccGrids {
     // interior occupancy
     occ: Bitset,
-    // seam layers (-X: Ny*Nz, -Z: Nx*Ny)
+    // seam layers (-X: Ny*Nz, -Z: Nx*Ny, -Y/+Y: Nx*Nz)
     seam_x: Bitset,
     seam_z: Bitset,
+    seam_y_neg: Bitset,
+    seam_y_pos: Bitset,
     nx: usize,
     ny: usize,
     nz: usize,
@@ -119,6 +121,8 @@ impl OccGrids {
             occ: Bitset::new(nx * ny * nz),
             seam_x: Bitset::new(ny * nz),
             seam_z: Bitset::new(nx * ny),
+            seam_y_neg: Bitset::new(nx * nz),
+            seam_y_pos: Bitset::new(nx * nz),
             nx,
             ny,
             nz,
@@ -135,6 +139,10 @@ impl OccGrids {
     #[inline]
     fn idx_sz(&self, ix: usize, iy: usize) -> usize {
         (iy * self.nx) + ix
+    }
+    #[inline]
+    fn idx_sy(&self, ix: usize, iz: usize) -> usize {
+        (ix * self.nz) + iz
     }
     #[inline]
     fn occ_get(&self, ix: usize, iy: usize, iz: usize) -> bool {
@@ -219,6 +227,8 @@ impl<'a> ParityMesher<'a> {
                     o.occ.clear();
                     o.seam_x.clear();
                     o.seam_z.clear();
+                    o.seam_y_neg.clear();
+                    o.seam_y_pos.clear();
                     o
                 } else {
                     OccGrids::new(nx, ny, nz)
@@ -253,6 +263,8 @@ impl<'a> ParityMesher<'a> {
                     o.occ.clear();
                     o.seam_x.clear();
                     o.seam_z.clear();
+                    o.seam_y_neg.clear();
+                    o.seam_y_pos.clear();
                     o
                 } else {
                     OccGrids::new(nx, ny, nz)
@@ -490,6 +502,122 @@ impl<'a> ParityMesher<'a> {
         }
         let ms_z: u32 = t_z.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
         log::info!(target: "perf", "ms={} mesher_seed_seam axis=Z s={} dims=({}, {}, {}) base_x={} base_z={}", ms_z, self.s, self.sx, self.sy, self.sz, self.base_x, self.base_z);
+
+        // -Y seam layer (iy = -1)
+        let t_y_neg = Instant::now();
+        for lx in 0..sx {
+            for lz in 0..sz {
+                let nb = self.world_block(
+                    self.base_x + lx as i32,
+                    self.base_y - 1,
+                    self.base_z + lz as i32,
+                );
+                if nb.id == 0 {
+                    continue;
+                }
+                if let Some(ty) = self.reg.get(nb.id) {
+                    if ty.name == "water" {
+                        let x0 = lx * s;
+                        let z0 = lz * s;
+                        for ix in x0..(x0 + s) {
+                            for iz in z0..(z0 + s) {
+                                let i = self.occs_water.idx_sy(ix, iz);
+                                self.occs_water.seam_y_neg.set(i, true);
+                            }
+                        }
+                    } else if ty.is_solid(nb.state)
+                        && matches!(
+                            ty.shape,
+                            geist_blocks::types::Shape::Cube
+                                | geist_blocks::types::Shape::AxisCube { .. }
+                        )
+                    {
+                        let x0 = lx * s;
+                        let z0 = lz * s;
+                        for ix in x0..(x0 + s) {
+                            for iz in z0..(z0 + s) {
+                                let i = self.occs.idx_sy(ix, iz);
+                                self.occs.seam_y_neg.set(i, true);
+                            }
+                        }
+                    } else if let Some(occ) = ty.variant(nb.state).occupancy {
+                        let x0 = lx * s;
+                        let z0 = lz * s;
+                        let my = s.saturating_sub(1);
+                        for mz in 0..s {
+                            for mx in 0..s {
+                                if occ_bit_s2(occ, mx, my, mz) {
+                                    let ix = x0 + mx;
+                                    let iz = z0 + mz;
+                                    let i = self.occs.idx_sy(ix, iz);
+                                    self.occs.seam_y_neg.set(i, true);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let ms_y_neg: u32 = t_y_neg.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+        log::info!(target: "perf", "ms={} mesher_seed_seam axis=Y- s={} dims=({}, {}, {}) base_x={} base_z={}", ms_y_neg, self.s, self.sx, self.sy, self.sz, self.base_x, self.base_z);
+
+        // +Y seam layer (iy = ny)
+        let t_y_pos = Instant::now();
+        for lx in 0..sx {
+            for lz in 0..sz {
+                let nb = self.world_block(
+                    self.base_x + lx as i32,
+                    self.base_y + self.sy as i32,
+                    self.base_z + lz as i32,
+                );
+                if nb.id == 0 {
+                    continue;
+                }
+                if let Some(ty) = self.reg.get(nb.id) {
+                    if ty.name == "water" {
+                        let x0 = lx * s;
+                        let z0 = lz * s;
+                        for ix in x0..(x0 + s) {
+                            for iz in z0..(z0 + s) {
+                                let i = self.occs_water.idx_sy(ix, iz);
+                                self.occs_water.seam_y_pos.set(i, true);
+                            }
+                        }
+                    } else if ty.is_solid(nb.state)
+                        && matches!(
+                            ty.shape,
+                            geist_blocks::types::Shape::Cube
+                                | geist_blocks::types::Shape::AxisCube { .. }
+                        )
+                    {
+                        let x0 = lx * s;
+                        let z0 = lz * s;
+                        for ix in x0..(x0 + s) {
+                            for iz in z0..(z0 + s) {
+                                let i = self.occs.idx_sy(ix, iz);
+                                self.occs.seam_y_pos.set(i, true);
+                            }
+                        }
+                    } else if let Some(occ) = ty.variant(nb.state).occupancy {
+                        let x0 = lx * s;
+                        let z0 = lz * s;
+                        let my = 0usize;
+                        for mz in 0..s {
+                            for mx in 0..s {
+                                if occ_bit_s2(occ, mx, my, mz) {
+                                    let ix = x0 + mx;
+                                    let iz = z0 + mz;
+                                    let i = self.occs.idx_sy(ix, iz);
+                                    self.occs.seam_y_pos.set(i, true);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let ms_y_pos: u32 = t_y_pos.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+        log::info!(target: "perf", "ms={} mesher_seed_seam axis=Y+ s={} dims=({}, {}, {}) base_x={} base_z={}", ms_y_pos, self.s, self.sx, self.sy, self.sz, self.base_x, self.base_z);
     }
 
     pub fn compute_parity_and_materials(&mut self) {
@@ -645,13 +773,14 @@ impl<'a> ParityMesher<'a> {
             // include top boundary
             for iz in 0..nz {
                 for ix in 0..nx {
+                    let seam_idx = self.occs.idx_sy(ix, iz);
                     let a = if iy == 0 {
-                        false
+                        self.occs.seam_y_neg.get(seam_idx)
                     } else {
                         self.occs.occ_get(ix, iy - 1, iz)
                     };
                     let b = if iy == ny {
-                        false
+                        self.occs.seam_y_pos.get(seam_idx)
                     } else {
                         self.occs.occ_get(ix, iy, iz)
                     };
@@ -666,16 +795,49 @@ impl<'a> ParityMesher<'a> {
                     let owner_pos = a;
                     self.grids.oy.set(idx, owner_pos);
                     let face = if owner_pos { Face::PosY } else { Face::NegY };
-                    let by_owner = if owner_pos { iy.saturating_sub(1) } else { iy };
                     let bx = (ix / s).min(self.sx - 1);
-                    let by = (by_owner / s).min(self.sy - 1);
                     let bz = (iz / s).min(self.sz - 1);
-                    let here = self.buf.get_local(bx, by, bz);
-                    let mid = self
-                        .reg
-                        .get(here.id)
-                        .map(|ty| ty.material_for_cached(face.role(), here.state))
-                        .unwrap_or(MaterialId(0));
+                    let mid = if owner_pos {
+                        if iy == 0 {
+                            // neighbor at y = base_y - 1
+                            let nb = self.world_block(
+                                self.base_x + bx as i32,
+                                self.base_y - 1,
+                                self.base_z + bz as i32,
+                            );
+                            self.reg
+                                .get(nb.id)
+                                .map(|ty| ty.material_for_cached(face.role(), nb.state))
+                                .unwrap_or(MaterialId(0))
+                        } else {
+                            let by = ((iy - 1) / s).min(self.sy - 1);
+                            let here = self.buf.get_local(bx, by, bz);
+                            self.reg
+                                .get(here.id)
+                                .map(|ty| ty.material_for_cached(face.role(), here.state))
+                                .unwrap_or(MaterialId(0))
+                        }
+                    } else {
+                        if iy == ny {
+                            // neighbor at y = base_y + sy
+                            let nb = self.world_block(
+                                self.base_x + bx as i32,
+                                self.base_y + self.sy as i32,
+                                self.base_z + bz as i32,
+                            );
+                            self.reg
+                                .get(nb.id)
+                                .map(|ty| ty.material_for_cached(face.role(), nb.state))
+                                .unwrap_or(MaterialId(0))
+                        } else {
+                            let by = (iy / s).min(self.sy - 1);
+                            let here = self.buf.get_local(bx, by, bz);
+                            self.reg
+                                .get(here.id)
+                                .map(|ty| ty.material_for_cached(face.role(), here.state))
+                                .unwrap_or(MaterialId(0))
+                        }
+                    };
                     self.grids.ky[idx] = mid;
                 }
             }
@@ -684,13 +846,14 @@ impl<'a> ParityMesher<'a> {
         for iy in 0..=ny {
             for iz in 0..nz {
                 for ix in 0..nx {
+                    let seam_idx_w = self.occs_water.idx_sy(ix, iz);
                     let a_w = if iy == 0 {
-                        false
+                        self.occs_water.seam_y_neg.get(seam_idx_w)
                     } else {
                         self.occs_water.occ_get(ix, iy - 1, iz)
                     };
                     let b_w = if iy == ny {
-                        false
+                        self.occs_water.seam_y_pos.get(seam_idx_w)
                     } else {
                         self.occs_water.occ_get(ix, iy, iz)
                     };
@@ -703,13 +866,14 @@ impl<'a> ParityMesher<'a> {
                     }
                     let owner_pos_w = a_w;
                     self.grids_water.oy.set(idx_w, owner_pos_w);
+                    let seam_idx_s = self.occs.idx_sy(ix, iz);
                     let a_s = if iy == 0 {
-                        false
+                        self.occs.seam_y_neg.get(seam_idx_s)
                     } else {
                         self.occs.occ_get(ix, iy - 1, iz)
                     };
                     let b_s = if iy == ny {
-                        false
+                        self.occs.seam_y_pos.get(seam_idx_s)
                     } else {
                         self.occs.occ_get(ix, iy, iz)
                     };
@@ -719,20 +883,47 @@ impl<'a> ParityMesher<'a> {
                         continue;
                     }
                     let face = if owner_pos_w { Face::PosY } else { Face::NegY };
-                    let by_owner = if owner_pos_w {
-                        iy.saturating_sub(1)
-                    } else {
-                        iy
-                    };
                     let bx = (ix / s).min(self.sx - 1);
-                    let by = (by_owner / s).min(self.sy - 1);
                     let bz = (iz / s).min(self.sz - 1);
-                    let here = self.buf.get_local(bx, by, bz);
-                    let mid_w = self
-                        .reg
-                        .get(here.id)
-                        .map(|ty| ty.material_for_cached(face.role(), here.state))
-                        .unwrap_or(MaterialId(0));
+                    let mid_w = if owner_pos_w {
+                        if iy == 0 {
+                            let nb = self.world_block(
+                                self.base_x + bx as i32,
+                                self.base_y - 1,
+                                self.base_z + bz as i32,
+                            );
+                            self.reg
+                                .get(nb.id)
+                                .map(|ty| ty.material_for_cached(face.role(), nb.state))
+                                .unwrap_or(MaterialId(0))
+                        } else {
+                            let by = ((iy - 1) / s).min(self.sy - 1);
+                            let here = self.buf.get_local(bx, by, bz);
+                            self.reg
+                                .get(here.id)
+                                .map(|ty| ty.material_for_cached(face.role(), here.state))
+                                .unwrap_or(MaterialId(0))
+                        }
+                    } else {
+                        if iy == ny {
+                            let nb = self.world_block(
+                                self.base_x + bx as i32,
+                                self.base_y + self.sy as i32,
+                                self.base_z + bz as i32,
+                            );
+                            self.reg
+                                .get(nb.id)
+                                .map(|ty| ty.material_for_cached(face.role(), nb.state))
+                                .unwrap_or(MaterialId(0))
+                        } else {
+                            let by = (iy / s).min(self.sy - 1);
+                            let here = self.buf.get_local(bx, by, bz);
+                            self.reg
+                                .get(here.id)
+                                .map(|ty| ty.material_for_cached(face.role(), here.state))
+                                .unwrap_or(MaterialId(0))
+                        }
+                    };
                     self.grids_water.ky[idx_w] = mid_w;
                 }
             }

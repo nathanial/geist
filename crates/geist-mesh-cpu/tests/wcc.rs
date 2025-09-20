@@ -13,8 +13,20 @@ fn load_registry() -> BlockRegistry {
     BlockRegistry::load_from_paths(vox.join("materials.toml"), vox.join("blocks.toml")).unwrap()
 }
 
+fn make_buf_at(
+    cx: i32,
+    cy: i32,
+    cz: i32,
+    sx: usize,
+    sy: usize,
+    sz: usize,
+    blocks: Vec<Block>,
+) -> ChunkBuf {
+    ChunkBuf::from_blocks_local(ChunkCoord::new(cx, cy, cz), sx, sy, sz, blocks)
+}
+
 fn make_buf(cx: i32, cz: i32, sx: usize, sy: usize, sz: usize, blocks: Vec<Block>) -> ChunkBuf {
-    ChunkBuf::from_blocks_local(ChunkCoord::new(cx, 0, cz), sx, sy, sz, blocks)
+    make_buf_at(cx, 0, cz, sx, sy, sz, blocks)
 }
 
 fn tri_area_sum(cpu: &ChunkMeshCPU) -> f32 {
@@ -55,26 +67,17 @@ fn tri_area_sum(cpu: &ChunkMeshCPU) -> f32 {
 }
 
 fn expected_surface_area_voxels(
+    base_x: i32,
+    base_y: i32,
+    base_z: i32,
     sx: usize,
     sy: usize,
     sz: usize,
     solid: &dyn Fn(usize, usize, usize) -> bool,
+    solid_world: &dyn Fn(i32, i32, i32) -> bool,
 ) -> f32 {
     let mut area = 0usize;
-    let mut count_face = |x: i32, y: i32, z: i32, face: (i32, i32, i32)| {
-        // Half-open rule: do not count +X/+Y/+Z boundary faces
-        let (dx, dy, dz) = face;
-        if x < 0 || y < 0 || z < 0 || x >= sx as i32 || y >= sy as i32 || z >= sz as i32 {
-            if dx > 0 && x == sx as i32 {
-                return;
-            }
-            if dy > 0 && y == sy as i32 {
-                return;
-            }
-            if dz > 0 && z == sz as i32 {
-                return;
-            }
-        }
+    let mut count_face = |_x: i32, _y: i32, _z: i32, _face: (i32, i32, i32)| {
         area += 1;
     };
     for z in 0..sz {
@@ -84,6 +87,9 @@ fn expected_surface_area_voxels(
                 if !here {
                     continue;
                 }
+                let wx = base_x + x as i32;
+                let wy = base_y + y as i32;
+                let wz = base_z + z as i32;
                 // -X
                 if x == 0 {
                     count_face(0, y as i32, z as i32, (-1, 0, 0));
@@ -95,7 +101,6 @@ fn expected_surface_area_voxels(
                 if x + 1 < sx && !solid(x + 1, y, z) {
                     count_face((x + 1) as i32, y as i32, z as i32, (1, 0, 0));
                 }
-                if x + 1 == sx && !false { /* skip +X boundary by rule */ }
                 // -Y
                 if y == 0 {
                     count_face(x as i32, 0, z as i32, (0, -1, 0));
@@ -104,7 +109,11 @@ fn expected_surface_area_voxels(
                     count_face(x as i32, y as i32, z as i32, (0, -1, 0));
                 }
                 // +Y
-                if y + 1 < sy && !solid(x, y + 1, z) {
+                if y + 1 < sy {
+                    if !solid(x, y + 1, z) {
+                        count_face(x as i32, (y + 1) as i32, z as i32, (0, 1, 0));
+                    }
+                } else if !solid_world(wx, wy + 1, wz) {
                     count_face(x as i32, (y + 1) as i32, z as i32, (0, 1, 0));
                 }
                 // -Z
@@ -172,7 +181,19 @@ fn parity_area_random_full_cubes_s1() {
     };
     let area_mesh = tri_area_sum(&cpu);
     let solid_fn = |x: usize, y: usize, z: usize| blocks[(y * sz + z) * sx + x].id == stone;
-    let area_expected = expected_surface_area_voxels(sx, sy, sz, &solid_fn);
+    let area_expected = expected_surface_area_voxels(
+        base_x,
+        base_y,
+        base_z,
+        sx,
+        sy,
+        sz,
+        &solid_fn,
+        &|wx, wy, wz| {
+            let b = world.block_at_runtime(&reg, wx, wy, wz);
+            b.id != air
+        },
+    );
     let diff = (area_mesh - area_expected).abs();
     assert!(
         diff < 1e-3,
@@ -293,6 +314,164 @@ fn seam_stitch_no_faces_on_shared_plane_s1() {
 }
 
 #[test]
+fn seam_vertical_no_faces_on_shared_plane_s1() {
+    let sx = 8;
+    let sy = 8;
+    let sz = 8;
+    let reg = load_registry();
+    let stone = reg.id_by_name("stone").unwrap_or(1);
+    let air = reg.id_by_name("air").unwrap_or(0);
+    // Deterministic random solids
+    let mut blocks_lo: Vec<Block> = Vec::with_capacity(sx * sy * sz);
+    for i in 0..(sx * sy * sz) {
+        let r = (i as u64 * 1664525 + 1013904223) & 0xFFFF_FFFF;
+        let id = if (r & 1) == 0 { stone } else { air };
+        blocks_lo.push(Block { id, state: 0 });
+    }
+    let blocks_hi = blocks_lo.clone();
+
+    let buf_lo = make_buf_at(0, 0, 0, sx, sy, sz, blocks_lo);
+    let buf_hi = make_buf_at(0, 1, 0, sx, sy, sz, blocks_hi);
+    let store = LightingStore::new(sx, sy, sz);
+    let _light_lo = LightGrid::compute_with_borders_buf(&buf_lo, &store, &reg);
+    let _light_hi = LightGrid::compute_with_borders_buf(&buf_hi, &store, &reg);
+    let world = World::new(1, 2, 1, 0, WorldGenMode::Flat { thickness: 0 });
+
+    let base_lo_x = buf_lo.coord.cx * buf_lo.sx as i32;
+    let base_lo_y = buf_lo.coord.cy * buf_lo.sy as i32;
+    let base_lo_z = buf_lo.coord.cz * buf_lo.sz as i32;
+    let base_hi_x = buf_hi.coord.cx * buf_hi.sx as i32;
+    let base_hi_y = buf_hi.coord.cy * buf_hi.sy as i32;
+    let base_hi_z = buf_hi.coord.cz * buf_hi.sz as i32;
+
+    let mut edits_lo: HashMap<(i32, i32, i32), Block> = HashMap::new();
+    for y in 0..sy {
+        for z in 0..sz {
+            for x in 0..sx {
+                let block = buf_hi.get_local(x, y, z);
+                if block.id == air {
+                    continue;
+                }
+                let wx = base_hi_x + x as i32;
+                let wy = base_hi_y + y as i32;
+                let wz = base_hi_z + z as i32;
+                edits_lo.insert((wx, wy, wz), block);
+            }
+        }
+    }
+    let mut edits_hi: HashMap<(i32, i32, i32), Block> = HashMap::new();
+    for y in 0..sy {
+        for z in 0..sz {
+            for x in 0..sx {
+                let block = buf_lo.get_local(x, y, z);
+                if block.id == air {
+                    continue;
+                }
+                let wx = base_lo_x + x as i32;
+                let wy = base_lo_y + y as i32;
+                let wz = base_lo_z + z as i32;
+                edits_hi.insert((wx, wy, wz), block);
+            }
+        }
+    }
+
+    let mut lo = ParityMesher::new(
+        &buf_lo,
+        &reg,
+        1,
+        base_lo_x,
+        base_lo_y,
+        base_lo_z,
+        &world,
+        Some(&edits_lo),
+    );
+    let mut hi = ParityMesher::new(
+        &buf_hi,
+        &reg,
+        1,
+        base_hi_x,
+        base_hi_y,
+        base_hi_z,
+        &world,
+        Some(&edits_hi),
+    );
+    lo.build_occupancy();
+    hi.build_occupancy();
+    lo.seed_seam_layers();
+    hi.seed_seam_layers();
+    lo.compute_parity_and_materials();
+    hi.compute_parity_and_materials();
+
+    let mut builds_lo = HashMap::new();
+    lo.emit_into(&mut builds_lo);
+    let mut builds_hi = HashMap::new();
+    hi.emit_into(&mut builds_hi);
+
+    let cpu_lo = ChunkMeshCPU {
+        coord: buf_lo.coord,
+        bbox: geist_geom::Aabb {
+            min: geist_geom::Vec3 {
+                x: 0.0,
+                y: 0.0,
+                z: 0.0,
+            },
+            max: geist_geom::Vec3 {
+                x: sx as f32,
+                y: sy as f32,
+                z: sz as f32,
+            },
+        },
+        parts: builds_lo,
+    };
+    let cpu_hi = ChunkMeshCPU {
+        coord: buf_hi.coord,
+        bbox: geist_geom::Aabb {
+            min: geist_geom::Vec3 {
+                x: 0.0,
+                y: sy as f32,
+                z: 0.0,
+            },
+            max: geist_geom::Vec3 {
+                x: sx as f32,
+                y: (2 * sy) as f32,
+                z: sz as f32,
+            },
+        },
+        parts: builds_hi,
+    };
+
+    let seam_y = sy as f32;
+    let eps = 1e-6f32;
+    let mut seam_tris = 0usize;
+    for cpu in [&cpu_lo, &cpu_hi] {
+        for part in cpu.parts.values() {
+            let idx = if !part.idx.is_empty() {
+                part.idx.iter().map(|&i| i as usize).collect::<Vec<_>>()
+            } else {
+                (0..(part.pos.len() / 3)).collect::<Vec<_>>()
+            };
+            for t in (0..idx.len()).step_by(3) {
+                let a = idx[t] * 3;
+                let b = idx[t + 1] * 3;
+                let c = idx[t + 2] * 3;
+                let ys = [part.pos[a + 1], part.pos[b + 1], part.pos[c + 1]];
+                if (ys[0] - seam_y).abs() < eps
+                    && (ys[1] - seam_y).abs() < eps
+                    && (ys[2] - seam_y).abs() < eps
+                {
+                    seam_tris += 1;
+                }
+            }
+        }
+    }
+    assert_eq!(
+        seam_tris, 0,
+        "expected no triangles exactly on shared vertical seam plane, found {}",
+        seam_tris
+    );
+}
+
+#[test]
 fn per_face_quads_triangle_count_on_slab() {
     let sx = 12;
     let sy = 6;
@@ -319,7 +498,22 @@ fn per_face_quads_triangle_count_on_slab() {
     // Compute expected surface area and compare against mesh area to ensure all faces emitted.
     let blocks_clone = blocks.clone();
     let solid_fn = |x: usize, y: usize, z: usize| blocks_clone[(y * sz + z) * sx + x].id == stone;
-    let expected_area = expected_surface_area_voxels(sx, sy, sz, &solid_fn);
+    let base_x = buf.coord.cx * buf.sx as i32;
+    let base_y = buf.coord.cy * buf.sy as i32;
+    let base_z = buf.coord.cz * buf.sz as i32;
+    let expected_area = expected_surface_area_voxels(
+        base_x,
+        base_y,
+        base_z,
+        sx,
+        sy,
+        sz,
+        &solid_fn,
+        &|wx, wy, wz| {
+            let b = world.block_at_runtime(&reg, wx, wy, wz);
+            b.id != air
+        },
+    );
     let area_mesh = tri_area_sum(&cpu);
     let diff = (area_mesh - expected_area).abs();
     assert!(
