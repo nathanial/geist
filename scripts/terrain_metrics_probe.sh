@@ -2,6 +2,7 @@
 set -euo pipefail
 
 # Run the terrain metrics probe (`--terrain-metrics`) in release mode.
+# Defaults to a radius of 6 (≈1100 chunks); pass `--terrain-metrics-radius` to override.
 # Additional CLI arguments are forwarded to the underlying `cargo run` call.
 
 SCRIPT_DIR=$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)

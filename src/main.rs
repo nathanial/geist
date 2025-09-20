@@ -101,6 +101,14 @@ struct RunArgs {
     /// Generate chunks up to radius 1 and print terrain metrics instead of launching the viewer
     #[arg(long, default_value_t = false)]
     terrain_metrics: bool,
+
+    /// Horizontal radius (in chunks) when sampling terrain metrics
+    #[arg(long, default_value_t = 6)]
+    terrain_metrics_radius: i32,
+
+    /// Vertical half-span (in chunks) when sampling terrain metrics; defaults to the radius, capped by chunks_y_hint
+    #[arg(long)]
+    terrain_metrics_vertical: Option<i32>,
 }
 
 impl Default for RunArgs {
@@ -118,6 +126,8 @@ impl Default for RunArgs {
             rebuild_on_worldgen_change: true,
             no_frustum_culling: false,
             terrain_metrics: false,
+            terrain_metrics_radius: 6,
+            terrain_metrics_vertical: None,
         }
     }
 }
@@ -233,7 +243,11 @@ fn chunk_coords_within_radius(
 }
 
 fn run_terrain_metrics(run: &RunArgs, assets_root: &Path) {
-    println!("== Terrain Metrics Probe (radius 1) ==");
+    let mut radius = run.terrain_metrics_radius.max(0);
+    if radius == 0 {
+        radius = 1;
+    }
+    println!("== Terrain Metrics Probe (radius {radius}) ==");
 
     let reg = load_block_registry(assets_root);
     println!(
@@ -266,9 +280,16 @@ fn run_terrain_metrics(run: &RunArgs, assets_root: &Path) {
 
     load_worldgen_params(&world, assets_root, &run.world_config);
 
-    let vertical_limit = if chunks_y_hint > 1 { 1 } else { 0 };
+    let mut vertical_limit = run
+        .terrain_metrics_vertical
+        .unwrap_or(radius)
+        .clamp(0, run.chunks_y_hint as i32);
+    if vertical_limit == 0 && chunks_y_hint > 1 && radius > 0 {
+        vertical_limit = 1;
+    }
+    let vertical_limit = vertical_limit.min(radius);
     let center = ChunkCoord::new(0, 0, 0);
-    let coords = chunk_coords_within_radius(center, 1, vertical_limit);
+    let coords = chunk_coords_within_radius(center, radius, vertical_limit);
     let mut columns: BTreeMap<(i32, i32), Vec<ChunkCoord>> = BTreeMap::new();
     for coord in coords {
         columns.entry((coord.cx, coord.cz)).or_default().push(coord);
@@ -304,13 +325,14 @@ fn run_terrain_metrics(run: &RunArgs, assets_root: &Path) {
             .then(a.coord.cx.cmp(&b.coord.cx))
     });
 
-    print_terrain_metrics_summary(run, &world, &reports, vertical_limit);
+    print_terrain_metrics_summary(run, &world, &reports, radius, vertical_limit);
 }
 
 fn print_terrain_metrics_summary(
     run: &RunArgs,
     world: &World,
     reports: &[ChunkReport],
+    radius: i32,
     vertical_limit: i32,
 ) {
     if reports.is_empty() {
@@ -334,8 +356,9 @@ fn print_terrain_metrics_summary(
     );
 
     println!(
-        "Generated {} chunk(s) within radius 1 (vertical limit {}):",
+        "Generated {} chunk(s) within radius {} (vertical limit {}):",
         reports.len(),
+        radius,
         vertical_limit
     );
 
@@ -444,51 +467,9 @@ fn print_terrain_metrics_summary(
         );
     }
 
-    println!("\nPer-chunk metrics:");
-    for report in reports {
-        let coord = report.coord;
-        let dist_sq = coord.distance_sq(ChunkCoord::new(0, 0, 0));
-        let metrics = &report.metrics;
-        let timing = &metrics.chunk_timing;
-        let total_ms = timing.total_us as f64 / 1000.0;
-        let fill_ms = timing.voxel_fill_us as f64 / 1000.0;
-        let feature_ms = timing.feature_us as f64 / 1000.0;
-        let tile_ms = timing.height_tile_us as f64 / 1000.0;
-        let tile_flag = if metrics.height_tile.reused {
-            "reused"
-        } else {
-            "fresh"
-        };
-
-        println!(
-            "({:>2},{:>2},{:>2}) r²={:<2} | total {:>6.3} ms | fill {:>6.3} ms | feature {:>6.3} ms | tile {:>5.3} ms ({})",
-            coord.cx,
-            coord.cy,
-            coord.cz,
-            dist_sq,
-            total_ms,
-            fill_ms,
-            feature_ms,
-            tile_ms,
-            tile_flag
-        );
-
-        let stage_lines: Vec<String> = (0..TERRAIN_STAGE_COUNT)
-            .map(|idx| {
-                format!(
-                    "{}={:>5}µs/{}",
-                    TERRAIN_STAGE_LABELS[idx],
-                    metrics.stages[idx].time_us,
-                    metrics.stages[idx].calls
-                )
-            })
-            .collect();
-        println!("    stages: {}", stage_lines.join(", "));
-        println!(
-            "    height cache: {} hits, {} misses",
-            metrics.height_cache_hits, metrics.height_cache_misses
-        );
-    }
+    println!(
+        "Use --terrain-metrics-radius/--terrain-metrics-vertical to adjust coverage; per-chunk dumps are suppressed to keep output concise."
+    );
 }
 
 fn main() {
