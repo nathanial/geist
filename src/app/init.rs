@@ -1,5 +1,8 @@
 use std::collections::HashMap;
+use std::path::PathBuf;
 
+use raylib::consts::TextureFilter;
+use raylib::core::texture::RaylibTexture2D;
 use raylib::prelude::*;
 use serde::Deserialize;
 
@@ -20,6 +23,18 @@ use geist_world::voxel::{World, WorldGenMode};
 struct HotbarConfig {
     items: Vec<String>,
 }
+
+const MONO_FONT_BASE_SIZE: i32 = 96;
+
+const MONO_FONT_CANDIDATES: &[&str] = &[
+    "/System/Applications/Utilities/Terminal.app/Contents/Resources/Fonts/SFMono-Regular.otf",
+    "/System/Library/Fonts/SFMono-Regular.otf",
+    "/System/Library/Fonts/SFNSMono.ttf",
+    "/System/Library/Fonts/Menlo.ttc",
+    "/Library/Fonts/Menlo.ttc",
+    "/System/Library/Fonts/Monaco.ttf",
+    "/System/Library/Fonts/Courier New.ttf",
+];
 
 impl App {
     #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -126,6 +141,8 @@ impl App {
                 }
             });
         }
+
+        let ui_font = Self::load_system_mono_font(rl, thread).map(std::sync::Arc::new);
 
         let runtime = Runtime::new(world.clone(), lighting.clone());
         let mut gs = GameState::new(world.clone(), edits, lighting.clone(), cam.position);
@@ -425,6 +442,7 @@ impl App {
             tex_cache,
             renders: HashMap::new(),
             structure_renders: HashMap::new(),
+            ui_font,
             minimap_rt: None,
             minimap_zoom: 1.0,
             minimap_yaw: 0.85,
@@ -519,6 +537,42 @@ impl App {
                 srx
             },
         }
+    }
+
+    fn load_system_mono_font(rl: &mut RaylibHandle, thread: &RaylibThread) -> Option<Font> {
+        let mut candidates: Vec<PathBuf> = Vec::new();
+        if let Ok(env_path) = std::env::var("GEIST_MONO_FONT") {
+            candidates.push(PathBuf::from(env_path));
+        }
+        candidates.extend(MONO_FONT_CANDIDATES.iter().map(PathBuf::from));
+
+        for path in candidates {
+            if !path.exists() {
+                continue;
+            }
+            let Some(path_str) = path.to_str() else {
+                log::warn!("Skipping monospace font with non-UTF8 path: {:?}", path);
+                continue;
+            };
+            match rl.load_font_ex(thread, path_str, MONO_FONT_BASE_SIZE, None) {
+                Ok(font) => {
+                    font.texture()
+                        .set_texture_filter(thread, TextureFilter::TEXTURE_FILTER_TRILINEAR);
+                    log::info!(
+                        "Loaded UI monospace font {:?} at base size {}",
+                        path,
+                        MONO_FONT_BASE_SIZE
+                    );
+                    return Some(font);
+                }
+                Err(err) => {
+                    log::warn!("Failed to load monospace font {:?}: {}", path, err);
+                }
+            }
+        }
+
+        log::warn!("Falling back to raylib built-in font; monospace override unavailable");
+        None
     }
 
     fn load_hotbar(reg: &BlockRegistry, assets_root: &std::path::Path) -> Vec<Block> {

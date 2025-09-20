@@ -1,5 +1,8 @@
+use raylib::core::drawing::RaylibDraw;
+use raylib::core::text::RaylibFont;
 use raylib::prelude::*;
 use std::collections::{HashSet, VecDeque};
+use std::sync::Arc;
 
 use super::{
     App, DebugOverlayTab, DebugStats, DiagnosticsTab, HitRegion, IRect, TabDefinition, TabStrip,
@@ -93,11 +96,62 @@ impl DisplayLine {
     }
 }
 
-fn draw_lines(
-    d: &mut RaylibDrawHandle,
-    lines: &[DisplayLine],
-    frame: &WindowFrame,
-) -> ContentLayout {
+struct GeistDraw<'a> {
+    inner: RaylibDrawHandle<'a>,
+    font: Option<Arc<Font>>,
+}
+
+impl<'a> GeistDraw<'a> {
+    fn new(inner: RaylibDrawHandle<'a>, font: Option<Arc<Font>>) -> Self {
+        Self { inner, font }
+    }
+
+    fn draw_text(&mut self, text: &str, x: i32, y: i32, font_size: i32, color: Color) {
+        if let Some(ref font) = self.font {
+            let fs = font_size.max(1) as f32;
+            let spacing = self.letter_spacing(font, fs);
+            let position = Vector2::new(x as f32, y as f32);
+            self.inner
+                .draw_text_ex(&**font, text, position, fs, spacing, color);
+        } else {
+            self.inner.draw_text(text, x, y, font_size, color);
+        }
+    }
+
+    fn measure_text(&self, text: &str, font_size: i32) -> i32 {
+        if let Some(ref font) = self.font {
+            let fs = font_size.max(1) as f32;
+            let spacing = self.letter_spacing(font, fs);
+            let size = font.measure_text(text, fs, spacing);
+            size.x.round() as i32
+        } else {
+            self.inner.measure_text(text, font_size)
+        }
+    }
+
+    fn letter_spacing(&self, font: &Font, font_size: f32) -> f32 {
+        let base = font.base_size().max(1) as f32;
+        font_size / base
+    }
+}
+
+impl<'a> std::ops::Deref for GeistDraw<'a> {
+    type Target = RaylibDrawHandle<'a>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl<'a> std::ops::DerefMut for GeistDraw<'a> {
+    fn deref_mut(&mut self) -> &mut RaylibDrawHandle<'a> {
+        &mut self.inner
+    }
+}
+
+impl<'a> RaylibDraw for GeistDraw<'a> {}
+
+fn draw_lines(d: &mut GeistDraw, lines: &[DisplayLine], frame: &WindowFrame) -> ContentLayout {
     let content = frame.content;
     let mut layout = ContentLayout::new(content.h);
     if content.h <= 0 || content.w <= 0 {
@@ -223,7 +277,7 @@ impl RenderStatsView {
         self.subtitle.as_deref()
     }
 
-    fn draw(&self, d: &mut RaylibDrawHandle, frame: &WindowFrame) -> ContentLayout {
+    fn draw(&self, d: &mut GeistDraw, frame: &WindowFrame) -> ContentLayout {
         draw_lines(d, &self.lines, frame)
     }
 }
@@ -448,7 +502,7 @@ impl RuntimeStatsView {
         self.subtitle.as_deref()
     }
 
-    fn draw(&self, d: &mut RaylibDrawHandle, frame: &WindowFrame) -> ContentLayout {
+    fn draw(&self, d: &mut GeistDraw, frame: &WindowFrame) -> ContentLayout {
         draw_lines(d, &self.lines, frame)
     }
 }
@@ -693,7 +747,7 @@ impl AttachmentDebugView {
         (w, h)
     }
 
-    fn draw(&self, d: &mut RaylibDrawHandle, frame: &WindowFrame) -> ContentLayout {
+    fn draw(&self, d: &mut GeistDraw, frame: &WindowFrame) -> ContentLayout {
         draw_lines(d, &self.lines, frame)
     }
 }
@@ -779,7 +833,7 @@ impl<'a> TerrainHistogramView<'a> {
 
     fn draw(
         &self,
-        d: &mut RaylibDrawHandle,
+        d: &mut GeistDraw,
         frame: &WindowFrame,
         theme: &WindowTheme,
     ) -> Option<ContentLayout> {
@@ -1156,12 +1210,7 @@ impl<'a> IntentHistogramView<'a> {
         Some(format!("{} pending", self.total))
     }
 
-    fn draw(
-        &self,
-        d: &mut RaylibDrawHandle,
-        frame: &WindowFrame,
-        _theme: &WindowTheme,
-    ) -> ContentLayout {
+    fn draw(&self, d: &mut GeistDraw, frame: &WindowFrame, _theme: &WindowTheme) -> ContentLayout {
         let content = frame.content;
         let mut cursor_y = content.y;
         let cause_bar_x = content.x + Self::LABEL_WIDTH_CAUSE + Self::GAP_X;
@@ -1430,12 +1479,7 @@ impl<'a> EventHistogramView<'a> {
         Some(format!("{} pending", self.total))
     }
 
-    fn draw(
-        &self,
-        d: &mut RaylibDrawHandle,
-        frame: &WindowFrame,
-        _theme: &WindowTheme,
-    ) -> ContentLayout {
+    fn draw(&self, d: &mut GeistDraw, frame: &WindowFrame, _theme: &WindowTheme) -> ContentLayout {
         let content = frame.content;
         let mut cursor_y = content.y;
         let bar_x = content.x + Self::LABEL_WIDTH + Self::GAP_X;
@@ -1659,7 +1703,8 @@ impl App {
         let cursor_position = rl.get_mouse_position();
         let mouse_left_pressed = rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT);
 
-        let mut d = rl.begin_drawing(thread);
+        let font_for_frame = self.ui_font.clone();
+        let mut d = GeistDraw::new(rl.begin_drawing(thread), font_for_frame);
         // Skybox: clear background to time-of-day sky color
         d.clear_background(Color::new(
             (surface_sky[0] * 255.0) as u8,
@@ -2561,12 +2606,7 @@ impl App {
         }
     }
 
-    fn draw_overflow_hint(
-        &self,
-        d: &mut RaylibDrawHandle,
-        frame: &WindowFrame,
-        layout: ContentLayout,
-    ) {
+    fn draw_overflow_hint(&self, d: &mut GeistDraw, frame: &WindowFrame, layout: ContentLayout) {
         if !layout.overflow() {
             return;
         }
@@ -2841,13 +2881,16 @@ impl App {
                 center_px + cross_i,
                 Color::new(255, 255, 255, 24),
             );
-            td.draw_text(
-                &format!("cy {}", center.cy),
-                8,
-                side_px - 26,
-                16,
-                Color::new(220, 220, 255, 220),
-            );
+            let text = format!("cy {}", center.cy);
+            let color = Color::new(220, 220, 255, 220);
+            let pos = Vector2::new(8.0, (side_px - 26) as f32);
+            if let Some(font) = self.ui_font.as_ref() {
+                let size = 16.0_f32;
+                let spacing = size / font.base_size().max(1) as f32;
+                td.draw_text_ex(&**font, &text, pos, size, spacing, color);
+            } else {
+                td.draw_text(&text, pos.x as i32, pos.y as i32, 16, color);
+            }
         }
     }
 }
