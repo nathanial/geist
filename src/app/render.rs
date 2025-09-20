@@ -100,30 +100,36 @@ fn draw_lines(
 ) -> ContentLayout {
     let content = frame.content;
     let mut layout = ContentLayout::new(content.h);
-    if content.h <= 0 {
+    if content.h <= 0 || content.w <= 0 {
         return layout;
     }
-    let mut y = content.y;
-    for (idx, line) in lines.iter().enumerate() {
-        let next_y = y + line.line_height;
-        layout.add_custom(line.line_height);
-        if next_y - content.y > content.h {
-            let remaining = lines.len().saturating_sub(idx);
-            if remaining > 0 {
-                layout.mark_overflow(remaining, remaining);
+    let offset_y = frame.scroll.offset.y.max(0.0).round() as i32;
+    let mut y = content.y - offset_y;
+    {
+        let mut scoped = d.begin_scissor_mode(content.x, content.y, content.w, content.h);
+        for (idx, line) in lines.iter().enumerate() {
+            let next_y = y + line.line_height;
+            layout.add_custom(line.line_height);
+            if next_y > content.y && y < content.y + content.h {
+                if !line.text.is_empty() {
+                    scoped.draw_text(
+                        &line.text,
+                        content.x + line.indent,
+                        y,
+                        line.font,
+                        line.color,
+                    );
+                }
             }
-            break;
+            if next_y >= content.y + content.h {
+                let remaining = lines.len().saturating_sub(idx + 1);
+                if remaining > 0 {
+                    layout.mark_overflow(remaining, remaining);
+                }
+                break;
+            }
+            y = next_y;
         }
-        if !line.text.is_empty() {
-            d.draw_text(
-                &line.text,
-                content.x + line.indent,
-                y,
-                line.font,
-                line.color,
-            );
-        }
-        y = next_y;
     }
     layout
 }
@@ -2112,6 +2118,7 @@ impl App {
 
                 match id {
                     WindowId::DiagnosticsTabs => {
+                        let is_focused = self.overlay_windows.is_focused(id);
                         let frame_view = RenderStatsView::new(self, fps);
                         let runtime_view = RuntimeStatsView::new(self);
                         let attachment_view = AttachmentDebugView::new(self);
@@ -2162,6 +2169,9 @@ impl App {
                                 DiagnosticsTab::AttachmentDebug => attachment_subtitle,
                             };
 
+                            let window_state = window.state();
+                            let is_pinned = window.is_pinned();
+
                             WindowChrome::draw(
                                 &mut d,
                                 &overlay_theme,
@@ -2169,6 +2179,9 @@ impl App {
                                 "Diagnostics",
                                 subtitle,
                                 hover,
+                                window_state,
+                                is_focused,
+                                is_pinned,
                             );
 
                             TabStrip::draw(
@@ -2179,12 +2192,10 @@ impl App {
                                 hovered_tab,
                             );
 
-                            let tab_content_frame = WindowFrame {
-                                outer: frame.outer,
-                                titlebar: frame.titlebar,
-                                content: tab_layout.content_rect(),
-                                resize: frame.resize,
-                            };
+                            let tab_content_area = tab_layout.content_rect();
+                            window.update_content_viewport(tab_content_area);
+                            let mut tab_content_frame = *window.frame();
+                            tab_content_frame.content = tab_content_area;
 
                             let layout = match selected_tab {
                                 DiagnosticsTab::FrameStats => {
@@ -2198,11 +2209,17 @@ impl App {
                                 }
                             };
 
+                            window.set_content_extent((
+                                tab_content_frame.content.w,
+                                layout.used_height,
+                            ));
+
                             self.draw_overflow_hint(&mut d, &tab_content_frame, layout);
                         }
                     }
 
                     WindowId::DebugTabs => {
+                        let is_focused = self.overlay_windows.is_focused(id);
                         if let Some(window) = self.overlay_windows.get_mut(id) {
                             let event_view = EventHistogramView::new(&self.debug_stats);
                             let intent_view = IntentHistogramView::new(&self.debug_stats);
@@ -2260,6 +2277,9 @@ impl App {
                                 DebugOverlayTab::TerrainPipeline => terrain_subtitle.as_deref(),
                             };
 
+                            let window_state = window.state();
+                            let is_pinned = window.is_pinned();
+
                             WindowChrome::draw(
                                 &mut d,
                                 &overlay_theme,
@@ -2267,6 +2287,9 @@ impl App {
                                 "Queues & Pipelines",
                                 subtitle,
                                 hover,
+                                window_state,
+                                is_focused,
+                                is_pinned,
                             );
 
                             TabStrip::draw(
@@ -2277,12 +2300,10 @@ impl App {
                                 hovered_tab,
                             );
 
-                            let tab_content_frame = WindowFrame {
-                                outer: frame.outer,
-                                titlebar: frame.titlebar,
-                                content: tab_layout.content_rect(),
-                                resize: frame.resize,
-                            };
+                            let tab_content_area = tab_layout.content_rect();
+                            window.update_content_viewport(tab_content_area);
+                            let mut tab_content_frame = *window.frame();
+                            tab_content_frame.content = tab_content_area;
 
                             let maybe_layout = match selected_tab {
                                 DebugOverlayTab::EventQueue => {
@@ -2304,12 +2325,22 @@ impl App {
                             };
 
                             if let Some(layout) = maybe_layout {
+                                window.set_content_extent((
+                                    tab_content_frame.content.w,
+                                    layout.used_height,
+                                ));
                                 self.draw_overflow_hint(&mut d, &tab_content_frame, layout);
+                            } else {
+                                window.set_content_extent((
+                                    tab_content_frame.content.w,
+                                    tab_content_frame.content.h,
+                                ));
                             }
                         }
                     }
                     WindowId::Minimap => {
                         minimap_drawn = true;
+                        let is_focused = self.overlay_windows.is_focused(id);
                         if let Some(window) = self.overlay_windows.get_mut(id) {
                             let minimap_min_size = (
                                 overlay_theme.padding_x * 2 + MINIMAP_MIN_CONTENT_SIDE,
@@ -2323,6 +2354,9 @@ impl App {
                                 "radius {} chunks",
                                 self.gs.view_radius_chunks.max(0)
                             ));
+
+                            let window_state = window.state();
+                            let is_pinned = window.is_pinned();
                             WindowChrome::draw(
                                 &mut d,
                                 &overlay_theme,
@@ -2330,7 +2364,12 @@ impl App {
                                 "Minimap",
                                 subtitle.as_deref(),
                                 hover,
+                                window_state,
+                                is_focused,
+                                is_pinned,
                             );
+
+                            window.set_content_extent((frame.content.w, frame.content.h));
 
                             let content = frame.content;
                             let available_side = content.w.min(content.h).max(0);
@@ -2529,6 +2568,10 @@ impl App {
         layout: ContentLayout,
     ) {
         if !layout.overflow() {
+            return;
+        }
+        if frame.scroll.content_size.1 > frame.scroll.viewport_size.1 {
+            // Scrollbar handles overflow; skip hint.
             return;
         }
         let font_size = 14;

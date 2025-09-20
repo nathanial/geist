@@ -8,6 +8,9 @@
 - Per-window geometry helpers for layout clamping and interaction (`OverlayWindow`, `IRect`).
 - Hover, drag, and resize state handling via `HitRegion` utilities.
 - Themeable chrome rendering (`WindowChrome`, `WindowTheme`) built on top of `raylib`.
+- Multi-directional resizing, minimize/maximize states, and pin-to-top support out of the box.
+- Focus-aware chrome with per-window ordering cues and optional scroll indicators.
+- Scrollable content plumbing that tracks viewport extents and exposes offsets per window.
 
 ## Usage
 

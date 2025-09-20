@@ -6,7 +6,7 @@ use geist_world::{ChunkCoord, TERRAIN_STAGE_COUNT, TerrainMetrics};
 use raylib::prelude::*;
 use std::collections::BTreeMap;
 
-use super::{App, HitRegion};
+use super::{App, HitRegion, WindowButton, WindowId};
 use crate::event::{Event, RebuildCause};
 
 impl App {
@@ -326,6 +326,7 @@ impl App {
                 }
             }
             self.overlay_hover = None;
+            self.overlay_windows.clear_focus();
         } else {
             let cursor = rl.get_mouse_position();
             let hovered_id = self.overlay_windows.handle_hover(cursor);
@@ -353,9 +354,25 @@ impl App {
                 if let Some((id, region)) = hovered_region {
                     if let Some(window) = self.overlay_windows.get_mut(id) {
                         match region {
-                            HitRegion::Resize => {
-                                window.begin_resize(cursor);
+                            HitRegion::Resize(handle) => {
+                                window.begin_resize(cursor, handle);
                                 overlay_block_input = true;
+                            }
+                            HitRegion::TitleBarButton(button) => {
+                                match button {
+                                    WindowButton::Minimize => {
+                                        window.toggle_minimize();
+                                    }
+                                    WindowButton::Maximize | WindowButton::Restore => {
+                                        window.toggle_maximize(screen_size, &theme);
+                                    }
+                                    WindowButton::Pin => {
+                                        window.toggle_pin();
+                                        self.overlay_windows.update_pin_state(id);
+                                    }
+                                }
+                                overlay_block_input = true;
+                                self.overlay_windows.focus(id);
                             }
                             HitRegion::TitleBar => {
                                 window.begin_drag(cursor);
@@ -391,6 +408,23 @@ impl App {
                         }
                         if window.is_resizing() {
                             window.end_resize();
+                        }
+                    }
+                }
+            }
+
+            let wheel = rl.get_mouse_wheel_move();
+            if wheel.abs() > f32::EPSILON {
+                if let Some((id, region)) = self.overlay_hover {
+                    if id != WindowId::Minimap && matches!(region, HitRegion::Content) {
+                        if let Some(window) = self.overlay_windows.get_mut(id) {
+                            let delta = Vector2::new(
+                                0.0,
+                                -wheel * (theme.title_font as f32 + theme.padding_y as f32),
+                            );
+                            if window.scroll_by(delta) {
+                                overlay_block_input = true;
+                            }
                         }
                     }
                 }

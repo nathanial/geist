@@ -1,6 +1,7 @@
 pub mod windows;
 
 pub use windows::{
-    HitRegion, IRect, OverlayWindow, OverlayWindowManager, TabDefinition, TabSlot, TabStrip,
-    TabStripLayout, WindowChrome, WindowFrame, WindowId, WindowTheme,
+    HitRegion, IRect, OverlayWindow, OverlayWindowManager, ResizeHandle, TabDefinition, TabSlot,
+    TabStrip, TabStripLayout, WindowButton, WindowChrome, WindowFrame, WindowId, WindowState,
+    WindowTheme,
 };
