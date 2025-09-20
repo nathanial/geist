@@ -113,16 +113,16 @@ This document outlines UI components and framework features that could be added 
 ### Window Chrome Improvements
 
 #### Title Bar Enhancements
-- **Custom Title Bar Buttons** - Add minimize, maximize, close buttons with customizable actions
+- ~~**Custom Title Bar Buttons** - Add minimize, maximize, close buttons with customizable actions~~ *(minimize, maximize/restore, pin implemented; close remains inline with app)*
 - **Window Menu Button** - Dropdown menu in title bar for window-specific options
 - **Title Bar Icons** - Support for window type icons (error, warning, info, custom)
 - **Double-click Title Bar Actions** - Maximize/restore on double-click
-- **Title Bar Mini-toolbar** - Embed small tool buttons in unused title bar space
+- ~~**Title Bar Mini-toolbar** - Embed small tool buttons in unused title bar space~~ *(minimize/maximize/pin controls implemented)*
 - **Subtitle/Status Text** - Secondary text line for additional context
 - **Title Bar Progress Indicator** - Show loading/processing state in title bar
 
 #### Resize Capabilities
-- **Multi-directional Resizing** - Resize from all edges and corners, not just bottom-right
+- ~~**Multi-directional Resizing** - Resize from all edges and corners, not just bottom-right~~
 - **Resize Cursors** - Show appropriate cursor when hovering resize areas
 - **Live Resize Preview** - Ghost outline during resize before committing
 - **Aspect Ratio Constraints** - Maintain aspect ratio during resize with modifier key
@@ -131,8 +131,8 @@ This document outlines UI components and framework features that could be added 
 - **Smart Auto-resize** - Automatically resize to fit content changes
 
 #### Window States and Behaviors
-- **Minimize/Maximize Support** - Proper window state management
-- **Window Pinning** - Keep window always-on-top
+- ~~**Minimize/Maximize Support** - Proper window state management~~ *(animations still pending)*
+- ~~**Window Pinning** - Keep window always-on-top~~
 - **Window Grouping** - Group related windows that move together
 - **Window Docking** - Snap windows to screen edges or other windows
 - **Magnetic Window Edges** - Windows attract to align when dragging near each other
@@ -159,7 +159,7 @@ This document outlines UI components and framework features that could be added 
 - **Cross-window Drag & Drop** - Drag content between windows
 
 #### Content Management
-- **Scrollable Content** - Built-in scrollbar support with customizable appearance
+- ~~**Scrollable Content** - Built-in scrollbar support with customizable appearance~~ *(vertical scrollbar + wheel scrolling shipped)*
 - **Content Panning** - Click and drag to pan large content
 - **Zoom Controls** - Zoom in/out of window content
 - **Content Clipping** - Proper clipping with rounded corners support
@@ -177,7 +177,7 @@ This document outlines UI components and framework features that could be added 
 - **Touch-friendly Resize** - Larger hit targets for touch interfaces
 
 #### Visual Feedback
-- **Focus Indicators** - Clear visual indication of focused window
+- ~~**Focus Indicators** - Clear visual indication of focused window~~
 - **Hover Effects** - Subtle animations on hover for interactive elements
 - **Activity Indicators** - Pulse or glow when window has updates
 - **Transition Effects** - Smooth transitions between window states
@@ -205,17 +205,17 @@ This document outlines UI components and framework features that could be added 
 ### Implementation Roadmap
 
 #### Phase 1: Core Enhancements
-1. Multi-directional resizing with appropriate cursors
-2. Minimize/maximize support with animations
-3. Window pinning (always-on-top)
-4. Improved focus management and indicators
-5. Basic scrollable content support
+1. ~~Multi-directional resizing with appropriate cursors~~
+2. ~~Minimize/maximize support with animations~~ *(animations still pending)*
+3. ~~Window pinning (always-on-top)~~
+4. ~~Improved focus management and indicators~~
+5. ~~Basic scrollable content support~~
 
 #### Phase 2: Advanced Features
 1. Window docking and magnetic edges
 2. Layout presets and auto-arrange
 3. Window-specific keyboard shortcuts
-4. Enhanced title bar with buttons and icons
+4. ~~Enhanced title bar with buttons and icons~~ *(baseline controls delivered; further iconography optional)*
 5. Transparency and shadow effects
 
 #### Phase 3: Polish and Integration
@@ -236,7 +236,7 @@ This document outlines UI components and framework features that could be added 
 - Implement `dock_target` for snapping behavior
 
 #### WindowManager Enhancements
-- Add `focus_stack` for proper focus management
+- ~~Add `focus_stack` for proper focus management~~
 - Implement `layout_engine` for auto-arrangement
 - Add `window_groups` for managing related windows
 - Support `global_shortcuts` registry
@@ -246,7 +246,7 @@ This document outlines UI components and framework features that could be added 
 #### WindowTheme Extensions
 - Add `animation_duration` fields for transitions
 - Include `shadow_*` properties for drop shadows
-- Add `button_*` colors for window controls
+- ~~Add `button_*` colors for window controls~~
 - Support `font_family` for custom fonts
 - Add `corner_radius` for rounded windows
 - Include `glass_effect` properties for transparency
