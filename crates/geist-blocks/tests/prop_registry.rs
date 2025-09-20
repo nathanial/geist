@@ -47,6 +47,23 @@ fn pack_state_roundtrip_fixed() {
 }
 
 #[test]
+fn material_catalog_reserves_zero_id_for_sentinel() {
+    let materials = MaterialCatalog::from_toml_str(
+        r#"
+        [materials]
+        jungle_leaves = ["assets/blocks/leaves_jungle_opaque.png"]
+        unknown = ["assets/blocks/unknown.png"]
+    "#,
+    )
+    .unwrap();
+    assert!(materials.materials[0].key.is_empty());
+    let jungle = materials.get_id("jungle_leaves").unwrap();
+    let unknown = materials.get_id("unknown").unwrap();
+    assert!(jungle.0 > 0);
+    assert!(unknown.0 > 0);
+}
+
+#[test]
 fn material_cache_matches_dynamic_fixed() {
     use geist_blocks::types::FaceRole;
     let materials = MaterialCatalog::from_toml_str(

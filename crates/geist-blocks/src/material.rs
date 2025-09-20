@@ -25,8 +25,15 @@ pub struct MaterialCatalog {
 
 impl MaterialCatalog {
     pub fn new() -> Self {
+        let mut materials = Vec::new();
+        materials.push(Material {
+            id: MaterialId(0),
+            key: String::new(),
+            texture_candidates: Vec::new(),
+            render_tag: None,
+        });
         Self {
-            materials: Vec::new(),
+            materials,
             by_key: HashMap::new(),
         }
     }
