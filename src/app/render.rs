@@ -1629,7 +1629,7 @@ impl App {
             overlay_theme.padding_x * 2 + MINIMAP_MIN_CONTENT_SIDE,
             overlay_theme.titlebar_height + overlay_theme.padding_y * 2 + MINIMAP_MIN_CONTENT_SIDE,
         );
-        let mut minimap_plan: Option<(WindowFrame, i32, i32)> = None;
+        let mut minimap_render_side = 0;
         if self.gs.show_debug_overlay {
             if let Some(window) = self.overlay_windows.get_mut(WindowId::Minimap) {
                 window.set_min_size(minimap_min_size);
@@ -1638,16 +1638,11 @@ impl App {
                 let available_side = content.w.min(content.h).max(0);
                 let outer_side =
                     available_side.min(MINIMAP_MAX_CONTENT_SIDE + MINIMAP_BORDER_PX * 2);
-                let map_side = (outer_side - MINIMAP_BORDER_PX * 2).max(0);
-                minimap_plan = Some((frame, outer_side, map_side));
-                if map_side > 0 {
-                    self.render_minimap_to_texture(rl, thread, map_side);
-                } else {
-                    self.render_minimap_to_texture(rl, thread, 0);
-                }
-            } else {
-                self.render_minimap_to_texture(rl, thread, 0);
+                minimap_render_side = (outer_side - MINIMAP_BORDER_PX * 2).max(0);
             }
+        }
+        if minimap_render_side > 0 {
+            self.render_minimap_to_texture(rl, thread, minimap_render_side);
         } else {
             self.render_minimap_to_texture(rl, thread, 0);
         }
@@ -2100,274 +2095,318 @@ impl App {
 
         if self.gs.show_debug_overlay {
             let fps = d.get_fps();
+            let ordered_ids = self.overlay_windows.ordered_ids();
+            let mut minimap_drawn = false;
 
-            if self.overlay_windows.get(WindowId::RenderStats).is_some() {
-                let view = RenderStatsView::new(self, fps);
-                if let Some(window) = self.overlay_windows.get_mut(WindowId::RenderStats) {
-                    window.set_min_size(view.min_size(&overlay_theme));
-                    let frame = window.layout(screen_dims, &overlay_theme);
-                    let hover = self
-                        .overlay_hover
-                        .and_then(|(id, region)| (id == WindowId::RenderStats).then_some(region));
-                    WindowChrome::draw(
-                        &mut d,
-                        &overlay_theme,
-                        &frame,
-                        "Frame Stats",
-                        view.subtitle(),
-                        hover,
-                    );
-                    let layout = view.draw(&mut d, &frame);
-                    self.draw_overflow_hint(&mut d, &frame, layout);
-                }
-            }
-
-            if self.overlay_windows.get(WindowId::RuntimeStats).is_some() {
-                let view = RuntimeStatsView::new(self);
-                if let Some(window) = self.overlay_windows.get_mut(WindowId::RuntimeStats) {
-                    window.set_min_size(view.min_size(&overlay_theme));
-                    let frame = window.layout(screen_dims, &overlay_theme);
-                    let hover = self
-                        .overlay_hover
-                        .and_then(|(id, region)| (id == WindowId::RuntimeStats).then_some(region));
-                    WindowChrome::draw(
-                        &mut d,
-                        &overlay_theme,
-                        &frame,
-                        "Runtime Stats",
-                        view.subtitle(),
-                        hover,
-                    );
-                    let layout = view.draw(&mut d, &frame);
-                    self.draw_overflow_hint(&mut d, &frame, layout);
-                }
-            }
-
-            if self
-                .overlay_windows
-                .get(WindowId::AttachmentDebug)
-                .is_some()
-            {
-                let view = AttachmentDebugView::new(self);
-                if let Some(window) = self.overlay_windows.get_mut(WindowId::AttachmentDebug) {
-                    window.set_min_size(view.min_size(&overlay_theme));
-                    let frame = window.layout(screen_dims, &overlay_theme);
-                    let hover = self.overlay_hover.and_then(|(id, region)| {
-                        (id == WindowId::AttachmentDebug).then_some(region)
-                    });
-                    WindowChrome::draw(
-                        &mut d,
-                        &overlay_theme,
-                        &frame,
-                        "Attachment Debug",
-                        None,
-                        hover,
-                    );
-                    let layout = view.draw(&mut d, &frame);
-                    self.draw_overflow_hint(&mut d, &frame, layout);
-                }
-            }
-
-            if let Some(window) = self.overlay_windows.get_mut(WindowId::EventHistogram) {
-                let view = EventHistogramView::new(&self.debug_stats);
-                window.set_min_size(view.min_size(&overlay_theme));
-                let frame = window.layout(screen_dims, &overlay_theme);
+            for id in ordered_ids {
                 let hover = self
                     .overlay_hover
-                    .and_then(|(id, region)| (id == WindowId::EventHistogram).then_some(region));
-                let subtitle = view.subtitle();
-                WindowChrome::draw(
-                    &mut d,
-                    &overlay_theme,
-                    &frame,
-                    "Event Queue",
-                    subtitle.as_deref(),
-                    hover,
-                );
-                let layout = view.draw(&mut d, &frame, &overlay_theme);
-                self.draw_overflow_hint(&mut d, &frame, layout);
-            }
+                    .as_ref()
+                    .and_then(|(hid, region)| (*hid == id).then_some(*region));
 
-            if let Some(window) = self.overlay_windows.get_mut(WindowId::IntentHistogram) {
-                let view = IntentHistogramView::new(&self.debug_stats);
-                window.set_min_size(view.min_size(&overlay_theme));
-                let frame = window.layout(screen_dims, &overlay_theme);
-                let hover = self
-                    .overlay_hover
-                    .and_then(|(id, region)| (id == WindowId::IntentHistogram).then_some(region));
-                let subtitle = view.subtitle();
-                WindowChrome::draw(
-                    &mut d,
-                    &overlay_theme,
-                    &frame,
-                    "Intent Queue",
-                    subtitle.as_deref(),
-                    hover,
-                );
-                let layout = view.draw(&mut d, &frame, &overlay_theme);
-                self.draw_overflow_hint(&mut d, &frame, layout);
-            }
-
-            let terrain_view = TerrainHistogramView::new(
-                &self.terrain_stage_us,
-                &self.terrain_stage_calls,
-                &self.terrain_height_tile_us,
-                &self.terrain_height_tile_reused,
-                &self.terrain_cache_hits,
-                &self.terrain_cache_misses,
-            );
-            if let Some(window) = self.overlay_windows.get_mut(WindowId::TerrainHistogram) {
-                window.set_min_size(terrain_view.min_size(&overlay_theme));
-                let frame = window.layout(screen_dims, &overlay_theme);
-                let hover = self
-                    .overlay_hover
-                    .and_then(|(id, region)| (id == WindowId::TerrainHistogram).then_some(region));
-                let subtitle = terrain_view.subtitle();
-                WindowChrome::draw(
-                    &mut d,
-                    &overlay_theme,
-                    &frame,
-                    "Terrain Pipeline",
-                    subtitle.as_deref(),
-                    hover,
-                );
-                if let Some(layout) = terrain_view.draw(&mut d, &frame, &overlay_theme) {
-                    self.draw_overflow_hint(&mut d, &frame, layout);
-                }
-            }
-
-            if let Some((frame, outer_side, map_side)) = minimap_plan {
-                let hover = self
-                    .overlay_hover
-                    .and_then(|(id, region)| (id == WindowId::Minimap).then_some(region));
-                let subtitle = Some(format!(
-                    "radius {} chunks",
-                    self.gs.view_radius_chunks.max(0)
-                ));
-
-                WindowChrome::draw(
-                    &mut d,
-                    &overlay_theme,
-                    &frame,
-                    "Minimap",
-                    subtitle.as_deref(),
-                    hover,
-                );
-
-                let content = frame.content;
-                if map_side > 0 {
-                    let frame_x = content.x + (content.w - outer_side) / 2;
-                    let frame_y = content.y + (content.h - outer_side) / 2;
-                    let frame_rect = IRect::new(frame_x, frame_y, outer_side, outer_side);
-                    let map_rect = IRect::new(
-                        frame_rect.x + MINIMAP_BORDER_PX,
-                        frame_rect.y + MINIMAP_BORDER_PX,
-                        map_side,
-                        map_side,
-                    );
-
-                    d.draw_rectangle(
-                        frame_rect.x,
-                        frame_rect.y,
-                        frame_rect.w,
-                        frame_rect.h,
-                        Color::new(12, 18, 28, 210),
-                    );
-                    d.draw_rectangle_lines(
-                        frame_rect.x,
-                        frame_rect.y,
-                        frame_rect.w,
-                        frame_rect.h,
-                        Color::new(86, 108, 152, 210),
-                    );
-
-                    if let Some(ref minimap_rt) = self.minimap_rt {
-                        let tex = minimap_rt.texture().clone();
-                        let src =
-                            Rectangle::new(0.0, 0.0, tex.width() as f32, -(tex.height() as f32));
-                        let dest = Rectangle::new(
-                            map_rect.x as f32,
-                            map_rect.y as f32,
-                            map_rect.w as f32,
-                            map_rect.h as f32,
-                        );
-                        d.draw_texture_pro(
-                            tex,
-                            src,
-                            dest,
-                            Vector2::new(0.0, 0.0),
-                            0.0,
-                            Color::WHITE,
-                        );
-                        self.minimap_ui_rect =
-                            Some((frame_rect.x, frame_rect.y, frame_rect.w, frame_rect.h));
-
-                        let label = format!("Loaded {} chunks", self.gs.chunks.ready_len());
-                        let label_fs = 18;
-                        let label_x = map_rect.x + 14;
-                        let label_y = map_rect.y + 14;
-                        d.draw_text(
-                            &label,
-                            label_x + 1,
-                            label_y + 1,
-                            label_fs,
-                            Color::new(0, 0, 0, 220),
-                        );
-                        d.draw_text(&label, label_x, label_y, label_fs, Color::WHITE);
-
-                        let legend = ["Scroll: zoom", "LMB drag: orbit", "Shift+Drag/RMB: pan"];
-                        let legend_fs = 14;
-                        let legend_total_h = (legend.len() as i32) * (legend_fs + 2);
-                        let mut legend_y = map_rect.y + map_rect.h - legend_total_h - 12;
-                        let legend_min_y = map_rect.y + 14;
-                        if legend_y < legend_min_y {
-                            legend_y = legend_min_y;
-                        }
-                        for line in legend.iter() {
-                            d.draw_text(
-                                line,
-                                map_rect.x + 14 + 1,
-                                legend_y + 1,
-                                legend_fs,
-                                Color::new(0, 0, 0, 200),
+                match id {
+                    WindowId::RenderStats => {
+                        let view = RenderStatsView::new(self, fps);
+                        if let Some(window) = self.overlay_windows.get_mut(id) {
+                            window.set_min_size(view.min_size(&overlay_theme));
+                            let frame = window.layout(screen_dims, &overlay_theme);
+                            WindowChrome::draw(
+                                &mut d,
+                                &overlay_theme,
+                                &frame,
+                                "Frame Stats",
+                                view.subtitle(),
+                                hover,
                             );
-                            d.draw_text(
-                                line,
-                                map_rect.x + 14,
-                                legend_y,
-                                legend_fs,
-                                Color::new(220, 220, 240, 240),
-                            );
-                            legend_y += legend_fs + 2;
+                            let layout = view.draw(&mut d, &frame);
+                            self.draw_overflow_hint(&mut d, &frame, layout);
                         }
-                    } else {
-                        self.minimap_ui_rect = None;
-                        d.draw_rectangle(
-                            map_rect.x,
-                            map_rect.y,
-                            map_rect.w,
-                            map_rect.h,
-                            Color::new(18, 24, 34, 220),
-                        );
-                        let msg = "Minimap unavailable";
-                        let msg_fs = 18;
-                        let msg_w = d.measure_text(msg, msg_fs);
-                        let msg_x = map_rect.x + (map_rect.w - msg_w) / 2;
-                        let msg_y = map_rect.y + (map_rect.h - msg_fs) / 2;
-                        d.draw_text(msg, msg_x + 1, msg_y + 1, msg_fs, Color::new(0, 0, 0, 220));
-                        d.draw_text(msg, msg_x, msg_y, msg_fs, Color::new(220, 220, 240, 240));
                     }
-                } else {
-                    self.minimap_ui_rect = None;
-                    let msg = "Expand the window to view the minimap";
-                    let msg_fs = 16;
-                    let msg_w = d.measure_text(msg, msg_fs);
-                    let msg_x = content.x + (content.w - msg_w) / 2;
-                    let msg_y = content.y + (content.h - msg_fs) / 2;
-                    d.draw_text(msg, msg_x + 1, msg_y + 1, msg_fs, Color::new(0, 0, 0, 180));
-                    d.draw_text(msg, msg_x, msg_y, msg_fs, Color::new(218, 228, 248, 230));
+                    WindowId::RuntimeStats => {
+                        let view = RuntimeStatsView::new(self);
+                        if let Some(window) = self.overlay_windows.get_mut(id) {
+                            window.set_min_size(view.min_size(&overlay_theme));
+                            let frame = window.layout(screen_dims, &overlay_theme);
+                            WindowChrome::draw(
+                                &mut d,
+                                &overlay_theme,
+                                &frame,
+                                "Runtime Stats",
+                                view.subtitle(),
+                                hover,
+                            );
+                            let layout = view.draw(&mut d, &frame);
+                            self.draw_overflow_hint(&mut d, &frame, layout);
+                        }
+                    }
+                    WindowId::AttachmentDebug => {
+                        let view = AttachmentDebugView::new(self);
+                        if let Some(window) = self.overlay_windows.get_mut(id) {
+                            window.set_min_size(view.min_size(&overlay_theme));
+                            let frame = window.layout(screen_dims, &overlay_theme);
+                            WindowChrome::draw(
+                                &mut d,
+                                &overlay_theme,
+                                &frame,
+                                "Attachment Debug",
+                                None,
+                                hover,
+                            );
+                            let layout = view.draw(&mut d, &frame);
+                            self.draw_overflow_hint(&mut d, &frame, layout);
+                        }
+                    }
+                    WindowId::EventHistogram => {
+                        if let Some(window) = self.overlay_windows.get_mut(id) {
+                            let view = EventHistogramView::new(&self.debug_stats);
+                            window.set_min_size(view.min_size(&overlay_theme));
+                            let frame = window.layout(screen_dims, &overlay_theme);
+                            let subtitle = view.subtitle();
+                            WindowChrome::draw(
+                                &mut d,
+                                &overlay_theme,
+                                &frame,
+                                "Event Queue",
+                                subtitle.as_deref(),
+                                hover,
+                            );
+                            let layout = view.draw(&mut d, &frame, &overlay_theme);
+                            self.draw_overflow_hint(&mut d, &frame, layout);
+                        }
+                    }
+                    WindowId::IntentHistogram => {
+                        if let Some(window) = self.overlay_windows.get_mut(id) {
+                            let view = IntentHistogramView::new(&self.debug_stats);
+                            window.set_min_size(view.min_size(&overlay_theme));
+                            let frame = window.layout(screen_dims, &overlay_theme);
+                            let subtitle = view.subtitle();
+                            WindowChrome::draw(
+                                &mut d,
+                                &overlay_theme,
+                                &frame,
+                                "Intent Queue",
+                                subtitle.as_deref(),
+                                hover,
+                            );
+                            let layout = view.draw(&mut d, &frame, &overlay_theme);
+                            self.draw_overflow_hint(&mut d, &frame, layout);
+                        }
+                    }
+                    WindowId::TerrainHistogram => {
+                        if let Some(window) = self.overlay_windows.get_mut(id) {
+                            let view = TerrainHistogramView::new(
+                                &self.terrain_stage_us,
+                                &self.terrain_stage_calls,
+                                &self.terrain_height_tile_us,
+                                &self.terrain_height_tile_reused,
+                                &self.terrain_cache_hits,
+                                &self.terrain_cache_misses,
+                            );
+                            window.set_min_size(view.min_size(&overlay_theme));
+                            let frame = window.layout(screen_dims, &overlay_theme);
+                            let subtitle = view.subtitle();
+                            WindowChrome::draw(
+                                &mut d,
+                                &overlay_theme,
+                                &frame,
+                                "Terrain Pipeline",
+                                subtitle.as_deref(),
+                                hover,
+                            );
+                            if let Some(layout) = view.draw(&mut d, &frame, &overlay_theme) {
+                                self.draw_overflow_hint(&mut d, &frame, layout);
+                            }
+                        }
+                    }
+                    WindowId::Minimap => {
+                        minimap_drawn = true;
+                        if let Some(window) = self.overlay_windows.get_mut(id) {
+                            let minimap_min_size = (
+                                overlay_theme.padding_x * 2 + MINIMAP_MIN_CONTENT_SIDE,
+                                overlay_theme.titlebar_height
+                                    + overlay_theme.padding_y * 2
+                                    + MINIMAP_MIN_CONTENT_SIDE,
+                            );
+                            window.set_min_size(minimap_min_size);
+                            let frame = window.layout(screen_dims, &overlay_theme);
+                            let subtitle = Some(format!(
+                                "radius {} chunks",
+                                self.gs.view_radius_chunks.max(0)
+                            ));
+                            WindowChrome::draw(
+                                &mut d,
+                                &overlay_theme,
+                                &frame,
+                                "Minimap",
+                                subtitle.as_deref(),
+                                hover,
+                            );
+
+                            let content = frame.content;
+                            let available_side = content.w.min(content.h).max(0);
+                            let outer_side = available_side
+                                .min(MINIMAP_MAX_CONTENT_SIDE + MINIMAP_BORDER_PX * 2);
+                            let map_side = (outer_side - MINIMAP_BORDER_PX * 2).max(0);
+
+                            if map_side > 0 {
+                                let frame_rect = IRect::new(
+                                    content.x + (content.w - outer_side) / 2,
+                                    content.y + (content.h - outer_side) / 2,
+                                    outer_side,
+                                    outer_side,
+                                );
+                                let map_rect = IRect::new(
+                                    frame_rect.x + MINIMAP_BORDER_PX,
+                                    frame_rect.y + MINIMAP_BORDER_PX,
+                                    map_side,
+                                    map_side,
+                                );
+                                d.draw_rectangle(
+                                    frame_rect.x,
+                                    frame_rect.y,
+                                    frame_rect.w,
+                                    frame_rect.h,
+                                    Color::new(12, 18, 28, 210),
+                                );
+                                d.draw_rectangle_lines(
+                                    frame_rect.x,
+                                    frame_rect.y,
+                                    frame_rect.w,
+                                    frame_rect.h,
+                                    Color::new(86, 108, 152, 210),
+                                );
+
+                                if let Some(ref minimap_rt) = self.minimap_rt {
+                                    let tex = minimap_rt.texture().clone();
+                                    let src = Rectangle::new(
+                                        0.0,
+                                        0.0,
+                                        tex.width() as f32,
+                                        -(tex.height() as f32),
+                                    );
+                                    let dest = Rectangle::new(
+                                        map_rect.x as f32,
+                                        map_rect.y as f32,
+                                        map_rect.w as f32,
+                                        map_rect.h as f32,
+                                    );
+                                    d.draw_texture_pro(
+                                        tex,
+                                        src,
+                                        dest,
+                                        Vector2::new(0.0, 0.0),
+                                        0.0,
+                                        Color::WHITE,
+                                    );
+                                    self.minimap_ui_rect = Some((
+                                        frame_rect.x,
+                                        frame_rect.y,
+                                        frame_rect.w,
+                                        frame_rect.h,
+                                    ));
+
+                                    let label =
+                                        format!("Loaded {} chunks", self.gs.chunks.ready_len());
+                                    let label_fs = 18;
+                                    let label_x = map_rect.x + 14;
+                                    let label_y = map_rect.y + 14;
+                                    d.draw_text(
+                                        &label,
+                                        label_x + 1,
+                                        label_y + 1,
+                                        label_fs,
+                                        Color::new(0, 0, 0, 220),
+                                    );
+                                    d.draw_text(&label, label_x, label_y, label_fs, Color::WHITE);
+
+                                    let legend =
+                                        ["Scroll: zoom", "LMB drag: orbit", "Shift+Drag/RMB: pan"];
+                                    let legend_fs = 14;
+                                    let legend_total_h = (legend.len() as i32) * (legend_fs + 2);
+                                    let mut legend_y =
+                                        map_rect.y + map_rect.h - legend_total_h - 12;
+                                    let legend_min_y = map_rect.y + 14;
+                                    if legend_y < legend_min_y {
+                                        legend_y = legend_min_y;
+                                    }
+                                    for line in legend.iter() {
+                                        d.draw_text(
+                                            line,
+                                            map_rect.x + 14 + 1,
+                                            legend_y + 1,
+                                            legend_fs,
+                                            Color::new(0, 0, 0, 200),
+                                        );
+                                        d.draw_text(
+                                            line,
+                                            map_rect.x + 14,
+                                            legend_y,
+                                            legend_fs,
+                                            Color::new(220, 220, 240, 240),
+                                        );
+                                        legend_y += legend_fs + 2;
+                                    }
+                                } else {
+                                    self.minimap_ui_rect = None;
+                                    d.draw_rectangle(
+                                        map_rect.x,
+                                        map_rect.y,
+                                        map_rect.w,
+                                        map_rect.h,
+                                        Color::new(18, 24, 34, 220),
+                                    );
+                                    let msg = "Minimap unavailable";
+                                    let msg_fs = 18;
+                                    let msg_w = d.measure_text(msg, msg_fs);
+                                    let msg_x = map_rect.x + (map_rect.w - msg_w) / 2;
+                                    let msg_y = map_rect.y + (map_rect.h - msg_fs) / 2;
+                                    d.draw_text(
+                                        msg,
+                                        msg_x + 1,
+                                        msg_y + 1,
+                                        msg_fs,
+                                        Color::new(0, 0, 0, 220),
+                                    );
+                                    d.draw_text(
+                                        msg,
+                                        msg_x,
+                                        msg_y,
+                                        msg_fs,
+                                        Color::new(220, 220, 240, 240),
+                                    );
+                                }
+                            } else {
+                                self.minimap_ui_rect = None;
+                                let msg = "Expand the window to view the minimap";
+                                let msg_fs = 16;
+                                let msg_w = d.measure_text(msg, msg_fs);
+                                let msg_x = content.x + (content.w - msg_w) / 2;
+                                let msg_y = content.y + (content.h - msg_fs) / 2;
+                                d.draw_text(
+                                    msg,
+                                    msg_x + 1,
+                                    msg_y + 1,
+                                    msg_fs,
+                                    Color::new(0, 0, 0, 180),
+                                );
+                                d.draw_text(
+                                    msg,
+                                    msg_x,
+                                    msg_y,
+                                    msg_fs,
+                                    Color::new(218, 228, 248, 230),
+                                );
+                            }
+                        }
+                    }
                 }
             }
+
+            if !minimap_drawn {
+                self.minimap_ui_rect = None;
+            }
+        } else {
+            self.minimap_ui_rect = None;
         } // end debug overlay
 
         // HUD

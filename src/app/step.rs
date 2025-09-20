@@ -338,9 +338,19 @@ impl App {
             }
             self.overlay_hover = hovered_region;
 
-            if rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT) {
+            let mouse_press_left = rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_LEFT);
+            let mouse_press_right = rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_RIGHT);
+            let mouse_press_middle = rl.is_mouse_button_pressed(MouseButton::MOUSE_BUTTON_MIDDLE);
+            if mouse_press_left || mouse_press_right || mouse_press_middle {
                 if let Some((id, region)) = hovered_region {
-                    self.overlay_windows.bring_to_front(id);
+                    if !matches!(region, HitRegion::None) {
+                        self.overlay_windows.bring_to_front(id);
+                    }
+                }
+            }
+
+            if mouse_press_left {
+                if let Some((id, region)) = hovered_region {
                     if let Some(window) = self.overlay_windows.get_mut(id) {
                         match region {
                             HitRegion::Resize => {
