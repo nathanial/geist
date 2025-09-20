@@ -1,7 +1,9 @@
 use std::cmp::{max, min};
 use std::collections::HashMap;
 
-use raylib::prelude::{Color, RaylibDraw, RaylibDrawHandle, Vector2};
+use raylib::prelude::{Color, RaylibDraw, Vector2};
+
+use crate::text::{UiTextMeasure, UiTextRenderer};
 
 fn blend_color(a: Color, b: Color, t: f32) -> Color {
     let t = t.clamp(0.0, 1.0);
@@ -1212,8 +1214,8 @@ pub struct WindowChrome;
 
 impl WindowChrome {
     #[allow(clippy::too_many_arguments)]
-    pub fn draw(
-        d: &mut RaylibDrawHandle,
+    pub fn draw<D>(
+        d: &mut D,
         theme: &WindowTheme,
         frame: &WindowFrame,
         title: &str,
@@ -1222,7 +1224,9 @@ impl WindowChrome {
         state: WindowState,
         is_focused: bool,
         is_pinned: bool,
-    ) {
+    ) where
+        D: RaylibDraw + UiTextRenderer,
+    {
         let IRect {
             x,
             y,
@@ -1303,7 +1307,7 @@ impl WindowChrome {
 
         // Title
         let title_y = y + (theme.titlebar_height - theme.title_font) / 2;
-        d.draw_text(
+        d.ui_draw_text(
             title,
             x + theme.padding_x,
             title_y,
@@ -1312,10 +1316,10 @@ impl WindowChrome {
         );
 
         if let Some(subtitle) = subtitle {
-            let subtitle_w = d.measure_text(subtitle, theme.subtitle_font);
+            let subtitle_w = d.ui_measure_text(subtitle, theme.subtitle_font);
             let subtitle_y = title_y + theme.title_font - theme.subtitle_font - 2;
             let subtitle_x = x + width - theme.padding_x - subtitle_w;
-            d.draw_text(
+            d.ui_draw_text(
                 subtitle,
                 subtitle_x,
                 subtitle_y,
@@ -1535,12 +1539,15 @@ impl TabStripLayout<'_> {
 pub struct TabStrip;
 
 impl TabStrip {
-    pub fn layout<'a>(
-        d: &RaylibDrawHandle,
+    pub fn layout<'a, D>(
+        d: &D,
         theme: &WindowTheme,
         frame: &WindowFrame,
         tabs: &'a [TabDefinition<'a>],
-    ) -> TabStripLayout<'a> {
+    ) -> TabStripLayout<'a>
+    where
+        D: UiTextMeasure,
+    {
         let content = frame.content;
         let mut strip_height = theme.tab_height;
         if strip_height < 0 {
@@ -1568,7 +1575,7 @@ impl TabStrip {
         let mut widths: Vec<i32> = tabs
             .iter()
             .map(|tab| {
-                let text_w = d.measure_text(tab.title, base_font);
+                let text_w = d.ui_measure_text(tab.title, base_font);
                 let padded = text_w + theme.tab_padding_x * 2;
                 padded.max(theme.tab_min_width)
             })
@@ -1614,7 +1621,7 @@ impl TabStrip {
         for (index, (tab, width)) in tabs.iter().zip(widths.iter()).enumerate() {
             let clamped_width = (*width).max(theme.tab_min_width);
             let bounds = IRect::new(x, strip.y, clamped_width, strip.h);
-            let text_width = d.measure_text(tab.title, base_font);
+            let text_width = d.ui_measure_text(tab.title, base_font);
             let text_x = x + (clamped_width - text_width) / 2;
             let inner_height = (strip.h - theme.tab_padding_y * 2).max(base_font);
             let mut text_y = strip.y + theme.tab_padding_y + (inner_height - base_font) / 2;
@@ -1641,13 +1648,15 @@ impl TabStrip {
         }
     }
 
-    pub fn draw(
-        d: &mut RaylibDrawHandle,
+    pub fn draw<D>(
+        d: &mut D,
         theme: &WindowTheme,
         layout: &TabStripLayout<'_>,
         selected: usize,
         hovered: Option<usize>,
-    ) {
+    ) where
+        D: RaylibDraw + UiTextRenderer,
+    {
         if layout.strip.w <= 0 || layout.strip.h <= 0 {
             return;
         }
@@ -1704,7 +1713,7 @@ impl TabStrip {
                 slot.bounds.h,
                 border,
             );
-            d.draw_text(
+            d.ui_draw_text(
                 slot.title,
                 slot.text_pos.x as i32,
                 slot.text_pos.y as i32,

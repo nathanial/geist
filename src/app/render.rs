@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use super::{
     App, DebugOverlayTab, DebugStats, DiagnosticsTab, HitRegion, IRect, TabDefinition, TabStrip,
-    WindowChrome, WindowFrame, WindowId, WindowTheme,
+    UiTextMeasure, UiTextRenderer, WindowChrome, WindowFrame, WindowId, WindowTheme,
 };
 
 pub(super) const MINIMAP_MIN_CONTENT_SIDE: i32 = 200;
@@ -150,6 +150,18 @@ impl<'a> std::ops::DerefMut for GeistDraw<'a> {
 }
 
 impl<'a> RaylibDraw for GeistDraw<'a> {}
+
+impl UiTextMeasure for GeistDraw<'_> {
+    fn ui_measure_text(&self, text: &str, font_size: i32) -> i32 {
+        self.measure_text(text, font_size)
+    }
+}
+
+impl UiTextRenderer for GeistDraw<'_> {
+    fn ui_draw_text(&mut self, text: &str, x: i32, y: i32, font_size: i32, color: Color) {
+        self.draw_text(text, x, y, font_size, color);
+    }
+}
 
 fn draw_lines(d: &mut GeistDraw, lines: &[DisplayLine], frame: &WindowFrame) -> ContentLayout {
     let content = frame.content;

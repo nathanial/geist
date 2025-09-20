@@ -1,3 +1,4 @@
+pub mod text;
 pub mod windows;
 
 pub use windows::{
@@ -5,3 +6,5 @@ pub use windows::{
     TabStrip, TabStripLayout, WindowButton, WindowChrome, WindowFrame, WindowId, WindowState,
     WindowTheme,
 };
+
+pub use text::{UiTextMeasure, UiTextRenderer};
