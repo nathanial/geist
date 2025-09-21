@@ -7,7 +7,7 @@ use geist_chunk::{ChunkBuf, ChunkOccupancy};
 use geist_edit::EditStore;
 use geist_geom::Vec3;
 use geist_lighting::LightingStore;
-use geist_structures::{Structure, StructureId};
+use geist_structures::{Structure, StructureId, rotate_yaw, rotate_yaw_inv};
 use geist_world::voxel::{ChunkCoord, World, generation::ChunkColumnProfile};
 use log::warn;
 
@@ -255,7 +255,6 @@ pub struct GameState {
     pub structure_elev_speed: f32,
 }
 
-
 impl GameState {
     pub fn new(
         world: Arc<World>,
@@ -313,6 +312,36 @@ impl StructureAnchor {
             yaw_offset,
             grace: 8,
         }
+    }
+
+    #[inline]
+    pub fn world_position(&self, structure: &Structure) -> Vec3 {
+        rotate_yaw(self.local_pos, structure.pose.yaw_deg) + structure.pose.pos
+    }
+
+    #[inline]
+    pub fn world_velocity(&self, structure: &Structure) -> Vec3 {
+        rotate_yaw(self.local_vel, structure.pose.yaw_deg) + structure.last_velocity
+    }
+
+    #[inline]
+    pub fn world_yaw(&self, structure: &Structure) -> f32 {
+        structure.pose.yaw_deg + self.yaw_offset
+    }
+
+    #[inline]
+    pub fn update_local_position(&mut self, structure: &Structure, world_pos: Vec3) {
+        self.local_pos = rotate_yaw_inv(world_pos - structure.pose.pos, structure.pose.yaw_deg);
+    }
+
+    #[inline]
+    pub fn update_local_velocity(&mut self, local_vel: Vec3) {
+        self.local_vel = local_vel;
+    }
+
+    #[inline]
+    pub fn structure_local_from_world(structure: &Structure, world_pos: Vec3) -> Vec3 {
+        rotate_yaw_inv(world_pos - structure.pose.pos, structure.pose.yaw_deg)
     }
 }
 

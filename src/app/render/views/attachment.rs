@@ -3,7 +3,8 @@ use raylib::prelude::Color;
 use super::super::{
     App, ContentLayout, DisplayLine, GeistDraw, WindowFrame, WindowTheme, draw_lines,
 };
-use crate::app::{attachment_world_position, attachment_world_velocity, structure_world_to_local};
+use crate::app::{anchor_world_position, anchor_world_velocity, structure_world_to_local};
+use crate::gamestate::WalkerAnchor;
 use geist_render_raylib::conv::vec3_from_rl;
 
 pub(crate) struct AttachmentDebugView {
@@ -15,10 +16,10 @@ impl AttachmentDebugView {
 
     pub(crate) fn new(app: &App) -> Self {
         let mut lines = Vec::new();
-        if let Some(att) = app.gs.ground_attach {
+        if let WalkerAnchor::Structure(anchor) = app.gs.anchor {
             lines.push(
                 DisplayLine::new(
-                    format!("Attached to structure ID {}", att.id),
+                    format!("Attached to structure ID {}", anchor.id),
                     16,
                     Color::GREEN,
                 )
@@ -26,7 +27,7 @@ impl AttachmentDebugView {
             );
             lines.push(
                 DisplayLine::new(
-                    format!("Grace period: {}", att.grace),
+                    format!("Grace period: {}", anchor.grace),
                     15,
                     Color::new(156, 212, 178, 255),
                 )
@@ -36,7 +37,7 @@ impl AttachmentDebugView {
                 DisplayLine::new(
                     format!(
                         "Local offset: ({:.2}, {:.2}, {:.2})",
-                        att.local_offset.x, att.local_offset.y, att.local_offset.z
+                        anchor.local_pos.x, anchor.local_pos.y, anchor.local_pos.z
                     ),
                     15,
                     Color::new(156, 212, 178, 255),
@@ -46,27 +47,35 @@ impl AttachmentDebugView {
             lines.push(
                 DisplayLine::new(
                     format!(
-                        "Pose snapshot: pos=({:.2},{:.2},{:.2}) yaw={:.1}°",
-                        att.pose_pos.x, att.pose_pos.y, att.pose_pos.z, att.pose_yaw_deg
+                        "Local velocity: ({:.2}, {:.2}, {:.2})",
+                        anchor.local_vel.x, anchor.local_vel.y, anchor.local_vel.z
                     ),
                     15,
                     Color::new(156, 212, 178, 255),
                 )
                 .with_indent(18),
             );
-            let inferred_world = attachment_world_position(&att);
             lines.push(
                 DisplayLine::new(
-                    format!(
-                        "Frame→world: ({:.2}, {:.2}, {:.2})",
-                        inferred_world.x, inferred_world.y, inferred_world.z
-                    ),
+                    format!("Yaw offset: {:.1}°", anchor.yaw_offset),
                     15,
                     Color::new(156, 212, 178, 255),
                 )
                 .with_indent(18),
             );
-            if let Some(st) = app.gs.structures.get(&att.id) {
+            if let Some(st) = app.gs.structures.get(&anchor.id) {
+                let inferred_world = anchor_world_position(&anchor, st);
+                lines.push(
+                    DisplayLine::new(
+                        format!(
+                            "Frame→world: ({:.2}, {:.2}, {:.2})",
+                            inferred_world.x, inferred_world.y, inferred_world.z
+                        ),
+                        15,
+                        Color::new(156, 212, 178, 255),
+                    )
+                    .with_indent(18),
+                );
                 lines.push(
                     DisplayLine::new(
                         format!(
@@ -78,40 +87,36 @@ impl AttachmentDebugView {
                     )
                     .with_indent(18),
                 );
-            }
-            lines.push(
-                DisplayLine::new(
-                    format!(
-                        "Cached structure vel: ({:.2}, {:.2}, {:.2})",
-                        att.structure_velocity.x,
-                        att.structure_velocity.y,
-                        att.structure_velocity.z
-                    ),
-                    15,
-                    Color::new(156, 212, 178, 255),
-                )
-                .with_indent(18),
-            );
-            let vel_line = if let Some(v) = att.local_velocity {
-                format!("Local velocity: ({:.2}, {:.2}, {:.2})", v.x, v.y, v.z)
+                lines.push(
+                    DisplayLine::new(
+                        format!("World yaw: {:.1}°", anchor.world_yaw(st)),
+                        15,
+                        Color::new(156, 212, 178, 255),
+                    )
+                    .with_indent(18),
+                );
+                let handoff = anchor_world_velocity(&anchor, st);
+                lines.push(
+                    DisplayLine::new(
+                        format!(
+                            "Detach handoff vel: ({:.2}, {:.2}, {:.2})",
+                            handoff.x, handoff.y, handoff.z
+                        ),
+                        15,
+                        Color::new(156, 212, 178, 255),
+                    )
+                    .with_indent(18),
+                );
             } else {
-                "Local velocity: (pending)".to_string()
-            };
-            lines.push(
-                DisplayLine::new(vel_line, 15, Color::new(156, 212, 178, 255)).with_indent(18),
-            );
-            let handoff = attachment_world_velocity(&att);
-            lines.push(
-                DisplayLine::new(
-                    format!(
-                        "Detach handoff vel: ({:.2}, {:.2}, {:.2})",
-                        handoff.x, handoff.y, handoff.z
-                    ),
-                    15,
-                    Color::new(156, 212, 178, 255),
-                )
-                .with_indent(18),
-            );
+                lines.push(
+                    DisplayLine::new(
+                        "Structure reference missing",
+                        15,
+                        Color::new(214, 160, 160, 255),
+                    )
+                    .with_indent(18),
+                );
+            }
         } else {
             lines.push(DisplayLine::new("Not attached", 16, Color::ORANGE).with_line_height(20));
         }
