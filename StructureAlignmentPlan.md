@@ -11,9 +11,16 @@ Goal: bring dynamic structures (sun body, orbital schem platforms, moving builds
    Answer: No need to preserve anything, let's consolidate to just the parity pipeline.
 
 ## Phase 1 – Foundation & Decisions
-- Audit the current structure pipeline to confirm ambient-only meshing, missing light atlases, and shader fallbacks.
-- Catalogue all parity gaps versus chunk rendering (lighting propagation, biome tint, shader binding, column profiles).
-- Answer the open questions above and lock requirements (e.g., whether to generate full `LightGrid`s per structure).
+- **Audit findings**
+  - Struct meshing uses `build_voxel_body_cpu_buf` with a hard-coded ambient value of 96 and no neighbor occlusion, confirming the expected ambient-only path (`crates/geist-runtime/src/lib.rs`, `crates/geist-mesh-cpu/src/build.rs`).
+  - `StructureBuildCompleted` uploads meshes but never installs light atlases; `structure_renders` store `light_tex: None`, so structures skip per-voxel lighting in the draw path (`src/app/events.rs`).
+  - Shaders are rebound (fog/leaves/water) the same way as chunks but operate without light uniforms, so they fall back to default tinting.
+- **Parity gaps vs. chunk pipeline**
+  - No skylight/blocklight propagation; structures lack `LightGrid`s, border updates, and biome tint sampling (chunks inject all of these in `BuildChunkJobCompleted`).
+  - No column-profile caching or chunk-buffer reuse, so structures rebuild from scratch each job.
+  - Lighting atlases, neighbor awareness, and hot-reload hooks are absent for structures.
+- **Decision status**
+  - Awaiting answers to the open questions above to finalize requirements for lighting exchange scope, relight cadence, and ambient-only fallback.
 
 ## Phase 2 – Mesher Parity
 - Replace `build_voxel_body_cpu_buf` with a WCC-backed path (or shared helper) so structures reuse chunk face culling, micro-grid occupancy, and material lookup logic.
@@ -34,4 +41,3 @@ Goal: bring dynamic structures (sun body, orbital schem platforms, moving builds
 - Budget rebuild cadence, cache results (e.g., reuse light grids for repeated orbit angles), and add perf counters for structure jobs.
 - Provide debug tooling (light volume overlays, toggles) and document workflows in `AGENTS.md` / CLI helpers.
 - Land changes behind a feature flag, validate with `cargo test --workspace` and targeted perf runs, then remove the ambient-only path once parity is confirmed.
-
