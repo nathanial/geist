@@ -15,7 +15,7 @@ use crate::camera::FlyCamera;
 use crate::event::EventQueue;
 use crate::gamestate::GameState;
 
-use super::{HitRegion, OverlayWindowManager, WindowId};
+use super::{DayCycle, DayLightSample, HitRegion, OverlayWindowManager, SunBody, WindowId};
 
 pub(crate) const STREAM_LOAD_SHELLS: i32 = 1;
 pub(crate) const STREAM_EVICT_SHELLS: i32 = 2;
@@ -26,6 +26,9 @@ pub struct App {
     pub runtime: Runtime,
     pub cam: FlyCamera,
     pub debug_stats: DebugStats,
+    pub day_cycle: DayCycle,
+    pub day_sample: DayLightSample,
+    pub sun: Option<SunBody>,
     pub(crate) hotbar: Vec<Block>,
     pub leaves_shader: Option<LeavesShader>,
     pub fog_shader: Option<FogShader>,

@@ -264,7 +264,11 @@ impl App {
 
                     // First, check for new attachment
                     if self.gs.ground_attach.is_none() {
+                        let sun_id = self.sun.as_ref().map(|s| s.id);
                         for (id, st) in &self.gs.structures {
+                            if Some(*id) == sun_id {
+                                continue;
+                            }
                             if self.is_feet_on_structure(st, feet_world) {
                                 // Capture local feet offset and attach
                                 let p = vec3_from_rl(self.gs.walker.pos);
@@ -309,7 +313,11 @@ impl App {
                     let reg = &self.reg;
                     let sampler = |wx: i32, wy: i32, wz: i32| -> Block {
                         // Check dynamic structures first
+                        let sun_id = self.sun.as_ref().map(|s| s.id);
                         for st in self.gs.structures.values() {
+                            if Some(st.id) == sun_id {
+                                continue;
+                            }
                             let p = vec3_from_rl(Vector3::new(
                                 wx as f32 + 0.5,
                                 wy as f32 + 0.5,
@@ -1038,7 +1046,11 @@ impl App {
                             .unwrap_or(false)
                     });
                 let mut struct_hit: Option<(StructureId, raycast::RayHit, f32)> = None;
+                let sun_id = self.sun.as_ref().map(|s| s.id);
                 for (id, st) in &self.gs.structures {
+                    if Some(*id) == sun_id {
+                        continue;
+                    }
                     let o = vec3_from_rl(org);
                     let diff = Vec3 {
                         x: o.x - st.pose.pos.x,

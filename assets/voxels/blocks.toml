@@ -97,6 +97,15 @@ shape = "cube"
 materials = { all = "beacon" }
 light_profile = "beam_cardinal"
 
+[[blocks]]
+name = "sun_core"
+solid = true
+blocks_skylight = false
+propagates_light = true
+emission = 255
+shape = "cube"
+materials = { all = "sun_core" }
+
 # Common cubes (config-driven; replacing hardcoded enums)
 [[blocks]]
 name = "cobblestone"

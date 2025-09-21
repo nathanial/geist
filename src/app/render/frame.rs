@@ -72,28 +72,28 @@ impl App {
 
         // Time-of-day sky color (used for clear background and surface fog)
         let time_now = rl.get_time() as f32;
-        let day_length_sec = 60.0_f32; // ~4 minutes per full cycle
-        let phase = (time_now / day_length_sec) * std::f32::consts::TAU; // 0..2pi
-        let sky_scale = 0.5 * (1.0 + phase.sin()); // 0..1 (0 = midnight, 1 = noon)
-        let day_sky = [210.0 / 255.0, 221.0 / 255.0, 235.0 / 255.0];
-        let night_sky = [10.0 / 255.0, 12.0 / 255.0, 20.0 / 255.0];
-        let t_gamma = sky_scale.powf(1.5);
-        // Base sky from night->day blend
-        let base_sky = [
-            night_sky[0] + (day_sky[0] - night_sky[0]) * t_gamma,
-            night_sky[1] + (day_sky[1] - night_sky[1]) * t_gamma,
-            night_sky[2] + (day_sky[2] - night_sky[2]) * t_gamma,
-        ];
-        // Dawn/Dusk warm tint: peak near sunrise/sunset, minimal at noon/midnight
-        let warm_tint = [1.0, 0.63, 0.32];
-        let twilight = phase.cos().abs().powf(3.0); // 0 at noon/midnight, 1 at dawn/dusk
-        // Scale warmth by how bright the sky is to avoid over-saturating at night
-        let warm_strength = (0.35 * twilight * sky_scale).clamp(0.0, 0.5);
-        let surface_sky = [
-            base_sky[0] * (1.0 - warm_strength) + warm_tint[0] * warm_strength,
-            base_sky[1] * (1.0 - warm_strength) + warm_tint[1] * warm_strength,
-            base_sky[2] * (1.0 - warm_strength) + warm_tint[2] * warm_strength,
-        ];
+        let sample = self.day_sample;
+        let sky_scale = sample.sky_scale;
+        let surface_sky = sample.surface_sky;
+        let sun_id = self.sun.as_ref().map(|s| s.id);
+        let sun_tint = {
+            let warm = [1.0, 0.84, 0.42];
+            let ember = [1.0, 0.58, 0.28];
+            let twilight = sample.phase.cos().abs().clamp(0.0, 1.0);
+            let ember_mix = twilight.powf(1.5);
+            let warm_mix = 1.0 - ember_mix;
+            let base = [
+                warm[0] * warm_mix + ember[0] * ember_mix,
+                warm[1] * warm_mix + ember[1] * ember_mix,
+                warm[2] * warm_mix + ember[2] * ember_mix,
+            ];
+            let visibility = if sample.sun_visible { 1.0 } else { 0.15 };
+            let brightness = ((0.2 + 0.8 * sky_scale) * visibility).clamp(0.0, 1.0);
+            let r = (base[0] * brightness * 255.0).clamp(0.0, 255.0) as u8;
+            let g = (base[1] * brightness * 255.0).clamp(0.0, 255.0) as u8;
+            let b = (base[2] * brightness * 255.0).clamp(0.0, 255.0) as u8;
+            Color::new(r, g, b, 255)
+        };
 
         let camera3d = self.cam.to_camera3d();
         self.minimap_ui_rect = None;
@@ -192,7 +192,11 @@ impl App {
             };
             // Fog ranges: denser underwater
             let fog_start = if underwater { 4.0 } else { 64.0 as f32 };
-            let fog_end = if underwater { 48.0 } else { 64.0 * self.gs.view_radius_chunks as f32 };
+            let fog_end = if underwater {
+                48.0
+            } else {
+                64.0 * self.gs.view_radius_chunks as f32
+            };
             if let Some(ref mut ls) = self.leaves_shader {
                 ls.update_frame_uniforms(
                     self.cam.position,
@@ -364,7 +368,12 @@ impl App {
                             .and_then(|m| m.render_tag.as_deref());
                         if tag != Some("water") {
                             self.debug_stats.draw_calls += 1;
-                            d3.draw_model(&part.model, vec3_to_rl(st.pose.pos), 1.0, Color::WHITE);
+                            let tint = if Some(*id) == sun_id {
+                                sun_tint
+                            } else {
+                                Color::WHITE
+                            };
+                            d3.draw_model(&part.model, vec3_to_rl(st.pose.pos), 1.0, tint);
                         }
                     }
                 }
@@ -452,7 +461,11 @@ impl App {
                                     &part.model,
                                     vec3_to_rl(st.pose.pos),
                                     1.0,
-                                    Color::WHITE,
+                                    if Some(sid) == sun_id {
+                                        sun_tint
+                                    } else {
+                                        Color::WHITE
+                                    },
                                 );
                                 unsafe {
                                     raylib::ffi::rlEnableBackfaceCulling();

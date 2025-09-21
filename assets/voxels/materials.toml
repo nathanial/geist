@@ -9,6 +9,7 @@ grass_top = ["assets/blocks/grass_top.png"]
 grass_side = ["assets/blocks/grass_side.png"]
 glowstone = ["assets/blocks/glowstone.png"]
 beacon = ["assets/blocks/beacon.png"]
+sun_core = ["assets/blocks/sun.png"]
 cobblestone = ["assets/blocks/cobblestone.png"]
 mossy_cobblestone = ["assets/blocks/cobblestone_mossy.png"]
 stone_bricks = [

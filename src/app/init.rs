@@ -7,15 +7,16 @@ use raylib::prelude::*;
 use serde::Deserialize;
 
 use super::{
-    App, DebugOverlayTab, DebugStats, DiagnosticsTab, OverlayWindow, OverlayWindowManager,
-    WindowId, WindowTheme, render::MINIMAP_MIN_CONTENT_SIDE,
+    App, DayCycle, DebugOverlayTab, DebugStats, DiagnosticsTab, OverlayWindow,
+    OverlayWindowManager, SUN_STRUCTURE_ID, SunBody, WindowId, WindowTheme,
+    render::MINIMAP_MIN_CONTENT_SIDE,
 };
 use crate::event::{Event, EventQueue};
 use crate::gamestate::GameState;
 use geist_blocks::{Block, BlockRegistry};
 use geist_edit::EditStore;
 use geist_lighting::LightingStore;
-use geist_render_raylib::{FogShader, LeavesShader, TextureCache};
+use geist_render_raylib::{FogShader, LeavesShader, TextureCache, conv::vec3_from_rl};
 use geist_runtime::Runtime;
 use geist_world::voxel::{World, WorldGenMode};
 
@@ -435,12 +436,30 @@ impl App {
             gs.place_type = Block { id, state: 0 };
         }
 
+        let day_cycle = DayCycle::new(60.0);
+        let day_sample = day_cycle.sample();
+        let mut sun = None;
+        if let Some((body, structure)) = SunBody::new(
+            SUN_STRUCTURE_ID,
+            reg.as_ref(),
+            vec3_from_rl(cam.position),
+            &day_sample,
+        ) {
+            let rev = structure.dirty_rev;
+            gs.structures.insert(body.id, structure);
+            queue.emit_now(Event::StructureBuildRequested { id: body.id, rev });
+            sun = Some(body);
+        }
+
         Self {
             gs,
             queue,
             runtime,
             cam,
             debug_stats: DebugStats::default(),
+            day_cycle,
+            day_sample,
+            sun,
             hotbar,
             leaves_shader,
             fog_shader,

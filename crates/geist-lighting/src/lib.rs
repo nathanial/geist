@@ -290,6 +290,7 @@ impl LightGrid {
         let mut lg = Self::new(sx, sy, sz);
         use std::collections::VecDeque;
         let mut q_sky = VecDeque::new();
+        let sun_level = store.skylight_max();
         for z in 0..sz {
             for x in 0..sx {
                 let mut open_above = true;
@@ -298,8 +299,10 @@ impl LightGrid {
                     let idx = lg.idx(x, y, z);
                     if open_above {
                         if skylight_transparent(b, reg) {
-                            lg.skylight[idx] = 255;
-                            q_sky.push_back((x, y, z, 255u8));
+                            lg.skylight[idx] = sun_level;
+                            if sun_level > 0 {
+                                q_sky.push_back((x, y, z, sun_level));
+                            }
                         } else {
                             open_above = false;
                             lg.skylight[idx] = 0;
@@ -1524,6 +1527,7 @@ pub struct LightingStore {
     chunks: Mutex<HashMap<ChunkCoord, LightingChunkEntry>>,
     // Runtime mode selection
     mode: AtomicU8,
+    skylight_max: AtomicU8,
 }
 
 impl LightingStore {
@@ -1535,6 +1539,7 @@ impl LightingStore {
             chunks: Mutex::new(HashMap::new()),
             // FullMicro is the only supported mode
             mode: AtomicU8::new(LightingMode::FullMicro as u8),
+            skylight_max: AtomicU8::new(255),
         }
     }
     /// Set the global lighting mode.
@@ -1545,6 +1550,12 @@ impl LightingStore {
     pub fn mode(&self) -> LightingMode {
         let _ = self.mode.load(Ordering::Relaxed);
         LightingMode::FullMicro
+    }
+    pub fn set_skylight_max(&self, level: u8) {
+        self.skylight_max.store(level, Ordering::Relaxed);
+    }
+    pub fn skylight_max(&self) -> u8 {
+        self.skylight_max.load(Ordering::Relaxed)
     }
     pub fn clear_chunk(&self, coord: ChunkCoord) {
         let mut map = self.chunks.lock().unwrap();

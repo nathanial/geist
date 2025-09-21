@@ -1,6 +1,6 @@
 use geist_blocks::Block;
 use geist_geom::Vec3;
-use geist_render_raylib::conv::vec3_to_rl;
+use geist_render_raylib::conv::{vec3_from_rl, vec3_to_rl};
 use geist_runtime::JobOut;
 use geist_world::{ChunkCoord, TERRAIN_STAGE_COUNT, TerrainMetrics};
 use raylib::prelude::*;
@@ -11,6 +11,10 @@ use crate::event::{Event, RebuildCause};
 
 impl App {
     pub fn step(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread, dt: f32) {
+        self.day_sample = self.day_cycle.advance(dt.max(0.0));
+        self.gs
+            .lighting
+            .set_skylight_max(self.day_sample.skylight_max());
         // Shader hot-reload
         if self.shader_event_rx.try_iter().next().is_some() {
             // Attempt to reload both shaders; fall back to previous if load fails
@@ -146,6 +150,12 @@ impl App {
             self.cam.update_look_only(rl, dt);
         } else {
             self.cam.update(rl, dt);
+        }
+
+        if let Some(ref mut sun) = self.sun {
+            let cam_vec = vec3_from_rl(self.cam.position);
+            let target = sun.target_position(cam_vec, &self.day_sample);
+            sun.update_pose(&mut self.queue, target);
         }
 
         if rl.is_key_pressed(KeyboardKey::KEY_G) {
@@ -502,7 +512,11 @@ impl App {
         // Update structure poses: translate along +X and vertical Y with adjustable speeds
         let step_dx = self.gs.structure_speed * dt.max(0.0);
         let step_dy = self.gs.structure_elev_speed * dt.max(0.0);
+        let sun_id = self.sun.as_ref().map(|s| s.id);
         for (id, st) in self.gs.structures.iter() {
+            if Some(*id) == sun_id {
+                continue;
+            }
             let prev = st.pose.pos;
             let newp = Vec3 {
                 x: prev.x + step_dx,
