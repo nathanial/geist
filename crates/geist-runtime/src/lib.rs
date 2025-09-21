@@ -82,6 +82,38 @@ pub struct StructureJobOut {
     pub light_borders: LightBorders,
 }
 
+fn build_structure_outputs(
+    job: &StructureBuildJob,
+    _skylight_seed: u8,
+) -> (ChunkMeshCPU, LightGrid, LightBorders) {
+    let mut buf = chunkbuf::ChunkBuf::from_blocks_local(
+        ChunkCoord::new(0, 0, 0),
+        job.sx,
+        job.sy,
+        job.sz,
+        job.base_blocks.to_vec(),
+    );
+    for ((lx, ly, lz), block) in job.edits.iter().copied() {
+        if lx < 0 || ly < 0 || lz < 0 {
+            continue;
+        }
+        let (lx, ly, lz) = (lx as usize, ly as usize, lz as usize);
+        if lx < buf.sx && ly < buf.sy && lz < buf.sz {
+            let idx = buf.idx(lx, ly, lz);
+            buf.blocks[idx] = block;
+        }
+    }
+    // Keep structure skylight at full intensity so the runtime shaders can
+    // modulate brightness per frame based on the current day cycle. Even if the
+    // lighting snapshot reports a dimmer sun (e.g., at night), we normalize to
+    // the maximum here and rely on shader uniforms to apply the per-frame scale.
+    let local_store = LightingStore::new(buf.sx, buf.sy, buf.sz);
+    let light_grid = LightGrid::compute_with_borders_buf(&buf, &local_store, &job.reg);
+    let light_borders = LightBorders::from_grid(&light_grid);
+    let cpu = build_structure_wcc_cpu_buf(&buf, &job.reg, None);
+    (cpu, light_grid, light_borders)
+}
+
 #[derive(Copy, Clone, Eq, PartialEq, Debug)]
 enum Lane {
     Edit,
@@ -574,30 +606,8 @@ impl Runtime {
             let lighting = lighting.clone();
             thread::spawn(move || {
                 while let Ok(job) = s_job_rx.recv() {
-                    let mut buf = chunkbuf::ChunkBuf::from_blocks_local(
-                        ChunkCoord::new(0, 0, 0),
-                        job.sx,
-                        job.sy,
-                        job.sz,
-                        job.base_blocks.to_vec(),
-                    );
-                    for ((lx, ly, lz), b) in job.edits.iter().copied() {
-                        if lx < 0 || ly < 0 || lz < 0 {
-                            continue;
-                        }
-                        let (lx, ly, lz) = (lx as usize, ly as usize, lz as usize);
-                        if lx < buf.sx && ly < buf.sy && lz < buf.sz {
-                            let idx = buf.idx(lx, ly, lz);
-                            buf.blocks[idx] = b;
-                        }
-                    }
-                    let skylight_max = lighting.skylight_max();
-                    let local_store = LightingStore::new(buf.sx, buf.sy, buf.sz);
-                    local_store.set_skylight_max(skylight_max);
-                    let light_grid =
-                        LightGrid::compute_with_borders_buf(&buf, &local_store, &job.reg);
-                    let light_borders = LightBorders::from_grid(&light_grid);
-                    let cpu = build_structure_wcc_cpu_buf(&buf, &job.reg, None);
+                    let seed = lighting.skylight_max();
+                    let (cpu, light_grid, light_borders) = build_structure_outputs(&job, seed);
                     let _ = s_res_tx.send(StructureJobOut {
                         id: job.id,
                         rev: job.rev,
@@ -689,5 +699,112 @@ impl Runtime {
 
     pub fn drain_structure_results(&self) -> Vec<StructureJobOut> {
         self.s_res_rx.try_iter().collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use geist_blocks::BlockRegistry;
+    use geist_blocks::config::{BlockDef, BlocksConfig, ShapeConfig};
+    use geist_blocks::material::MaterialCatalog;
+    use geist_blocks::types::Block;
+    use std::sync::Arc;
+
+    fn make_test_registry() -> BlockRegistry {
+        let materials = MaterialCatalog::new();
+        let blocks = vec![
+            BlockDef {
+                name: "air".into(),
+                id: Some(0),
+                solid: Some(false),
+                blocks_skylight: Some(false),
+                propagates_light: Some(true),
+                emission: Some(0),
+                light_profile: None,
+                light: None,
+                shape: Some(ShapeConfig::Simple("cube".into())),
+                materials: None,
+                state_schema: None,
+                seam: None,
+            },
+            BlockDef {
+                name: "stone".into(),
+                id: Some(1),
+                solid: Some(true),
+                blocks_skylight: Some(true),
+                propagates_light: Some(false),
+                emission: Some(0),
+                light_profile: None,
+                light: None,
+                shape: Some(ShapeConfig::Simple("cube".into())),
+                materials: None,
+                state_schema: None,
+                seam: None,
+            },
+        ];
+        BlockRegistry::from_configs(
+            materials,
+            BlocksConfig {
+                blocks,
+                lighting: None,
+                unknown_block: Some("unknown".into()),
+            },
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn structure_light_grid_ignores_snapshot_skylight() {
+        let reg = Arc::new(make_test_registry());
+        let air = Block {
+            id: reg.id_by_name("air").unwrap(),
+            state: 0,
+        };
+        let stone = Block {
+            id: reg.id_by_name("stone").unwrap(),
+            state: 0,
+        };
+        let sx = 3usize;
+        let sy = 4usize;
+        let sz = 3usize;
+        let mut base = vec![air; sx * sy * sz];
+        // Build a stone floor at y = 0.
+        for z in 0..sz {
+            for x in 0..sx {
+                let idx = (0 * sz + z) * sx + x;
+                base[idx] = stone;
+            }
+        }
+        // Build a roof everywhere except the center column to leave a skylight hole.
+        let roof_y = sy - 1;
+        for z in 0..sz {
+            for x in 0..sx {
+                if x == 1 && z == 1 {
+                    continue;
+                }
+                let idx = (roof_y * sz + z) * sx + x;
+                base[idx] = stone;
+            }
+        }
+        let job = StructureBuildJob {
+            id: 7,
+            rev: 1,
+            sx,
+            sy,
+            sz,
+            base_blocks: Arc::from(base.into_boxed_slice()),
+            edits: Vec::new(),
+            reg: reg.clone(),
+        };
+
+        // Simulate a midnight snapshot where skylight is zero.
+        let (_cpu, light_grid, _borders) = build_structure_outputs(&job, 0);
+
+        // The column under the open skylight should receive full intensity despite the snapshot.
+        assert_eq!(light_grid.skylight_at(1, sy - 2, 1), 255);
+        // A cell tucked beneath the roof should receive strictly less light
+        // than the open column, even though horizontal bleed still occurs.
+        assert!(light_grid.skylight_at(0, sy - 2, 0) < light_grid.skylight_at(1, sy - 2, 1));
     }
 }

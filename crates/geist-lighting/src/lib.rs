@@ -229,6 +229,12 @@ pub struct LightGrid {
 
 impl LightGrid {
     #[inline]
+    pub fn skylight_at(&self, x: usize, y: usize, z: usize) -> u8 {
+        let idx = (y * self.sz + z) * self.sx + x;
+        self.skylight[idx]
+    }
+
+    #[inline]
     fn idx(&self, x: usize, y: usize, z: usize) -> usize {
         (y * self.sz + z) * self.sx + x
     }

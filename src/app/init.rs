@@ -468,7 +468,7 @@ impl App {
             gs.place_type = Block { id, state: 0 };
         }
 
-        let mut day_cycle = DayCycle::new(15.0 * 60.0);
+        let mut day_cycle = DayCycle::new( 60.0);
         day_cycle.set_fixed_frac(fixed_day_frac);
         let day_sample = day_cycle.sample();
         let mut sun = None;
