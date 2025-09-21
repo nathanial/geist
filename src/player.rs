@@ -1,7 +1,6 @@
 use raylib::prelude::*;
 
 use geist_blocks::{Block, BlockRegistry};
-use geist_world::voxel::World;
 
 #[derive(Debug)]
 pub struct Walker {
@@ -111,37 +110,34 @@ impl Walker {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn update_with_sampler<F>(
+    fn update_motion<F>(
         &mut self,
         rl: &mut raylib::RaylibHandle,
         sample: &F,
-        _world: &World,
         reg: &BlockRegistry,
         dt: f32,
         yaw: f32,
-        platform_velocity: Option<Vector3>,
-        platform_frame_yaw: Option<f32>,
+        forward_world: Vector3,
+        right_world: Vector3,
+        platform_velocity: Vector3,
     ) where
         F: Fn(i32, i32, i32) -> Block,
     {
         self.yaw = yaw;
-        let yaw_rad = self.yaw.to_radians();
-        let (fwd, right) = if let Some(frame_yaw_deg) = platform_frame_yaw {
-            let local_yaw_rad = (self.yaw - frame_yaw_deg).to_radians();
-            let local_fwd = Vector3::new(local_yaw_rad.cos(), 0.0, local_yaw_rad.sin());
-            let local_right = local_fwd.cross(Vector3::up());
-            let (s, c) = frame_yaw_deg.to_radians().sin_cos();
-            let rotate =
-                |v: Vector3| -> Vector3 { Vector3::new(v.x * c - v.z * s, v.y, v.x * s + v.z * c) };
-            (
-                rotate(local_fwd).normalized(),
-                rotate(local_right).normalized(),
-            )
+        let fwd = if forward_world.length() > 0.0 {
+            forward_world.normalized()
         } else {
-            let fwd = Vector3::new(yaw_rad.cos(), 0.0, yaw_rad.sin()).normalized();
-            let right = fwd.cross(Vector3::up());
-            (fwd, right)
+            Vector3::new(1.0, 0.0, 0.0)
         };
+        let mut right = if right_world.length() > 0.0 {
+            right_world.normalized()
+        } else {
+            fwd.cross(Vector3::up())
+        };
+        if right.length() == 0.0 {
+            right = Vector3::new(0.0, 0.0, 1.0);
+        }
+
         let mut wish = Vector3::zero();
         if rl.is_key_down(KeyboardKey::KEY_W) {
             wish += fwd;
@@ -158,27 +154,23 @@ impl Walker {
         if wish.length() > 0.0 {
             wish = wish.normalized();
         }
+
         let run = if rl.is_key_down(KeyboardKey::KEY_LEFT_SHIFT) {
             self.run_mult
         } else {
             1.0
         };
 
-        // Horizontal motion is kinematic toward wishdir (simple, responsive)
         let target_v = wish * self.speed * run;
         let horiz = Vector3::new(target_v.x, 0.0, target_v.z);
 
-        // Add platform velocity if provided (for moving structures)
-        let platform_vel = platform_velocity.unwrap_or(Vector3::zero());
+        let platform_vel = platform_velocity;
         let total_horiz = horiz + Vector3::new(platform_vel.x, 0.0, platform_vel.z);
 
-        // Gravity and jumping
-        // Ground check: test a slightly larger offset down for stability
         let mut below = self.pos;
         below.y -= 0.10;
         self.on_ground = self.aabb_collides_with(reg, sample, below);
         if self.on_ground {
-            // Reset vertical velocity and allow jump
             if self.vel.y < 0.0 {
                 self.vel.y = 0.0;
             }
@@ -190,31 +182,65 @@ impl Walker {
             self.vel.y += self.gravity * dt;
         }
 
-        // Apply movement with collision; order depends on vertical motion
-        // Include platform velocity in movement
         let dx = total_horiz.x * dt;
         let dz = total_horiz.z * dt;
         let dy = (self.vel.y + platform_vel.y) * dt;
         let moved_y = if dy > 0.0 {
-            // Ascending (jump/climb): move up first, then horizontal
             let my = self.move_axis(reg, sample, 1, dy);
             self.move_axis(reg, sample, 0, dx);
             self.move_axis(reg, sample, 2, dz);
             my
         } else {
-            // Descending / grounded: hug terrain by doing horizontal first
             self.move_axis(reg, sample, 0, dx);
             self.move_axis(reg, sample, 2, dz);
             self.move_axis(reg, sample, 1, dy)
         };
-        // Land
         if dy < 0.0 && moved_y.abs() < dy.abs() * 0.5 {
             self.on_ground = true;
             self.vel.y = 0.0;
         }
 
-        // Clamp only the minimum vertical; allow going above world ceiling (for flying structures)
         self.pos.y = self.pos.y.max(0.0);
+    }
+
+    pub fn update_world_space<F>(
+        &mut self,
+        rl: &mut raylib::RaylibHandle,
+        sample: &F,
+        reg: &BlockRegistry,
+        dt: f32,
+        yaw: f32,
+    ) where
+        F: Fn(i32, i32, i32) -> Block,
+    {
+        let yaw_rad = yaw.to_radians();
+        let forward = Vector3::new(yaw_rad.cos(), 0.0, yaw_rad.sin());
+        let right = forward.cross(Vector3::up());
+        self.update_motion(rl, sample, reg, dt, yaw, forward, right, Vector3::zero());
+    }
+
+    pub fn update_structure_space<F>(
+        &mut self,
+        rl: &mut raylib::RaylibHandle,
+        sample: &F,
+        reg: &BlockRegistry,
+        dt: f32,
+        yaw: f32,
+        structure_yaw: f32,
+        structure_velocity: Vector3,
+        anchor_yaw_offset: f32,
+    ) where
+        F: Fn(i32, i32, i32) -> Block,
+    {
+        let local_yaw_rad = anchor_yaw_offset.to_radians();
+        let local_forward = Vector3::new(local_yaw_rad.cos(), 0.0, local_yaw_rad.sin());
+        let local_right = local_forward.cross(Vector3::up());
+        let frame_yaw_rad = structure_yaw.to_radians();
+        let (s, c) = frame_yaw_rad.sin_cos();
+        let rotate = |v: Vector3| Vector3::new(v.x * c - v.z * s, v.y, v.x * s + v.z * c);
+        let forward = rotate(local_forward);
+        let right = rotate(local_right);
+        self.update_motion(rl, sample, reg, dt, yaw, forward, right, structure_velocity);
     }
 
     // No back-compat path: the walker updates only via an explicit sampler tied to loaded chunk buffers.

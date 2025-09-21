@@ -307,29 +307,29 @@ impl App {
                     }
 
                     let reg = &self.reg;
-                    let mut platform_velocity: Option<Vector3> = None;
-                    let mut platform_frame_yaw: Option<f32> = None;
                     let mut prev_local_offset: Option<Vec3> = None;
+                    let mut structure_id: Option<StructureId> = None;
+                    let mut structure_yaw: f32 = 0.0;
+                    let mut structure_velocity = Vec3::ZERO;
+                    let mut anchor_yaw_offset: f32 = 0.0;
                     let mut detach_before_physics: Option<StructureId> = None;
-                    if let WalkerAnchor::Structure(anchor_snapshot) = self.gs.anchor {
-                        if let Some(st) = self.gs.structures.get(&anchor_snapshot.id) {
-                            platform_velocity = Some(Vector3::new(
-                                st.last_velocity.x,
-                                st.last_velocity.y,
-                                st.last_velocity.z,
-                            ));
-                            platform_frame_yaw = Some(st.pose.yaw_deg);
-                            prev_local_offset = Some(anchor_snapshot.local_pos);
+                    if let WalkerAnchor::Structure(ref mut anchor) = self.gs.anchor {
+                        if let Some(st) = self.gs.structures.get(&anchor.id) {
+                            anchor.update_yaw_offset(st.pose.yaw_deg, yaw);
+                            prev_local_offset = Some(anchor.local_pos);
+                            structure_id = Some(anchor.id);
+                            structure_yaw = st.pose.yaw_deg;
+                            structure_velocity = st.last_velocity;
+                            anchor_yaw_offset = anchor.yaw_offset;
                         } else {
-                            detach_before_physics = Some(anchor_snapshot.id);
+                            detach_before_physics = Some(anchor.id);
                         }
                     }
                     if let Some(id) = detach_before_physics {
                         self.gs.anchor = WalkerAnchor::World;
                         self.queue
                             .emit_now(Event::PlayerDetachedFromStructure { id });
-                        platform_velocity = None;
-                        platform_frame_yaw = None;
+                        structure_id = None;
                         prev_local_offset = None;
                     }
                     let sampler = |wx: i32, wy: i32, wz: i32| -> Block {
@@ -390,67 +390,73 @@ impl App {
                         self.gs.world.block_at_runtime(reg, wx, wy, wz)
                     };
                     let dt_sec = self.last_frame_dt.max(0.0);
-                    self.gs.walker.update_with_sampler(
-                        rl,
-                        &sampler,
-                        &self.gs.world,
-                        &self.reg,
-                        dt_sec,
-                        yaw,
-                        platform_velocity,
-                        platform_frame_yaw,
-                    );
+                    if let Some(_) = structure_id {
+                        let structure_velocity_rl = vec3_to_rl(structure_velocity);
+                        self.gs.walker.update_structure_space(
+                            rl,
+                            &sampler,
+                            &self.reg,
+                            dt_sec,
+                            yaw,
+                            structure_yaw,
+                            structure_velocity_rl,
+                            anchor_yaw_offset,
+                        );
+                    } else {
+                        self.gs
+                            .walker
+                            .update_world_space(rl, &sampler, &self.reg, dt_sec, yaw);
+                    }
                     // Update attachment after physics - critical for allowing movement on platform
                     let mut detach_request: Option<StructureId> = None;
-                    if let WalkerAnchor::Structure(anchor_snapshot) = self.gs.anchor {
-                        if let Some(st) = self.gs.structures.get(&anchor_snapshot.id) {
-                            let walker_world = vec3_from_rl(self.gs.walker.pos);
-                            let new_local =
-                                StructureAnchor::structure_local_from_world(st, walker_world);
-                            let local_velocity = if let Some(prev_local) = prev_local_offset {
-                                if dt_sec > 0.0001 {
-                                    (new_local - prev_local) * (1.0 / dt_sec)
+                    if let Some(id) = structure_id {
+                        if let Some(st) = self.gs.structures.get(&id) {
+                            if let WalkerAnchor::Structure(anchor_state) = self.gs.anchor {
+                                let walker_world = vec3_from_rl(self.gs.walker.pos);
+                                let new_local =
+                                    StructureAnchor::structure_local_from_world(st, walker_world);
+                                let local_velocity = if let Some(prev_local) = prev_local_offset {
+                                    if dt_sec > 0.0001 {
+                                        (new_local - prev_local) * (1.0 / dt_sec)
+                                    } else {
+                                        Vec3::ZERO
+                                    }
                                 } else {
                                     Vec3::ZERO
-                                }
-                            } else {
-                                Vec3::ZERO
-                            };
-
-                            if let WalkerAnchor::Structure(ref mut anchor) = self.gs.anchor {
-                                anchor.update_local_position(st, walker_world);
-                                anchor.update_local_velocity(local_velocity);
-                            }
-
-                            let predicted_world_feet =
-                                if let WalkerAnchor::Structure(ref anchor) = self.gs.anchor {
-                                    vec3_to_rl(anchor_world_position(anchor, st))
-                                } else {
-                                    self.gs.walker.pos
                                 };
 
-                            let on_structure = self.is_feet_on_structure(st, predicted_world_feet);
-                            if let WalkerAnchor::Structure(ref mut anchor) = self.gs.anchor {
-                                if on_structure {
-                                    anchor.grace = 8;
-                                } else if anchor.grace > 0 {
-                                    anchor.grace = anchor.grace.saturating_sub(1);
-                                } else {
-                                    detach_request = Some(anchor.id);
+                                if let WalkerAnchor::Structure(ref mut anchor_mut) = self.gs.anchor
+                                {
+                                    anchor_mut.update_local_position(st, walker_world);
+                                    anchor_mut.update_local_velocity(local_velocity);
+                                }
+
+                                let predicted_world_feet = anchor_world_position(&anchor_state, st);
+                                let predicted_rl = vec3_to_rl(predicted_world_feet);
+                                let on_structure = self.is_feet_on_structure(st, predicted_rl);
+
+                                if let WalkerAnchor::Structure(ref mut anchor_mut) = self.gs.anchor
+                                {
+                                    if on_structure {
+                                        anchor_mut.grace = 8;
+                                    } else if anchor_mut.grace > 0 {
+                                        anchor_mut.grace = anchor_mut.grace.saturating_sub(1);
+                                    } else {
+                                        detach_request = Some(anchor_mut.id);
+                                    }
                                 }
                             }
-                        } else {
-                            detach_request = Some(anchor_snapshot.id);
                         }
                     }
                     if let Some(id) = detach_request {
                         if let WalkerAnchor::Structure(anchor_state) = self.gs.anchor {
                             if let Some(st) = self.gs.structures.get(&id) {
                                 let world_vel = anchor_world_velocity(&anchor_state, st);
+                                let world_vel_rl = vec3_to_rl(world_vel);
                                 let mut walker_vel = self.gs.walker.vel;
-                                walker_vel.x = world_vel.x;
-                                walker_vel.z = world_vel.z;
-                                walker_vel.y += world_vel.y;
+                                walker_vel.x = world_vel_rl.x;
+                                walker_vel.z = world_vel_rl.z;
+                                walker_vel.y += world_vel_rl.y;
                                 self.gs.walker.vel = walker_vel;
                             }
                         }

@@ -343,6 +343,11 @@ impl StructureAnchor {
     pub fn structure_local_from_world(structure: &Structure, world_pos: Vec3) -> Vec3 {
         rotate_yaw_inv(world_pos - structure.pose.pos, structure.pose.yaw_deg)
     }
+
+    #[inline]
+    pub fn update_yaw_offset(&mut self, structure_yaw: f32, walker_yaw: f32) {
+        self.yaw_offset = walker_yaw - structure_yaw;
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
