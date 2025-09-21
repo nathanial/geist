@@ -223,6 +223,10 @@ pub fn compute_light_with_borders_buf_micro(
     let mut q_blk: DialQ = DialQ::new();
     let mut q_sky: DialQ = DialQ::new();
 
+    // Neighbor borders for seam-aware seeding and propagation
+    let nbm = store.get_neighbor_micro_borders(buf.coord);
+    let nb = store.get_neighbor_borders(buf.coord);
+
     // Seed skylight from open-above micro columns (world-local within chunk)
     // Phase 1: compute open-above start Y for each (mx, mz) column: the first Y such that all cells above are air.
     let mut open_start = vec![mys; mxs * mzs];
@@ -246,7 +250,6 @@ pub fn compute_light_with_borders_buf_micro(
             open_start[mz * mxs + mx] = start;
         }
     }
-    // Determine which macro columns genuinely reach the sky when accounting for neighbours above.
     let mut column_open_to_sky = vec![true; buf.sx * buf.sz];
     if let Some(tile) = height_tile.as_ref() {
         for lz in 0..buf.sz {
@@ -276,6 +279,52 @@ pub fn compute_light_with_borders_buf_micro(
                     wy += 1;
                 }
                 column_open_to_sky[lz * buf.sx + lx] = open;
+            }
+        }
+    }
+    // Runtime check: if the chunk above contains an opaque block at the seam, treat the column as closed.
+    let seam_sample_y = base_y + buf.sy as i32;
+    if seam_sample_y < world_height {
+        for lz in 0..buf.sz {
+            let wz = base_z + lz as i32;
+            for lx in 0..buf.sx {
+                let idx = lz * buf.sx + lx;
+                if !column_open_to_sky[idx] {
+                    continue;
+                }
+                let wx = base_x + lx as i32;
+                let block_above =
+                    world.block_at_runtime_with(reg, &mut reuse_ctx, wx, seam_sample_y, wz);
+                if !super::skylight_transparent_s2(block_above, reg) {
+                    column_open_to_sky[idx] = false;
+                }
+            }
+        }
+    }
+    if let Some(plane) = nbm.ym_sk_pos.as_ref() {
+        for lz in 0..buf.sz {
+            for lx in 0..buf.sx {
+                let idx = lz * buf.sx + lx;
+                if !column_open_to_sky[idx] {
+                    continue;
+                }
+                let mut any_sky = false;
+                for izm in 0..2 {
+                    for ixm in 0..2 {
+                        let mx = (lx << 1) | ixm;
+                        let mz = (lz << 1) | izm;
+                        if plane[mz * mxs + mx] > 0 {
+                            any_sky = true;
+                            break;
+                        }
+                    }
+                    if any_sky {
+                        break;
+                    }
+                }
+                if !any_sky {
+                    column_open_to_sky[idx] = false;
+                }
             }
         }
     }
@@ -337,8 +386,6 @@ pub fn compute_light_with_borders_buf_micro(
     }
 
     // Seed from neighbor micro border planes with S=2 ghost halo; fall back to coarse upsample with proper seam gating
-    let nbm = store.get_neighbor_micro_borders(buf.coord);
-    let nb = store.get_neighbor_borders(buf.coord);
     let plane_nonzero = |p: &Option<std::sync::Arc<[u8]>>| -> bool {
         if let Some(a) = p {
             a.iter().any(|&v| v != 0)

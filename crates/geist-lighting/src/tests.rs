@@ -575,6 +575,55 @@ fn vertical_neighbor_planes_map_to_lower_chunk() {
 }
 
 #[test]
+fn sealed_room_spanning_y_seam_blocks_skylight() {
+    let reg = make_test_registry();
+    let sx = 2;
+    let sy = 2;
+    let sz = 2;
+    let world = geist_world::World::new(1, 1, 1, 13, WorldGenMode::Flat { thickness: 0 });
+    let air_id = reg.id_by_name("air").unwrap();
+    let stone_id = reg.id_by_name("stone").unwrap();
+
+    let store = LightingStore::new(sx, sy, sz);
+
+    // Upper chunk (cy=1) has a solid floor on its bottom layer to form the roof.
+    let mut top_blocks = Vec::with_capacity(sx * sy * sz);
+    for y in 0..sy {
+        for z in 0..sz {
+            for x in 0..sx {
+                let id = if y == 0 { stone_id } else { air_id };
+                top_blocks.push(Block { id, state: 0 });
+            }
+        }
+    }
+    let top_buf = ChunkBuf::from_blocks_local(ChunkCoord::new(0, 1, 0), sx, sy, sz, top_blocks);
+    let _ = super::compute_light_with_borders_buf(&top_buf, &store, &reg, &world);
+
+    // Lower chunk (cy=0) is all air. Skylight should be blocked by the roof above.
+    let mut bottom_blocks = Vec::with_capacity(sx * sy * sz);
+    for _y in 0..sy {
+        for _z in 0..sz {
+            for _x in 0..sx {
+                bottom_blocks.push(Block {
+                    id: air_id,
+                    state: 0,
+                });
+            }
+        }
+    }
+    let bottom_buf =
+        ChunkBuf::from_blocks_local(ChunkCoord::new(0, 0, 0), sx, sy, sz, bottom_blocks);
+    let lg = super::compute_light_with_borders_buf(&bottom_buf, &store, &reg, &world);
+
+    for z in 0..sz {
+        for x in 0..sx {
+            assert_eq!(lg.skylight[lg.idx(x, sy - 1, z)], 0);
+            assert_eq!(lg.skylight[lg.idx(x, 0, z)], 0);
+        }
+    }
+}
+
+#[test]
 fn micro_skylight_open_above_and_blocked() {
     let reg = make_test_registry();
     let sx = 1;
