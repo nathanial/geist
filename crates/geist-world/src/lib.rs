@@ -8,4 +8,8 @@ pub use voxel::{
     CHUNK_SIZE, ChunkCoord, ChunkTiming, GenCtx, HeightTileStats, TERRAIN_STAGE_COUNT,
     TERRAIN_STAGE_LABELS, TerrainMetrics, TerrainStage, TerrainStageSample, TerrainTileCacheStats,
     World, WorldGenMode,
+    overview::{
+        OverviewError, OverviewMode, OverviewRegion, WorldOverview, WorldOverviewImage,
+        WorldOverviewJob,
+    },
 };

@@ -7,7 +7,8 @@ use geist_chunk::{ChunkBuf, ChunkOccupancy};
 use geist_edit::EditStore;
 use geist_lighting::LightingStore;
 use geist_structures::{Structure, StructureId};
-use geist_world::voxel::{ChunkCoord, World};
+use geist_world::voxel::{ChunkCoord, World, generation::ChunkColumnProfile};
+use log::warn;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ChunkLifecycle {
@@ -29,6 +30,8 @@ pub struct ChunkEntry {
     pub lifecycle: ChunkLifecycle,
     pub lighting_ready: bool,
     pub mesh_ready: bool,
+    pub column_profile: Option<Arc<ChunkColumnProfile>>,
+    pub column_profile_blob: Option<Vec<u8>>,
 }
 
 impl ChunkEntry {
@@ -41,6 +44,8 @@ impl ChunkEntry {
             lifecycle: ChunkLifecycle::Loading,
             lighting_ready: false,
             mesh_ready: false,
+            column_profile: None,
+            column_profile_blob: None,
         }
     }
 
@@ -62,11 +67,19 @@ impl ChunkEntry {
     }
 
     #[inline]
-    pub fn set_ready(&mut self, occ: ChunkOccupancy, buf: Option<ChunkBuf>, built_rev: u64) {
+    pub fn set_ready(
+        &mut self,
+        occ: ChunkOccupancy,
+        buf: Option<ChunkBuf>,
+        built_rev: u64,
+        column_profile: Option<Arc<ChunkColumnProfile>>,
+    ) {
         self.occupancy = Some(occ);
         self.buf = buf;
         self.built_rev = built_rev;
         self.lifecycle = ChunkLifecycle::Ready;
+        self.column_profile_blob = column_profile.as_ref().map(|profile| profile.to_bytes());
+        self.column_profile = column_profile;
     }
 }
 
@@ -132,10 +145,41 @@ impl ChunkInventory {
         occupancy: ChunkOccupancy,
         buf: Option<ChunkBuf>,
         built_rev: u64,
+        column_profile: Option<Arc<ChunkColumnProfile>>,
     ) -> &mut ChunkEntry {
         let entry = self.slots.entry(coord).or_insert_with(ChunkEntry::loading);
-        entry.set_ready(occupancy, buf, built_rev);
+        entry.set_ready(occupancy, buf, built_rev, column_profile);
         entry
+    }
+
+    pub fn column_profile(&mut self, coord: &ChunkCoord) -> Option<Arc<ChunkColumnProfile>> {
+        let entry = self.slots.get_mut(coord)?;
+        if let Some(profile) = entry.column_profile.as_ref() {
+            return Some(Arc::clone(profile));
+        }
+        let blob = entry.column_profile_blob.as_ref()?;
+        match ChunkColumnProfile::from_bytes(blob) {
+            Ok(profile) => {
+                let arc = Arc::new(profile);
+                entry.column_profile = Some(Arc::clone(&arc));
+                Some(arc)
+            }
+            Err(err) => {
+                warn!(
+                    "failed to deserialize column profile for chunk ({},{},{}): {}",
+                    coord.cx, coord.cy, coord.cz, err
+                );
+                entry.column_profile_blob = None;
+                None
+            }
+        }
+    }
+
+    pub fn clear_column_profile(&mut self, coord: &ChunkCoord) {
+        if let Some(entry) = self.slots.get_mut(coord) {
+            entry.column_profile = None;
+            entry.column_profile_blob = None;
+        }
     }
 
     #[inline]
@@ -230,7 +274,7 @@ impl GameState {
         Self {
             tick: 0,
             center_chunk: ChunkCoord::new(i32::MIN, i32::MIN, i32::MIN),
-            view_radius_chunks: 5,
+            view_radius_chunks: 8,
             chunks: ChunkInventory::default(),
             mesh_counts: HashMap::new(),
             light_counts: HashMap::new(),

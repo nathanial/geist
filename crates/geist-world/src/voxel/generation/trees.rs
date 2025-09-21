@@ -2,12 +2,13 @@ use std::time::Instant;
 
 use geist_blocks::registry::BlockRegistry;
 use geist_blocks::types::Block;
+use serde::{Deserialize, Serialize};
 
 use super::super::World;
 use super::super::gen_ctx::TerrainStage;
 use super::column_sampler::ColumnSampler;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TreeSpecies {
     Oak,
     Birch,
@@ -41,9 +42,34 @@ impl TreeSpecies {
             TreeSpecies::DarkOak => "oak_leaves",
         }
     }
+
+    #[inline]
+    pub fn to_u8(self) -> u8 {
+        match self {
+            TreeSpecies::Oak => 0,
+            TreeSpecies::Birch => 1,
+            TreeSpecies::Spruce => 2,
+            TreeSpecies::Jungle => 3,
+            TreeSpecies::Acacia => 4,
+            TreeSpecies::DarkOak => 5,
+        }
+    }
+
+    #[inline]
+    pub fn from_u8(value: u8) -> Option<Self> {
+        match value {
+            0 => Some(TreeSpecies::Oak),
+            1 => Some(TreeSpecies::Birch),
+            2 => Some(TreeSpecies::Spruce),
+            3 => Some(TreeSpecies::Jungle),
+            4 => Some(TreeSpecies::Acacia),
+            5 => Some(TreeSpecies::DarkOak),
+            _ => None,
+        }
+    }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TreePlan {
     pub base_x: i32,
     pub base_z: i32,

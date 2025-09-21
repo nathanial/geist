@@ -113,6 +113,11 @@ impl App {
             for (_coord, ent) in self.gs.chunks.iter_mut() {
                 ent.buf = None; // prevent reuse across worldgen param changes
             }
+            let cached_coords: Vec<ChunkCoord> = self.gs.chunks.coords_any().collect();
+            for coord in &cached_coords {
+                self.gs.chunks.clear_column_profile(coord);
+            }
+            self.runtime.column_cache().clear();
             if self.rebuild_on_worldgen {
                 for coord in &keys {
                     self.queue.emit_now(Event::ChunkRebuildRequested {
@@ -589,6 +594,7 @@ impl App {
                     light_borders: None,
                     light_grid: None,
                     job_id: r.job_id,
+                    column_profile: r.column_profile.clone(),
                 });
             } else if let Some(cpu) = r.cpu {
                 if let Some(buf) = r.buf {
@@ -604,6 +610,7 @@ impl App {
                         light_borders: r.light_borders,
                         light_grid: r.light_grid,
                         job_id: r.job_id,
+                        column_profile: r.column_profile.clone(),
                     });
                 } else {
                     log::warn!(

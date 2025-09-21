@@ -1,4 +1,4 @@
-mod caves;
+pub(crate) mod caves;
 mod column_plan;
 mod column_sampler;
 mod surface;
@@ -21,7 +21,7 @@ use super::{GenCtx, World, WorldGenMode};
 use self::caves::apply_caves_and_features;
 pub use self::caves::{BlockLookup, apply_caves_and_features_blocks};
 pub use self::column_plan::{
-    ChunkColumnPlan, ColumnInfo, ColumnMaterials, build_chunk_column_plan,
+    ChunkColumnPlan, ChunkColumnProfile, ColumnInfo, ColumnMaterials, build_chunk_column_plan,
 };
 pub use self::column_sampler::ColumnSampler;
 use self::column_sampler::remap_noise_to_height;
@@ -30,6 +30,7 @@ pub use self::tower::{
     TOWER_INNER_RADIUS, TOWER_OUTER_RADIUS, TOWER_TOP, TowerMaterial, evaluate_tower,
     tower_material,
 };
+pub use self::trees::TreePlan;
 use self::trees::apply_tree_blocks;
 use self::water::apply_water_fill;
 

@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::time::Instant;
 
 use raylib::prelude::*;
@@ -584,6 +585,11 @@ impl App {
                     .snapshot_for_region(cx, cy, cz, 1, 1)
                     .into_iter()
                     .collect::<HashMap<_, _>>();
+                let expected_rev = self.gs.world.current_worldgen_rev();
+                let mut column_profile = self.runtime.column_cache().get(coord, expected_rev);
+                if column_profile.is_none() {
+                    column_profile = self.gs.chunks.column_profile(&coord);
+                }
                 // Try to reuse previous buffer if present (and not invalidated)
                 let prev_buf = self
                     .gs
@@ -602,6 +608,7 @@ impl App {
                     region_edits,
                     prev_buf,
                     reg: self.reg.clone(),
+                    column_profile,
                 };
                 match cause {
                     RebuildCause::Edit => {
@@ -687,6 +694,7 @@ impl App {
                 light_borders,
                 light_grid,
                 job_id: _,
+                column_profile,
             } => {
                 let coord = ChunkCoord::new(cx, cy, cz);
                 // Drop if stale
@@ -723,11 +731,23 @@ impl App {
                     return;
                 }
 
+                if let Some(profile) = column_profile.as_ref() {
+                    self.runtime.column_cache().insert(Arc::clone(profile));
+                } else {
+                    self.gs.chunks.clear_column_profile(&coord);
+                }
+
                 if occupancy.is_empty() {
                     // Remove any previous render/lighting and mark chunk as a sparse placeholder.
                     self.renders.remove(&coord);
                     self.gs.lighting.clear_chunk(coord);
-                    let entry = self.gs.chunks.mark_ready(coord, occupancy, None, rev);
+                    let entry = self.gs.chunks.mark_ready(
+                        coord,
+                        occupancy,
+                        None,
+                        rev,
+                        column_profile.clone(),
+                    );
                     entry.lighting_ready = true;
                     entry.mesh_ready = false;
                     self.gs.inflight_rev.remove(&coord);
@@ -828,7 +848,13 @@ impl App {
                     }
                 }
                 // Update CPU buf & built rev
-                let entry = self.gs.chunks.mark_ready(coord, occupancy, Some(buf), rev);
+                let entry = self.gs.chunks.mark_ready(
+                    coord,
+                    occupancy,
+                    Some(buf),
+                    rev,
+                    column_profile.clone(),
+                );
                 entry.mesh_ready = true;
                 entry.lighting_ready = light_grid.is_some();
                 self.gs.inflight_rev.remove(&coord);

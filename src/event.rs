@@ -1,10 +1,12 @@
 use std::collections::{BTreeMap, VecDeque};
+use std::sync::Arc;
 
 use geist_blocks::types::Block;
 use geist_chunk::{ChunkBuf, ChunkOccupancy};
 use geist_lighting::LightBorders;
 use geist_mesh_cpu::{ChunkMeshCPU, NeighborsLoaded};
 use geist_structures::StructureId;
+use geist_world::voxel::generation::ChunkColumnProfile;
 use raylib::prelude::Vector3;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -98,6 +100,7 @@ pub enum Event {
         light_borders: Option<LightBorders>,
         light_grid: Option<geist_lighting::LightGrid>,
         job_id: u64,
+        column_profile: Option<Arc<ChunkColumnProfile>>,
     },
 
     // Lighting-only recompute result (Phase 1 decoupling)

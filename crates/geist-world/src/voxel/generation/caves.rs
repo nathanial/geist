@@ -32,7 +32,7 @@ impl BlockLookup {
     }
 }
 
-pub(super) fn apply_caves_and_features<'p>(
+pub(crate) fn apply_caves_and_features<'p>(
     world: &World,
     sampler: &mut ColumnSampler<'_, 'p>,
     x: i32,

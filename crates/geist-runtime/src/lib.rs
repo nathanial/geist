@@ -1,6 +1,7 @@
 //! Runtime job queues and worker orchestration (slim, engine-only).
 #![forbid(unsafe_code)]
 
+mod column_cache;
 mod gen_ctx_pool;
 
 use std::sync::Arc;
@@ -17,10 +18,11 @@ use geist_lighting::{
 use geist_mesh_cpu::{
     ChunkMeshCPU, NeighborsLoaded, build_chunk_wcc_cpu_buf_with_light, build_voxel_body_cpu_buf,
 };
-use geist_world::{ChunkCoord, TerrainMetrics, World};
+use geist_world::{ChunkCoord, TerrainMetrics, World, voxel::generation::ChunkColumnProfile};
 use hashbrown::HashMap;
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
+use crate::column_cache::ChunkColumnCache;
 use crate::gen_ctx_pool::GenCtxPool;
 
 #[derive(Clone, Debug)]
@@ -35,6 +37,7 @@ pub struct BuildJob {
     pub region_edits: HashMap<(i32, i32, i32), Block>,
     pub prev_buf: Option<chunkbuf::ChunkBuf>,
     pub reg: Arc<BlockRegistry>,
+    pub column_profile: Option<Arc<ChunkColumnProfile>>,
 }
 
 pub struct JobOut {
@@ -56,6 +59,7 @@ pub struct JobOut {
     pub t_light_ms: u32,
     pub t_mesh_ms: u32,
     pub terrain_metrics: TerrainMetrics,
+    pub column_profile: Option<Arc<ChunkColumnProfile>>,
 }
 
 #[derive(Clone, Debug)]
@@ -108,6 +112,7 @@ fn process_build_job(
         region_edits,
         prev_buf,
         reg,
+        column_profile,
         ..
     } = job;
 
@@ -116,6 +121,8 @@ fn process_build_job(
     let mut t_mesh_ms: u32 = 0;
     let coord = ChunkCoord::new(cx, cy, cz);
 
+    let mut column_profile_out = column_profile.clone();
+
     let (mut buf, mut occupancy, terrain_metrics) = if let Some(prev) = prev_buf {
         let occ = if prev.has_non_air() {
             chunkbuf::ChunkOccupancy::Populated
@@ -123,12 +130,30 @@ fn process_build_job(
             chunkbuf::ChunkOccupancy::Empty
         };
         (prev, occ, TerrainMetrics::default())
+    } else if let Some(profile) = column_profile.clone() {
+        let t0 = Instant::now();
+        let mut pooled_ctx = ctx_pool.acquire(world);
+        let generated = chunkbuf::generate_chunk_buffer_from_profile(
+            world,
+            coord,
+            &reg,
+            &mut pooled_ctx,
+            profile.as_ref(),
+        );
+        t_gen_ms = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+        column_profile_out = Some(profile);
+        (
+            generated.buf,
+            generated.occupancy,
+            generated.terrain_metrics,
+        )
     } else {
         let t0 = Instant::now();
         let mut pooled_ctx = ctx_pool.acquire(world);
         let generated =
             chunkbuf::generate_chunk_buffer_with_ctx(world, coord, &reg, &mut pooled_ctx);
         t_gen_ms = t0.elapsed().as_millis().min(u128::from(u32::MAX)) as u32;
+        column_profile_out = generated.column_profile.map(Arc::new);
         (
             generated.buf,
             generated.occupancy,
@@ -200,6 +225,7 @@ fn process_build_job(
             t_light_ms: 0,
             t_mesh_ms,
             terrain_metrics,
+            column_profile: column_profile_out.clone(),
         });
         return;
     }
@@ -230,6 +256,7 @@ fn process_build_job(
                 t_light_ms,
                 t_mesh_ms,
                 terrain_metrics,
+                column_profile: column_profile_out.clone(),
             });
         }
         Lane::Edit | Lane::Bg => {
@@ -261,6 +288,7 @@ fn process_build_job(
                     t_light_ms,
                     t_mesh_ms,
                     terrain_metrics,
+                    column_profile: column_profile_out,
                 });
             }
         }
@@ -287,6 +315,7 @@ pub struct Runtime {
     pub w_light: usize,
     pub w_bg: usize,
     _ctx_pool: Arc<GenCtxPool>,
+    column_cache: Arc<ChunkColumnCache>,
 }
 
 impl Runtime {
@@ -307,6 +336,8 @@ impl Runtime {
         let w_bg = remaining.saturating_sub(w_light);
         let total_workers = w_edit + w_light + w_bg;
         let ctx_pool = GenCtxPool::with_capacity_from_workers(total_workers);
+        let cache_capacity = (world.chunks_x.max(4) * world.chunks_z.max(4) * 4).max(64);
+        let column_cache = Arc::new(ChunkColumnCache::new(cache_capacity));
 
         let q_edit_ctr = Arc::new(AtomicUsize::new(0));
         let q_light_ctr = Arc::new(AtomicUsize::new(0));
@@ -587,6 +618,7 @@ impl Runtime {
             w_light,
             w_bg,
             _ctx_pool: ctx_pool,
+            column_cache,
         }
     }
 
@@ -623,6 +655,10 @@ impl Runtime {
 
     pub fn drain_worker_results(&self) -> Vec<JobOut> {
         self.res_rx.try_iter().collect()
+    }
+
+    pub fn column_cache(&self) -> Arc<ChunkColumnCache> {
+        Arc::clone(&self.column_cache)
     }
 
     pub fn queue_debug_counts(&self) -> (usize, usize, usize, usize, usize, usize) {

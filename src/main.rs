@@ -11,14 +11,15 @@ mod stairs_tests;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use geist_blocks::BlockRegistry;
 use geist_world::{
-    ChunkCoord, TERRAIN_STAGE_COUNT, TERRAIN_STAGE_LABELS, TerrainMetrics, TerrainTileCacheStats,
-    World, WorldGenMode,
+    ChunkCoord, OverviewMode, OverviewRegion, TERRAIN_STAGE_COUNT, TERRAIN_STAGE_LABELS,
+    TerrainMetrics, TerrainTileCacheStats, World, WorldGenMode, WorldOverview,
 };
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use toml::Value;
 
 #[derive(Parser, Debug)]
@@ -51,6 +52,9 @@ enum Command {
         #[command(subcommand)]
         cmd: SchemCmd,
     },
+
+    /// Generate offline terrain overview images
+    Overview(OverviewArgs),
 }
 
 #[derive(Args, Debug)]
@@ -169,6 +173,95 @@ struct SchemAutofillArgs {
     /// Optional schematic path (file or directory)
     #[arg(value_name = "SCHEM_PATH")]
     path: Option<PathBuf>,
+}
+
+#[derive(Args, Debug)]
+struct OverviewArgs {
+    /// Region bounds in world coordinates (min_x,min_z,max_x,max_z)
+    #[arg(long, value_parser = parse_overview_region)]
+    region: OverviewRegion,
+
+    /// Overview visualization mode
+    #[arg(long, value_enum, default_value_t = OverviewModeCli::Heightmap)]
+    mode: OverviewModeCli,
+
+    /// World generation preset
+    #[arg(long, value_enum, default_value_t = WorldKind::Normal)]
+    world: WorldKind,
+
+    /// Flat world thickness (used when --world=flat)
+    #[arg(long)]
+    flat_thickness: Option<i32>,
+
+    /// World seed
+    #[arg(long, default_value_t = 1337)]
+    seed: i32,
+
+    /// Number of chunks along X
+    #[arg(long, default_value_t = 4)]
+    chunks_x: usize,
+
+    /// Hint for the number of vertical chunks to pre-stream near spawn
+    #[arg(long = "chunks-y-hint", alias = "chunks-y", default_value_t = 8)]
+    chunks_y_hint: usize,
+
+    /// Number of chunks along Z
+    #[arg(long, default_value_t = 4)]
+    chunks_z: usize,
+
+    /// Worldgen config path (TOML)
+    #[arg(
+        long,
+        value_name = "PATH",
+        default_value = "assets/worldgen/worldgen.toml"
+    )]
+    world_config: String,
+
+    /// Output directory for generated image
+    #[arg(long, value_name = "DIR", default_value = "showcase_output")]
+    output: String,
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+enum OverviewModeCli {
+    Heightmap,
+    Biomemap,
+    Cavepreview,
+}
+
+impl OverviewModeCli {
+    fn as_str(&self) -> &'static str {
+        match self {
+            OverviewModeCli::Heightmap => "heightmap",
+            OverviewModeCli::Biomemap => "biomemap",
+            OverviewModeCli::Cavepreview => "cavepreview",
+        }
+    }
+}
+
+impl From<OverviewModeCli> for OverviewMode {
+    fn from(value: OverviewModeCli) -> Self {
+        match value {
+            OverviewModeCli::Heightmap => OverviewMode::HeightMap,
+            OverviewModeCli::Biomemap => OverviewMode::BiomeMap,
+            OverviewModeCli::Cavepreview => OverviewMode::CavePreview,
+        }
+    }
+}
+
+fn parse_overview_region(arg: &str) -> Result<OverviewRegion, String> {
+    let parts: Vec<&str> = arg.split(',').collect();
+    if parts.len() != 4 {
+        return Err("region must be min_x,min_z,max_x,max_z".to_string());
+    }
+    let mut values = [0i32; 4];
+    for (idx, part) in parts.iter().enumerate() {
+        values[idx] = part
+            .trim()
+            .parse::<i32>()
+            .map_err(|e| format!("invalid coordinate '{}': {}", part.trim(), e))?;
+    }
+    OverviewRegion::new(values[0], values[1], values[2], values[3]).map_err(|e| e.to_string())
 }
 
 fn resolve_schem_paths(path: Option<PathBuf>) -> Result<Vec<PathBuf>, String> {
@@ -631,6 +724,7 @@ fn run_terrain_metrics(run: &RunArgs, assets_root: &Path) {
                 buf: _,
                 occupancy: _,
                 terrain_metrics,
+                ..
             } = chunk_result;
             reports.push(ChunkReport {
                 coord,
@@ -941,6 +1035,12 @@ fn main() {
                 }
             }
         },
+        Command::Overview(args) => {
+            if let Err(err) = run_overview(args, assets_root.as_path()) {
+                eprintln!("Overview failed: {}", err);
+                std::process::exit(2);
+            }
+        }
         Command::Run(run) => {
             if run.terrain_metrics {
                 run_terrain_metrics(&run, assets_root.as_path());
@@ -1053,6 +1153,73 @@ fn run_app(run: RunArgs, assets_root: std::path::PathBuf) {
         app.step(&mut rl, &thread, dt);
         app.render(&mut rl, &thread);
     }
+}
+
+fn run_overview(args: OverviewArgs, assets_root: &Path) -> Result<(), String> {
+    let OverviewArgs {
+        region,
+        mode: mode_cli,
+        world,
+        flat_thickness,
+        seed,
+        chunks_x,
+        chunks_y_hint,
+        chunks_z,
+        world_config,
+        output,
+    } = args;
+
+    let world_mode = match world {
+        WorldKind::SchemOnly => WorldGenMode::Flat { thickness: 0 },
+        WorldKind::Flat => WorldGenMode::Flat {
+            thickness: flat_thickness.unwrap_or(1),
+        },
+        WorldKind::Normal => WorldGenMode::Normal,
+    };
+
+    let world = Arc::new(World::new(
+        chunks_x,
+        chunks_y_hint,
+        chunks_z,
+        seed,
+        world_mode,
+    ));
+
+    load_worldgen_params(world.as_ref(), assets_root, &world_config);
+
+    let overview = WorldOverview::new(world);
+    let mode: OverviewMode = mode_cli.clone().into();
+    let job = overview.spawn_region(region, mode);
+    let image = job.join().map_err(|e| e.to_string())?;
+
+    fs::create_dir_all(&output)
+        .map_err(|e| format!("failed to create output directory {}: {}", output, e))?;
+
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    let filename = format!(
+        "overview_{}_{}x{}_{}.ppm",
+        mode_cli.as_str(),
+        image.width,
+        image.height,
+        timestamp
+    );
+    let output_path = Path::new(&output).join(filename);
+
+    let mut file = OpenOptions::new()
+        .create(true)
+        .truncate(true)
+        .write(true)
+        .open(&output_path)
+        .map_err(|e| format!("failed to open {:?} for writing: {}", output_path, e))?;
+    write!(file, "P6\n{} {}\n255\n", image.width, image.height)
+        .map_err(|e| format!("failed to write PPM header: {}", e))?;
+    file.write_all(&image.data)
+        .map_err(|e| format!("failed to write PPM pixels: {}", e))?;
+    println!("Saved overview to {:?}", output_path);
+    Ok(())
 }
 
 #[derive(Args, Debug)]
