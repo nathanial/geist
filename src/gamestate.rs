@@ -330,11 +330,6 @@ impl StructureAnchor {
     }
 
     #[inline]
-    pub fn update_local_position(&mut self, structure: &Structure, world_pos: Vec3) {
-        self.local_pos = rotate_yaw_inv(world_pos - structure.pose.pos, structure.pose.yaw_deg);
-    }
-
-    #[inline]
     pub fn update_local_velocity(&mut self, local_vel: Vec3) {
         self.local_vel = local_vel;
     }

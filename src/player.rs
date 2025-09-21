@@ -226,8 +226,6 @@ impl Walker {
         reg: &BlockRegistry,
         dt: f32,
         yaw: f32,
-        structure_yaw: f32,
-        structure_velocity: Vector3,
         anchor_yaw_offset: f32,
     ) where
         F: Fn(i32, i32, i32) -> Block,
@@ -235,12 +233,16 @@ impl Walker {
         let local_yaw_rad = anchor_yaw_offset.to_radians();
         let local_forward = Vector3::new(local_yaw_rad.cos(), 0.0, local_yaw_rad.sin());
         let local_right = local_forward.cross(Vector3::up());
-        let frame_yaw_rad = structure_yaw.to_radians();
-        let (s, c) = frame_yaw_rad.sin_cos();
-        let rotate = |v: Vector3| Vector3::new(v.x * c - v.z * s, v.y, v.x * s + v.z * c);
-        let forward = rotate(local_forward);
-        let right = rotate(local_right);
-        self.update_motion(rl, sample, reg, dt, yaw, forward, right, structure_velocity);
+        self.update_motion(
+            rl,
+            sample,
+            reg,
+            dt,
+            yaw,
+            local_forward,
+            local_right,
+            Vector3::zero(),
+        );
     }
 
     // No back-compat path: the walker updates only via an explicit sampler tied to loaded chunk buffers.
