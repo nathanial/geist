@@ -48,6 +48,7 @@ impl SunBody {
                 yaw_deg: 0.0,
             },
             last_delta: Vec3::ZERO,
+            last_velocity: Vec3::ZERO,
             dirty_rev: 1,
             built_rev: 0,
         };
@@ -75,6 +76,7 @@ impl SunBody {
             pos: vec3_to_rl(target),
             yaw_deg: 0.0,
             delta: vec3_to_rl(delta),
+            velocity: vec3_to_rl(Vec3::ZERO),
         });
     }
 }

@@ -120,14 +120,28 @@ impl Walker {
         dt: f32,
         yaw: f32,
         platform_velocity: Option<Vector3>,
+        platform_frame_yaw: Option<f32>,
     ) where
         F: Fn(i32, i32, i32) -> Block,
     {
         self.yaw = yaw;
-        // Input wishdir (XZ plane) based on yaw
         let yaw_rad = self.yaw.to_radians();
-        let fwd = Vector3::new(yaw_rad.cos(), 0.0, yaw_rad.sin()).normalized();
-        let right = fwd.cross(Vector3::up());
+        let (fwd, right) = if let Some(frame_yaw_deg) = platform_frame_yaw {
+            let local_yaw_rad = (self.yaw - frame_yaw_deg).to_radians();
+            let local_fwd = Vector3::new(local_yaw_rad.cos(), 0.0, local_yaw_rad.sin());
+            let local_right = local_fwd.cross(Vector3::up());
+            let (s, c) = frame_yaw_deg.to_radians().sin_cos();
+            let rotate =
+                |v: Vector3| -> Vector3 { Vector3::new(v.x * c - v.z * s, v.y, v.x * s + v.z * c) };
+            (
+                rotate(local_fwd).normalized(),
+                rotate(local_right).normalized(),
+            )
+        } else {
+            let fwd = Vector3::new(yaw_rad.cos(), 0.0, yaw_rad.sin()).normalized();
+            let right = fwd.cross(Vector3::up());
+            (fwd, right)
+        };
         let mut wish = Vector3::zero();
         if rl.is_key_down(KeyboardKey::KEY_W) {
             wish += fwd;

@@ -364,6 +364,7 @@ impl App {
                                         edits: StructureEditStore::new(),
                                         pose,
                                         last_delta: Vec3::ZERO,
+                                        last_velocity: Vec3::ZERO,
                                         dirty_rev: 1,
                                         built_rev: 0,
                                     };

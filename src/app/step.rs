@@ -513,6 +513,12 @@ impl App {
         let step_dx = self.gs.structure_speed * dt.max(0.0);
         let step_dy = self.gs.structure_elev_speed * dt.max(0.0);
         let sun_id = self.sun.as_ref().map(|s| s.id);
+        let dt_clamped = dt.max(0.0);
+        let inv_dt = if dt_clamped > 0.0001 {
+            1.0 / dt_clamped
+        } else {
+            0.0
+        };
         for (id, st) in self.gs.structures.iter() {
             if Some(*id) == sun_id || self.schem_orbits.iter().any(|orbit| orbit.id == *id) {
                 continue;
@@ -524,6 +530,7 @@ impl App {
                 z: prev.z,
             };
             let delta = Vector3::new(newp.x - prev.x, newp.y - prev.y, newp.z - prev.z);
+            let velocity = Vec3::new(delta.x, delta.y, delta.z) * inv_dt;
             // Keep yaw fixed so collisions match visuals
             let yaw = 0.0_f32;
             self.queue.emit_now(Event::StructurePoseUpdated {
@@ -531,6 +538,7 @@ impl App {
                 pos: vec3_to_rl(newp),
                 yaw_deg: yaw,
                 delta,
+                velocity: vec3_to_rl(velocity),
             });
         }
 
@@ -538,7 +546,6 @@ impl App {
         if !self.schem_orbits.is_empty() {
             let tower_cx = (self.gs.world.world_size_x() as f32) * 0.5;
             let tower_cz = (self.gs.world.world_size_z() as f32) * 0.5;
-            let dt_clamped = dt.max(0.0);
             for orbit in &mut self.schem_orbits {
                 if let Some(st) = self.gs.structures.get(&orbit.id) {
                     orbit.angle = (orbit.angle + orbit.angular_speed * dt_clamped)
@@ -554,11 +561,17 @@ impl App {
                     let delta_vec =
                         Vec3::new(new_pos.x - prev.x, new_pos.y - prev.y, new_pos.z - prev.z);
                     if delta_vec.length() > 1e-4 {
+                        let velocity = if dt_clamped > 0.0001 {
+                            delta_vec * (1.0 / dt_clamped)
+                        } else {
+                            Vec3::ZERO
+                        };
                         self.queue.emit_now(Event::StructurePoseUpdated {
                             id: orbit.id,
                             pos: vec3_to_rl(new_pos),
                             yaw_deg: 0.0,
                             delta: Vector3::new(delta_vec.x, delta_vec.y, delta_vec.z),
+                            velocity: vec3_to_rl(velocity),
                         });
                     }
                 }

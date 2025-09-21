@@ -24,6 +24,7 @@ pub struct Structure {
     pub edits: StructureEditStore,
     pub pose: Pose,
     pub last_delta: Vec3,
+    pub last_velocity: Vec3,
     pub dirty_rev: u64,
     pub built_rev: u64,
 }
@@ -74,6 +75,7 @@ impl Structure {
             edits: StructureEditStore::new(),
             pose,
             last_delta: Vec3::ZERO,
+            last_velocity: Vec3::ZERO,
             dirty_rev: 1,
             built_rev: 0,
         }

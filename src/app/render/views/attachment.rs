@@ -3,8 +3,8 @@ use raylib::prelude::Color;
 use super::super::{
     App, ContentLayout, DisplayLine, GeistDraw, WindowFrame, WindowTheme, draw_lines,
 };
-use geist_render_raylib::conv::vec3_from_rl;
 use crate::app::{attachment_world_position, structure_world_to_local};
+use geist_render_raylib::conv::vec3_from_rl;
 
 pub(crate) struct AttachmentDebugView {
     lines: Vec<DisplayLine>,
@@ -66,14 +66,26 @@ impl AttachmentDebugView {
                 )
                 .with_indent(18),
             );
+            if let Some(st) = app.gs.structures.get(&att.id) {
+                lines.push(
+                    DisplayLine::new(
+                        format!(
+                            "World velocity: ({:.2}, {:.2}, {:.2})",
+                            st.last_velocity.x, st.last_velocity.y, st.last_velocity.z
+                        ),
+                        15,
+                        Color::new(156, 212, 178, 255),
+                    )
+                    .with_indent(18),
+                );
+            }
             let vel_line = if let Some(v) = att.local_velocity {
                 format!("Local velocity: ({:.2}, {:.2}, {:.2})", v.x, v.y, v.z)
             } else {
                 "Local velocity: (pending)".to_string()
             };
             lines.push(
-                DisplayLine::new(vel_line, 15, Color::new(156, 212, 178, 255))
-                    .with_indent(18),
+                DisplayLine::new(vel_line, 15, Color::new(156, 212, 178, 255)).with_indent(18),
             );
         } else {
             lines.push(DisplayLine::new("Not attached", 16, Color::ORANGE).with_line_height(20));

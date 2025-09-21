@@ -131,6 +131,7 @@ pub enum Event {
         pos: Vector3,
         yaw_deg: f32,
         delta: Vector3,
+        velocity: Vector3,
     },
     StructureBlockPlaced {
         id: StructureId,
