@@ -16,7 +16,7 @@ use geist_lighting::{
     LightAtlas, LightBorders, LightGrid, LightingStore, compute_light_with_borders_buf,
 };
 use geist_mesh_cpu::{
-    ChunkMeshCPU, NeighborsLoaded, build_chunk_wcc_cpu_buf_with_light, build_voxel_body_cpu_buf,
+    ChunkMeshCPU, NeighborsLoaded, build_chunk_wcc_cpu_buf_with_light, build_structure_wcc_cpu_buf,
 };
 use geist_world::{ChunkCoord, TerrainMetrics, World, voxel::generation::ChunkColumnProfile};
 use hashbrown::HashMap;
@@ -588,7 +588,7 @@ impl Runtime {
                             buf.blocks[idx] = b;
                         }
                     }
-                    let cpu = build_voxel_body_cpu_buf(&buf, 96, &job.reg);
+                    let cpu = build_structure_wcc_cpu_buf(&buf, &job.reg, None);
                     let _ = s_res_tx.send(StructureJobOut {
                         id: job.id,
                         rev: job.rev,

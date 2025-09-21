@@ -20,12 +20,12 @@ Goal: bring dynamic structures (sun body, orbital schem platforms, moving builds
   - No column-profile caching or chunk-buffer reuse, so structures rebuild from scratch each job.
   - Lighting atlases, neighbor awareness, and hot-reload hooks are absent for structures.
 - **Decision status**
-  - Awaiting answers to the open questions above to finalize requirements for lighting exchange scope, relight cadence, and ambient-only fallback.
+  - Structures should exchange light with the world grid, relight on every pose change (with future throttling if needed), and we can retire the ambient-only mode once parity work completes.
 
 ## Phase 2 – Mesher Parity
-- Replace `build_voxel_body_cpu_buf` with a WCC-backed path (or shared helper) so structures reuse chunk face culling, micro-grid occupancy, and material lookup logic.
-- Introduce pseudo-chunk coordinates for structures if needed to satisfy mesher assumptions.
-- Ensure leaves/water/fog tagging matches chunk meshes so shader selection is consistent.
+- Added `build_structure_wcc_cpu_buf` in `geist-mesh-cpu`, extending the WCC mesher to work without a world backing store and reusing the same occupancy, thin-shape, and material logic as chunk builds.
+- Structure build jobs in `geist-runtime` now call that helper (replacing the ambient-only path), so GPU uploads receive the same material tagging used by streamed chunks.
+- Structure meshes still forego light atlases for now (deferred to Phase 3+), but geometry and shader bindings now align with the chunk pipeline.
 
 ## Phase 3 – Lighting Computation
 - Integrate `compute_light_with_borders_buf` (or equivalent) for structure buffers, seeding skylight/blocklight from world altitude and internal emitters.

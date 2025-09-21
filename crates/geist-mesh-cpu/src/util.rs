@@ -90,7 +90,7 @@ pub(crate) fn occludes_face(nb: Block, face: Face, reg: &BlockRegistry) -> bool 
 /// Determines if the neighbor at `(nx,ny,nz)` occludes the face of `here`, using edits/world as needed.
 pub(crate) fn is_occluder(
     buf: &ChunkBuf,
-    world: &World,
+    world: Option<&World>,
     edits: Option<&HashMap<(i32, i32, i32), Block>>,
     reg: &BlockRegistry,
     here: Block,
@@ -122,11 +122,17 @@ pub(crate) fn is_occluder(
     }
     // Out of local bounds: unconditionally consult world+edits to decide occlusion (overscan default)
     let nb = if let Some(es) = edits {
-        es.get(&(nx, ny, nz))
-            .copied()
-            .unwrap_or_else(|| world.block_at_runtime(reg, nx, ny, nz))
-    } else {
+        if let Some(b) = es.get(&(nx, ny, nz)) {
+            *b
+        } else if let Some(world) = world {
+            world.block_at_runtime(reg, nx, ny, nz)
+        } else {
+            Block::AIR
+        }
+    } else if let Some(world) = world {
         world.block_at_runtime(reg, nx, ny, nz)
+    } else {
+        Block::AIR
     };
     if let (Some(h), Some(_n)) = (reg.get(here.id), reg.get(nb.id)) {
         if h.seam.dont_occlude_same && here.id == nb.id {

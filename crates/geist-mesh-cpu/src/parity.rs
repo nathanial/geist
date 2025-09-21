@@ -181,7 +181,7 @@ pub struct ParityMesher<'a> {
     base_z: i32,
     reg: &'a BlockRegistry,
     buf: &'a ChunkBuf,
-    world: &'a World,
+    world: Option<&'a World>,
     edits: Option<&'a HashMap<(i32, i32, i32), Block>>,
     // scratch (solids + water)
     grids: FaceGrids,
@@ -198,7 +198,7 @@ impl<'a> ParityMesher<'a> {
         base_x: i32,
         base_y: i32,
         base_z: i32,
-        world: &'a World,
+        world: Option<&'a World>,
         edits: Option<&'a HashMap<(i32, i32, i32), Block>>,
     ) -> Self {
         let (sx, sy, sz) = (buf.sx, buf.sy, buf.sz);
@@ -310,11 +310,14 @@ impl<'a> ParityMesher<'a> {
     #[inline]
     fn world_block(&self, nx: i32, ny: i32, nz: i32) -> Block {
         if let Some(ed) = self.edits {
-            ed.get(&(nx, ny, nz))
-                .copied()
-                .unwrap_or_else(|| self.world.block_at_runtime(self.reg, nx, ny, nz))
+            if let Some(b) = ed.get(&(nx, ny, nz)) {
+                return *b;
+            }
+        }
+        if let Some(world) = self.world {
+            world.block_at_runtime(self.reg, nx, ny, nz)
         } else {
-            self.world.block_at_runtime(self.reg, nx, ny, nz)
+            Block::AIR
         }
     }
 

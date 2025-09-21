@@ -62,7 +62,7 @@ fn prepare_builds(mat_count: usize) -> Vec<MeshBuild> {
 fn run_wcc_phase(
     buf: &ChunkBuf,
     reg: &BlockRegistry,
-    world: &World,
+    world: Option<&World>,
     edits: Option<&HashMap<(i32, i32, i32), Block>>,
     s: usize,
     base_x: i32,
@@ -101,7 +101,7 @@ fn thin_dynamic_shapes(
     builds: &mut Vec<MeshBuild>,
     buf: &ChunkBuf,
     reg: &BlockRegistry,
-    world: &World,
+    world: Option<&World>,
     edits: Option<&HashMap<(i32, i32, i32), Block>>,
     base_x: i32,
     base_y: i32,
@@ -137,7 +137,7 @@ fn emit_thin_shape(
     builds: &mut Vec<MeshBuild>,
     buf: &ChunkBuf,
     reg: &BlockRegistry,
-    world: &World,
+    world: Option<&World>,
     edits: Option<&HashMap<(i32, i32, i32), Block>>,
     here: Block,
     ty: &BlockType,
@@ -193,7 +193,7 @@ fn emit_pane(
     builds: &mut Vec<MeshBuild>,
     buf: &ChunkBuf,
     reg: &BlockRegistry,
-    world: &World,
+    world: Option<&World>,
     edits: Option<&HashMap<(i32, i32, i32), Block>>,
     here: Block,
     ty: &BlockType,
@@ -358,7 +358,7 @@ fn emit_fence(
     builds: &mut Vec<MeshBuild>,
     buf: &ChunkBuf,
     reg: &BlockRegistry,
-    world: &World,
+    world: Option<&World>,
     edits: Option<&HashMap<(i32, i32, i32), Block>>,
     here: Block,
     ty: &BlockType,
@@ -592,7 +592,7 @@ fn emit_ladder(
     builds: &mut Vec<MeshBuild>,
     _buf: &ChunkBuf,
     _reg: &BlockRegistry,
-    _world: &World,
+    _world: Option<&World>,
     _edits: Option<&HashMap<(i32, i32, i32), Block>>,
     here: Block,
     ty: &BlockType,
@@ -632,7 +632,7 @@ fn emit_carpet(
     builds: &mut Vec<MeshBuild>,
     buf: &ChunkBuf,
     reg: &BlockRegistry,
-    world: &World,
+    world: Option<&World>,
     edits: Option<&HashMap<(i32, i32, i32), Block>>,
     here: Block,
     ty: &BlockType,
@@ -746,6 +746,93 @@ fn finalize_chunk(
     (ChunkMeshCPU { coord, bbox, parts }, light_borders)
 }
 
+fn finalize_chunk_simple(
+    builds: Vec<MeshBuild>,
+    base_x: i32,
+    base_y: i32,
+    base_z: i32,
+    sx: usize,
+    sy: usize,
+    sz: usize,
+    coord: ChunkCoord,
+) -> ChunkMeshCPU {
+    let mat_count = builds.len();
+    update_last_mesh_reserve(mat_count, &builds);
+
+    let bbox = Aabb {
+        min: Vec3 {
+            x: base_x as f32,
+            y: base_y as f32,
+            z: base_z as f32,
+        },
+        max: Vec3 {
+            x: base_x as f32 + sx as f32,
+            y: base_y as f32 + sy as f32,
+            z: base_z as f32 + sz as f32,
+        },
+    };
+    let non_empty = builds.iter().filter(|mb| !mb.pos.is_empty()).count();
+    let mut parts: HashMap<MaterialId, MeshBuild> = HashMap::with_capacity(non_empty);
+    for (i, mb) in builds.into_iter().enumerate() {
+        if !mb.pos.is_empty() {
+            parts.insert(MaterialId(i as u16), mb);
+        }
+    }
+
+    ChunkMeshCPU { coord, bbox, parts }
+}
+
+pub fn build_structure_wcc_cpu_buf(
+    buf: &ChunkBuf,
+    reg: &BlockRegistry,
+    edits: Option<&HashMap<(i32, i32, i32), Block>>,
+) -> ChunkMeshCPU {
+    let sx = buf.sx;
+    let sy = buf.sy;
+    let sz = buf.sz;
+    let coord = buf.coord;
+    let base_x = coord.cx * sx as i32;
+    let base_y = coord.cy * sy as i32;
+    let base_z = coord.cz * sz as i32;
+    let mat_count = reg.materials.materials.len();
+
+    let s: usize = MICROGRID_STEPS;
+    let total_start = Instant::now();
+
+    let WccOutput {
+        mut builds,
+        scan_ms,
+        seed_ms,
+        emit_ms,
+    } = run_wcc_phase(buf, reg, None, edits, s, base_x, base_y, base_z, mat_count);
+
+    let thin_ms = thin_dynamic_shapes(
+        &mut builds,
+        buf,
+        reg,
+        None,
+        edits,
+        base_x,
+        base_y,
+        base_z,
+        sx,
+        sy,
+        sz,
+    );
+
+    let total_ms = elapsed_ms(total_start);
+    let perf = MesherPerf {
+        scan_ms,
+        seed_ms,
+        emit_ms,
+        thin_ms,
+        total_ms,
+    };
+    log_mesher_perf(s, coord, &perf);
+
+    finalize_chunk_simple(builds, base_x, base_y, base_z, sx, sy, sz, coord)
+}
+
 /// Build a chunk mesh using Watertight Cubical Complex (WCC) at S=1 (full cubes only).
 /// Phase 1: Only full cubes contribute; micro/dynamic shapes are ignored here.
 /// Builds a chunk mesh using WCC at micro scale, with seam handling and thin-shape pass.
@@ -791,13 +878,23 @@ pub fn build_chunk_wcc_cpu_buf_with_light(
         scan_ms,
         seed_ms,
         emit_ms,
-    } = run_wcc_phase(buf, reg, world, edits, s, base_x, base_y, base_z, mat_count);
+    } = run_wcc_phase(
+        buf,
+        reg,
+        Some(world),
+        edits,
+        s,
+        base_x,
+        base_y,
+        base_z,
+        mat_count,
+    );
 
     let thin_ms = thin_dynamic_shapes(
         &mut builds,
         buf,
         reg,
-        world,
+        Some(world),
         edits,
         base_x,
         base_y,
