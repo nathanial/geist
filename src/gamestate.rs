@@ -266,6 +266,8 @@ pub struct GroundAttach {
     pub pose_yaw_deg: f32,
     /// Optional structure-local velocity inherited while attached (Phase 2 will populate).
     pub local_velocity: Option<Vec3>,
+    /// Most recent world-space structure velocity used for hand-off on detach.
+    pub structure_velocity: Vec3,
 }
 
 impl GameState {

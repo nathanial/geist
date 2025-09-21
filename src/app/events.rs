@@ -5,7 +5,7 @@ use std::time::Instant;
 use raylib::prelude::*;
 
 use super::state::IntentCause;
-use super::{App, attachment_world_position, structure_world_to_local};
+use super::{App, attachment_world_position, attachment_world_velocity, structure_world_to_local};
 use crate::event::{Event, EventEnvelope, RebuildCause};
 use crate::gamestate::FinalizeState;
 use crate::raycast;
@@ -263,6 +263,7 @@ impl App {
                         if att.id == id {
                             att.pose_pos = st.pose.pos;
                             att.pose_yaw_deg = st.pose.yaw_deg;
+                            att.structure_velocity = st.last_velocity;
 
                             let expected_world = attachment_world_position(att);
                             let walker_world = vec3_from_rl(self.gs.walker.pos);
@@ -309,6 +310,7 @@ impl App {
                                     pose_pos: st.pose.pos,
                                     pose_yaw_deg: st.pose.yaw_deg,
                                     local_velocity: Some(Vec3::ZERO),
+                                    structure_velocity: st.last_velocity,
                                 });
                                 // Emit lifecycle event for observability
                                 self.queue.emit_now(Event::PlayerAttachedToStructure {
@@ -324,16 +326,40 @@ impl App {
                     let mut platform_velocity: Option<Vector3> = None;
                     let mut platform_frame_yaw: Option<f32> = None;
                     let mut prev_local_offset: Option<Vec3> = None;
-                    if let Some(att) = self.gs.ground_attach {
-                        if let Some(st) = self.gs.structures.get(&att.id) {
+                    let mut detach_before_physics: Option<(StructureId, Vec3)> = None;
+                    if let Some(att_snapshot) = self.gs.ground_attach {
+                        if let Some(st) = self.gs.structures.get(&att_snapshot.id) {
                             platform_velocity = Some(Vector3::new(
                                 st.last_velocity.x,
                                 st.last_velocity.y,
                                 st.last_velocity.z,
                             ));
                             platform_frame_yaw = Some(st.pose.yaw_deg);
-                            prev_local_offset = Some(att.local_offset);
+                            prev_local_offset = Some(att_snapshot.local_offset);
+                            if let Some(att_mut) = self.gs.ground_attach.as_mut() {
+                                att_mut.pose_pos = st.pose.pos;
+                                att_mut.pose_yaw_deg = st.pose.yaw_deg;
+                                att_mut.structure_velocity = st.last_velocity;
+                                let target_world_pos = attachment_world_position(att_mut);
+                                self.gs.walker.pos = vec3_to_rl(target_world_pos);
+                            }
+                        } else {
+                            detach_before_physics =
+                                Some((att_snapshot.id, attachment_world_velocity(&att_snapshot)));
                         }
+                    }
+                    if let Some((id, world_vel)) = detach_before_physics {
+                        self.gs.ground_attach = None;
+                        let mut walker_vel = self.gs.walker.vel;
+                        walker_vel.x = world_vel.x;
+                        walker_vel.z = world_vel.z;
+                        walker_vel.y += world_vel.y;
+                        self.gs.walker.vel = walker_vel;
+                        self.queue
+                            .emit_now(Event::PlayerDetachedFromStructure { id });
+                        platform_velocity = None;
+                        platform_frame_yaw = None;
+                        prev_local_offset = None;
                     }
                     let sampler = |wx: i32, wy: i32, wz: i32| -> Block {
                         // Check dynamic structures first
@@ -416,6 +442,7 @@ impl App {
                             if let Some(att) = self.gs.ground_attach.as_mut() {
                                 att.pose_pos = st.pose.pos;
                                 att.pose_yaw_deg = st.pose.yaw_deg;
+                                att.structure_velocity = st.last_velocity;
                                 att.local_offset = new_local;
                                 let dt_sec = (dt_ms as f32) / 1000.0;
                                 let local_velocity = if let Some(prev_local) = prev_local_offset {
@@ -442,6 +469,14 @@ impl App {
                         }
                     }
                     if let Some(id) = detach_request {
+                        if let Some(att) = self.gs.ground_attach {
+                            let world_vel = attachment_world_velocity(&att);
+                            let mut walker_vel = self.gs.walker.vel;
+                            walker_vel.x = world_vel.x;
+                            walker_vel.z = world_vel.z;
+                            walker_vel.y += world_vel.y;
+                            self.gs.walker.vel = walker_vel;
+                        }
                         self.gs.ground_attach = None;
                         self.queue
                             .emit_now(Event::PlayerDetachedFromStructure { id });
@@ -485,6 +520,7 @@ impl App {
                         pose_pos: st.pose.pos,
                         pose_yaw_deg: st.pose.yaw_deg,
                         local_velocity: Some(Vec3::ZERO),
+                        structure_velocity: st.last_velocity,
                     });
                 }
             }

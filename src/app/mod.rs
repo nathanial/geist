@@ -9,7 +9,9 @@ mod step;
 mod sun;
 mod watchers;
 
-pub(crate) use attachment::{attachment_world_position, structure_world_to_local};
+pub(crate) use attachment::{
+    attachment_world_position, attachment_world_velocity, structure_world_to_local,
+};
 pub use day_cycle::{DayCycle, DayLightSample};
 pub(crate) use geist_ui::{
     HitRegion, IRect, OverlayWindow, OverlayWindowManager, TabDefinition, TabStrip, UiTextMeasure,
