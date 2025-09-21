@@ -4,7 +4,7 @@ use rayon::prelude::*;
 use geist_blocks::micro::micro_face_cell_open_s2;
 use geist_blocks::{BlockRegistry, types::Block};
 use geist_chunk::ChunkBuf;
-use geist_world::World;
+use geist_world::{World, WorldGenMode};
 
 // Micro-voxel scale factor (2x resolution in each dimension)
 const MICRO_SCALE: usize = 2;
@@ -61,6 +61,15 @@ pub fn compute_light_with_borders_buf_micro(
     world: &World,
 ) -> LightGrid {
     let (mxs, mys, mzs) = micro_dims(buf);
+    let base_x = buf.coord.cx * buf.sx as i32;
+    let base_y = buf.coord.cy * buf.sy as i32;
+    let base_z = buf.coord.cz * buf.sz as i32;
+    let chunk_cap_y = base_y + buf.sy as i32; // exclusive upper bound for this chunk
+    let world_height = world.world_height_hint() as i32;
+    let mut reuse_ctx = world.make_gen_ctx();
+    // Height tile lets us query column surface once instead of sampling every Y upwards.
+    world.prepare_height_tile(&mut reuse_ctx, base_x, base_z, buf.sx, buf.sz);
+    let height_tile = reuse_ctx.height_tile.clone();
     let mut micro_sky = vec![0u8; mxs * mys * mzs];
     let mut micro_blk = vec![0u8; mxs * mys * mzs];
     let stride_z_m = mxs; // +1 micro Z
@@ -226,6 +235,56 @@ pub fn compute_light_with_borders_buf_micro(
             open_start[mz * mxs + mx] = start;
         }
     }
+    // Determine which macro columns genuinely reach the sky when accounting for neighbours above.
+    let mut column_open_to_sky = vec![true; buf.sx * buf.sz];
+    if let Some(tile) = height_tile.as_ref() {
+        for lz in 0..buf.sz {
+            let wz = base_z + lz as i32;
+            for lx in 0..buf.sx {
+                let wx = base_x + lx as i32;
+                let height = tile
+                    .height(wx, wz)
+                    .unwrap_or(world_height.saturating_sub(1));
+                column_open_to_sky[lz * buf.sx + lx] = height < chunk_cap_y;
+            }
+        }
+    } else if let WorldGenMode::Flat { thickness } = world.mode {
+        let height = (thickness - 1).max(-1);
+        for lz in 0..buf.sz {
+            for lx in 0..buf.sx {
+                column_open_to_sky[lz * buf.sx + lx] = height < chunk_cap_y;
+            }
+        }
+    } else {
+        // Fallback: sample upwards but bail once we find a blocking block.
+        for lz in 0..buf.sz {
+            let wz = base_z + lz as i32;
+            for lx in 0..buf.sx {
+                let wx = base_x + lx as i32;
+                let mut open = true;
+                let mut wy = chunk_cap_y;
+                while wy < world_height {
+                    let block = world.block_at_runtime_with(reg, &mut reuse_ctx, wx, wy, wz);
+                    if !super::skylight_transparent_s2(block, reg) {
+                        open = false;
+                        break;
+                    }
+                    wy += 1;
+                }
+                column_open_to_sky[lz * buf.sx + lx] = open;
+            }
+        }
+    }
+    // Columns sealed above should not receive skylight seeding even if this chunk's top slice is air.
+    for mz in 0..mzs {
+        for mx in 0..mxs {
+            let lx = mx >> 1;
+            let lz = mz >> 1;
+            if !column_open_to_sky[lz * buf.sx + lx] {
+                open_start[mz * mxs + mx] = mys;
+            }
+        }
+    }
     // Phase 2: fill all open-above cells to 255
     for mz in 0..mzs {
         for mx in 0..mxs {
@@ -308,16 +367,12 @@ pub fn compute_light_with_borders_buf_micro(
         || plane_nonzero(&nb.yp)
         || plane_nonzero(&nb.sk_yp);
     let atten: u8 = COARSE_SEAM_ATTENUATION;
-    let base_x = buf.coord.cx * buf.sx as i32;
-    let base_y = buf.coord.cy * buf.sy as i32;
-    let base_z = buf.coord.cz * buf.sz as i32;
     // Block light neighbors
     // Skylight neighbors: handled together with block after the coarse fallback expansion
 
     // Expanded implementation: X seams (block + sky) with macro-first loops and cached 2x2 gates
     // Avoid expensive world noise sampling when micro neighbor planes exist by gating using our
     // own micro occupancy only. When falling back to coarse neighbors, reuse a single GenCtx.
-    let mut reuse_ctx = world.make_gen_ctx();
     for lz in 0..buf.sz {
         for ly in 0..buf.sy {
             if !(use_xn || use_xp) {
