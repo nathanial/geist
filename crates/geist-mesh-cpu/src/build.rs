@@ -162,6 +162,25 @@ fn emit_thin_shape(
             builds, buf, reg, world, edits, here, ty, fx, fy, fz, base_x, base_y, base_z, sx, sy,
             sz,
         ),
+        Shape::Ladder { facing_from } => emit_ladder(
+            builds,
+            buf,
+            reg,
+            world,
+            edits,
+            here,
+            ty,
+            fx,
+            fy,
+            fz,
+            base_x,
+            base_y,
+            base_z,
+            sx,
+            sy,
+            sz,
+            facing_from,
+        ),
         Shape::Carpet => emit_carpet(
             builds, buf, reg, world, edits, here, ty, fx, fy, fz, base_x, base_y, base_z, sx, sy,
             sz,
@@ -481,6 +500,132 @@ fn emit_fence(
             }
         }
     }
+}
+
+fn ladder_bounds(fx: f32, fy: f32, fz: f32, facing: &str) -> (Vec3, Vec3) {
+    let thickness = 0.125f32;
+    match facing {
+        "north" => {
+            let max_z = fz + 1.0;
+            let min_z = max_z - thickness;
+            (
+                Vec3 {
+                    x: fx,
+                    y: fy,
+                    z: min_z,
+                },
+                Vec3 {
+                    x: fx + 1.0,
+                    y: fy + 1.0,
+                    z: max_z,
+                },
+            )
+        }
+        "south" => {
+            let min_z = fz;
+            let max_z = min_z + thickness;
+            (
+                Vec3 {
+                    x: fx,
+                    y: fy,
+                    z: min_z,
+                },
+                Vec3 {
+                    x: fx + 1.0,
+                    y: fy + 1.0,
+                    z: max_z,
+                },
+            )
+        }
+        "east" => {
+            let min_x = fx;
+            let max_x = min_x + thickness;
+            (
+                Vec3 {
+                    x: min_x,
+                    y: fy,
+                    z: fz,
+                },
+                Vec3 {
+                    x: max_x,
+                    y: fy + 1.0,
+                    z: fz + 1.0,
+                },
+            )
+        }
+        "west" => {
+            let max_x = fx + 1.0;
+            let min_x = max_x - thickness;
+            (
+                Vec3 {
+                    x: min_x,
+                    y: fy,
+                    z: fz,
+                },
+                Vec3 {
+                    x: max_x,
+                    y: fy + 1.0,
+                    z: fz + 1.0,
+                },
+            )
+        }
+        _ => {
+            let min_z = fz;
+            let max_z = min_z + thickness;
+            (
+                Vec3 {
+                    x: fx,
+                    y: fy,
+                    z: min_z,
+                },
+                Vec3 {
+                    x: fx + 1.0,
+                    y: fy + 1.0,
+                    z: max_z,
+                },
+            )
+        }
+    }
+}
+
+fn emit_ladder(
+    builds: &mut Vec<MeshBuild>,
+    _buf: &ChunkBuf,
+    _reg: &BlockRegistry,
+    _world: &World,
+    _edits: Option<&HashMap<(i32, i32, i32), Block>>,
+    here: Block,
+    ty: &BlockType,
+    fx: f32,
+    fy: f32,
+    fz: f32,
+    base_x: i32,
+    base_y: i32,
+    base_z: i32,
+    sx: usize,
+    sy: usize,
+    sz: usize,
+    facing_prop: &str,
+) {
+    let face_material = |face: Face| ty.material_for_cached(face.role(), here.state);
+    let facing = ty
+        .state_prop_value(here.state, facing_prop)
+        .unwrap_or("north");
+    let (min, max) = ladder_bounds(fx, fy, fz, facing);
+    emit_box_generic_clipped(
+        builds,
+        min,
+        max,
+        &face_material,
+        |_| false,
+        |_| LIGHT_FULL,
+        base_x,
+        sx,
+        sy,
+        base_y,
+        base_z,
+        sz,
+    );
 }
 
 fn emit_carpet(
@@ -894,6 +1039,27 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
                             );
                         }
                     }
+                    Some(geist_blocks::types::Shape::Ladder { facing_from }) => {
+                        let ty = reg.get(here.id).expect("ladder block type");
+                        let facing = ty
+                            .state_prop_value(here.state, facing_from)
+                            .unwrap_or("north");
+                        let (min, max) = ladder_bounds(fx, fy, fz, facing);
+                        emit_box_generic_clipped(
+                            &mut builds_v,
+                            min,
+                            max,
+                            &face_material,
+                            |_face| false,
+                            |_face| ambient,
+                            base_x,
+                            buf.sx,
+                            buf.sy,
+                            base_y,
+                            base_z,
+                            buf.sz,
+                        );
+                    }
                     Some(geist_blocks::types::Shape::Carpet) => {
                         let h = 0.0625f32;
                         let min = Vec3 {
@@ -959,5 +1125,47 @@ pub fn build_voxel_body_cpu_buf(buf: &ChunkBuf, ambient: u8, reg: &BlockRegistry
             },
         },
         parts: parts_hm,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ladder_bounds;
+
+    const EPS: f32 = 1e-6;
+
+    #[test]
+    fn ladder_bounds_north_offsets_from_wall() {
+        let (min, max) = ladder_bounds(0.0, 0.0, 0.0, "north");
+        assert!((min.x - 0.0).abs() < EPS);
+        assert!((max.x - 1.0).abs() < EPS);
+        assert!((min.y - 0.0).abs() < EPS);
+        assert!((max.y - 1.0).abs() < EPS);
+        assert!((min.z - 0.875).abs() < EPS);
+        assert!((max.z - 1.0).abs() < EPS);
+    }
+
+    #[test]
+    fn ladder_bounds_south_hugs_max_wall() {
+        let (min, max) = ladder_bounds(2.0, 4.0, 8.0, "south");
+        assert!((min.x - 2.0).abs() < EPS);
+        assert!((max.x - 3.0).abs() < EPS);
+        assert!((min.y - 4.0).abs() < EPS);
+        assert!((max.y - 5.0).abs() < EPS);
+        assert!((min.z - 8.0).abs() < EPS);
+        assert!(((max.z - min.z) - 0.125).abs() < EPS);
+    }
+
+    #[test]
+    fn ladder_bounds_east_and_west_align_x_axis() {
+        let (min_e, max_e) = ladder_bounds(10.0, 0.0, -2.0, "east");
+        assert!((min_e.x - 10.0).abs() < EPS);
+        assert!(((max_e.x - min_e.x) - 0.125).abs() < EPS);
+
+        let (min_w, max_w) = ladder_bounds(1.0, 0.0, 1.0, "west");
+        assert!((max_w.x - 2.0).abs() < EPS);
+        assert!(((max_w.x - min_w.x) - 0.125).abs() < EPS);
+        assert!((min_w.z - 1.0).abs() < EPS);
+        assert!((max_w.z - 2.0).abs() < EPS);
     }
 }

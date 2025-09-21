@@ -48,6 +48,9 @@ pub enum Shape {
         facing_from: String,
         open_from: String,
     },
+    Ladder {
+        facing_from: String,
+    },
     Carpet,
     None,
 }

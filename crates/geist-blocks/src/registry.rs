@@ -309,6 +309,13 @@ impl BlockRegistry {
                                 dynamic: Some(DynamicShape::Carpet),
                             },
                         ),
+                        Shape::Ladder { .. } => (
+                            0,
+                            ShapeVariant {
+                                occupancy: None,
+                                dynamic: Some(DynamicShape::Ladder),
+                            },
+                        ),
                         _ => {
                             if ty.is_solid(state) {
                                 (
@@ -463,6 +470,7 @@ pub enum DynamicShape {
     Pane,
     Fence,
     Gate,
+    Ladder,
     Carpet,
 }
 
@@ -505,6 +513,9 @@ fn compile_shape(shape: Option<ShapeConfig>) -> Shape {
                 facing_from: "facing".into(),
                 open_from: "open".into(),
             },
+            "ladder" => Shape::Ladder {
+                facing_from: "facing".into(),
+            },
             "carpet" => Shape::Carpet,
             _ => Shape::None,
         },
@@ -537,6 +548,11 @@ fn compile_shape(shape: Option<ShapeConfig>) -> Shape {
                     .map(|p| p.from)
                     .unwrap_or_else(|| "facing".to_string()),
                 open_from: open.map(|p| p.from).unwrap_or_else(|| "open".to_string()),
+            },
+            "ladder" => Shape::Ladder {
+                facing_from: facing
+                    .map(|p| p.from)
+                    .unwrap_or_else(|| "facing".to_string()),
             },
             "carpet" => Shape::Carpet,
             _ => Shape::None,
@@ -743,5 +759,43 @@ impl BlockType {
     pub fn variant(&self, state: BlockState) -> &ShapeVariant {
         let len = self.pre_shape_variants.len();
         &self.pre_shape_variants[state as usize & (len - 1)]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::BlocksConfig;
+
+    #[test]
+    fn ladder_shape_is_dynamic_and_non_solid() {
+        let materials = MaterialCatalog::from_toml_str(
+            "[materials]\nladder = [\"assets/blocks/ladder.png\"]\n",
+        )
+        .expect("materials");
+        let cfg: BlocksConfig = toml::from_str(
+            r#"[[blocks]]
+name = "ladder"
+solid = false
+blocks_skylight = false
+propagates_light = true
+shape = "ladder"
+state_schema = { facing = ["north","south","west","east"] }
+materials = { all = "ladder" }
+"#,
+        )
+        .expect("blocks");
+        let reg = BlockRegistry::from_configs(materials, cfg).expect("registry");
+        let ladder_id = reg.id_by_name("ladder").expect("ladder id");
+        let ladder = reg.get(ladder_id).expect("ladder type");
+        assert!(matches!(ladder.shape, Shape::Ladder { .. }));
+        assert!(!ladder.is_solid(0));
+        let variant = ladder.variant(0);
+        assert!(matches!(variant.dynamic, Some(DynamicShape::Ladder)));
+        assert_eq!(ladder.state_fields.len(), 1);
+        assert_eq!(ladder.state_prop_value(0, "facing"), Some("north"));
+        assert_eq!(ladder.state_prop_value(1, "facing"), Some("south"));
+        assert_eq!(ladder.state_prop_value(2, "facing"), Some("west"));
+        assert_eq!(ladder.state_prop_value(3, "facing"), Some("east"));
     }
 }

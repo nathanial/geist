@@ -120,6 +120,12 @@ fn runtime_from_palette_key_with_lut(
                 .entry("facing".to_string())
                 .or_insert_with(|| f.to_string());
         }
+    } else if to.name == "ladder" {
+        if let Some(f) = state_value(key, "facing") {
+            state
+                .entry("facing".to_string())
+                .or_insert_with(|| f.to_string());
+        }
     }
     reg.make_block_by_name(&to.name, Some(&state))
 }

@@ -1616,10 +1616,12 @@ shape = "cube"
 materials = { all = "jungle_trapdoor" }
 [[blocks]]
 name = "ladder"
-solid = true
-blocks_skylight = true
+solid = false
+blocks_skylight = false
+propagates_light = true
 emission = 0
-shape = "cube"
+shape = "ladder"
+state_schema = { facing = ["north","south","west","east"] }
 materials = { all = "ladder" }
 [[blocks]]
 name = "large_amethyst_bud"
