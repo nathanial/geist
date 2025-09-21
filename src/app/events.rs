@@ -12,13 +12,40 @@ use crate::raycast;
 use geist_blocks::{Block, BlockRegistry};
 use geist_chunk::ChunkOccupancy;
 use geist_geom::Vec3;
-use geist_lighting::pack_light_grid_atlas_with_neighbors;
+use geist_lighting::{LightBorders, NeighborBorders, pack_light_grid_atlas_with_neighbors};
 use geist_render_raylib::conv::{vec3_from_rl, vec3_to_rl};
 use geist_render_raylib::{update_chunk_light_texture, upload_chunk_mesh};
 use geist_runtime::{BuildJob, StructureBuildJob};
 use geist_structures::{Structure, StructureId, rotate_yaw, rotate_yaw_inv};
 use geist_world::ChunkCoord;
 use hashbrown::HashMap;
+
+fn structure_neighbor_borders(lb: &LightBorders) -> NeighborBorders {
+    NeighborBorders {
+        xn: Some(lb.xn.clone()),
+        xp: Some(lb.xp.clone()),
+        zn: Some(lb.zn.clone()),
+        zp: Some(lb.zp.clone()),
+        yn: Some(lb.yn.clone()),
+        yp: Some(lb.yp.clone()),
+        sk_xn: Some(lb.sk_xn.clone()),
+        sk_xp: Some(lb.sk_xp.clone()),
+        sk_zn: Some(lb.sk_zn.clone()),
+        sk_zp: Some(lb.sk_zp.clone()),
+        sk_yn: Some(lb.sk_yn.clone()),
+        sk_yp: Some(lb.sk_yp.clone()),
+        bcn_xn: Some(lb.bcn_xn.clone()),
+        bcn_xp: Some(lb.bcn_xp.clone()),
+        bcn_zn: Some(lb.bcn_zn.clone()),
+        bcn_zp: Some(lb.bcn_zp.clone()),
+        bcn_yn: Some(lb.bcn_yn.clone()),
+        bcn_yp: Some(lb.bcn_yp.clone()),
+        bcn_dir_xn: Some(lb.bcn_dir_xn.clone()),
+        bcn_dir_xp: Some(lb.bcn_dir_xp.clone()),
+        bcn_dir_zn: Some(lb.bcn_dir_zn.clone()),
+        bcn_dir_zp: Some(lb.bcn_dir_zp.clone()),
+    }
+}
 
 fn spherical_chunk_coords(center: ChunkCoord, radius: i32) -> Vec<ChunkCoord> {
     if radius < 0 {
@@ -691,6 +718,11 @@ impl App {
                             }
                         }
                     }
+                    let atlas = {
+                        let nb = structure_neighbor_borders(&light_borders);
+                        pack_light_grid_atlas_with_neighbors(&light_grid, &nb)
+                    };
+                    update_chunk_light_texture(rl, thread, &mut cr, &atlas);
                     self.structure_renders.insert(id, cr);
                 }
                 self.structure_lights.insert(id, light_grid);

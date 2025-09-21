@@ -594,7 +594,8 @@ impl Runtime {
                     let skylight_max = lighting.skylight_max();
                     let local_store = LightingStore::new(buf.sx, buf.sy, buf.sz);
                     local_store.set_skylight_max(skylight_max);
-                    let light_grid = LightGrid::compute_with_borders_buf(&buf, &local_store, &job.reg);
+                    let light_grid =
+                        LightGrid::compute_with_borders_buf(&buf, &local_store, &job.reg);
                     let light_borders = LightBorders::from_grid(&light_grid);
                     let cpu = build_structure_wcc_cpu_buf(&buf, &job.reg, None);
                     let _ = s_res_tx.send(StructureJobOut {

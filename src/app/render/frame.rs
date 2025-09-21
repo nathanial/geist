@@ -353,6 +353,17 @@ impl App {
                     let dz = center.z - self.cam.position.z;
                     let dist2 = dx * dx + dy * dy + dz * dz;
                     visible_structs.push((*id, dist2));
+                    let origin_world = [
+                        cr.origin[0] + st.pose.pos.x,
+                        cr.origin[1] + st.pose.pos.y,
+                        cr.origin[2] + st.pose.pos.z,
+                    ];
+                    let vis_min = 18.0f32 / 255.0f32;
+                    let (dims_some, grid_some) = if let Some(ref lt) = cr.light_tex {
+                        ((lt.sx, lt.sy, lt.sz), (lt.grid_cols, lt.grid_rows))
+                    } else {
+                        ((0, 0, 0), (0, 0))
+                    };
                     for part in &cr.parts {
                         // Get mesh stats from the model
                         unsafe {
@@ -367,6 +378,52 @@ impl App {
                             .get(part.mid)
                             .and_then(|m| m.render_tag.as_deref());
                         if tag != Some("water") {
+                            match tag {
+                                Some("leaves") => {
+                                    if let Some(ref mut ls) = self.leaves_shader {
+                                        if let Some(ref lt) = cr.light_tex {
+                                            ls.update_chunk_uniforms(
+                                                thread,
+                                                &lt.tex,
+                                                dims_some,
+                                                grid_some,
+                                                origin_world,
+                                                vis_min,
+                                            );
+                                        } else {
+                                            ls.update_chunk_uniforms_no_tex(
+                                                thread,
+                                                dims_some,
+                                                grid_some,
+                                                origin_world,
+                                                vis_min,
+                                            );
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    if let Some(ref mut fs) = self.fog_shader {
+                                        if let Some(ref lt) = cr.light_tex {
+                                            fs.update_chunk_uniforms(
+                                                thread,
+                                                &lt.tex,
+                                                dims_some,
+                                                grid_some,
+                                                origin_world,
+                                                vis_min,
+                                            );
+                                        } else {
+                                            fs.update_chunk_uniforms_no_tex(
+                                                thread,
+                                                dims_some,
+                                                grid_some,
+                                                origin_world,
+                                                vis_min,
+                                            );
+                                        }
+                                    }
+                                }
+                            }
                             self.debug_stats.draw_calls += 1;
                             let tint = if Some(*id) == sun_id {
                                 sun_tint
@@ -446,6 +503,17 @@ impl App {
                         {
                             continue;
                         }
+                        let origin_world = [
+                            cr.origin[0] + st.pose.pos.x,
+                            cr.origin[1] + st.pose.pos.y,
+                            cr.origin[2] + st.pose.pos.z,
+                        ];
+                        let vis_min = 18.0f32 / 255.0f32;
+                        let (dims_some, grid_some) = if let Some(ref lt) = cr.light_tex {
+                            ((lt.sx, lt.sy, lt.sz), (lt.grid_cols, lt.grid_rows))
+                        } else {
+                            ((0, 0, 0), (0, 0))
+                        };
                         for part in &cr.parts {
                             let tag = self
                                 .reg
@@ -453,6 +521,26 @@ impl App {
                                 .get(part.mid)
                                 .and_then(|m| m.render_tag.as_deref());
                             if tag == Some("water") {
+                                if let Some(ref mut ws) = self.water_shader {
+                                    if let Some(ref lt) = cr.light_tex {
+                                        ws.update_chunk_uniforms(
+                                            thread,
+                                            &lt.tex,
+                                            dims_some,
+                                            grid_some,
+                                            origin_world,
+                                            vis_min,
+                                        );
+                                    } else {
+                                        ws.update_chunk_uniforms_no_tex(
+                                            thread,
+                                            dims_some,
+                                            grid_some,
+                                            origin_world,
+                                            vis_min,
+                                        );
+                                    }
+                                }
                                 self.debug_stats.draw_calls += 1;
                                 unsafe {
                                     raylib::ffi::rlDisableBackfaceCulling();
