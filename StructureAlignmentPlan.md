@@ -4,8 +4,11 @@ Goal: bring dynamic structures (sun body, orbital schem platforms, moving builds
 
 ## Open Questions
 1. Should structures exchange light with the main world grid (i.e., update `LightingStore` and neighbor borders), or stay self-contained?
+   Answer: yes
 2. How frequently can we afford to recompute lighting for moving/orbiting structures—every pose change, on a timer, or only near the player?
+   Answer: Let's try recomputing on every pose change. If that is too onerous, we can throttle the update rate.
 3. Do we need to preserve a lightweight ambient-only rendering mode for tooling/debug, or can we fully migrate to the parity pipeline?
+   Answer: No need to preserve anything, let's consolidate to just the parity pipeline.
 
 ## Phase 1 – Foundation & Decisions
 - Audit the current structure pipeline to confirm ambient-only meshing, missing light atlases, and shader fallbacks.
