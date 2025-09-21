@@ -602,6 +602,7 @@ impl App {
                 });
                 srx
             },
+            last_frame_dt: 0.0,
         }
     }
 

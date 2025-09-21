@@ -85,6 +85,7 @@ pub struct App {
     pub assets_root: PathBuf,
     pub(crate) reg_event_rx: Receiver<()>,
     pub(crate) shader_event_rx: Receiver<()>,
+    pub last_frame_dt: f32,
 }
 
 #[derive(Clone, Debug)]

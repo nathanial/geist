@@ -11,6 +11,7 @@ use crate::event::{Event, RebuildCause};
 
 impl App {
     pub fn step(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread, dt: f32) {
+        self.last_frame_dt = dt.max(0.0);
         self.day_sample = self.day_cycle.advance(dt.max(0.0));
         self.gs
             .lighting

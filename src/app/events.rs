@@ -276,7 +276,7 @@ impl App {
                 }
             }
             Event::MovementRequested {
-                dt_ms,
+                dt_ms: _,
                 yaw,
                 walk_mode: _,
             } => {
@@ -286,7 +286,6 @@ impl App {
                     let sx = self.gs.world.chunk_size_x as i32;
                     let sz = self.gs.world.chunk_size_z as i32;
                     // Platform attachment: handle attachment and movement
-                    let feet_world = self.gs.walker.pos;
 
                     // First, check for new attachment
                     if self.gs.ground_attach.is_none() {
@@ -295,7 +294,7 @@ impl App {
                             if Some(*id) == sun_id {
                                 continue;
                             }
-                            if self.is_feet_on_structure(st, feet_world) {
+                            if self.is_feet_on_structure(st, self.gs.walker.pos) {
                                 // Capture local feet offset and attach
                                 let walker_world = vec3_from_rl(self.gs.walker.pos);
                                 let local = structure_world_to_local(
@@ -340,8 +339,6 @@ impl App {
                                 att_mut.pose_pos = st.pose.pos;
                                 att_mut.pose_yaw_deg = st.pose.yaw_deg;
                                 att_mut.structure_velocity = st.last_velocity;
-                                let target_world_pos = attachment_world_position(att_mut);
-                                self.gs.walker.pos = vec3_to_rl(target_world_pos);
                             }
                         } else {
                             detach_before_physics =
@@ -418,12 +415,13 @@ impl App {
                         }
                         self.gs.world.block_at_runtime(reg, wx, wy, wz)
                     };
+                    let dt_sec = self.last_frame_dt.max(0.0);
                     self.gs.walker.update_with_sampler(
                         rl,
                         &sampler,
                         &self.gs.world,
                         &self.reg,
-                        (dt_ms as f32) / 1000.0,
+                        dt_sec,
                         yaw,
                         platform_velocity,
                         platform_frame_yaw,
@@ -438,13 +436,13 @@ impl App {
                                 st.pose.pos,
                                 st.pose.yaw_deg,
                             );
-                            let on_structure = self.is_feet_on_structure(st, self.gs.walker.pos);
+                            let mut predicted_world_feet =
+                                vec3_to_rl(attachment_world_position(&att_snapshot));
                             if let Some(att) = self.gs.ground_attach.as_mut() {
                                 att.pose_pos = st.pose.pos;
                                 att.pose_yaw_deg = st.pose.yaw_deg;
                                 att.structure_velocity = st.last_velocity;
                                 att.local_offset = new_local;
-                                let dt_sec = (dt_ms as f32) / 1000.0;
                                 let local_velocity = if let Some(prev_local) = prev_local_offset {
                                     if dt_sec > 0.0001 {
                                         (new_local - prev_local) * (1.0 / dt_sec)
@@ -456,6 +454,11 @@ impl App {
                                 };
                                 att.local_velocity = Some(local_velocity);
 
+                                predicted_world_feet = vec3_to_rl(attachment_world_position(att));
+                            }
+
+                            let on_structure = self.is_feet_on_structure(st, predicted_world_feet);
+                            if let Some(att) = self.gs.ground_attach.as_mut() {
                                 if on_structure {
                                     att.grace = 8;
                                 } else if att.grace > 0 {
