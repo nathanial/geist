@@ -624,6 +624,76 @@ fn sealed_room_spanning_y_seam_blocks_skylight() {
 }
 
 #[test]
+fn sealing_skylight_zeroes_micro_plane() {
+    let reg = make_test_registry();
+    let sx = 2;
+    let sy = 2;
+    let sz = 2;
+    let world = geist_world::World::new(1, 2, 1, 13, WorldGenMode::Flat { thickness: 0 });
+    let air_id = reg.id_by_name("air").unwrap();
+    let stone_id = reg.id_by_name("stone").unwrap();
+
+    let store = LightingStore::new(sx, sy, sz);
+    let coord = ChunkCoord::new(0, 1, 0);
+
+    // First pass: leave a single hole in the floor so skylight leaks downward.
+    let mut open_blocks = Vec::with_capacity(sx * sy * sz);
+    for y in 0..sy {
+        for z in 0..sz {
+            for x in 0..sx {
+                let id = if y == 0 && !(x == 0 && z == 0) {
+                    stone_id
+                } else {
+                    air_id
+                };
+                open_blocks.push(Block { id, state: 0 });
+            }
+        }
+    }
+    let open_buf = ChunkBuf::from_blocks_local(coord, sx, sy, sz, open_blocks);
+    let lg_open = super::compute_light_with_borders_buf(&open_buf, &store, &reg, &world);
+    assert!(
+        lg_open.micro_change.yn,
+        "initial skylight plane should register as changed"
+    );
+
+    let lower_nb = store.get_neighbor_micro_borders(ChunkCoord::new(0, 0, 0));
+    let down_plane = lower_nb
+        .ym_sk_pos
+        .expect("lower chunk should see upper skylight plane");
+    assert!(
+        down_plane.iter().any(|&v| v > 0),
+        "skylight leak should be non-zero"
+    );
+
+    // Second pass: plug the hole and ensure the micro plane zeroes out and reports a change.
+    let mut sealed_blocks = Vec::with_capacity(sx * sy * sz);
+    for y in 0..sy {
+        for z in 0..sz {
+            for x in 0..sx {
+                let id = if y == 0 { stone_id } else { air_id };
+                sealed_blocks.push(Block { id, state: 0 });
+            }
+        }
+    }
+    let sealed_buf = ChunkBuf::from_blocks_local(coord, sx, sy, sz, sealed_blocks);
+    let lg_sealed = super::compute_light_with_borders_buf(&sealed_buf, &store, &reg, &world);
+    assert!(
+        lg_sealed.micro_change.yn,
+        "sealing the skylight should mark -Y micro plane as changed"
+    );
+
+    let lower_nb_after = store.get_neighbor_micro_borders(ChunkCoord::new(0, 0, 0));
+    let down_plane_after = lower_nb_after
+        .ym_sk_pos
+        .expect("lower chunk should still have an exported plane");
+    assert!(
+        down_plane_after.iter().all(|&v| v == 0),
+        "sealed skylight should export zero brightness"
+    );
+}
+
+#[test]
 fn micro_skylight_open_above_and_blocked() {
     let reg = make_test_registry();
     let sx = 1;

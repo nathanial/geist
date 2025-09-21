@@ -75,6 +75,18 @@ fn spherical_chunk_coords(center: ChunkCoord, radius: i32) -> Vec<ChunkCoord> {
 }
 
 impl App {
+    /// Returns a rebuild cause for chunks that should be refreshed immediately after an edit.
+    #[inline]
+    fn classify_edit_rebuild_cause(origin: ChunkCoord, coord: ChunkCoord) -> Option<RebuildCause> {
+        if coord == origin {
+            Some(RebuildCause::Edit)
+        } else if coord.cy == origin.cy {
+            Some(RebuildCause::Edit)
+        } else {
+            Some(RebuildCause::LightingBorder)
+        }
+    }
+
     fn mark_empty_chunk_ready(&mut self, coord: ChunkCoord) {
         let st = self
             .gs
@@ -1269,21 +1281,30 @@ impl App {
                     });
                 }
                 let _ = self.gs.edits.bump_region_around(wx, wy, wz);
+                let sx = self.gs.world.chunk_size_x as i32;
+                let sy = self.gs.world.chunk_size_y as i32;
+                let sz = self.gs.world.chunk_size_z as i32;
+                let origin =
+                    ChunkCoord::new(wx.div_euclid(sx), wy.div_euclid(sy), wz.div_euclid(sz));
                 // Rebuild edited chunk and any boundary-adjacent neighbors that are loaded
                 for coord in self.gs.edits.get_affected_chunks(wx, wy, wz) {
+                    let Some(cause) = Self::classify_edit_rebuild_cause(origin, coord) else {
+                        continue;
+                    };
                     if self.gs.chunks.mesh_ready(coord) {
                         self.queue.emit_now(Event::ChunkRebuildRequested {
                             cx: coord.cx,
                             cy: coord.cy,
                             cz: coord.cz,
-                            cause: RebuildCause::Edit,
+                            cause,
                         });
-                        // Start removal→render timer for this affected chunk
-                        self.perf_remove_start
-                            .entry(coord)
-                            .or_default()
-                            .push_back(Instant::now());
-                    } else {
+                        if cause == RebuildCause::Edit {
+                            self.perf_remove_start
+                                .entry(coord)
+                                .or_default()
+                                .push_back(Instant::now());
+                        }
+                    } else if cause == RebuildCause::Edit {
                         self.prepare_chunk_for_edit(coord);
                     }
                 }
@@ -1324,15 +1345,20 @@ impl App {
                 }
                 self.gs.edits.set(wx, wy, wz, Block::AIR);
                 let _ = self.gs.edits.bump_region_around(wx, wy, wz);
+                let origin =
+                    ChunkCoord::new(wx.div_euclid(sx), wy.div_euclid(sy), wz.div_euclid(sz));
                 for coord in self.gs.edits.get_affected_chunks(wx, wy, wz) {
+                    let Some(cause) = Self::classify_edit_rebuild_cause(origin, coord) else {
+                        continue;
+                    };
                     if self.gs.chunks.mesh_ready(coord) {
                         self.queue.emit_now(Event::ChunkRebuildRequested {
                             cx: coord.cx,
                             cy: coord.cy,
                             cz: coord.cz,
-                            cause: RebuildCause::Edit,
+                            cause,
                         });
-                    } else {
+                    } else if cause == RebuildCause::Edit {
                         self.prepare_chunk_for_edit(coord);
                     }
                 }
@@ -1832,6 +1858,31 @@ mod tests {
         assert!(
             !set.contains(&ChunkCoord::new(0, 0, 2)),
             "distance sqrt(4) > 1 should be excluded"
+        );
+    }
+
+    #[test]
+    fn classify_edit_rebuild_cause_marks_vertical_neighbors_for_lighting() {
+        let origin = ChunkCoord::new(4, 8, 2);
+        assert_eq!(
+            App::classify_edit_rebuild_cause(origin, origin),
+            Some(RebuildCause::Edit)
+        );
+        assert_eq!(
+            App::classify_edit_rebuild_cause(origin, origin.offset(1, 0, 0)),
+            Some(RebuildCause::Edit)
+        );
+        assert_eq!(
+            App::classify_edit_rebuild_cause(origin, origin.offset(0, 0, -1)),
+            Some(RebuildCause::Edit)
+        );
+        assert_eq!(
+            App::classify_edit_rebuild_cause(origin, origin.offset(0, 1, 0)),
+            Some(RebuildCause::LightingBorder)
+        );
+        assert_eq!(
+            App::classify_edit_rebuild_cause(origin, origin.offset(-1, 1, 0)),
+            Some(RebuildCause::LightingBorder)
         );
     }
 }

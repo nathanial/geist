@@ -1760,15 +1760,19 @@ impl LightingStore {
     pub fn update_micro_borders(&self, coord: ChunkCoord, mb: MicroBorders) -> BorderChangeMask {
         #[inline]
         fn plane_changed(prev: Option<&Arc<[u8]>>, new_plane: &Arc<[u8]>) -> bool {
+            let new_has_light = new_plane.iter().any(|&v| v != 0);
             match prev {
                 Some(old) => {
                     if Arc::ptr_eq(old, new_plane) {
-                        false
-                    } else {
-                        old.as_ref() != new_plane.as_ref()
+                        return false;
                     }
+                    let old_has_light = old.iter().any(|&v| v != 0);
+                    if old_has_light != new_has_light {
+                        return true;
+                    }
+                    old.as_ref() != new_plane.as_ref()
                 }
-                None => new_plane.iter().any(|&v| v != 0),
+                None => new_has_light,
             }
         }
         let mut map = self.chunks.lock().unwrap();
