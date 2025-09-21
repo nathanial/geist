@@ -498,6 +498,8 @@ impl App {
             tex_cache,
             renders: HashMap::new(),
             structure_renders: HashMap::new(),
+            structure_lights: HashMap::new(),
+            structure_light_borders: HashMap::new(),
             ui_font,
             minimap_rt: None,
             minimap_zoom: 1.0,

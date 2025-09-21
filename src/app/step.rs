@@ -711,6 +711,8 @@ impl App {
                 id: r.id,
                 rev: r.rev,
                 cpu: r.cpu,
+                light_grid: r.light_grid,
+                light_borders: r.light_borders,
             });
         }
 

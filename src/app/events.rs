@@ -646,7 +646,13 @@ impl App {
                     self.runtime.submit_structure_build_job(job);
                 }
             }
-            Event::StructureBuildCompleted { id, rev, cpu } => {
+            Event::StructureBuildCompleted {
+                id,
+                rev,
+                cpu,
+                light_grid,
+                light_borders,
+            } => {
                 if let Some(mut cr) =
                     upload_chunk_mesh(rl, thread, cpu, &mut self.tex_cache, &self.reg.materials)
                 {
@@ -687,6 +693,8 @@ impl App {
                     }
                     self.structure_renders.insert(id, cr);
                 }
+                self.structure_lights.insert(id, light_grid);
+                self.structure_light_borders.insert(id, light_borders);
                 if let Some(st) = self.gs.structures.get_mut(&id) {
                     st.built_rev = rev;
                 }

@@ -5,6 +5,7 @@ use std::sync::mpsc::Receiver;
 use std::time::Instant;
 
 use geist_blocks::{Block, BlockRegistry};
+use geist_lighting::{LightBorders, LightGrid};
 use geist_render_raylib::{ChunkRender, FogShader, LeavesShader, TextureCache, WaterShader};
 use geist_runtime::Runtime;
 use geist_structures::StructureId;
@@ -37,6 +38,8 @@ pub struct App {
     pub tex_cache: TextureCache,
     pub renders: HashMap<ChunkCoord, ChunkRender>,
     pub structure_renders: HashMap<StructureId, ChunkRender>,
+    pub structure_lights: HashMap<StructureId, LightGrid>,
+    pub structure_light_borders: HashMap<StructureId, LightBorders>,
     pub ui_font: Option<Arc<Font>>,
     pub minimap_rt: Option<RenderTexture2D>,
     pub minimap_zoom: f32,

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use geist_blocks::types::Block;
 use geist_chunk::{ChunkBuf, ChunkOccupancy};
-use geist_lighting::LightBorders;
+use geist_lighting::{LightBorders, LightGrid};
 use geist_mesh_cpu::{ChunkMeshCPU, NeighborsLoaded};
 use geist_structures::StructureId;
 use geist_world::voxel::generation::ChunkColumnProfile;
@@ -122,6 +122,8 @@ pub enum Event {
         id: StructureId,
         rev: u64,
         cpu: ChunkMeshCPU,
+        light_grid: LightGrid,
+        light_borders: LightBorders,
     },
     // Structure transform updates (pose/motion)
     StructurePoseUpdated {
