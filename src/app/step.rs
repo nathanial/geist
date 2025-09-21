@@ -509,12 +509,12 @@ impl App {
                 .emit_now(Event::RaycastEditRequested { place, block });
         }
 
-        // Update structure poses: translate along +X and vertical Y with adjustable speeds
+        // Update structure poses: translate non-orbit platforms using manual controls
         let step_dx = self.gs.structure_speed * dt.max(0.0);
         let step_dy = self.gs.structure_elev_speed * dt.max(0.0);
         let sun_id = self.sun.as_ref().map(|s| s.id);
         for (id, st) in self.gs.structures.iter() {
-            if Some(*id) == sun_id {
+            if Some(*id) == sun_id || self.schem_orbits.iter().any(|orbit| orbit.id == *id) {
                 continue;
             }
             let prev = st.pose.pos;
@@ -532,6 +532,37 @@ impl App {
                 yaw_deg: yaw,
                 delta,
             });
+        }
+
+        // Animate orbital schematics around the tower center
+        if !self.schem_orbits.is_empty() {
+            let tower_cx = (self.gs.world.world_size_x() as f32) * 0.5;
+            let tower_cz = (self.gs.world.world_size_z() as f32) * 0.5;
+            let dt_clamped = dt.max(0.0);
+            for orbit in &mut self.schem_orbits {
+                if let Some(st) = self.gs.structures.get(&orbit.id) {
+                    orbit.angle = (orbit.angle + orbit.angular_speed * dt_clamped)
+                        .rem_euclid(std::f32::consts::TAU);
+                    let target_center_x = tower_cx + orbit.radius * orbit.angle.cos();
+                    let target_center_z = tower_cz + orbit.radius * orbit.angle.sin();
+                    let new_pos = Vec3::new(
+                        target_center_x - st.sx as f32 * 0.5,
+                        orbit.height,
+                        target_center_z - st.sz as f32 * 0.5,
+                    );
+                    let prev = st.pose.pos;
+                    let delta_vec =
+                        Vec3::new(new_pos.x - prev.x, new_pos.y - prev.y, new_pos.z - prev.z);
+                    if delta_vec.length() > 1e-4 {
+                        self.queue.emit_now(Event::StructurePoseUpdated {
+                            id: orbit.id,
+                            pos: vec3_to_rl(new_pos),
+                            yaw_deg: 0.0,
+                            delta: Vector3::new(delta_vec.x, delta_vec.y, delta_vec.z),
+                        });
+                    }
+                }
+            }
         }
 
         // Movement intent for this tick (dt→ms)

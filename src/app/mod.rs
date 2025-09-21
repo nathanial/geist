@@ -13,5 +13,5 @@ pub(crate) use geist_ui::{
     HitRegion, IRect, OverlayWindow, OverlayWindowManager, TabDefinition, TabStrip, UiTextMeasure,
     UiTextRenderer, WindowButton, WindowChrome, WindowFrame, WindowId, WindowTheme,
 };
-pub use state::{App, DebugOverlayTab, DebugStats, DiagnosticsTab};
+pub use state::{App, DebugOverlayTab, DebugStats, DiagnosticsTab, SchematicOrbit};
 pub use sun::{SUN_STRUCTURE_ID, SunBody};

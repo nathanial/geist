@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use raylib::consts::TextureFilter;
 use raylib::core::texture::RaylibTexture2D;
@@ -8,16 +9,19 @@ use serde::Deserialize;
 
 use super::{
     App, DayCycle, DebugOverlayTab, DebugStats, DiagnosticsTab, OverlayWindow,
-    OverlayWindowManager, SUN_STRUCTURE_ID, SunBody, WindowId, WindowTheme,
+    OverlayWindowManager, SUN_STRUCTURE_ID, SchematicOrbit, SunBody, WindowId, WindowTheme,
     render::MINIMAP_MIN_CONTENT_SIDE,
 };
 use crate::event::{Event, EventQueue};
 use crate::gamestate::GameState;
 use geist_blocks::{Block, BlockRegistry};
 use geist_edit::EditStore;
+use geist_geom::Vec3;
 use geist_lighting::LightingStore;
 use geist_render_raylib::{FogShader, LeavesShader, TextureCache, conv::vec3_from_rl};
 use geist_runtime::Runtime;
+use geist_structures::{Pose, Structure, StructureEditStore, StructureId};
+use geist_world::voxel::generation::TOWER_OUTER_RADIUS;
 use geist_world::voxel::{World, WorldGenMode};
 
 #[derive(Deserialize)]
@@ -36,6 +40,8 @@ const MONO_FONT_CANDIDATES: &[&str] = &[
     "/System/Library/Fonts/Monaco.ttf",
     "/System/Library/Fonts/Courier New.ttf",
 ];
+
+const SCHEM_STRUCTURE_ID_BASE: StructureId = 1000;
 
 impl App {
     #[allow(clippy::too_many_arguments, clippy::type_complexity)]
@@ -149,6 +155,7 @@ impl App {
         let mut gs = GameState::new(world.clone(), edits, lighting.clone(), cam.position);
         let mut queue = EventQueue::new();
         let hotbar = Self::load_hotbar(&reg, &assets_root);
+        let mut schem_orbits = Vec::new();
 
         // Discover and load all .schem files in 'schematics/'.
         // Flat worlds: keep existing ground placement.
@@ -263,116 +270,139 @@ impl App {
                                     }
                                 }
                             } else {
-                                // Non-flat: place schematics directly on terrain surface near world center.
-                                // 1) Pack placements into a near-square footprint (same as before, but no platform).
-                                let margin: i32 = 4;
-                                let total_area: i64 = list
-                                    .iter()
-                                    .map(|e| (e.size.0 as i64) * (e.size.2 as i64))
-                                    .sum();
-                                let target_w: i32 =
-                                    (((total_area as f64).sqrt()).ceil() as i32).max(32);
-                                let row_width_limit: i32 = target_w;
-                                let mut placements: Vec<(
-                                    std::path::PathBuf,
-                                    (i32, i32),
-                                    (i32, i32, i32),
-                                )> = Vec::new();
-                                let mut cur_x: i32 = 0;
-                                let mut cur_z: i32 = 0;
-                                let mut row_depth: i32 = 0;
-                                for ent in &list {
-                                    let (sx, _sy, sz) = ent.size;
-                                    if cur_x > 0 && cur_x + sx > row_width_limit {
-                                        cur_x = 0;
-                                        cur_z += row_depth;
-                                        row_depth = 0;
-                                    }
-                                    placements.push((ent.path.clone(), (cur_x, cur_z), ent.size));
-                                    cur_x += sx + margin;
-                                    row_depth = row_depth.max(sz + margin);
-                                }
-                                // 2) Center the layout horizontally in world space.
-                                let (mut min_x, mut max_x, mut min_z, mut max_z) =
-                                    (i32::MAX, i32::MIN, i32::MAX, i32::MIN);
-                                for (_p, (lx, lz), (sx, _sy, sz)) in &placements {
-                                    min_x = min_x.min(*lx);
-                                    min_z = min_z.min(*lz);
-                                    max_x = max_x.max(*lx + sx);
-                                    max_z = max_z.max(*lz + sz);
-                                }
-                                if min_x == i32::MAX {
-                                    min_x = 0;
-                                    max_x = 0;
-                                    min_z = 0;
-                                    max_z = 0;
-                                }
-                                let layout_cx = (min_x + max_x) / 2;
-                                let layout_cz = (min_z + max_z) / 2;
-                                let world_cx = (world.world_size_x() as i32) / 2;
-                                let world_cz = (world.world_size_z() as i32) / 2;
-                                let shift_x = world_cx - layout_cx;
-                                let shift_z = world_cz - layout_cz;
-
-                                // Helper: find terrain surface y given a world (x,z).
-                                let find_surface_y = |wx: i32, wz: i32| -> i32 {
-                                    let mut y = world.world_height_hint() as i32 - 2;
-                                    while y >= 1 {
-                                        let b = world.block_at_runtime(&reg, wx, y, wz);
-                                        if reg
-                                            .get(b.id)
-                                            .map(|t| t.is_solid(b.state))
-                                            .unwrap_or(false)
-                                        {
-                                            return (y + 1)
-                                                .clamp(1, world.world_height_hint() as i32 - 1);
-                                        }
-                                        y -= 1;
-                                    }
-                                    1
+                                // Non-flat worlds: spawn schematics on orbital platforms that circle the central tower.
+                                let height_hint = world.world_height_hint() as f32;
+                                let orbit_height = if height_hint > 96.0 {
+                                    (height_hint * 0.65).max(64.0).min(height_hint - 32.0)
+                                } else {
+                                    (height_hint * 0.5).max(32.0)
                                 };
+                                let max_span = list
+                                    .iter()
+                                    .map(|ent| ent.size.0.max(ent.size.2) as f32)
+                                    .fold(0.0_f32, f32::max);
+                                let base_radius =
+                                    (TOWER_OUTER_RADIUS as f32 + 48.0).max(max_span * 0.75 + 32.0);
+                                let total = list.len() as f32;
+                                let mut next_structure_id: StructureId = SCHEM_STRUCTURE_ID_BASE;
+                                let center_x = (world.world_size_x() as f32) * 0.5;
+                                let center_z = (world.world_size_z() as f32) * 0.5;
+                                let platform_block = reg
+                                    .id_by_name("stone_bricks")
+                                    .or_else(|| reg.id_by_name("stone"))
+                                    .map(|id| Block { id, state: 0 })
+                                    .unwrap_or(Block::AIR);
+                                let glow_block =
+                                    reg.id_by_name("glowstone").map(|id| Block { id, state: 0 });
+                                let angular_speed = 0.035_f32;
 
-                                // 3) For each schematic, compute base world (x,z), choose a terrain height, and stamp.
-                                for (p, (lx, lz), (sx, _sy, sz)) in placements {
-                                    let wx0 = lx + shift_x;
-                                    let wz0 = lz + shift_z;
-                                    // Use max surface Y among the four corners to avoid burying edges.
-                                    let corners = [
-                                        (wx0, wz0),
-                                        (wx0 + sx - 1, wz0),
-                                        (wx0, wz0 + sz - 1),
-                                        (wx0 + sx - 1, wz0 + sz - 1),
-                                    ];
-                                    let mut wy = i32::MIN;
-                                    for (cx, cz) in corners {
-                                        wy = wy.max(find_surface_y(cx, cz));
+                                for (idx, ent) in list.iter().enumerate() {
+                                    let schem_path = ent.path.clone();
+                                    let schem_width = ent.size.0.max(1) as usize;
+                                    let schem_height = ent.size.1.max(1) as usize;
+                                    let schem_depth = ent.size.2.max(1) as usize;
+                                    let padding: usize = 6;
+                                    let foundation_layers: usize = 2;
+                                    let top_clearance: usize = 6;
+                                    let struct_sx = (schem_width + padding * 2).max(8);
+                                    let struct_sz = (schem_depth + padding * 2).max(8);
+                                    let struct_sy =
+                                        (schem_height + foundation_layers + top_clearance).max(8);
+
+                                    let mut blocks =
+                                        vec![Block::AIR; struct_sx * struct_sy * struct_sz];
+                                    for y in 0..foundation_layers {
+                                        for z in 0..struct_sz {
+                                            for x in 0..struct_sx {
+                                                let idx = (y * struct_sz + z) * struct_sx + x;
+                                                blocks[idx] = platform_block;
+                                            }
+                                        }
                                     }
-                                    // Clamp so the schematic fits vertically within world bounds.
-                                    let world_y_top = world.world_height_hint() as i32 - 2;
-                                    let wy = wy.min(world_y_top);
+                                    if let Some(glow) = glow_block {
+                                        if struct_sx >= 4 && struct_sz >= 4 {
+                                            let deck_y = foundation_layers.saturating_sub(1);
+                                            let corners = [
+                                                (1usize, 1usize),
+                                                (struct_sx - 2, 1usize),
+                                                (1usize, struct_sz - 2),
+                                                (struct_sx - 2, struct_sz - 2),
+                                            ];
+                                            for &(cx, cz) in &corners {
+                                                let idx =
+                                                    (deck_y * struct_sz + cz) * struct_sx + cx;
+                                                blocks[idx] = glow;
+                                            }
+                                        }
+                                    }
 
-                                    match geist_io::load_any_schematic_apply_edits(
-                                        &p,
-                                        (wx0, wy, wz0),
-                                        &mut gs.edits,
+                                    let radius = base_radius;
+                                    let angle = if total > 0.0 {
+                                        (idx as f32) * (std::f32::consts::TAU / total)
+                                    } else {
+                                        0.0
+                                    };
+                                    let target_center_x = center_x + radius * angle.cos();
+                                    let target_center_z = center_z + radius * angle.sin();
+                                    let pose = Pose {
+                                        pos: Vec3::new(
+                                            target_center_x - struct_sx as f32 * 0.5,
+                                            orbit_height,
+                                            target_center_z - struct_sz as f32 * 0.5,
+                                        ),
+                                        yaw_deg: 0.0,
+                                    };
+
+                                    let id = next_structure_id;
+                                    next_structure_id = next_structure_id.wrapping_add(1);
+                                    let mut structure = Structure {
+                                        id,
+                                        sx: struct_sx,
+                                        sy: struct_sy,
+                                        sz: struct_sz,
+                                        blocks: Arc::from(blocks.into_boxed_slice()),
+                                        edits: StructureEditStore::new(),
+                                        pose,
+                                        last_delta: Vec3::ZERO,
+                                        dirty_rev: 1,
+                                        built_rev: 0,
+                                    };
+
+                                    match geist_io::load_any_schematic_apply_into_structure(
+                                        schem_path.as_path(),
+                                        (padding as i32, foundation_layers as i32, padding as i32),
+                                        &mut structure,
                                         &reg,
                                     ) {
                                         Ok((sx, sy, sz)) => {
                                             log::info!(
-                                                "Loaded schem {:?} at terrain ({},{},{}) ({}x{}x{})",
-                                                p,
-                                                wx0,
-                                                wy,
-                                                wz0,
+                                                "Loaded schem {:?} into orbital structure {} ({}x{}x{})",
+                                                schem_path,
+                                                id,
                                                 sx,
                                                 sy,
                                                 sz
                                             );
                                         }
                                         Err(e) => {
-                                            log::warn!("Failed loading schem {:?}: {}", p, e);
+                                            log::warn!(
+                                                "Failed loading schem {:?}: {}",
+                                                schem_path,
+                                                e
+                                            );
                                         }
                                     }
+
+                                    let rev = structure.dirty_rev;
+                                    gs.structures.insert(id, structure);
+                                    queue.emit_now(Event::StructureBuildRequested { id, rev });
+                                    schem_orbits.push(SchematicOrbit {
+                                        id,
+                                        radius,
+                                        height: orbit_height,
+                                        angle,
+                                        angular_speed,
+                                    });
                                 }
                             }
                         }
@@ -460,6 +490,7 @@ impl App {
             day_cycle,
             day_sample,
             sun,
+            schem_orbits,
             hotbar,
             leaves_shader,
             fog_shader,

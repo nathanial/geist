@@ -29,6 +29,7 @@ pub struct App {
     pub day_cycle: DayCycle,
     pub day_sample: DayLightSample,
     pub sun: Option<SunBody>,
+    pub schem_orbits: Vec<SchematicOrbit>,
     pub(crate) hotbar: Vec<Block>,
     pub leaves_shader: Option<LeavesShader>,
     pub fog_shader: Option<FogShader>,
@@ -81,6 +82,15 @@ pub struct App {
     pub assets_root: PathBuf,
     pub(crate) reg_event_rx: Receiver<()>,
     pub(crate) shader_event_rx: Receiver<()>,
+}
+
+#[derive(Clone, Debug)]
+pub struct SchematicOrbit {
+    pub id: StructureId,
+    pub radius: f32,
+    pub height: f32,
+    pub angle: f32,
+    pub angular_speed: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
