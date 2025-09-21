@@ -3,7 +3,6 @@
 // Microgrid (2x2x2 half-step grid)
 pub(crate) const MICROGRID_STEPS: usize = 2; // half-steps per axis in microgrid
 pub(crate) const MICROGRID_LAST_IDX: usize = MICROGRID_STEPS - 1;
-pub(crate) const MICRO_HALF_STEP_SIZE: f32 = 0.5; // world units per half-step
 
 // Lookup table sizes for microgrid occupancy/emptiness encodings
 pub(crate) const BOXES_TABLE_SIZE: usize = 256; // 2^8 occupancy patterns

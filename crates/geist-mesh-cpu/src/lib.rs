@@ -15,7 +15,6 @@ mod util;
 
 pub use build::{
     build_chunk_wcc_cpu_buf, build_chunk_wcc_cpu_buf_with_light, build_structure_wcc_cpu_buf,
-    build_voxel_body_cpu_buf,
 };
 pub use chunk::ChunkMeshCPU;
 pub use face::{Face, SIDE_NEIGHBORS};
