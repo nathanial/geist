@@ -104,3 +104,27 @@ We refactor the lighting pipeline around **versioned state**, **explicit depende
 ## Conclusion
 
 Fixing the skylight regression long-term means treating lighting as a versioned, dependency-driven pipeline rather than a best-effort queue. Once the runtime enforces “no chunk consumes stale seam data” and lighting jobs are idempotent, the race that keeps caves lit disappears. The refactor is sizable, but it gives us deterministic, testable lighting behavior that future content updates can rely on.
+
+## Appendix – Alternative Architectures
+
+### Option A: Frame-Scoped Global Lighting Bakes
+- Recompute the entire world (or loaded region) lighting every simulation tick using a deterministic task graph that captures blocks, structures, and skylight as explicit graph inputs.
+- Use a persistent cache (e.g., shared `LightField` textures) only for the previous frame; discard partial incremental updates to guarantee frame-wide coherence.
+- Pros: eliminates seam races completely; every tick is a clean slate determined by the current geometry. Cons: requires heavy compute budget, demands aggressive culling/LOD to stay real-time, and may force world streaming changes so only a bounded volume participates.
+
+### Option B: Transactional Voxel Delta Pipeline
+- Treat edits as transactions against a centralized lighting service: accumulate block deltas, run them through a serializable queue that locks affected regions, applies updates, and commits atomically.
+- Employ multi-version concurrency control so reads always see a consistent snapshot while writes serialize on chunk groups; seam data is a derived index that cannot go stale because the commit step updates all faces together.
+- Workflow:
+  1. The gameplay thread records mutations into a per-chunk `EditTxn` with intent metadata (player dig, structure placement, worldgen sync).
+  2. A transaction coordinator groups neighboring chunks, assigns them a monotonic `txn_id`, and snapshots their current lighting/geometry revisions.
+  3. Lighting workers operate on immutable snapshots, producing new light fields and seam planes tagged with `txn_id`.
+  4. Commit phase acquires chunk locks, verifies no newer txn touched the same chunks, swaps in the new lighting, bumps shared revision counters, and publishes seam updates atomically.
+- Read path: renderers, AI, and physics always query the latest committed snapshot by `chunk.current_rev`. Because commits are atomic, consumers either see the pre-edit or post-edit state, never a mix.
+- Recovery & rollback: failed jobs drop back to queued transactions; partial commits cannot occur. A watchdog can abort long-running txns, revert edits, and retry, guaranteeing forward progress.
+- Pros: provably consistent, undo/redo-friendly, enables tooling (record/replay edits) and deterministic re-sim for debugging. Cons: higher latency for large edits, potential contention hotspots in dense build sessions, more complex coordinator/lock manager, demanding memory footprint for snapshotting.
+
+### Option C: Hierarchical Light Propagation Volumes
+- Replace seam planes with a unified cascaded volume (e.g., octree or clipmap) where each level aggregates radiance and lower levels derive from coarser parents.
+- Updates push from leaf voxels upward; consistency is preserved because parent nodes drive child budgets, and sealing a space invalidates an entire sub-tree before recomputation.
+- Pros: structural guarantees that sealed regions inherit darkness, elegant LOD handling, shared infrastructure for GI or colored lighting. Cons: requires significant engine refactor (chunk system must integrate with clipmap), GPU/CPU interop complexities, and higher memory footprint to store the hierarchy.
