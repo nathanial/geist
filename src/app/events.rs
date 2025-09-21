@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use raylib::prelude::*;
 
-use super::App;
+use super::{attachment_world_position, structure_world_to_local, App};
 use super::state::IntentCause;
 use crate::event::{Event, EventEnvelope, RebuildCause};
 use crate::gamestate::FinalizeState;
@@ -223,12 +223,7 @@ impl App {
         for off in &offsets {
             let p = feet_world + *off;
             let pv = vec3_from_rl(p);
-            let diff = Vec3 {
-                x: pv.x - st.pose.pos.x,
-                y: pv.y - st.pose.pos.y,
-                z: pv.z - st.pose.pos.z,
-            };
-            let local = rotate_yaw_inv(diff, st.pose.yaw_deg);
+            let local = structure_world_to_local(pv, st.pose.pos, st.pose.yaw_deg);
             let lx = local.x.floor() as i32;
             let ly = (local.y - 0.08).floor() as i32;
             let lz = local.z.floor() as i32;
@@ -263,14 +258,11 @@ impl App {
                     st.pose.pos = vec3_from_rl(pos);
                     st.pose.yaw_deg = yaw_deg;
                     // Keep player perfectly in sync if attached to this structure
-                    if let Some(att) = self.gs.ground_attach {
+                    if let Some(att) = self.gs.ground_attach.as_mut() {
                         if att.id == id {
-                            let wl = rotate_yaw(vec3_from_rl(att.local_offset), st.pose.yaw_deg);
-                            let world_from_local = Vec3 {
-                                x: wl.x + st.pose.pos.x,
-                                y: wl.y + st.pose.pos.y,
-                                z: wl.z + st.pose.pos.z,
-                            };
+                            att.pose_pos = st.pose.pos;
+                            att.pose_yaw_deg = st.pose.yaw_deg;
+                            let world_from_local = attachment_world_position(att);
                             self.gs.walker.pos = vec3_to_rl(world_from_local);
                         }
                     }
@@ -298,17 +290,19 @@ impl App {
                             }
                             if self.is_feet_on_structure(st, feet_world) {
                                 // Capture local feet offset and attach
-                                let p = vec3_from_rl(self.gs.walker.pos);
-                                let diff = Vec3 {
-                                    x: p.x - st.pose.pos.x,
-                                    y: p.y - st.pose.pos.y,
-                                    z: p.z - st.pose.pos.z,
-                                };
-                                let local = rotate_yaw_inv(diff, st.pose.yaw_deg);
+                                let walker_world = vec3_from_rl(self.gs.walker.pos);
+                                let local = structure_world_to_local(
+                                    walker_world,
+                                    st.pose.pos,
+                                    st.pose.yaw_deg,
+                                );
                                 self.gs.ground_attach = Some(crate::gamestate::GroundAttach {
                                     id: *id,
                                     grace: 8,
-                                    local_offset: vec3_to_rl(local),
+                                    local_offset: local,
+                                    pose_pos: st.pose.pos,
+                                    pose_yaw_deg: st.pose.yaw_deg,
+                                    local_velocity: None,
                                 });
                                 // Emit lifecycle event for observability
                                 self.queue.emit_now(Event::PlayerAttachedToStructure {
@@ -321,21 +315,20 @@ impl App {
                     }
 
                     // If attached, move with the platform BEFORE physics
-                    if let Some(att) = self.gs.ground_attach {
+                    let mut lost_structure = false;
+                    if let Some(att) = self.gs.ground_attach.as_mut() {
                         if let Some(st) = self.gs.structures.get(&att.id) {
-                            // Calculate where we should be based on our local offset and the platform's current position
-                            let wl = rotate_yaw(vec3_from_rl(att.local_offset), st.pose.yaw_deg);
-                            let target_world_pos = Vec3 {
-                                x: wl.x + st.pose.pos.x,
-                                y: wl.y + st.pose.pos.y,
-                                z: wl.z + st.pose.pos.z,
-                            };
-
+                            att.pose_pos = st.pose.pos;
+                            att.pose_yaw_deg = st.pose.yaw_deg;
+                            let target_world_pos = attachment_world_position(att);
                             // Move the player to maintain their position on the platform
                             self.gs.walker.pos = vec3_to_rl(target_world_pos);
                         } else {
-                            self.gs.ground_attach = None;
+                            lost_structure = true;
                         }
+                    }
+                    if lost_structure {
+                        self.gs.ground_attach = None;
                     }
                     let reg = &self.reg;
                     let sampler = |wx: i32, wy: i32, wz: i32| -> Block {
@@ -405,41 +398,36 @@ impl App {
                         None, // No platform velocity needed - we handle movement via teleportation
                     );
                     // Update attachment after physics - critical for allowing movement on platform
-                    if let Some(att) = self.gs.ground_attach {
-                        if let Some(st) = self.gs.structures.get(&att.id) {
-                            // Calculate new local position after physics (player may have moved)
-                            let p = vec3_from_rl(self.gs.walker.pos);
-                            let diff = Vec3 {
-                                x: p.x - st.pose.pos.x,
-                                y: p.y - st.pose.pos.y,
-                                z: p.z - st.pose.pos.z,
-                            };
-                            let new_local = rotate_yaw_inv(diff, st.pose.yaw_deg);
+                    let mut detach_request: Option<StructureId> = None;
+                    if let Some(att_snapshot) = self.gs.ground_attach {
+                        if let Some(st) = self.gs.structures.get(&att_snapshot.id) {
+                            let walker_world = vec3_from_rl(self.gs.walker.pos);
+                            let new_local = structure_world_to_local(
+                                walker_world,
+                                st.pose.pos,
+                                st.pose.yaw_deg,
+                            );
+                            let on_structure = self.is_feet_on_structure(st, self.gs.walker.pos);
+                            if let Some(att) = self.gs.ground_attach.as_mut() {
+                                att.pose_pos = st.pose.pos;
+                                att.pose_yaw_deg = st.pose.yaw_deg;
+                                att.local_offset = new_local;
 
-                            // Check if we're still on the structure after physics
-                            if self.is_feet_on_structure(st, self.gs.walker.pos) {
-                                // Update attachment with new local offset (this allows movement on the platform)
-                                self.gs.ground_attach = Some(crate::gamestate::GroundAttach {
-                                    id: att.id,
-                                    grace: 8,
-                                    local_offset: vec3_to_rl(new_local),
-                                });
-                            } else if att.grace > 0 {
-                                // We've left the structure surface but have grace period (jumping/stepping off edge)
-                                self.gs.ground_attach = Some(crate::gamestate::GroundAttach {
-                                    id: att.id,
-                                    grace: att.grace - 1,
-                                    local_offset: vec3_to_rl(new_local),
-                                });
-                            } else {
-                                // Grace period expired, detach
-                                self.gs.ground_attach = None;
-                                self.queue
-                                    .emit_now(Event::PlayerDetachedFromStructure { id: att.id });
+                                if on_structure {
+                                    att.grace = 8;
+                                } else if att.grace > 0 {
+                                    att.grace = att.grace.saturating_sub(1);
+                                } else {
+                                    detach_request = Some(att.id);
+                                }
                             }
                         } else {
-                            self.gs.ground_attach = None;
+                            detach_request = Some(att_snapshot.id);
                         }
+                    }
+                    if let Some(id) = detach_request {
+                        self.gs.ground_attach = None;
+                        self.queue.emit_now(Event::PlayerDetachedFromStructure { id });
                     }
                     self.cam.position = self.gs.walker.eye_position();
                     // Emit ViewCenterChanged if center moved
@@ -471,16 +459,20 @@ impl App {
             }
             Event::PlayerAttachedToStructure { id, local_offset } => {
                 // Idempotent: set/refresh attachment state
-                if self.gs.structures.contains_key(&id) {
+                if let Some(st) = self.gs.structures.get(&id) {
+                    let local = vec3_from_rl(local_offset);
                     self.gs.ground_attach = Some(crate::gamestate::GroundAttach {
                         id,
                         grace: 8,
-                        local_offset,
+                        local_offset: local,
+                        pose_pos: st.pose.pos,
+                        pose_yaw_deg: st.pose.yaw_deg,
+                        local_velocity: None,
                     });
                 }
             }
             Event::PlayerDetachedFromStructure { id } => {
-                if let Some(att) = self.gs.ground_attach {
+                if let Some(att) = self.gs.ground_attach.as_ref() {
                     if att.id == id {
                         self.gs.ground_attach = None;
                     }

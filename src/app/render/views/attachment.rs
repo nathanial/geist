@@ -3,9 +3,8 @@ use raylib::prelude::Color;
 use super::super::{
     App, ContentLayout, DisplayLine, GeistDraw, WindowFrame, WindowTheme, draw_lines,
 };
-use geist_geom::Vec3;
 use geist_render_raylib::conv::vec3_from_rl;
-use geist_structures::rotate_yaw_inv;
+use crate::app::{attachment_world_position, structure_world_to_local};
 
 pub(crate) struct AttachmentDebugView {
     lines: Vec<DisplayLine>,
@@ -32,6 +31,49 @@ impl AttachmentDebugView {
                     Color::new(156, 212, 178, 255),
                 )
                 .with_indent(18),
+            );
+            lines.push(
+                DisplayLine::new(
+                    format!(
+                        "Local offset: ({:.2}, {:.2}, {:.2})",
+                        att.local_offset.x, att.local_offset.y, att.local_offset.z
+                    ),
+                    15,
+                    Color::new(156, 212, 178, 255),
+                )
+                .with_indent(18),
+            );
+            lines.push(
+                DisplayLine::new(
+                    format!(
+                        "Pose snapshot: pos=({:.2},{:.2},{:.2}) yaw={:.1}°",
+                        att.pose_pos.x, att.pose_pos.y, att.pose_pos.z, att.pose_yaw_deg
+                    ),
+                    15,
+                    Color::new(156, 212, 178, 255),
+                )
+                .with_indent(18),
+            );
+            let inferred_world = attachment_world_position(&att);
+            lines.push(
+                DisplayLine::new(
+                    format!(
+                        "Frame→world: ({:.2}, {:.2}, {:.2})",
+                        inferred_world.x, inferred_world.y, inferred_world.z
+                    ),
+                    15,
+                    Color::new(156, 212, 178, 255),
+                )
+                .with_indent(18),
+            );
+            let vel_line = if let Some(v) = att.local_velocity {
+                format!("Local velocity: ({:.2}, {:.2}, {:.2})", v.x, v.y, v.z)
+            } else {
+                "Local velocity: (pending)".to_string()
+            };
+            lines.push(
+                DisplayLine::new(vel_line, 15, Color::new(156, 212, 178, 255))
+                    .with_indent(18),
             );
         } else {
             lines.push(DisplayLine::new("Not attached", 16, Color::ORANGE).with_line_height(20));
@@ -84,12 +126,7 @@ impl AttachmentDebugView {
             );
 
             let walker = vec3_from_rl(app.gs.walker.pos);
-            let diff = Vec3 {
-                x: walker.x - st.pose.pos.x,
-                y: walker.y - st.pose.pos.y,
-                z: walker.z - st.pose.pos.z,
-            };
-            let local = rotate_yaw_inv(diff, st.pose.yaw_deg);
+            let local = structure_world_to_local(walker, st.pose.pos, st.pose.yaw_deg);
             let test_y = local.y - 0.08;
             let lx = local.x.floor() as i32;
             let ly = test_y.floor() as i32;

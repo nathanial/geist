@@ -5,6 +5,7 @@ use crate::player::Walker;
 use geist_blocks::types::Block;
 use geist_chunk::{ChunkBuf, ChunkOccupancy};
 use geist_edit::EditStore;
+use geist_geom::Vec3;
 use geist_lighting::LightingStore;
 use geist_structures::{Structure, StructureId};
 use geist_world::voxel::{ChunkCoord, World, generation::ChunkColumnProfile};
@@ -258,7 +259,13 @@ pub struct GameState {
 pub struct GroundAttach {
     pub id: StructureId,
     pub grace: u8,
-    pub local_offset: raylib::prelude::Vector3,
+    /// Structure-local feet position recorded at the moment of attachment.
+    pub local_offset: Vec3,
+    /// Pose snapshot used to translate between structure-local and world space.
+    pub pose_pos: Vec3,
+    pub pose_yaw_deg: f32,
+    /// Optional structure-local velocity inherited while attached (Phase 2 will populate).
+    pub local_velocity: Option<Vec3>,
 }
 
 impl GameState {
