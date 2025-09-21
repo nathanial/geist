@@ -21,7 +21,7 @@ We refactor the lighting pipeline around **versioned state**, **explicit depende
 1. **Version Everything**
    - Introduce `geometry_rev` (incremented whenever blocks change) and `lighting_rev` (incremented whenever a chunk’s lighting job finishes).
    - Seam planes and light grids store the producing `lighting_rev`.
-   - Neighbor chunks record the highest rev they have consumed per face.
+   - Neighbor chunks track, per face, both the latest `lighting_rev` they have consumed and the highest `required_rev` still outstanding so we can reject stale work deterministically.
 
 2. **Dependency-Aware Scheduler**
    - When chunk A finishes lighting at rev *n*, it emits `LightingUpdated { chunk: A, rev: n }`.
@@ -29,9 +29,9 @@ We refactor the lighting pipeline around **versioned state**, **explicit depende
    - The scheduler lane for lighting dependencies is FIFO, never distance-gated, and deduplicates by `(chunk, required_rev)`.
 
 3. **Result Filtering**
-   - Lighting workers return `(geometry_rev_seen, lighting_rev_produced, seam_revs)`.
-   - Runtime accepts the result only if `geometry_rev_seen` equals the current chunk `geometry_rev`.
-   - If a lighting job finishes too early (because geometry changed afterward), it is discarded and a new job is queued.
+   - Lighting workers return `(geometry_rev_seen, lighting_rev_produced, seam_revs_used_per_face)`.
+   - Runtime accepts the result only if `(a)` `geometry_rev_seen` equals the current chunk `geometry_rev` **and** `(b)` every dependency cause reports `seam_revs_used_per_face[face] >= required_rev`.
+   - If either check fails, the result is discarded, the chunk marks its local seam cache stale, and a new job is queued immediately.
 
 4. **Atomic Seam Updates**
    - `LightingStore::update_micro_borders` stores `(plane_data, lighting_rev)`.
@@ -53,20 +53,20 @@ We refactor the lighting pipeline around **versioned state**, **explicit depende
 ### Phase 1 – Worker Contract
 
 1. Extend `BuildJob` with `geometry_rev` snapshot and neighbor seam revs.
-2. Lighting worker copies seam revs into result and increments `lighting_rev` atomically on success.
-3. Runtime discards results where `job.geometry_rev` != `chunk.geometry_rev`.
+2. Lighting worker copies the seam revs it actually read into the result and increments `lighting_rev` atomically on success.
+3. Runtime discards results where `job.geometry_rev` != `chunk.geometry_rev` or where any consumed seam rev is lower than the highest `required_rev` recorded for that face.
 
 ### Phase 2 – Seam Storage
 
 1. Switch micro border maps to `(Arc<[u8]>, u64 rev)` tuples.
-2. Provide helper `neighbor_micro_borders_with_rev` returning slices + revs.
+2. Provide helper `neighbor_micro_borders_with_rev` returning slices + revs, ensuring callers know exactly which rev they sampled for dependency accounting.
 
 ### Phase 3 – Scheduler Overhaul
 
 1. Introduce `IntentCause::LightingDependency` with high priority and own queue limit.
 2. On `LightingUpdated`, enqueue all six neighbors with `(required_rev = lighting_rev)`.
-3. When scheduling a chunk, merge dependency intents: keep the max `required_rev` and mark older queued jobs obsolete.
-4. Allow lighting jobs even if an edit job is in flight; runtime reconciles by comparing revs.
+3. When scheduling a chunk, merge dependency intents: keep the max `required_rev` per face, mark older queued jobs obsolete, and bump an `invalidate_before_rev` watermark so in-flight jobs that were spawned with lower requirements are rejected on completion.
+4. Allow lighting jobs even if an edit job is in flight; runtime reconciles by comparing revs and by rejecting outputs that miss newly demanded seam revs.
 
 ### Phase 4 – Integration Tests
 
@@ -80,8 +80,8 @@ We refactor the lighting pipeline around **versioned state**, **explicit depende
 ### Phase 5 – Observability
 
 1. Emit metrics via existing debug HUD and tracing exporters.
-2. Log stale result discards with chunk coord, old/new revs.
-3. Add CLI command (or hotkey overlay) to display dependency backlog.
+2. Log and count stale-result discards, including which dependency face failed the `required_rev` check, so we can prove the guard is firing.
+3. Add CLI command (or hotkey overlay) to display dependency backlog and outstanding per-face `required_rev` targets.
 
 ### Phase 6 – Cleanup
 
@@ -104,4 +104,3 @@ We refactor the lighting pipeline around **versioned state**, **explicit depende
 ## Conclusion
 
 Fixing the skylight regression long-term means treating lighting as a versioned, dependency-driven pipeline rather than a best-effort queue. Once the runtime enforces “no chunk consumes stale seam data” and lighting jobs are idempotent, the race that keeps caves lit disappears. The refactor is sizable, but it gives us deterministic, testable lighting behavior that future content updates can rely on.
-
