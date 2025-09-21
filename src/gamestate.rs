@@ -248,27 +248,13 @@ pub struct GameState {
 
     // Dynamic voxel bodies (e.g., flying castle)
     pub structures: HashMap<StructureId, Structure>,
-    pub ground_attach: Option<GroundAttach>,
+    pub anchor: WalkerAnchor,
     // Control: global speed for moving structures (units/sec)
     pub structure_speed: f32,
     // Control: vertical speed for moving structures (units/sec)
     pub structure_elev_speed: f32,
 }
 
-#[derive(Clone, Copy)]
-pub struct GroundAttach {
-    pub id: StructureId,
-    pub grace: u8,
-    /// Structure-local feet position recorded at the moment of attachment.
-    pub local_offset: Vec3,
-    /// Pose snapshot used to translate between structure-local and world space.
-    pub pose_pos: Vec3,
-    pub pose_yaw_deg: f32,
-    /// Optional structure-local velocity inherited while attached (Phase 2 will populate).
-    pub local_velocity: Option<Vec3>,
-    /// Most recent world-space structure velocity used for hand-off on detach.
-    pub structure_velocity: Vec3,
-}
 
 impl GameState {
     pub fn new(
@@ -302,9 +288,36 @@ impl GameState {
             show_biome_label: true,
             show_debug_overlay: true,
             structures: HashMap::new(),
-            ground_attach: None,
+            anchor: WalkerAnchor::World,
             structure_speed: 0.0,
             structure_elev_speed: 0.0,
         }
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct StructureAnchor {
+    pub id: StructureId,
+    pub local_pos: Vec3,
+    pub local_vel: Vec3,
+    pub yaw_offset: f32,
+    pub grace: u8,
+}
+
+impl StructureAnchor {
+    pub fn new(id: StructureId, local_pos: Vec3, yaw_offset: f32) -> Self {
+        Self {
+            id,
+            local_pos,
+            local_vel: Vec3::ZERO,
+            yaw_offset,
+            grace: 8,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum WalkerAnchor {
+    World,
+    Structure(StructureAnchor),
 }
