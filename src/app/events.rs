@@ -262,18 +262,9 @@ impl App {
                     st.last_velocity = vec3_from_rl(velocity);
                     st.pose.pos = vec3_from_rl(pos);
                     st.pose.yaw_deg = yaw_deg;
-                    if let WalkerAnchor::Structure(anchor) = self.gs.anchor {
-                        if anchor.id == id {
-                            let expected_world = anchor_world_position(&anchor, st);
-                            let walker_world = vec3_from_rl(self.gs.walker.pos);
-                            let drift = (walker_world - expected_world).length();
-                            if drift > 0.05 {
-                                self.gs.walker.pos = vec3_to_rl(expected_world);
-                            }
-                            if self.gs.walk_mode {
-                                self.cam.position = self.gs.walker.eye_position();
-                            }
-                        }
+                    if matches!(self.gs.anchor, WalkerAnchor::Structure(anchor) if anchor.id == id)
+                    {
+                        self.sync_anchor_world_pose();
                     }
                 }
             }
@@ -445,7 +436,7 @@ impl App {
                             if let WalkerAnchor::Structure(ref mut anchor) = self.gs.anchor {
                                 if anchor.id == anchor_id {
                                     if on_structure {
-                                        anchor.grace = 8;
+                                        anchor.grace = 60;
                                     } else if anchor.grace > 0 {
                                         anchor.grace = anchor.grace.saturating_sub(1);
                                     } else {

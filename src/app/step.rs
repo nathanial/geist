@@ -11,7 +11,7 @@ use crate::event::{Event, RebuildCause};
 use crate::gamestate::WalkerAnchor;
 
 impl App {
-    fn sync_anchor_world_pose(&mut self) {
+    pub(crate) fn sync_anchor_world_pose(&mut self) {
         if let WalkerAnchor::Structure(anchor) = self.gs.anchor {
             if let Some(st) = self.gs.structures.get(&anchor.id) {
                 let world_pos = anchor_world_position(&anchor, st);

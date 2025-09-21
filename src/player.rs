@@ -119,7 +119,6 @@ impl Walker {
         yaw: f32,
         forward_world: Vector3,
         right_world: Vector3,
-        platform_velocity: Vector3,
     ) where
         F: Fn(i32, i32, i32) -> Block,
     {
@@ -164,9 +163,6 @@ impl Walker {
         let target_v = wish * self.speed * run;
         let horiz = Vector3::new(target_v.x, 0.0, target_v.z);
 
-        let platform_vel = platform_velocity;
-        let total_horiz = horiz + Vector3::new(platform_vel.x, 0.0, platform_vel.z);
-
         let mut below = self.pos;
         below.y -= 0.10;
         self.on_ground = self.aabb_collides_with(reg, sample, below);
@@ -182,9 +178,9 @@ impl Walker {
             self.vel.y += self.gravity * dt;
         }
 
-        let dx = total_horiz.x * dt;
-        let dz = total_horiz.z * dt;
-        let dy = (self.vel.y + platform_vel.y) * dt;
+        let dx = horiz.x * dt;
+        let dz = horiz.z * dt;
+        let dy = self.vel.y * dt;
         let moved_y = if dy > 0.0 {
             let my = self.move_axis(reg, sample, 1, dy);
             self.move_axis(reg, sample, 0, dx);
@@ -216,7 +212,7 @@ impl Walker {
         let yaw_rad = yaw.to_radians();
         let forward = Vector3::new(yaw_rad.cos(), 0.0, yaw_rad.sin());
         let right = forward.cross(Vector3::up());
-        self.update_motion(rl, sample, reg, dt, yaw, forward, right, Vector3::zero());
+        self.update_motion(rl, sample, reg, dt, yaw, forward, right);
     }
 
     pub fn update_structure_space<F>(
@@ -233,16 +229,7 @@ impl Walker {
         let local_yaw_rad = anchor_yaw_offset.to_radians();
         let local_forward = Vector3::new(local_yaw_rad.cos(), 0.0, local_yaw_rad.sin());
         let local_right = local_forward.cross(Vector3::up());
-        self.update_motion(
-            rl,
-            sample,
-            reg,
-            dt,
-            yaw,
-            local_forward,
-            local_right,
-            Vector3::zero(),
-        );
+        self.update_motion(rl, sample, reg, dt, yaw, local_forward, local_right);
     }
 
     // No back-compat path: the walker updates only via an explicit sampler tied to loaded chunk buffers.
