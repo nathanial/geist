@@ -8,7 +8,7 @@ y_ratio = 0.50
 y_offset = 16.0
 
 [height]
-frequency = 0.004
+frequency = 0.002
 min_y_ratio = 0.25
 max_y_ratio = 0.5
 
@@ -46,7 +46,7 @@ warp = { octaves = 3, persistence = 0.6,  lacunarity = 2.0, scale = 220.0 }
 # debug_cell_size = 32
 enable = true
 [biomes.temp]
-frequency = 0.001
+frequency = 0.0001
 [biomes.moisture]
 frequency = 0.001
 

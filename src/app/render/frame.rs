@@ -191,8 +191,8 @@ impl App {
                 surface_sky
             };
             // Fog ranges: denser underwater
-            let fog_start = if underwater { 4.0 } else { 512.0 * 0.1 };
-            let fog_end = if underwater { 48.0 } else { 512.0 * 0.8 };
+            let fog_start = if underwater { 4.0 } else { 64.0 as f32 };
+            let fog_end = if underwater { 48.0 } else { 64.0 * self.gs.view_radius_chunks as f32 };
             if let Some(ref mut ls) = self.leaves_shader {
                 ls.update_frame_uniforms(
                     self.cam.position,

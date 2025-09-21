@@ -4,7 +4,7 @@ use rayon::prelude::*;
 use geist_blocks::micro::micro_face_cell_open_s2;
 use geist_blocks::{BlockRegistry, types::Block};
 use geist_chunk::ChunkBuf;
-use geist_world::{World, WorldGenMode};
+use geist_world::World;
 
 // Micro-voxel scale factor (2x resolution in each dimension)
 const MICRO_SCALE: usize = 2;
@@ -52,6 +52,17 @@ fn is_full_cube(reg: &BlockRegistry, b: Block) -> bool {
 #[inline]
 fn clamp_sub_u8(v: u8, d: u8) -> u8 {
     v.saturating_sub(d)
+}
+
+#[inline]
+fn vertical_seed_value(src: u8, attenuation: u8) -> u8 {
+    if src == 0 {
+        0
+    } else if src >= MAX_LIGHT {
+        MAX_LIGHT
+    } else {
+        clamp_sub_u8(src, attenuation)
+    }
 }
 
 pub fn compute_light_with_borders_buf_micro(
@@ -245,13 +256,6 @@ pub fn compute_light_with_borders_buf_micro(
                 let height = tile
                     .height(wx, wz)
                     .unwrap_or(world_height.saturating_sub(1));
-                column_open_to_sky[lz * buf.sx + lx] = height < chunk_cap_y;
-            }
-        }
-    } else if let WorldGenMode::Flat { thickness } = world.mode {
-        let height = (thickness - 1).max(-1);
-        for lz in 0..buf.sz {
-            for lx in 0..buf.sx {
                 column_open_to_sky[lz * buf.sx + lx] = height < chunk_cap_y;
             }
         }
@@ -1040,16 +1044,18 @@ pub fn compute_light_with_borders_buf_micro(
                                 .map(|p| clamp_sub_u8(p[lz * buf.sx + lx], atten))
                                 .unwrap_or(0)
                         });
-                    let seed_sky_ny = nbm
+                    let seed_sky_ny_raw = nbm
                         .ym_sk_neg
                         .as_ref()
-                        .map(|p| clamp_sub_u8(p[mz * mxs + mx], MICRO_SKY_ATTENUATION))
+                        .map(|p| p[mz * mxs + mx])
                         .unwrap_or_else(|| {
-                            nb.sk_yn
-                                .as_ref()
-                                .map(|p| clamp_sub_u8(p[lz * buf.sx + lx], atten))
-                                .unwrap_or(0)
+                            nb.sk_yn.as_ref().map(|p| p[lz * buf.sx + lx]).unwrap_or(0)
                         });
+                    let seed_sky_ny = if nbm.ym_sk_neg.is_some() {
+                        vertical_seed_value(seed_sky_ny_raw, MICRO_SKY_ATTENUATION)
+                    } else {
+                        vertical_seed_value(seed_sky_ny_raw, atten)
+                    };
                     if do_yn && (seed_blk_ny > 0 || seed_sky_ny > 0) && gate_ny[ixm][izm] {
                         let i = midx(mx, 0, mz, mxs, mzs);
                         if seed_blk_ny > 0
@@ -1082,16 +1088,18 @@ pub fn compute_light_with_borders_buf_micro(
                                 .map(|p| clamp_sub_u8(p[lz * buf.sx + lx], atten))
                                 .unwrap_or(0)
                         });
-                    let seed_sky_py = nbm
+                    let seed_sky_py_raw = nbm
                         .ym_sk_pos
                         .as_ref()
-                        .map(|p| clamp_sub_u8(p[mz * mxs + mx], MICRO_SKY_ATTENUATION))
+                        .map(|p| p[mz * mxs + mx])
                         .unwrap_or_else(|| {
-                            nb.sk_yp
-                                .as_ref()
-                                .map(|p| clamp_sub_u8(p[lz * buf.sx + lx], atten))
-                                .unwrap_or(0)
+                            nb.sk_yp.as_ref().map(|p| p[lz * buf.sx + lx]).unwrap_or(0)
                         });
+                    let seed_sky_py = if nbm.ym_sk_pos.is_some() {
+                        vertical_seed_value(seed_sky_py_raw, MICRO_SKY_ATTENUATION)
+                    } else {
+                        vertical_seed_value(seed_sky_py_raw, atten)
+                    };
                     if do_yp && (seed_blk_py > 0 || seed_sky_py > 0) && gate_py[ixm][izm] {
                         let i = midx(mx, mys - 1, mz, mxs, mzs);
                         if seed_blk_py > 0
@@ -1426,6 +1434,10 @@ pub fn compute_light_with_borders_buf_micro(
                     }
                     // +Y
                     if my + 1 < mys {
+                        let mut v = clamp_sub_u8(lvl, att_sky);
+                        if lvl == MAX_LIGHT {
+                            v = MAX_LIGHT;
+                        }
                         let ii = idx0 + stride_y_m;
                         if micro_sky[ii] < v && !bs_get(&micro_solid_bits, ii) {
                             out.push((ii, v));
@@ -1433,6 +1445,10 @@ pub fn compute_light_with_borders_buf_micro(
                     }
                     // -Y
                     if my > 0 {
+                        let mut v = clamp_sub_u8(lvl, att_sky);
+                        if lvl == MAX_LIGHT {
+                            v = MAX_LIGHT;
+                        }
                         let ii = idx0 - stride_y_m;
                         if micro_sky[ii] < v && !bs_get(&micro_solid_bits, ii) {
                             out.push((ii, v));
