@@ -112,7 +112,8 @@ fn bench_wcc_toggle_emit_normal_dims(c: &mut Criterion) {
             let base_x = buf.coord.cx * sx as i32;
             let base_y = buf.coord.cy * sy as i32;
             let base_z = buf.coord.cz * sz as i32;
-            let mut pm = ParityMesher::new(&buf, &reg, 2, base_x, base_y, base_z, &world, None);
+            let mut pm =
+                ParityMesher::new(&buf, &reg, 2, base_x, base_y, base_z, Some(&world), None);
             pm.build_occupancy();
             pm.seed_seam_layers();
             pm.compute_parity_and_materials();
@@ -176,7 +177,8 @@ fn bench_wcc_mesher_s1_uniform(c: &mut Criterion) {
             let base_x = buf.coord.cx * sx as i32;
             let base_y = buf.coord.cy * sy as i32;
             let base_z = buf.coord.cz * sz as i32;
-            let mut pm = ParityMesher::new(&buf, &reg, 1, base_x, base_y, base_z, &world, None);
+            let mut pm =
+                ParityMesher::new(&buf, &reg, 1, base_x, base_y, base_z, Some(&world), None);
             pm.build_occupancy();
             pm.seed_seam_layers();
             pm.compute_parity_and_materials();
@@ -231,7 +233,8 @@ fn bench_wcc_mesher_s2_mixed(c: &mut Criterion) {
             let base_x = buf.coord.cx * sx as i32;
             let base_y = buf.coord.cy * sy as i32;
             let base_z = buf.coord.cz * sz as i32;
-            let mut pm = ParityMesher::new(&buf, &reg, 2, base_x, base_y, base_z, &world, None);
+            let mut pm =
+                ParityMesher::new(&buf, &reg, 2, base_x, base_y, base_z, Some(&world), None);
             pm.build_occupancy();
             pm.seed_seam_layers();
             pm.compute_parity_and_materials();

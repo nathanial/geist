@@ -165,7 +165,7 @@ fn parity_area_random_full_cubes_s1() {
     let base_x = buf.coord.cx * buf.sx as i32;
     let base_y = buf.coord.cy * buf.sy as i32;
     let base_z = buf.coord.cz * buf.sz as i32;
-    let mut wm = ParityMesher::new(&buf, &reg, 1, base_x, base_y, base_z, &world, None);
+    let mut wm = ParityMesher::new(&buf, &reg, 1, base_x, base_y, base_z, Some(&world), None);
     wm.build_occupancy();
     wm.seed_seam_layers();
     wm.compute_parity_and_materials();
@@ -290,7 +290,7 @@ fn seam_stitch_no_faces_on_shared_plane_s1() {
         base_wa_x,
         base_wa_y,
         base_wa_z,
-        &world,
+        Some(&world),
         Some(&edits_a),
     );
     let mut wb = ParityMesher::new(
@@ -300,7 +300,7 @@ fn seam_stitch_no_faces_on_shared_plane_s1() {
         base_wb_x,
         base_wb_y,
         base_wb_z,
-        &world,
+        Some(&world),
         Some(&edits_b),
     );
     wa.build_occupancy();
@@ -445,7 +445,7 @@ fn seam_vertical_no_faces_on_shared_plane_s1() {
         base_lo_x,
         base_lo_y,
         base_lo_z,
-        &world,
+        Some(&world),
         Some(&edits_lo),
     );
     let mut hi = ParityMesher::new(
@@ -455,7 +455,7 @@ fn seam_vertical_no_faces_on_shared_plane_s1() {
         base_hi_x,
         base_hi_y,
         base_hi_z,
-        &world,
+        Some(&world),
         Some(&edits_hi),
     );
     lo.build_occupancy();
