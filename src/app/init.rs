@@ -57,6 +57,7 @@ impl App {
         world_config_path: String,
         rebuild_on_worldgen: bool,
         assets_root: std::path::PathBuf,
+        fixed_day_frac: Option<f32>,
     ) -> Self {
         // Spawn: if flat world, start a few blocks above the slab; else near world top
         let spawn = if world.is_flat() {
@@ -467,7 +468,8 @@ impl App {
             gs.place_type = Block { id, state: 0 };
         }
 
-        let day_cycle = DayCycle::new(15.0 * 60.0);
+        let mut day_cycle = DayCycle::new(15.0 * 60.0);
+        day_cycle.set_fixed_frac(fixed_day_frac);
         let day_sample = day_cycle.sample();
         let mut sun = None;
         if let Some((body, structure)) = SunBody::new(

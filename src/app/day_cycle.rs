@@ -22,6 +22,7 @@ impl DayLightSample {
 pub struct DayCycle {
     time: f32,
     day_length: f32,
+    fixed_frac: Option<f32>,
 }
 
 impl DayCycle {
@@ -29,21 +30,43 @@ impl DayCycle {
         Self {
             time: 0.0,
             day_length: day_length.max(1.0),
+            fixed_frac: None,
         }
     }
 
     pub fn advance(&mut self, dt: f32) -> DayLightSample {
-        self.time = (self.time + dt).rem_euclid(self.day_length);
+        if self.fixed_frac.is_none() {
+            self.time = (self.time + dt).rem_euclid(self.day_length);
+        }
         self.sample()
     }
 
     pub fn sample(&self) -> DayLightSample {
-        let frac = if self.day_length > 0.0 {
-            (self.time / self.day_length).rem_euclid(1.0)
-        } else {
-            0.0
-        };
-        let phase = frac * TAU;
+        let frac = self.fixed_frac.unwrap_or_else(|| {
+            if self.day_length > 0.0 {
+                (self.time / self.day_length).rem_euclid(1.0)
+            } else {
+                0.0
+            }
+        });
+        Self::sample_from_frac(frac)
+    }
+
+    pub fn set_fixed_frac(&mut self, frac: Option<f32>) {
+        self.fixed_frac = frac.map(|f| {
+            if f.is_finite() {
+                f.rem_euclid(1.0)
+            } else {
+                0.0
+            }
+        });
+        if let Some(fr) = self.fixed_frac {
+            self.time = fr * self.day_length;
+        }
+    }
+
+    fn sample_from_frac(frac: f32) -> DayLightSample {
+        let phase = frac.rem_euclid(1.0) * TAU;
         let sky_scale = 0.5 * (1.0 + phase.sin());
         let brightness = sky_scale.powf(1.5);
         let day_sky = [210.0 / 255.0, 221.0 / 255.0, 235.0 / 255.0];

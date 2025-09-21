@@ -102,6 +102,10 @@ struct RunArgs {
     #[arg(long, default_value_t = true)]
     rebuild_on_worldgen_change: bool,
 
+    /// Lock the day-night cycle to a preset time instead of advancing
+    #[arg(long, value_enum)]
+    fixed_time: Option<FixedTimeCli>,
+
     /// Disable frustum culling (render all loaded chunks)
     #[arg(long, default_value_t = false)]
     no_frustum_culling: bool,
@@ -132,6 +136,7 @@ impl Default for RunArgs {
             world_config: "assets/worldgen/worldgen.toml".to_string(),
             watch_worldgen: true,
             rebuild_on_worldgen_change: true,
+            fixed_time: None,
             no_frustum_culling: false,
             terrain_metrics: false,
             terrain_metrics_radius: 6,
@@ -146,6 +151,25 @@ enum WorldKind {
     Normal,
     Flat,
     SchemOnly,
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+enum FixedTimeCli {
+    Morning,
+    Noon,
+    Evening,
+    Midnight,
+}
+
+impl FixedTimeCli {
+    fn fraction(&self) -> f32 {
+        match self {
+            Self::Morning => 0.125,
+            Self::Noon => 0.25,
+            Self::Evening => 0.5,
+            Self::Midnight => 0.75,
+        }
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -1116,6 +1140,8 @@ fn run_app(run: RunArgs, assets_root: std::path::PathBuf) {
         world.chunk_size_z as i32,
     );
 
+    let fixed_day_frac = run.fixed_time.as_ref().map(|t| t.fraction());
+
     let mut app = crate::app::App::new(
         &mut rl,
         &thread,
@@ -1139,6 +1165,7 @@ fn run_app(run: RunArgs, assets_root: std::path::PathBuf) {
         },
         run.rebuild_on_worldgen_change,
         assets_root.clone(),
+        fixed_day_frac,
     );
 
     // Apply initial frustum culling preference from CLI
