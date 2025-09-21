@@ -1,8 +1,7 @@
 use crate::gamestate::StructureAnchor;
+use geist_blocks::Block;
 use geist_geom::Vec3;
-#[cfg(test)]
-use geist_structures::rotate_yaw;
-use geist_structures::{Structure, rotate_yaw_inv};
+use geist_structures::{Structure, rotate_yaw, rotate_yaw_inv};
 
 type Degrees = f32;
 
@@ -30,6 +29,35 @@ pub fn anchor_world_position(anchor: &StructureAnchor, structure: &Structure) ->
 #[inline]
 pub fn anchor_world_velocity(anchor: &StructureAnchor, structure: &Structure) -> Vec3 {
     anchor.world_velocity(structure)
+}
+
+/// Build a sampler that prefers structure-local occupancy data and falls back to a world sampler.
+pub fn structure_local_sampler<'a, F>(
+    structure: &'a Structure,
+    fallback: F,
+) -> impl Fn(i32, i32, i32) -> Block + 'a
+where
+    F: Fn(i32, i32, i32) -> Block + 'a,
+{
+    move |lx: i32, ly: i32, lz: i32| {
+        if lx >= 0 && ly >= 0 && lz >= 0 {
+            let (ux, uy, uz) = (lx as usize, ly as usize, lz as usize);
+            if ux < structure.sx && uy < structure.sy && uz < structure.sz {
+                if let Some(edit) = structure.edits.get(lx, ly, lz) {
+                    return edit;
+                }
+                return structure.blocks[structure.idx(ux, uy, uz)];
+            }
+        }
+
+        // Translate the local cell center back into world space for fallback sampling.
+        let local_center = Vec3::new(lx as f32 + 0.5, ly as f32 + 0.5, lz as f32 + 0.5);
+        let world_center = rotate_yaw(local_center, structure.pose.yaw_deg) + structure.pose.pos;
+        let wx = world_center.x.floor() as i32;
+        let wy = world_center.y.floor() as i32;
+        let wz = world_center.z.floor() as i32;
+        fallback(wx, wy, wz)
+    }
 }
 
 #[cfg(test)]

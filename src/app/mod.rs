@@ -10,7 +10,7 @@ mod sun;
 mod watchers;
 
 pub(crate) use attachment::{
-    anchor_world_position, anchor_world_velocity, structure_world_to_local,
+    anchor_world_position, anchor_world_velocity, structure_local_sampler, structure_world_to_local,
 };
 pub use day_cycle::{DayCycle, DayLightSample};
 pub(crate) use geist_ui::{

@@ -6,13 +6,29 @@ use geist_world::{ChunkCoord, TERRAIN_STAGE_COUNT, TerrainMetrics};
 use raylib::prelude::*;
 use std::collections::BTreeMap;
 
-use super::{App, HitRegion, WindowButton, WindowId};
+use super::{App, HitRegion, WindowButton, WindowId, anchor_world_position, anchor_world_velocity};
 use crate::event::{Event, RebuildCause};
+use crate::gamestate::WalkerAnchor;
 
 impl App {
+    fn sync_anchor_world_pose(&mut self) {
+        if let WalkerAnchor::Structure(anchor) = self.gs.anchor {
+            if let Some(st) = self.gs.structures.get(&anchor.id) {
+                let world_pos = anchor_world_position(&anchor, st);
+                let world_vel = anchor_world_velocity(&anchor, st);
+                self.gs.walker.pos = vec3_to_rl(world_pos);
+                self.gs.walker.vel = vec3_to_rl(world_vel);
+                if self.gs.walk_mode {
+                    self.cam.position = self.gs.walker.eye_position();
+                }
+            }
+        }
+    }
+
     pub fn step(&mut self, rl: &mut RaylibHandle, thread: &RaylibThread, dt: f32) {
         self.last_frame_dt = dt.max(0.0);
         self.day_sample = self.day_cycle.advance(dt.max(0.0));
+        self.sync_anchor_world_pose();
         self.gs
             .lighting
             .set_skylight_max(self.day_sample.skylight_max());

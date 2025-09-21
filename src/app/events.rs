@@ -5,7 +5,10 @@ use std::time::Instant;
 use raylib::prelude::*;
 
 use super::state::IntentCause;
-use super::{App, anchor_world_position, anchor_world_velocity, structure_world_to_local};
+use super::{
+    App, anchor_world_position, anchor_world_velocity, structure_local_sampler,
+    structure_world_to_local,
+};
 use crate::event::{Event, EventEnvelope, RebuildCause};
 use crate::gamestate::{FinalizeState, StructureAnchor, WalkerAnchor};
 use crate::raycast;
@@ -259,13 +262,16 @@ impl App {
                     st.last_velocity = vec3_from_rl(velocity);
                     st.pose.pos = vec3_from_rl(pos);
                     st.pose.yaw_deg = yaw_deg;
-                    if let WalkerAnchor::Structure(ref anchor) = self.gs.anchor {
+                    if let WalkerAnchor::Structure(anchor) = self.gs.anchor {
                         if anchor.id == id {
-                            let expected_world = anchor_world_position(anchor, st);
+                            let expected_world = anchor_world_position(&anchor, st);
                             let walker_world = vec3_from_rl(self.gs.walker.pos);
                             let drift = (walker_world - expected_world).length();
                             if drift > 0.05 {
                                 self.gs.walker.pos = vec3_to_rl(expected_world);
+                            }
+                            if self.gs.walk_mode {
+                                self.cam.position = self.gs.walker.eye_position();
                             }
                         }
                     }
@@ -384,33 +390,10 @@ impl App {
                                 self.gs.walker.pos = vec3_to_rl(local_before);
                                 self.gs.walker.vel = vec3_to_rl(local_vel_before);
 
-                                let structure_sampler = |lx: i32, ly: i32, lz: i32| -> Block {
-                                    if lx >= 0
-                                        && ly >= 0
-                                        && lz >= 0
-                                        && (lx as usize) < st.sx
-                                        && (ly as usize) < st.sy
-                                        && (lz as usize) < st.sz
-                                    {
-                                        if let Some(b) = st.edits.get(lx, ly, lz) {
-                                            return b;
-                                        }
-                                        return st.blocks
-                                            [st.idx(lx as usize, ly as usize, lz as usize)];
-                                    }
-                                    let local_center = Vec3::new(
-                                        lx as f32 + 0.5,
-                                        ly as f32 + 0.5,
-                                        lz as f32 + 0.5,
-                                    );
-                                    let world_center =
-                                        rotate_yaw(local_center, st.pose.yaw_deg) + st.pose.pos;
-                                    let wx = world_center.x.floor() as i32;
-                                    let wy = world_center.y.floor() as i32;
-                                    let wz = world_center.z.floor() as i32;
-                                    world_sampler(wx, wy, wz)
-                                };
-
+                                let structure_sampler =
+                                    structure_local_sampler(st, |wx, wy, wz| {
+                                        world_sampler(wx, wy, wz)
+                                    });
                                 let prev_local = local_before;
                                 self.gs.walker.update_structure_space(
                                     rl,

@@ -16,60 +16,29 @@ impl AttachmentDebugView {
 
     pub(crate) fn new(app: &App) -> Self {
         let mut lines = Vec::new();
-        if let WalkerAnchor::Structure(anchor) = app.gs.anchor {
-            lines.push(
-                DisplayLine::new(
-                    format!("Attached to structure ID {}", anchor.id),
-                    16,
-                    Color::GREEN,
-                )
-                .with_line_height(20),
-            );
-            lines.push(
-                DisplayLine::new(
-                    format!("Grace period: {}", anchor.grace),
-                    15,
-                    Color::new(156, 212, 178, 255),
-                )
-                .with_indent(18),
-            );
-            lines.push(
-                DisplayLine::new(
-                    format!(
-                        "Local offset: ({:.2}, {:.2}, {:.2})",
-                        anchor.local_pos.x, anchor.local_pos.y, anchor.local_pos.z
-                    ),
-                    15,
-                    Color::new(156, 212, 178, 255),
-                )
-                .with_indent(18),
-            );
-            lines.push(
-                DisplayLine::new(
-                    format!(
-                        "Local velocity: ({:.2}, {:.2}, {:.2})",
-                        anchor.local_vel.x, anchor.local_vel.y, anchor.local_vel.z
-                    ),
-                    15,
-                    Color::new(156, 212, 178, 255),
-                )
-                .with_indent(18),
-            );
-            lines.push(
-                DisplayLine::new(
-                    format!("Yaw offset: {:.1}°", anchor.yaw_offset),
-                    15,
-                    Color::new(156, 212, 178, 255),
-                )
-                .with_indent(18),
-            );
-            if let Some(st) = app.gs.structures.get(&anchor.id) {
-                let inferred_world = anchor_world_position(&anchor, st);
+        match app.gs.anchor {
+            WalkerAnchor::Structure(anchor) => {
+                lines.push(
+                    DisplayLine::new(
+                        format!("Attached to structure ID {}", anchor.id),
+                        16,
+                        Color::GREEN,
+                    )
+                    .with_line_height(20),
+                );
+                lines.push(
+                    DisplayLine::new(
+                        format!("Grace period: {}", anchor.grace),
+                        15,
+                        Color::new(156, 212, 178, 255),
+                    )
+                    .with_indent(18),
+                );
                 lines.push(
                     DisplayLine::new(
                         format!(
-                            "Frame→world: ({:.2}, {:.2}, {:.2})",
-                            inferred_world.x, inferred_world.y, inferred_world.z
+                            "Local offset: ({:.2}, {:.2}, {:.2})",
+                            anchor.local_pos.x, anchor.local_pos.y, anchor.local_pos.z
                         ),
                         15,
                         Color::new(156, 212, 178, 255),
@@ -79,8 +48,8 @@ impl AttachmentDebugView {
                 lines.push(
                     DisplayLine::new(
                         format!(
-                            "World velocity: ({:.2}, {:.2}, {:.2})",
-                            st.last_velocity.x, st.last_velocity.y, st.last_velocity.z
+                            "Local velocity: ({:.2}, {:.2}, {:.2})",
+                            anchor.local_vel.x, anchor.local_vel.y, anchor.local_vel.z
                         ),
                         15,
                         Color::new(156, 212, 178, 255),
@@ -89,36 +58,72 @@ impl AttachmentDebugView {
                 );
                 lines.push(
                     DisplayLine::new(
-                        format!("World yaw: {:.1}°", anchor.world_yaw(st)),
+                        format!("Yaw offset: {:.1}°", anchor.yaw_offset),
                         15,
                         Color::new(156, 212, 178, 255),
                     )
                     .with_indent(18),
                 );
-                let handoff = anchor_world_velocity(&anchor, st);
+                if let Some(st) = app.gs.structures.get(&anchor.id) {
+                    let inferred_world = anchor_world_position(&anchor, st);
+                    lines.push(
+                        DisplayLine::new(
+                            format!(
+                                "Frame→world: ({:.2}, {:.2}, {:.2})",
+                                inferred_world.x, inferred_world.y, inferred_world.z
+                            ),
+                            15,
+                            Color::new(156, 212, 178, 255),
+                        )
+                        .with_indent(18),
+                    );
+                    lines.push(
+                        DisplayLine::new(
+                            format!(
+                                "World velocity: ({:.2}, {:.2}, {:.2})",
+                                st.last_velocity.x, st.last_velocity.y, st.last_velocity.z
+                            ),
+                            15,
+                            Color::new(156, 212, 178, 255),
+                        )
+                        .with_indent(18),
+                    );
+                    lines.push(
+                        DisplayLine::new(
+                            format!("World yaw: {:.1}°", anchor.world_yaw(st)),
+                            15,
+                            Color::new(156, 212, 178, 255),
+                        )
+                        .with_indent(18),
+                    );
+                    let handoff = anchor_world_velocity(&anchor, st);
+                    lines.push(
+                        DisplayLine::new(
+                            format!(
+                                "Detach handoff vel: ({:.2}, {:.2}, {:.2})",
+                                handoff.x, handoff.y, handoff.z
+                            ),
+                            15,
+                            Color::new(156, 212, 178, 255),
+                        )
+                        .with_indent(18),
+                    );
+                } else {
+                    lines.push(
+                        DisplayLine::new(
+                            "Structure reference missing",
+                            15,
+                            Color::new(214, 160, 160, 255),
+                        )
+                        .with_indent(18),
+                    );
+                }
+            }
+            WalkerAnchor::World => {
                 lines.push(
-                    DisplayLine::new(
-                        format!(
-                            "Detach handoff vel: ({:.2}, {:.2}, {:.2})",
-                            handoff.x, handoff.y, handoff.z
-                        ),
-                        15,
-                        Color::new(156, 212, 178, 255),
-                    )
-                    .with_indent(18),
-                );
-            } else {
-                lines.push(
-                    DisplayLine::new(
-                        "Structure reference missing",
-                        15,
-                        Color::new(214, 160, 160, 255),
-                    )
-                    .with_indent(18),
+                    DisplayLine::new("Anchor: World", 16, Color::ORANGE).with_line_height(20),
                 );
             }
-        } else {
-            lines.push(DisplayLine::new("Not attached", 16, Color::ORANGE).with_line_height(20));
         }
 
         let pos = app.gs.walker.pos;
