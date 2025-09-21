@@ -68,9 +68,9 @@ All player inputs, collision tests, and velocity integration happen inside the a
    - Remove all remaining platform-velocity plumbing and world-space teleport shortcuts.
    - Document the anchor invariants in `/docs/` (or the appropriate developer guide) so future systems—like structure-local interactions—can rely on the same frame-of-reference model.
 
-## Open Questions
-1. Do we ever need to sample both structure and world collisions simultaneously while anchored (e.g., structure intersects terrain)? If so, we’ll define a hybrid sampler that checks local cells first, then world cells using the transformed coordinates.
-2. Should the camera yaw automatically align with the structure’s local axes upon attach, or remain world-aligned with just a relative offset? (Recommend: keep camera yaw continuous, store `yaw_offset` on the anchor.)
-3. Do structures ever rotate during attachment in the near term? If yes, we’ll need to propagate yaw deltas into the anchor’s local pose to keep the player from drifting when the platform spins.
+## Decisions on Prior Open Questions
+1. **Hybrid collision sampling:** yes, we need a hybrid path. Structures can intersect terrain or other structures, so the anchored sampler will query structure-local cells first and then, when the transformed local AABB exits the structure bounds, fall back to world sampling using the derived world coordinates.
+2. **Camera yaw alignment:** keep the player’s camera yaw continuous. On attach we record the offset between camera yaw and structure forward, store it on the anchor, and reuse it when converting inputs into local axes—no automatic snapping or realignment.
+3. **Structure rotation support:** rotation is not required for the immediate implementation (current moving platforms translate only). We still thread yaw through the anchor so that, when rotating platforms arrive, we can update the local pose by applying the incremental yaw without changing the overall architecture.
 
 With this plan, the walker truly lives inside the structure’s coordinate system while attached, and world velocity becomes irrelevant—exactly the behaviour you requested.
