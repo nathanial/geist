@@ -5,6 +5,123 @@ use super::super::format_count;
 use super::super::{ContentLayout, DebugStats, GeistDraw, WindowFrame, WindowTheme};
 use geist_world::{TERRAIN_STAGE_COUNT, TERRAIN_STAGE_LABELS};
 
+// Shared small rendering helper for list-style histograms.
+// Keeps row/bar drawing consistent across Event and Intent views.
+struct HistRowsStyle {
+    row_height: i32,
+    row_font: i32,
+    label_width: i32,
+    gap_x: i32,
+    bar_min_width: i32,
+    zebra_bg: Color,
+    bar_bg: Color,
+    fill_palette: [Color; 4],
+    label_color0: Color,
+    label_color: Color,
+    count_color: Color,
+    summary_color: Color,
+}
+
+fn draw_hist_rows<F: Fn(usize) -> String>(
+    d: &mut GeistDraw,
+    layout: &mut ContentLayout,
+    content_x: i32,
+    content_w: i32,
+    cursor_y: &mut i32,
+    entries: &[(String, usize)],
+    display_limit: usize,
+    style: &HistRowsStyle,
+    format_count_fn: F,
+    summary_suffix: &str,
+) {
+    if entries.is_empty() || display_limit == 0 {
+        return;
+    }
+
+    let bar_x = content_x + style.label_width + style.gap_x;
+    let bar_width = (content_w - (style.label_width + style.gap_x)).max(style.bar_min_width);
+
+    let display_rows = entries.len().min(display_limit);
+    let remainder = entries.len().saturating_sub(display_rows);
+    let max_count = entries
+        .iter()
+        .take(display_rows)
+        .map(|(_, c)| *c)
+        .max()
+        .unwrap_or(1) as f32;
+
+    for (idx, (label, count)) in entries.iter().take(display_rows).enumerate() {
+        let row_top = *cursor_y + (idx as i32) * style.row_height;
+        if idx % 2 == 0 {
+            d.draw_rectangle(
+                content_x - 6,
+                row_top,
+                content_w + 12,
+                style.row_height,
+                style.zebra_bg,
+            );
+        }
+
+        let label_y = row_top + (style.row_height - style.row_font) / 2;
+        let label_color = if idx == 0 {
+            style.label_color0
+        } else {
+            style.label_color
+        };
+        d.draw_text(label, content_x, label_y, style.row_font, label_color);
+
+        let bar_height = (style.row_height - 10).max(6);
+        let bar_top = row_top + (style.row_height - bar_height) / 2;
+        d.draw_rectangle(bar_x, bar_top, bar_width, bar_height, style.bar_bg);
+
+        let ratio = if max_count <= 0.0 {
+            0.0
+        } else {
+            (*count as f32) / max_count
+        };
+        let fill_width = (ratio * bar_width as f32).round() as i32;
+        if fill_width > 0 {
+            let fill = fill_width.max(2).min(bar_width);
+            let fill_color = match idx {
+                0 => style.fill_palette[0],
+                1 => style.fill_palette[1],
+                2 => style.fill_palette[2],
+                _ => style.fill_palette[3],
+            };
+            d.draw_rectangle(bar_x, bar_top, fill, bar_height, fill_color);
+        }
+
+        let count_text = format_count_fn(*count);
+        let count_w = d.measure_text(&count_text, style.row_font);
+        let count_y = row_top + (style.row_height - style.row_font) / 2;
+        d.draw_text(
+            &count_text,
+            bar_x + bar_width - count_w,
+            count_y,
+            style.row_font,
+            style.count_color,
+        );
+    }
+
+    *cursor_y += (display_rows as i32) * style.row_height;
+    layout.add_rows(display_rows, style.row_height);
+
+    if remainder > 0 {
+        let summary = format!("… {} more {}", remainder, summary_suffix);
+        let summary_y = *cursor_y + (style.row_height - style.row_font) / 2;
+        d.draw_text(
+            &summary,
+            content_x,
+            summary_y,
+            style.row_font,
+            style.summary_color,
+        );
+        *cursor_y += style.row_height;
+        layout.add_rows(1, style.row_height);
+        layout.mark_overflow(1, remainder);
+    }
+}
+
 pub(crate) struct EventHistogramView<'a> {
     total: usize,
     entries: &'a [(String, usize)],
@@ -147,18 +264,7 @@ impl<'a> TerrainHistogramView<'a> {
             .copied()
             .filter(|&v| v > 0)
             .collect();
-        let (tile_avg_ms, tile_p95_ms) = if tile_builds.is_empty() {
-            (0.0, 0.0)
-        } else {
-            let mut sorted = tile_builds.clone();
-            sorted.sort_unstable();
-            let sum: u64 = sorted.iter().map(|&v| v as u64).sum();
-            let avg = (sum as f32 / sorted.len() as f32) / 1000.0;
-            let p95_idx =
-                ((sorted.len() as f32 * 0.95).ceil().max(1.0) as usize - 1).min(sorted.len() - 1);
-            let p95 = sorted[p95_idx] as f32 / 1000.0;
-            (avg, p95)
-        };
+        let (tile_avg_ms, tile_p95_ms) = avg_p95(&tile_builds);
 
         let reuse_total: u32 = self.height_tile_reused.iter().copied().sum();
         let reuse_ratio = if self.height_tile_reused.is_empty() {
@@ -274,13 +380,8 @@ impl<'a> TerrainHistogramView<'a> {
             if durations.is_empty() {
                 continue;
             }
-            let mut sorted: Vec<u32> = durations.iter().copied().collect();
-            sorted.sort_unstable();
-            let sum: u64 = durations.iter().map(|&v| v as u64).sum();
-            let avg_ms = (sum as f32 / durations.len() as f32) / 1000.0;
-            let p95_idx = ((durations.len() as f32 * 0.95).ceil().max(1.0) as usize - 1)
-                .min(durations.len() - 1);
-            let p95_ms = sorted[p95_idx] as f32 / 1000.0;
+            let data: Vec<u32> = durations.iter().copied().collect();
+            let (avg_ms, p95_ms) = avg_p95(&data);
             let last_ms = durations.back().copied().unwrap_or(0) as f32 / 1000.0;
             let calls = &self.stage_calls[idx];
             let (avg_calls, last_calls) = if calls.is_empty() {
@@ -359,11 +460,51 @@ impl<'a> TerrainHistogramView<'a> {
         let card2_x = card1_x + card_width + card_gap;
         let card3_x = card2_x + card_width + card_gap;
 
-        d.draw_rectangle(card1_x, cursor_y, card_width, card_height, card_bg);
-        d.draw_rectangle_lines(card1_x, cursor_y, card_width, card_height, card_outline);
-        d.draw_rectangle(card1_x, cursor_y, card_width, 2, accent_tile);
-        let text_x = card1_x + 12;
-        let mut text_y = cursor_y + 10;
+        fn draw_card_container(
+            d: &mut GeistDraw,
+            x: i32,
+            y: i32,
+            w: i32,
+            h: i32,
+            bg: Color,
+            outline: Color,
+            accent: Color,
+        ) -> (i32, i32) {
+            d.draw_rectangle(x, y, w, h, bg);
+            d.draw_rectangle_lines(x, y, w, h, outline);
+            d.draw_rectangle(x, y, w, 2, accent);
+            let text_x = x + 12;
+            let text_y = y + 10;
+            (text_x, text_y)
+        }
+
+        fn draw_gauge(
+            d: &mut GeistDraw,
+            x: i32,
+            y: i32,
+            w: i32,
+            h: i32,
+            bg: Color,
+            fill: Color,
+            ratio_0_1: f32,
+        ) {
+            d.draw_rectangle(x, y, w, h, bg);
+            let fill_px = (ratio_0_1.clamp(0.0, 1.0) * w as f32).round() as i32;
+            if fill_px > 0 {
+                d.draw_rectangle(x, y, fill_px.max(2), h, fill);
+            }
+        }
+
+        let (text_x, mut text_y) = draw_card_container(
+            d,
+            card1_x,
+            cursor_y,
+            card_width,
+            card_height,
+            card_bg,
+            card_outline,
+            accent_tile,
+        );
         d.draw_text(
             "Height Tiles",
             text_x,
@@ -399,30 +540,27 @@ impl<'a> TerrainHistogramView<'a> {
         let reuse_bar_x = text_x;
         let reuse_bar_width = card_width - 24;
         let reuse_bar_height = 10;
-        d.draw_rectangle(
+        draw_gauge(
+            d,
             reuse_bar_x,
             text_y,
             reuse_bar_width,
             reuse_bar_height,
             Color::new(18, 24, 34, 255),
+            accent_tile,
+            reuse_ratio / 100.0,
         );
-        let reuse_fill =
-            ((reuse_ratio / 100.0).clamp(0.0, 1.0) * reuse_bar_width as f32).round() as i32;
-        if reuse_fill > 0 {
-            d.draw_rectangle(
-                reuse_bar_x,
-                text_y,
-                reuse_fill.max(2),
-                reuse_bar_height,
-                accent_tile,
-            );
-        }
 
-        d.draw_rectangle(card2_x, cursor_y, card_width, card_height, card_bg);
-        d.draw_rectangle_lines(card2_x, cursor_y, card_width, card_height, card_outline);
-        d.draw_rectangle(card2_x, cursor_y, card_width, 2, accent_cache);
-        let text_x2 = card2_x + 12;
-        let mut text_y2 = cursor_y + 10;
+        let (text_x2, mut text_y2) = draw_card_container(
+            d,
+            card2_x,
+            cursor_y,
+            card_width,
+            card_height,
+            card_bg,
+            card_outline,
+            accent_cache,
+        );
         d.draw_text(
             "Height Cache",
             text_x2,
@@ -482,30 +620,27 @@ impl<'a> TerrainHistogramView<'a> {
         let cache_bar_x = text_x2;
         let cache_bar_width = card_width - 24;
         let cache_bar_height = 10;
-        d.draw_rectangle(
+        draw_gauge(
+            d,
             cache_bar_x,
             text_y2,
             cache_bar_width,
             cache_bar_height,
             Color::new(18, 26, 34, 255),
+            accent_cache,
+            last_cache_rate / 100.0,
         );
-        let cache_fill =
-            ((last_cache_rate / 100.0).clamp(0.0, 1.0) * cache_bar_width as f32).round() as i32;
-        if cache_fill > 0 {
-            d.draw_rectangle(
-                cache_bar_x,
-                text_y2,
-                cache_fill.max(2),
-                cache_bar_height,
-                accent_cache,
-            );
-        }
 
-        d.draw_rectangle(card3_x, cursor_y, card_width, card_height, card_bg);
-        d.draw_rectangle_lines(card3_x, cursor_y, card_width, card_height, card_outline);
-        d.draw_rectangle(card3_x, cursor_y, card_width, 2, accent_chunk);
-        let text_x3 = card3_x + 12;
-        let mut text_y3 = cursor_y + 10;
+        let (text_x3, mut text_y3) = draw_card_container(
+            d,
+            card3_x,
+            cursor_y,
+            card_width,
+            card_height,
+            card_bg,
+            card_outline,
+            accent_chunk,
+        );
         d.draw_text(
             "Chunk Build",
             text_x3,
@@ -544,24 +679,16 @@ impl<'a> TerrainHistogramView<'a> {
         let chunk_bar_x = text_x3;
         let chunk_bar_width = card_width - 24;
         let chunk_bar_height = 10;
-        d.draw_rectangle(
+        draw_gauge(
+            d,
             chunk_bar_x,
             text_y3,
             chunk_bar_width,
             chunk_bar_height,
             Color::new(28, 26, 20, 255),
+            accent_chunk,
+            feature_share_last / 100.0,
         );
-        let chunk_fill =
-            ((feature_share_last / 100.0).clamp(0.0, 1.0) * chunk_bar_width as f32).round() as i32;
-        if chunk_fill > 0 {
-            d.draw_rectangle(
-                chunk_bar_x,
-                text_y3,
-                chunk_fill.max(2),
-                chunk_bar_height,
-                accent_chunk,
-            );
-        }
 
         cursor_y += card_height + Self::SUMMARY_GAP;
         layout.add_custom(card_height + Self::SUMMARY_GAP);
@@ -710,12 +837,6 @@ impl<'a> IntentHistogramView<'a> {
     ) -> ContentLayout {
         let content = frame.content;
         let mut cursor_y = content.y;
-        let cause_bar_x = content.x + Self::LABEL_WIDTH_CAUSE + Self::GAP_X;
-        let cause_bar_width =
-            (content.w - (Self::LABEL_WIDTH_CAUSE + Self::GAP_X)).max(Self::MIN_BAR_WIDTH);
-        let radius_bar_x = content.x + Self::LABEL_WIDTH_RADIUS + Self::GAP_X;
-        let radius_bar_width =
-            (content.w - (Self::LABEL_WIDTH_RADIUS + Self::GAP_X)).max(Self::MIN_BAR_WIDTH);
         let mut layout = ContentLayout::new(content.h);
 
         d.draw_text(
@@ -744,90 +865,38 @@ impl<'a> IntentHistogramView<'a> {
             cursor_y += Self::ROW_HEIGHT;
             layout.add_rows(1, Self::ROW_HEIGHT);
         } else {
-            let display_rows = self.by_cause.len().min(Self::MAX_CAUSE_ROWS);
-            let remainder = self.by_cause.len().saturating_sub(display_rows);
-            let max_count = self
-                .by_cause
-                .iter()
-                .take(display_rows)
-                .map(|(_, count)| *count)
-                .max()
-                .unwrap_or(1) as f32;
-            for (idx, (label, count)) in self.by_cause.iter().take(display_rows).enumerate() {
-                let row_top = cursor_y + (idx as i32) * Self::ROW_HEIGHT;
-                if idx % 2 == 0 {
-                    d.draw_rectangle(
-                        content.x - 6,
-                        row_top,
-                        content.w + 12,
-                        Self::ROW_HEIGHT,
-                        Color::new(30, 26, 52, 110),
-                    );
-                }
-                let label_y = row_top + (Self::ROW_HEIGHT - Self::ROW_FONT) / 2;
-                d.draw_text(
-                    label,
-                    content.x,
-                    label_y,
-                    Self::ROW_FONT,
-                    Color::new(232, 226, 248, 255),
-                );
-
-                let bar_height = (Self::ROW_HEIGHT - 10).max(6);
-                let bar_top = row_top + (Self::ROW_HEIGHT - bar_height) / 2;
-                d.draw_rectangle(
-                    cause_bar_x,
-                    bar_top,
-                    cause_bar_width,
-                    bar_height,
-                    Color::new(30, 34, 60, 210),
-                );
-                let ratio = if max_count <= 0.0 {
-                    0.0
-                } else {
-                    (*count as f32) / max_count
-                };
-                let fill_width = (ratio * cause_bar_width as f32).round() as i32;
-                if fill_width > 0 {
-                    let fill = fill_width.max(2).min(cause_bar_width);
-                    let fill_color = match idx {
-                        0 => Color::new(124, 214, 224, 230),
-                        1 => Color::new(108, 198, 208, 222),
-                        2 => Color::new(96, 186, 196, 218),
-                        _ => Color::new(82, 170, 182, 212),
-                    };
-                    d.draw_rectangle(cause_bar_x, bar_top, fill, bar_height, fill_color);
-                }
-                let count_text = format!("{}", count);
-                let count_w = d.measure_text(&count_text, Self::ROW_FONT);
-                let count_y = row_top + (Self::ROW_HEIGHT - Self::ROW_FONT) / 2;
-                d.draw_text(
-                    &count_text,
-                    cause_bar_x + cause_bar_width - count_w,
-                    count_y,
-                    Self::ROW_FONT,
-                    Color::new(240, 234, 252, 255),
-                );
-            }
-            cursor_y += (self.by_cause.len().min(Self::MAX_CAUSE_ROWS) as i32) * Self::ROW_HEIGHT;
-            layout.add_rows(
-                self.by_cause.len().min(Self::MAX_CAUSE_ROWS),
-                Self::ROW_HEIGHT,
+            let style = HistRowsStyle {
+                row_height: Self::ROW_HEIGHT,
+                row_font: Self::ROW_FONT,
+                label_width: Self::LABEL_WIDTH_CAUSE,
+                gap_x: Self::GAP_X,
+                bar_min_width: Self::MIN_BAR_WIDTH,
+                zebra_bg: Color::new(30, 26, 52, 110),
+                bar_bg: Color::new(30, 34, 60, 210),
+                fill_palette: [
+                    Color::new(124, 214, 224, 230),
+                    Color::new(108, 198, 208, 222),
+                    Color::new(96, 186, 196, 218),
+                    Color::new(82, 170, 182, 212),
+                ],
+                label_color0: Color::new(232, 226, 248, 255),
+                label_color: Color::new(232, 226, 248, 255),
+                count_color: Color::new(240, 234, 252, 255),
+                summary_color: Color::new(206, 196, 224, 255),
+            };
+            let limit = self.by_cause.len().min(Self::MAX_CAUSE_ROWS);
+            draw_hist_rows(
+                d,
+                &mut layout,
+                content.x,
+                content.w,
+                &mut cursor_y,
+                self.by_cause,
+                limit,
+                &style,
+                |n| n.to_string(),
+                "causes",
             );
-            if remainder > 0 {
-                let summary = format!("… {} more causes", remainder);
-                let summary_y = cursor_y + (Self::ROW_HEIGHT - Self::ROW_FONT) / 2;
-                d.draw_text(
-                    &summary,
-                    content.x,
-                    summary_y,
-                    Self::ROW_FONT,
-                    Color::new(206, 196, 224, 255),
-                );
-                cursor_y += Self::ROW_HEIGHT;
-                layout.add_rows(1, Self::ROW_HEIGHT);
-                layout.mark_overflow(1, remainder);
-            }
         }
 
         cursor_y += Self::SECTION_GAP;
@@ -856,88 +925,38 @@ impl<'a> IntentHistogramView<'a> {
             );
             layout.add_rows(1, Self::ROW_HEIGHT);
         } else {
-            let display_rows = self.by_radius.len().min(Self::MAX_RADIUS_ROWS);
-            let remainder = self.by_radius.len().saturating_sub(display_rows);
-            let max_radius = self
-                .by_radius
-                .iter()
-                .take(display_rows)
-                .map(|(_, count)| *count)
-                .max()
-                .unwrap_or(1) as f32;
-            for (idx, (label, count)) in self.by_radius.iter().take(display_rows).enumerate() {
-                let row_top = cursor_y + (idx as i32) * Self::ROW_HEIGHT;
-                if idx % 2 == 0 {
-                    d.draw_rectangle(
-                        content.x - 6,
-                        row_top,
-                        content.w + 12,
-                        Self::ROW_HEIGHT,
-                        Color::new(30, 26, 52, 110),
-                    );
-                }
-                let label_y = row_top + (Self::ROW_HEIGHT - Self::ROW_FONT) / 2;
-                d.draw_text(
-                    label,
-                    content.x,
-                    label_y,
-                    Self::ROW_FONT,
-                    Color::new(232, 226, 248, 255),
-                );
-                let bar_height = (Self::ROW_HEIGHT - 10).max(6);
-                let bar_top = row_top + (Self::ROW_HEIGHT - bar_height) / 2;
-                d.draw_rectangle(
-                    radius_bar_x,
-                    bar_top,
-                    radius_bar_width,
-                    bar_height,
-                    Color::new(32, 28, 58, 210),
-                );
-                let ratio = if max_radius <= 0.0 {
-                    0.0
-                } else {
-                    (*count as f32) / max_radius
-                };
-                let fill_width = (ratio * radius_bar_width as f32).round() as i32;
-                if fill_width > 0 {
-                    let fill = fill_width.max(2).min(radius_bar_width);
-                    let fill_color = match idx {
-                        0 => Color::new(120, 198, 255, 230),
-                        1 => Color::new(104, 184, 248, 220),
-                        2 => Color::new(92, 168, 238, 215),
-                        _ => Color::new(80, 152, 226, 210),
-                    };
-                    d.draw_rectangle(radius_bar_x, bar_top, fill, bar_height, fill_color);
-                }
-                let count_text = format!("{}", count);
-                let count_w = d.measure_text(&count_text, Self::ROW_FONT);
-                let count_y = row_top + (Self::ROW_HEIGHT - Self::ROW_FONT) / 2;
-                d.draw_text(
-                    &count_text,
-                    radius_bar_x + radius_bar_width - count_w,
-                    count_y,
-                    Self::ROW_FONT,
-                    Color::new(236, 234, 252, 255),
-                );
-            }
-            cursor_y += (self.by_radius.len().min(Self::MAX_RADIUS_ROWS) as i32) * Self::ROW_HEIGHT;
-            layout.add_rows(
-                self.by_radius.len().min(Self::MAX_RADIUS_ROWS),
-                Self::ROW_HEIGHT,
+            let style = HistRowsStyle {
+                row_height: Self::ROW_HEIGHT,
+                row_font: Self::ROW_FONT,
+                label_width: Self::LABEL_WIDTH_RADIUS,
+                gap_x: Self::GAP_X,
+                bar_min_width: Self::MIN_BAR_WIDTH,
+                zebra_bg: Color::new(30, 26, 52, 110),
+                bar_bg: Color::new(32, 28, 58, 210),
+                fill_palette: [
+                    Color::new(120, 198, 255, 230),
+                    Color::new(104, 184, 248, 220),
+                    Color::new(92, 168, 238, 215),
+                    Color::new(80, 152, 226, 210),
+                ],
+                label_color0: Color::new(232, 226, 248, 255),
+                label_color: Color::new(232, 226, 248, 255),
+                count_color: Color::new(236, 234, 252, 255),
+                summary_color: Color::new(204, 198, 224, 255),
+            };
+            let limit = self.by_radius.len().min(Self::MAX_RADIUS_ROWS);
+            draw_hist_rows(
+                d,
+                &mut layout,
+                content.x,
+                content.w,
+                &mut cursor_y,
+                self.by_radius,
+                limit,
+                &style,
+                |n| n.to_string(),
+                "rings",
             );
-            if remainder > 0 {
-                let summary = format!("… {} more rings", remainder);
-                let summary_y = cursor_y + (Self::ROW_HEIGHT - Self::ROW_FONT) / 2;
-                d.draw_text(
-                    &summary,
-                    content.x,
-                    summary_y,
-                    Self::ROW_FONT,
-                    Color::new(204, 198, 224, 255),
-                );
-                layout.add_rows(1, Self::ROW_HEIGHT);
-                layout.mark_overflow(1, remainder);
-            }
         }
 
         layout
@@ -984,8 +1003,6 @@ impl<'a> EventHistogramView<'a> {
     ) -> ContentLayout {
         let content = frame.content;
         let mut cursor_y = content.y;
-        let bar_x = content.x + Self::LABEL_WIDTH + Self::GAP_X;
-        let bar_width = (content.w - (Self::LABEL_WIDTH + Self::GAP_X)).max(Self::BAR_MIN_WIDTH);
         let mut layout = ContentLayout::new(content.h);
 
         let rows_fit = if content.h <= 0 {
@@ -994,102 +1011,52 @@ impl<'a> EventHistogramView<'a> {
             (content.h / Self::ROW_HEIGHT).max(1) as usize
         };
 
-        let mut display_count = self.entries.len().min(rows_fit);
-        let mut remainder = self.entries.len().saturating_sub(display_count);
-        if remainder > 0 && display_count + 1 > rows_fit {
-            if display_count > 0 {
-                display_count -= 1;
+        let mut display_limit = self.entries.len().min(rows_fit);
+        let remainder = self.entries.len().saturating_sub(display_limit);
+        if remainder > 0 && display_limit + 1 > rows_fit {
+            if display_limit > 0 {
+                display_limit -= 1;
             }
-            remainder = self.entries.len().saturating_sub(display_count);
         }
 
         if self.entries.is_empty() {
             let msg = "No queued events";
             let msg_y = cursor_y + (Self::ROW_HEIGHT - 16) / 2;
             d.draw_text(msg, content.x, msg_y, 16, Color::new(192, 198, 216, 255));
-            cursor_y += Self::ROW_HEIGHT;
+            // cursor_y advance not needed further in this function
             layout.add_rows(1, Self::ROW_HEIGHT);
         } else {
-            let max_count = self
-                .entries
-                .iter()
-                .take(display_count.max(1))
-                .map(|(_, count)| *count)
-                .max()
-                .unwrap_or(1) as f32;
-            for (idx, (label, count)) in self.entries.iter().take(display_count).enumerate() {
-                let row_top = cursor_y + (idx as i32) * Self::ROW_HEIGHT;
-                if idx % 2 == 0 {
-                    d.draw_rectangle(
-                        content.x - 6,
-                        row_top,
-                        content.w + 12,
-                        Self::ROW_HEIGHT,
-                        Color::new(26, 30, 44, 120),
-                    );
-                }
-                let label_y = row_top + (Self::ROW_HEIGHT - 16) / 2;
-                let label_color = if idx == 0 {
-                    Color::new(238, 244, 255, 255)
-                } else {
-                    Color::new(212, 220, 240, 255)
-                };
-                d.draw_text(label, content.x, label_y, 16, label_color);
-
-                let bar_height = (Self::ROW_HEIGHT - 10).max(6);
-                let bar_top = row_top + (Self::ROW_HEIGHT - bar_height) / 2;
-                d.draw_rectangle(
-                    bar_x,
-                    bar_top,
-                    bar_width,
-                    bar_height,
-                    Color::new(30, 38, 54, 210),
-                );
-
-                let ratio = if max_count <= 0.0 {
-                    0.0
-                } else {
-                    (*count as f32) / max_count
-                };
-                let fill_width = (ratio * bar_width as f32).round() as i32;
-                if fill_width > 0 {
-                    let fill = fill_width.max(2).min(bar_width);
-                    let fill_color = match idx {
-                        0 => Color::new(118, 202, 255, 230),
-                        1 => Color::new(96, 186, 250, 220),
-                        2 => Color::new(82, 170, 240, 215),
-                        _ => Color::new(68, 152, 222, 210),
-                    };
-                    d.draw_rectangle(bar_x, bar_top, fill, bar_height, fill_color);
-                }
-
-                let count_text = format_count(*count);
-                let count_w = d.measure_text(&count_text, 16);
-                let count_y = row_top + (Self::ROW_HEIGHT - 16) / 2;
-                d.draw_text(
-                    &count_text,
-                    bar_x + bar_width - count_w,
-                    count_y,
-                    16,
-                    Color::new(234, 238, 252, 255),
-                );
-            }
-            cursor_y += (display_count as i32) * Self::ROW_HEIGHT;
-            layout.add_rows(display_count.max(1), Self::ROW_HEIGHT);
-        }
-
-        if remainder > 0 {
-            let summary = format!("… {} more types", remainder);
-            let summary_y = cursor_y + (Self::ROW_HEIGHT - 16) / 2;
-            d.draw_text(
-                &summary,
+            let style = HistRowsStyle {
+                row_height: Self::ROW_HEIGHT,
+                row_font: 16,
+                label_width: Self::LABEL_WIDTH,
+                gap_x: Self::GAP_X,
+                bar_min_width: Self::BAR_MIN_WIDTH,
+                zebra_bg: Color::new(26, 30, 44, 120),
+                bar_bg: Color::new(30, 38, 54, 210),
+                fill_palette: [
+                    Color::new(118, 202, 255, 230),
+                    Color::new(96, 186, 250, 220),
+                    Color::new(82, 170, 240, 215),
+                    Color::new(68, 152, 222, 210),
+                ],
+                label_color0: Color::new(238, 244, 255, 255),
+                label_color: Color::new(212, 220, 240, 255),
+                count_color: Color::new(234, 238, 252, 255),
+                summary_color: Color::new(188, 196, 214, 255),
+            };
+            draw_hist_rows(
+                d,
+                &mut layout,
                 content.x,
-                summary_y,
-                16,
-                Color::new(188, 196, 214, 255),
+                content.w,
+                &mut cursor_y,
+                self.entries,
+                display_limit,
+                &style,
+                |n| format_count(n),
+                "types",
             );
-            layout.add_rows(1, Self::ROW_HEIGHT);
-            layout.mark_overflow(1, remainder);
         }
 
         layout
